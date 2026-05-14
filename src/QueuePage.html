@@ -1,0 +1,238 @@
+<script>
+// ─── Queue History Page ───────────────────────────────────────────────────────
+
+let _queuePageRefreshTimer = null;
+
+async function loadQueuePage() {
+  _stopQueuePageRefresh();
+  el('content').innerHTML = _queuePageShell();
+  renderIcons(el('content'));
+  await _refreshQueuePage();
+}
+
+function _queuePageShell() {
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#111827">Write Queue</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:2px">Background save history for your account</div>
+    </div>
+    <button class="btn btn-outlined btn-sm" onclick="_refreshQueuePage(true)" id="qp-refresh-btn">
+      ${icon('refresh-cw', 14)} Refresh
+    </button>
+  </div>
+  <div id="qp-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px"></div>
+  <div id="qp-body">${_queuePageSkeleton()}</div>`;
+}
+
+function _queuePageSkeleton() {
+  return `<div class="skeleton-page">
+    <div class="skeleton-toolbar"><div class="skeleton-line w-40"></div></div>
+    <div class="skeleton-table">${Array.from({length:6},()=>'<div class="skeleton-row"></div>').join('')}</div>
+  </div>`;
+}
+
+async function _refreshQueuePage(showSpinner = false) {
+  const refreshBtn = el('qp-refresh-btn');
+  if (showSpinner && refreshBtn) refreshBtn.classList.add('spinning');
+
+  try {
+    // Local jobs from QueueManager (fresh — includes this session's activity)
+    const localJobs = QueueManager.getAllJobs();
+
+    // Server history (user-scoped) — runs in parallel
+    let serverJobs = [];
+    try { serverJobs = await api.getQueueHistory(100); } catch (_) {}
+
+    // Merge: server is the ground truth; local adds items not yet reflected server-side
+    const merged = _mergeQueueJobs(localJobs, serverJobs);
+    _renderQueuePage(merged);
+
+    // Keep refreshing while pending jobs exist
+    const hasPending = merged.some(j => j.status === 'QUEUED' || j.status === 'PROCESSING' || j.status === 'FAILED');
+    if (hasPending) _scheduleQueuePageRefresh();
+
+  } catch (err) {
+    const body = el('qp-body');
+    if (body) body.innerHTML = `<p style="color:#D32F2F;padding:20px">${escapeHtml(String(err.message || err))}</p>`;
+  } finally {
+    if (refreshBtn) refreshBtn.classList.remove('spinning');
+  }
+}
+
+function _mergeQueueJobs(localJobs, serverJobs) {
+  // Build map from server (authoritative for status)
+  const map = {};
+  serverJobs.forEach(j => { map[j.requestId] = { ...j, _source: 'server' }; });
+
+  // Local jobs: add if not on server yet, or update status if local is newer
+  localJobs.forEach(lj => {
+    const srv = map[lj.requestId];
+    if (!srv) {
+      // Not yet reflected server-side — show local version
+      map[lj.requestId] = {
+        requestId:     lj.requestId,
+        status:        lj.status,
+        createdAt:     lj.enqueuedAt ? new Date(lj.enqueuedAt).toISOString().replace('T',' ').slice(0,19) : '',
+        updatedAt:     '',
+        moduleName:    lj.module || '',
+        actionType:    lj.actionType || '',
+        attemptCount:  0,
+        maxAttempts:   5,
+        nextRetryAt:   '',
+        lastError:     lj.error || '',
+        processedAt:   '',
+        finalRecordId: lj.finalRecordId || '',
+        _source:       'local'
+      };
+    }
+  });
+
+  return Object.values(map).sort((a, b) => {
+    const ta = a.createdAt ? new Date(a.createdAt).getTime() : (a._enqueuedAt || 0);
+    const tb = b.createdAt ? new Date(b.createdAt).getTime() : (b._enqueuedAt || 0);
+    return tb - ta;
+  });
+}
+
+function _renderQueuePage(jobs) {
+  const stats = _queueStats(jobs);
+  const statsEl = el('qp-stats');
+  const bodyEl  = el('qp-body');
+  if (!statsEl || !bodyEl) return;
+
+  statsEl.innerHTML = [
+    { label: 'Total',      val: stats.total,      color: '#6b7280', bg: '#f9fafb'  },
+    { label: 'Pending',    val: stats.pending,     color: '#1D4ED8', bg: '#EFF6FF'  },
+    { label: 'Saved',      val: stats.done,        color: '#166534', bg: '#DCFCE7'  },
+    { label: 'Retrying',   val: stats.failed,      color: '#92400E', bg: '#FEF3C7'  },
+    { label: 'Failed',     val: stats.dead,        color: '#991B1B', bg: '#FEE2E2'  }
+  ].map(s => `
+    <div style="display:flex;flex-direction:column;align-items:center;background:${s.bg};border-radius:8px;padding:10px 18px;min-width:80px">
+      <span style="font-size:20px;font-weight:700;color:${s.color}">${s.val}</span>
+      <span style="font-size:11px;color:#6b7280;margin-top:2px">${s.label}</span>
+    </div>`).join('');
+
+  if (!jobs.length) {
+    bodyEl.innerHTML = `<div style="text-align:center;padding:48px;color:#9ca3af">
+      ${icon('inbox', 36)}
+      <div style="margin-top:12px;font-size:13px">No queue jobs yet.<br>Jobs will appear here when you save leads or follow-ups.</div>
+    </div>`;
+    renderIcons(bodyEl);
+    return;
+  }
+
+  bodyEl.innerHTML = `
+  <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb">
+          <th style="${_qpTh()}">Status</th>
+          <th style="${_qpTh()}">Module / Action</th>
+          <th style="${_qpTh()}">Request ID</th>
+          <th style="${_qpTh()}">Queued At</th>
+          <th style="${_qpTh()}">Processed At</th>
+          <th style="${_qpTh()}">Attempts</th>
+          <th style="${_qpTh()}">Error / Record</th>
+        </tr>
+      </thead>
+      <tbody>${jobs.map(_queueJobRow).join('')}</tbody>
+    </table>
+  </div>`;
+  renderIcons(bodyEl);
+}
+
+function _qpTh() {
+  return 'padding:9px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6b7280';
+}
+
+function _queueJobRow(j) {
+  const statusBadge = _qpStatusBadge(j.status);
+  const module = _qpModuleLabel(j.moduleName);
+  const action = _qpActionLabel(j.actionType);
+  const shortId = j.requestId ? j.requestId.slice(-12) : '—';
+  const queuedAt = j.createdAt ? _qpFmtTs(j.createdAt) : '—';
+  const processedAt = j.processedAt ? _qpFmtTs(j.processedAt) : '—';
+  const attempts = j.maxAttempts > 0 ? `${j.attemptCount}/${j.maxAttempts}` : '—';
+  const errOrId = j.lastError
+    ? `<span style="color:#dc2626;font-size:11px" title="${escapeHtml(j.lastError)}">${escapeHtml(j.lastError.slice(0, 60))}${j.lastError.length > 60 ? '…' : ''}</span>`
+    : j.finalRecordId
+      ? `<span style="color:#166534;font-size:11px">ID: ${escapeHtml(String(j.finalRecordId).slice(0,16))}</span>`
+      : '<span style="color:#d1d5db">—</span>';
+  const retryHint = (j.status === 'FAILED' && j.nextRetryAt)
+    ? `<div style="font-size:10px;color:#92400E;margin-top:2px">retry at ${_qpFmtTs(j.nextRetryAt)}</div>` : '';
+  const rowBg = j.status === 'DEAD' ? 'background:#fff5f5' : j.status === 'PROCESSING' ? 'background:#fffbeb' : '';
+  const td = 'padding:10px 14px;border-bottom:1px solid #f3f4f6;vertical-align:middle';
+  return `<tr style="${rowBg}">
+    <td style="${td}">${statusBadge}${retryHint}</td>
+    <td style="${td}">
+      <div style="font-weight:600;color:#111827">${module}</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:1px">${action}</div>
+    </td>
+    <td style="${td}"><span style="font-family:monospace;font-size:11px;color:#6b7280" title="${escapeHtml(j.requestId)}">${escapeHtml(shortId)}</span></td>
+    <td style="${td}"><div style="font-size:12px;color:#374151">${queuedAt}</div></td>
+    <td style="${td}"><div style="font-size:12px;color:#374151">${processedAt}</div></td>
+    <td style="${td}"><div style="font-size:12px;text-align:center;color:#374151">${escapeHtml(attempts)}</div></td>
+    <td style="${td}">${errOrId}</td>
+  </tr>`;
+}
+
+function _qpStatusBadge(status) {
+  const map = {
+    QUEUED:     ['q-queued',     'Queued'],
+    PROCESSING: ['q-processing', 'Processing'],
+    DONE:       ['q-done',       'Saved'],
+    FAILED:     ['q-failed',     'Retrying'],
+    DEAD:       ['q-dead',       'Failed']
+  };
+  const [cls, label] = map[status] || ['q-queued', status || '?'];
+  return `<span class="q-badge ${cls}">${label}</span>`;
+}
+
+function _qpModuleLabel(m) {
+  return { leads: 'Leads', followups: 'Follow-ups' }[String(m || '').toLowerCase()] || escapeHtml(m || '—');
+}
+
+function _qpActionLabel(a) {
+  const map = {
+    saveLead:             'Save Lead',
+    saveFollowup:         'Save Follow-up',
+    markFollowupDone:     'Mark Follow-up Done',
+    updateLeadStage:      'Update Stage',
+    moveLeadStageWithFields: 'Move Stage + Fields'
+  };
+  return map[a] || escapeHtml(a || '—');
+}
+
+function _qpFmtTs(ts) {
+  if (!ts) return '—';
+  try {
+    const d = new Date(String(ts).replace(' ', 'T'));
+    if (isNaN(d)) return escapeHtml(ts);
+    return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' })
+      + ' ' + d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', hour12: true });
+  } catch (_) { return escapeHtml(ts); }
+}
+
+function _queueStats(jobs) {
+  const s = { total: jobs.length, pending: 0, done: 0, failed: 0, dead: 0 };
+  jobs.forEach(j => {
+    if (j.status === 'QUEUED' || j.status === 'PROCESSING') s.pending++;
+    else if (j.status === 'DONE')   s.done++;
+    else if (j.status === 'FAILED') s.failed++;
+    else if (j.status === 'DEAD')   s.dead++;
+  });
+  return s;
+}
+
+function _scheduleQueuePageRefresh() {
+  _stopQueuePageRefresh();
+  _queuePageRefreshTimer = setTimeout(() => {
+    if (App.currentPage === 'queue') _refreshQueuePage();
+  }, 5000);
+}
+
+function _stopQueuePageRefresh() {
+  if (_queuePageRefreshTimer) { clearTimeout(_queuePageRefreshTimer); _queuePageRefreshTimer = null; }
+}
+</script>

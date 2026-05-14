@@ -111,9 +111,10 @@ const api = {
   getUsers:            ()      => api._authedRead('apiGetUsers'),
 
   // ── Queue endpoints ───────────────────────────────────────────────────────
-  enqueueJob:    (mod, act, payload, rid) => api._authedRead('apiEnqueueJob', mod, act, payload, rid),
-  getJobStatuses:(ids)                    => api._authedRead('apiGetJobStatuses', ids),
-  getChanges:    (seq)                    => api._authedRead('apiGetChanges', seq),
+  enqueueJob:      (mod, act, payload, rid) => api._authedRead('apiEnqueueJob', mod, act, payload, rid),
+  getJobStatuses:  (ids)                    => api._authedRead('apiGetJobStatuses', ids),
+  getChanges:      (seq)                    => api._authedRead('apiGetChanges', seq),
+  getQueueHistory: (limit)                  => api._authedRead('apiGetQueueHistory', limit || 50),
 
   // ── Writes (direct — used for admin/config ops that need immediate response)
   saveLead:            (d)           => writePost('saveLead', d),

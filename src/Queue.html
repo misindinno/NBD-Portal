@@ -25,10 +25,9 @@ const QueueManager = (() => {
       const parsed = JSON.parse(raw);
       const cutoff = Date.now() - MAX_AGE_MS;
       _jobs = {};
+      // Keep ALL recent jobs (including DONE/DEAD) so queue history page can read them.
       Object.values(parsed).forEach(j => {
-        if ((j.enqueuedAt || 0) > cutoff && j.status !== 'DONE' && j.status !== 'DEAD') {
-          _jobs[j.requestId] = j;
-        }
+        if ((j.enqueuedAt || 0) > cutoff) _jobs[j.requestId] = j;
       });
     } catch (_) { _jobs = {}; }
   }
@@ -172,7 +171,12 @@ const QueueManager = (() => {
     onServerChange,
 
     // Expose pending count (for debug / banner display).
-    pendingCount() { return _pendingIds().length; }
+    pendingCount() { return _pendingIds().length; },
+
+    // All local jobs (including completed) sorted newest-first — for history page.
+    getAllJobs() {
+      return Object.values(_jobs).sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0));
+    }
   };
 })();
 </script>

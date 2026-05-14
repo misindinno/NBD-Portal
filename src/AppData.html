@@ -65,6 +65,10 @@ function _applyChangeLog(changes) {
       _refreshFollowupsCache().catch(() => {});
     }
   }
+  // Refresh queue page if it's open and any module changed
+  if ((modules['leads'] || modules['followups']) && App.currentPage === 'queue') {
+    if (typeof _refreshQueuePage === 'function') _refreshQueuePage();
+  }
 }
 
 async function _refreshLeadsCache() {

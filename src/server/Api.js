@@ -283,6 +283,15 @@ function apiGetChanges(token, lastSeq) {
   });
 }
 
+// Queue history for the current user — newest first, max 100 rows.
+function apiGetQueueHistory(token, limit) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    return respond(getQueueHistory_(user.email, Number(limit) || 50));
+  });
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 function _apiUser() {

@@ -250,6 +250,39 @@ function getChangesAfter_(lastSeq) {
     }));
 }
 
+// ── Queue history for a user ──────────────────────────────────────────────────
+// Returns recent jobs for a specific user, sorted newest-first.
+// Strips Payload JSON before returning (can be large).
+function getQueueHistory_(userEmail, limit) {
+  assertServerContext_();
+  const maxRows = Math.min(Number(limit) || 50, 100);
+  const email   = String(userEmail || '').trim().toLowerCase();
+  const rows    = getAllRows(SHEET_NAMES.QUEUE);
+
+  return rows
+    .filter(r => String(r['User Email'] || '').trim().toLowerCase() === email)
+    .sort((a, b) => {
+      const ta = a['Created At'] ? new Date(a['Created At']).getTime() : 0;
+      const tb = b['Created At'] ? new Date(b['Created At']).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, maxRows)
+    .map(r => ({
+      requestId:     String(r['Request ID']      || ''),
+      status:        String(r['Status']           || ''),
+      createdAt:     String(r['Created At']       || ''),
+      updatedAt:     String(r['Updated At']       || ''),
+      moduleName:    String(r['Module Name']      || ''),
+      actionType:    String(r['Action Type']      || ''),
+      attemptCount:  Number(r['Attempt Count']    || 0),
+      maxAttempts:   Number(r['Max Attempts']     || Q_MAX_ATTEMPTS),
+      nextRetryAt:   String(r['Next Retry At']    || ''),
+      lastError:     String(r['Last Error']       || ''),
+      processedAt:   String(r['Processed At']     || ''),
+      finalRecordId: String(r['Final Record ID']  || '')
+    }));
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 function _findQueueRow_(requestId) {
   const rows = getAllRows(SHEET_NAMES.QUEUE);

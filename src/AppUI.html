@@ -7,6 +7,7 @@ const _PAGE_META = {
   followups: { title: 'Follow Up',   crumb: 'Follow Up' },
   leadform:  { title: 'Lead Form',   crumb: 'Lead Form' },
   config:    { title: 'Config',      crumb: 'Config' },
+  queue:     { title: 'Queue',       crumb: 'Queue' },
 };
 
 function navigate(page) {
@@ -35,6 +36,7 @@ function navigate(page) {
     else if (page === 'followups-new')      { loadFollowups('all'); openFollowupForm(); }
     else if (page === 'config')             loadConfig();
     else if (page === 'leadform')           loadLeadForm();
+    else if (page === 'queue')              loadQueuePage();
     else el('content').innerHTML = '<p>Page not found.</p>';
   } catch(err) {
     el('content').innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(err.message)}</p>`;
@@ -60,8 +62,9 @@ function renderSidebar() {
   const isAdmin = u.role === 'ADMIN';
   const show = mod => isAdmin || hasModule(mod);
 
-  const fuCount   = AppCache.getRows('followups').filter(r => String(r['Status']||'Open').toLowerCase() !== 'closed').length;
-  const pipeCount = AppCache.getRows('leads').filter(r => String(r['Lead Status']||'Open').toLowerCase() === 'open').length;
+  const fuCount    = AppCache.getRows('followups').filter(r => String(r['Status']||'Open').toLowerCase() !== 'closed').length;
+  const pipeCount  = AppCache.getRows('leads').filter(r => String(r['Lead Status']||'Open').toLowerCase() === 'open').length;
+  const queueCount = typeof QueueManager !== 'undefined' ? QueueManager.pendingCount() : 0;
   const badge = n => n > 0 ? `<span class="nav-badge">${n > 99 ? '99+' : n}</span>` : '';
 
   const navItem = (page, lucideIcon, label, extraBadge = '') =>
@@ -86,8 +89,11 @@ function renderSidebar() {
   ].filter(Boolean).join('');
   if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
 
+  // Queue — visible to all authenticated users
+  html += `<div class="nav-section">System</div>`;
+  html += navItem('queue', 'list-checks', 'Queue', badge(queueCount));
   if (u.canEditConfig || u.canManageUsers) {
-    html += `<div class="nav-section">System</div>${navItem('config', 'settings-2', 'Config')}`;
+    html += navItem('config', 'settings-2', 'Config');
   }
 
   nav.innerHTML = html;
@@ -137,6 +143,7 @@ function canNavigate(page) {
   };
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
+  if (page === 'queue')     return !!App.user; // every logged-in user can see their own queue
   return hasModule(moduleMap[page] || page);
 }
 
