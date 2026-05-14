@@ -12,8 +12,8 @@ name: Deploy to Google Apps Script
 
 on:
   push:
-    branches: [main, master]
-  workflow_dispatch:        # also allows manual trigger from GitHub UI
+    branches: [main, master, develop]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -49,10 +49,16 @@ jobs:
 
       - name: Deploy all clients
         run: |
+          BRANCH="${{ github.ref_name }}"
+          IS_DEV="false"
+          if [ "$BRANCH" = "develop" ]; then IS_DEV="true"; fi
+
+          echo "Branch: $BRANCH | Dev mode: $IS_DEV"
+
           for client_dir in clients/*/; do
             client_name=$(basename "$client_dir")
             echo ""
-            echo "==> Deploying: $client_name"
+            echo "==> Deploying: $client_name (branch: $BRANCH)"
 
             # Swap client-specific files into place
             cp "${client_dir}ClientConfig.js" src/server/ClientConfig.js
@@ -61,11 +67,15 @@ jobs:
             # Push source to GAS
             clasp push --force
 
-            # Read deployment config (jq is pre-installed on ubuntu-latest)
-            deployment_id=$(jq -r '.deploymentId // ""' "${client_dir}client.json")
-            description=$(jq    -r '.description  // "Deploy"' "${client_dir}client.json")
+            # Pick prod or dev deployment ID based on branch
+            if [ "$IS_DEV" = "true" ]; then
+              deployment_id=$(jq -r '.devDeploymentId // ""' "${client_dir}client.json")
+              description=$(jq    -r '.devDescription  // "Dev"' "${client_dir}client.json")
+            else
+              deployment_id=$(jq -r '.deploymentId // ""' "${client_dir}client.json")
+              description=$(jq    -r '.description  // "Deploy"' "${client_dir}client.json")
+            fi
 
-            # Deploy (update existing deployment or create new one)
             if [ -n "$deployment_id" ]; then
               clasp deploy --deploymentId "$deployment_id" --description "$description"
             else

@@ -1,5 +1,7 @@
 {
   "name": "LQ Portal",
-  "deploymentId": "AKfycbxmLSgEAkscorwywEkng166rQEARefuFRcgfX1P4FOeHjqRGFyQcrTA3fnO8RG6rpB-",
-  "description": "LQ Portal V1"
+  "deploymentId":    "AKfycbxmLSgEAkscorwywEkng166rQEARefuFRcgfX1P4FOeHjqRGFyQcrTA3fnO8RG6rpB-",
+  "devDeploymentId": "",
+  "description":     "LQ Portal V1",
+  "devDescription":  "LQ Portal Dev"
 }
