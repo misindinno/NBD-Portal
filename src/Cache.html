@@ -54,6 +54,12 @@ const AppCache = (() => {
     e.loadedAt = Date.now();
   }
 
-  return { setRows, getRows, getLoadedAt, isLoaded, touch, patchRow, addRow, removeRow };
+  // Reset a single collection so the next _ensureCached call re-fetches it.
+  function invalidate(col) { if (_c[col]) _c[col].loadedAt = 0; }
+
+  // Reset all collections at once (used by topbar refresh).
+  function invalidateAll() { Object.keys(_c).forEach(col => invalidate(col)); }
+
+  return { setRows, getRows, getLoadedAt, isLoaded, touch, patchRow, addRow, removeRow, invalidate, invalidateAll };
 })();
 </script>

@@ -990,37 +990,134 @@ function toggleSidebar() {
   }
 }
 
-// ─── Location name normaliser ─────────────────────────────────────────────────
-// Strips Unicode diacritical marks (ī→i, ā→a, ń→n, etc.) that the
-// countriesnow API returns for Indian city names, then applies Title Case.
-// e.g. "SonīPat" → "Sonipat",  "Ahmedābād" → "Ahmedabad"
 // ─── Topbar helpers ───────────────────────────────────────────────────────────
+let _searchFocusedIdx = -1;
+
+function _topbarSearchInput(input) {
+  const q = (input.value || '').trim().toLowerCase();
+  const drop = el('tb-search-drop');
+  if (!drop) return;
+  if (!q) { _closeSearchDrop(); return; }
+
+  const leads = AppCache.getRows('leads');
+  const matched = leads.filter(l =>
+    String(l['Company Name']   || '').toLowerCase().includes(q) ||
+    String(l['Contact Person'] || '').toLowerCase().includes(q) ||
+    String(l['Remark']         || '').toLowerCase().includes(q)
+  );
+  const results = matched.slice(0, 6);
+
+  if (!results.length) {
+    drop.innerHTML = `<div style="padding:12px 14px;text-align:center;color:#9CA3AF;font-size:13px">No results found</div>`;
+    drop.style.display = 'block';
+    _searchFocusedIdx = -1;
+    return;
+  }
+
+  const _badgeCls = s => {
+    const sl = String(s || '').toLowerCase();
+    if (sl === 'won')  return 'tb-sd-badge-won';
+    if (sl === 'lost') return 'tb-sd-badge-lost';
+    if (sl === 'hold') return 'tb-sd-badge-hold';
+    return 'tb-sd-badge-open';
+  };
+
+  let html = results.map((l, i) => {
+    const name    = escapeHtml(l['Company Name']   || '—');
+    const contact = escapeHtml(l['Contact Person'] || '');
+    const status  = l['Lead Status'] || 'Open';
+    const stage   = escapeHtml(AppLookup.stageName(l['Stage ID']));
+    const leadId  = String(l['Lead ID'] || '');
+    const bcls    = _badgeCls(status);
+    return `<div class="tb-sd-item" data-idx="${i}" data-lead-id="${escapeHtml(leadId)}" onclick="_topbarSelectLead(${JSON.stringify(leadId)})">
+      <div class="tb-sd-icon">${icon('building-2', 15)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="tb-sd-name">${name}</div>
+        <div class="tb-sd-sub">${contact ? contact + ' · ' : ''}${stage}</div>
+      </div>
+      <span class="tb-sd-badge ${bcls}">${escapeHtml(status)}</span>
+    </div>`;
+  }).join('');
+
+  if (matched.length > 6) {
+    html += `<div class="tb-sd-footer" onclick="_topbarSearch(${JSON.stringify(input.value.trim())})">View all ${matched.length} results →</div>`;
+  }
+
+  drop.innerHTML = html;
+  drop.style.display = 'block';
+  _searchFocusedIdx = -1;
+  renderIcons(drop);
+}
+
+function _topbarSearchKey(event) {
+  const drop = el('tb-search-drop');
+  if (!drop || drop.style.display === 'none') return;
+  const items = Array.from(drop.querySelectorAll('.tb-sd-item[data-lead-id]'));
+  if (!items.length) return;
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    _searchFocusedIdx = Math.min(_searchFocusedIdx + 1, items.length - 1);
+    items.forEach((it, i) => it.classList.toggle('focused', i === _searchFocusedIdx));
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    _searchFocusedIdx = Math.max(_searchFocusedIdx - 1, 0);
+    items.forEach((it, i) => it.classList.toggle('focused', i === _searchFocusedIdx));
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    if (_searchFocusedIdx >= 0 && items[_searchFocusedIdx]) {
+      _topbarSelectLead(items[_searchFocusedIdx].dataset.leadId);
+    } else {
+      const inp = el('tb-search-input');
+      if (inp && inp.value.trim()) _topbarSearch(inp.value.trim());
+    }
+  } else if (event.key === 'Escape') {
+    _closeSearchDrop();
+  }
+}
+
+function _topbarSelectLead(leadId) {
+  _closeSearchDrop();
+  if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
+  navigate('leads');
+  setTimeout(() => { if (typeof openLeadDetail === 'function') openLeadDetail(leadId); }, 500);
+}
+
+function _closeSearchDrop() {
+  const drop = el('tb-search-drop');
+  if (drop) { drop.style.display = 'none'; drop.innerHTML = ''; }
+  const inp = el('tb-search-input');
+  if (inp) inp.value = '';
+  _searchFocusedIdx = -1;
+}
+
 function _topbarSearch(query) {
   const q = String(query || '').trim();
   if (!q) return;
+  _closeSearchDrop();
   if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
   navigate('leads');
-  // Populate the lead search box if it exists (rendered after navigate)
   setTimeout(() => {
     const s = qs('#lead-search') || qs('input[placeholder*="Search"]');
     if (s) { s.value = q; s.dispatchEvent(new Event('input')); }
   }, 400);
-  const inp = el('tb-search-input');
-  if (inp) inp.value = '';
 }
 
 function _topbarRefresh(btn) {
   if (btn) btn.classList.add('spinning');
-  ['leads','followups','followupHistory','activityLogs','config'].forEach(c => AppCache.setRows(c, []));
+  AppCache.invalidateAll();
   const page = Store.getState().currentPage || 'dashboard';
   navigate(page);
-  setTimeout(() => { if (btn) btn.classList.remove('spinning'); }, 1200);
+  setTimeout(() => { if (btn) btn.classList.remove('spinning'); }, 1500);
 }
 
 function _topbarHelp() {
   toast('For help, contact your system administrator.', 'info');
 }
 
+// ─── Location name normaliser ─────────────────────────────────────────────────
+// Strips Unicode diacritical marks (ī→i, ā→a, ń→n, etc.) that the
+// countriesnow API returns for Indian city names, then applies Title Case.
+// e.g. "SonīPat" → "Sonipat",  "Ahmedābād" → "Ahmedabad"
 function _normalizeLocationName(str) {
   if (!str) return '';
   return String(str)

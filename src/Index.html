@@ -75,9 +75,17 @@
 
         <!-- Center: search -->
         <div class="tb-center">
-          <div class="tb-search">
-            <i data-lucide="search"></i>
-            <input type="text" id="tb-search-input" placeholder="Search leads, clients, follow-ups..." autocomplete="off" onkeydown="if(event.key==='Enter')_topbarSearch(this.value)">
+          <div class="tb-search-wrap">
+            <div class="tb-search">
+              <i data-lucide="search"></i>
+              <input type="text" id="tb-search-input" placeholder="Search leads, clients, follow-ups..."
+                autocomplete="off"
+                oninput="_topbarSearchInput(this)"
+                onkeydown="_topbarSearchKey(event)"
+                onfocus="_topbarSearchInput(this)"
+                onblur="setTimeout(()=>_closeSearchDrop(),180)">
+            </div>
+            <div id="tb-search-drop" class="tb-search-drop" style="display:none;"></div>
           </div>
         </div>
 
