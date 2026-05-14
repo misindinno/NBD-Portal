@@ -35,7 +35,7 @@
       <div class="brand">
         <div class="brand-mark">
           <i data-lucide="zap" style="width:20px;height:20px;margin-right:6px;"></i>
-          <span class="brand-text">NBD Portal</span>
+          <span class="brand-text"><?= CLIENT_CONFIG.APP_TITLE ?></span>
         </div>
         <button class="sidebar-toggle" title="Toggle sidebar" onclick="toggleSidebar()">
           <i data-lucide="menu" style="width:20px;height:20px;"></i>
@@ -92,6 +92,7 @@
   <?!= include('LeadForm'); ?>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>const GOOGLE_CLIENT_ID = '<?!= (function(){ try { return PropertiesService.getScriptProperties().getProperty("GOOGLE_CLIENT_ID") || ""; } catch(e) { return ""; } })() ?>';</script>
+  <script>const APP_TITLE = '<?= CLIENT_CONFIG.APP_TITLE ?>';</script>
   <?!= include('JS'); ?>
 </body>
 </html>
