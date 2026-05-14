@@ -434,11 +434,11 @@
         <select class="form-control" name="Priority">
           ${cfg.priorities.map(p => `<option ${d['Priority'] === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
         </select></div>
+        ${canAssign ? `<div class="form-group"><label>Assigned To</label>
+          <select class="form-control" name="Assigned To">
+            ${cfg.users.map(u => `<option value="${escapeHtml(u.id)}" ${d['Assigned To'] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
+          </select></div>` : ''}
       </div>
-    ${canAssign ? `<div class="form-group"><label>Assigned To</label>
-      <select class="form-control" name="Assigned To">
-        ${cfg.users.map(u => `<option value="${escapeHtml(u.id)}" ${d['Assigned To'] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
-      </select></div>` : ''}
     ${buildLeadCustomFieldsHTML(d, customFields, configOptions)}
     <div class="modal-footer">
       <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
