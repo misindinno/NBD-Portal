@@ -11,8 +11,6 @@
 name: Deploy to Google Apps Script
 
 on:
-  push:
-    branches: [main, master]
   workflow_dispatch:
 
 jobs:
