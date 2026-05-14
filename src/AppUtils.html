@@ -1,0 +1,124 @@
+<script>
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const text = msg instanceof Error ? msg.message : String(msg || '');
+  const bg = type === 'success' ? '#388E3C'
+           : type === 'info'    ? '#1565C0'
+           : '#D32F2F';
+  Toastify({ text, duration: 3000, gravity: 'top', position: 'right', style: { background: bg } }).showToast();
+}
+
+function confirm(msg) {
+  return Swal.fire({
+    title: 'Confirm', text: msg, icon: 'warning',
+    showCancelButton: true, confirmButtonText: 'Yes', cancelButtonText: 'No'
+  }).then(r => r.isConfirmed);
+}
+
+function formatDate(d)    { return d ? new Date(d).toLocaleDateString('en-IN') : ''; }
+function formatCurrency(v){ return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR'}).format(v||0); }
+function localDateInputValue(date = new Date()) {
+  const d = new Date(date);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+function el(id)  { return document.getElementById(id); }
+function qs(sel) { return document.querySelector(sel); }
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+function safeColor(value, fallback = '#757575') {
+  return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : fallback;
+}
+
+function icon(name, size = 18, extraClass = '') {
+  return `<i data-lucide="${escapeHtml(name)}" class="${escapeHtml(extraClass)}" style="width:${size}px;height:${size}px;"></i>`;
+}
+
+function renderIcons(root = document) {
+  if (!window.lucide) return;
+  const target = root || document;
+  if (target === document || !window.lucide.createElement || !window.lucide.icons) {
+    window.lucide.createIcons({ attrs: { 'stroke-width': 2 } });
+    return;
+  }
+  const nodes = [];
+  if (target.matches?.('[data-lucide]')) nodes.push(target);
+  if (target.querySelectorAll) nodes.push(...target.querySelectorAll('[data-lucide]'));
+  nodes.forEach(node => {
+    if (node.tagName?.toLowerCase() === 'svg') return;
+    const name = node.getAttribute('data-lucide');
+    const iconName = String(name || '').split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+    const iconNode = window.lucide.icons[iconName];
+    if (!iconNode) return;
+    const attrs = { 'stroke-width': 2 };
+    Array.from(node.attributes || []).forEach(attr => { if (attr.name !== 'data-lucide') attrs[attr.name] = attr.value; });
+    attrs['data-lucide'] = name;
+    node.replaceWith(window.lucide.createElement(iconNode, attrs));
+  });
+}
+
+function skeletonPage(type = 'table') {
+  if (type === 'dashboard') {
+    const sk6 = Array.from({ length: 6 }, () => '<div class="skeleton-block skeleton-stat"></div>').join('');
+    const g   = (cols, h) => `<div style="display:grid;grid-template-columns:${cols};gap:16px"><div class="skeleton-block" style="height:${h}px"></div><div class="skeleton-block" style="height:${h}px"></div></div>`;
+    return `<div class="skeleton-page skeleton-dashboard">
+      <div class="skeleton-block" style="height:48px;border-radius:8px"></div>
+      <div class="skeleton-stat-grid">${sk6}</div>
+      <div class="skeleton-stat-grid">${sk6}</div>
+      ${g('3fr 2fr', 260)}${g('1fr 1fr', 230)}
+      <div class="skeleton-block" style="height:110px"></div>
+      ${g('1fr 1fr', 300)}
+      <div class="skeleton-block" style="height:180px"></div>
+      <div class="skeleton-block" style="height:200px"></div>
+      <div class="skeleton-block" style="height:240px"></div>
+    </div>`;
+  }
+  if (type === 'kanban') {
+    return `<div class="skeleton-page">
+      <div class="skeleton-toolbar"><div class="skeleton-line w-40"></div><div class="skeleton-pill"></div></div>
+      <div class="skeleton-kanban">${Array.from({ length: 4 }, () => `<div class="skeleton-col">
+        <div class="skeleton-line w-70"></div>
+        <div class="skeleton-card-stack"><div class="skeleton-block"></div><div class="skeleton-block"></div><div class="skeleton-block"></div></div>
+      </div>`).join('')}</div></div>`;
+  }
+  if (type === 'cards') {
+    return `<div class="skeleton-page">${Array.from({ length: 5 }, () => '<div class="skeleton-block skeleton-card-row"></div>').join('')}</div>`;
+  }
+  return `<div class="skeleton-page">
+    <div class="skeleton-toolbar"><div class="skeleton-line w-50"></div><div class="skeleton-pill"></div></div>
+    <div class="skeleton-table">${Array.from({ length: 8 }, () => '<div class="skeleton-row"></div>').join('')}</div>
+  </div>`;
+}
+
+function setContentLoading(type = 'table') {
+  const c = el('content');
+  c.removeAttribute('style');
+  c.innerHTML = skeletonPage(type);
+  renderIcons();
+}
+
+function setButtonLoading(btn, label = 'Saving...') {
+  if (!btn) return;
+  btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `${icon('loader-circle', 16, 'spin-icon')} ${escapeHtml(label)}`;
+  renderIcons(btn);
+}
+
+function resetButtonLoading(btn) {
+  if (!btn) return;
+  btn.disabled = false;
+  if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+  renderIcons(btn);
+}
+
+function pageSkeletonType(page) {
+  if (page === 'dashboard') return 'dashboard';
+  if (page === 'pipeline') return 'kanban';
+  if (page && page.startsWith('followups')) return 'table';
+  return 'table';
+}
+</script>

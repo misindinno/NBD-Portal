@@ -76,8 +76,18 @@ function onOpen() {
     .createMenu(CLIENT_CONFIG.APP_TITLE)
     .addItem('⚙️ Run Setup', 'setupSheets')
     .addSeparator()
+    .addItem('▶️ Install Queue Trigger', 'setupQueueTrigger')
+    .addItem('⏹️ Remove Queue Trigger', 'removeQueueTrigger')
+    .addItem('📋 Queue Trigger Status', '_showQueueStatus')
+    .addItem('⚡ Process Queue Now', 'processQueue')
+    .addSeparator()
     .addItem('🔗 Open Portal', 'openPortal')
     .addToUi();
+}
+
+function _showQueueStatus() {
+  const status = getQueueTriggerStatus();
+  SpreadsheetApp.getUi().alert('Queue Trigger Status', status, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 function openPortal() {
@@ -185,6 +195,15 @@ function setupSheets() {
     ]);
     safeInitHeaders(SHEET_NAMES.CONFIG, [
       'Config ID','Config Type','Value','Status'
+    ]);
+    safeInitHeaders(SHEET_NAMES.QUEUE, [
+      'Request ID','Status','Created At','Updated At',
+      'User Email','Module Name','Action Type','Payload JSON',
+      'Attempt Count','Max Attempts','Next Retry At',
+      'Lease Until','Lock Owner','Last Error','Processed At','Final Record ID'
+    ]);
+    safeInitHeaders(SHEET_NAMES.CHANGE_LOG, [
+      'Sequence','Timestamp','Module','Record ID','Action Type','Changed By'
     ]);
     _migrateLegacyFollowupData_();
     migrateLegacyCustomFieldValues_();

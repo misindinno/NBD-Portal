@@ -267,11 +267,15 @@
         try {
           const payload = await collectLeadFormPayload(editForm);
           payload['Lead ID'] = lead['Lead ID'];
-          await api.saveLead(payload);
           AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
-          toast('Lead updated!');
           overlay.remove();
           _refreshLeadViewsAfterLocalChange();
+          QueueManager.enqueue({
+            module: 'leads', actionType: 'saveLead', payload,
+            onDone: () => toast('Lead saved!'),
+            onFail: j  => toast('Save failed: ' + (j.error || 'Error'), 'error')
+          });
+          toast('Saving…', 'info');
         } catch (err) {
           toast(err, 'error');
           resetButtonLoading(btn);
@@ -310,20 +314,31 @@
         const updateId = _leadRowId(data) || _leadRowId(payload);
         const isUpdate = !!updateId;
         if (isUpdate) payload['Lead ID'] = updateId;
-        const resultId = await api.saveLead(payload);
+        const tempId = isUpdate ? updateId : ('temp-' + Date.now());
         if (isUpdate) {
           AppCache.patchRow('leads', 'Lead ID', updateId, { ...payload, 'Updated At': _nowStr() });
         } else {
           AppCache.addRow('leads', {
-            ...payload, 'Lead ID': resultId,
+            ...payload, 'Lead ID': tempId, '_queueTemp': true,
             'Lead Status': payload['Lead Status'] || 'Open',
             'Created At': _nowStr(), 'Updated At': _nowStr()
           });
         }
-        toast('Lead saved!');
         overlay.remove();
-        if (!isUpdate && AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => { });
         _refreshLeadViewsAfterLocalChange();
+        QueueManager.enqueue({
+          module: 'leads', actionType: 'saveLead', payload, tempId,
+          onDone: j => {
+            if (!isUpdate && j.finalRecordId) {
+              AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': j.finalRecordId, '_queueTemp': false });
+              if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+              _refreshLeadViewsAfterLocalChange();
+            }
+            toast('Lead saved!');
+          },
+          onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+        });
+        toast(isUpdate ? 'Saving…' : 'Lead queued for saving…', 'info');
       } catch (err) {
         toast(err, 'error');
         resetButtonLoading(btn);

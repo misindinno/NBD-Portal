@@ -533,27 +533,28 @@ async function openFollowupForm(leadId = '', leadName = '') {
       payload['Next Follow-up Date'] = payload['Planned Date'];
       payload['Status'] = 'Open';
 
-      const newId = await api.saveFollowup(payload);
-
-      // Update followup cache
+      const tempId = 'temp-fu-' + Date.now();
       AppCache.addRow('followups', {
-        ...payload,
-        'Follow-up ID': newId,
+        ...payload, 'Follow-up ID': tempId, '_queueTemp': true,
         'Created By': App.user.id,
-        'Created At': _nowStr(),
-        'Updated At': _nowStr()
+        'Created At': _nowStr(), 'Updated At': _nowStr()
       });
-
-      // Patch the linked lead's planned follow-up date + stage in cache.
       if (payload['Lead ID']) {
         const patch = { 'Next Follow-up Date': payload['Planned Date'], 'Updated At': _nowStr() };
-        if (payload['Updated Stage ID'])    patch['Stage ID'] = payload['Updated Stage ID'];
+        if (payload['Updated Stage ID']) patch['Stage ID'] = payload['Updated Stage ID'];
         AppCache.patchRow('leads', 'Lead ID', payload['Lead ID'], patch);
       }
-
-      toast('Follow-up saved!');
       overlay.remove();
       if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+      QueueManager.enqueue({
+        module: 'followups', actionType: 'saveFollowup', payload, tempId,
+        onDone: j => {
+          if (j.finalRecordId) AppCache.patchRow('followups', 'Follow-up ID', tempId, { 'Follow-up ID': j.finalRecordId, '_queueTemp': false });
+          toast('Follow-up saved!');
+        },
+        onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+      });
+      toast('Saving follow-up…', 'info');
     } catch (err) {
       toast(err, 'error');
       resetButtonLoading(btn);
@@ -657,10 +658,21 @@ async function openMarkFollowupDoneForm(followupId) {
       const payload = await collectLeadFormPayload(form);
       if (!payload['Updated Stage ID']) delete payload['Updated Stage ID'];
       if (!payload['Issues'])           delete payload['Issues'];
-      const result = await api.markFollowupDone(followupId, payload);
-      _applyFollowupDoneResult(result);
-      toast('Follow-up saved. Next follow-up planned.');
+      AppCache.removeRow('followups', 'Follow-up ID', followupId);
       overlay.remove();
+      if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+      if (App.currentPage === 'dashboard') loadDashboard();
+      QueueManager.enqueue({
+        module: 'followups', actionType: 'markFollowupDone',
+        payload: { id: followupId, data: payload },
+        onDone: () => toast('Follow-up saved. Next follow-up planned.'),
+        onFail: j => {
+          AppCache.addRow('followups', row);
+          if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+          toast('Save failed: ' + (j.error || 'Error'), 'error');
+        }
+      });
+      toast('Saving…', 'info');
     } catch (err) {
       toast(err, 'error');
       resetButtonLoading(btn);

@@ -1,0 +1,80 @@
+<script>
+// ─── Zero-dependency form validator ──────────────────────────────────────────
+function _makeValidator(form) {
+  const _rules = [];
+  const _successCbs = [];
+
+  function _clearError(input) {
+    input.classList.remove('jv-is-invalid');
+    const err = input.parentElement?.querySelector('.form-error-msg');
+    if (err) err.remove();
+  }
+
+  function _showError(input, message) {
+    input.classList.add('jv-is-invalid');
+    if (!input.parentElement?.querySelector('.form-error-msg')) {
+      const span = document.createElement('span');
+      span.className = 'form-error-msg';
+      span.textContent = message;
+      input.parentElement.appendChild(span);
+    }
+  }
+
+  const _api = {
+    addField(input, rules) {
+      if (!input) return _api;
+      _rules.push({ input, rules });
+      input.addEventListener('input',  () => _clearError(input));
+      input.addEventListener('change', () => _clearError(input));
+      return _api;
+    },
+    onSuccess(cb) { _successCbs.push(cb); }
+  };
+
+  form.addEventListener('submit', evt => {
+    evt.preventDefault();
+    let valid = true;
+    _rules.forEach(({ input, rules }) => {
+      _clearError(input);
+      const val = input.value;
+      for (const rule of rules) {
+        let failed = false;
+        if (rule.rule === 'required') failed = !val || !val.trim();
+        else if (rule.rule === 'function') failed = !rule.validator(val);
+        if (failed) { _showError(input, rule.errorMessage); valid = false; break; }
+      }
+    });
+    if (valid) _successCbs.forEach(cb => cb());
+  });
+
+  return _api;
+}
+
+function showModal(html) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="modal">${html}</div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  renderIcons(overlay);
+  return overlay;
+}
+
+function showAccessDenied(email = '', debugMsg = '') {
+  const safeEmail    = escapeHtml(email);
+  const safeDebugMsg = escapeHtml(debugMsg);
+  document.body.innerHTML = `
+    <div style="font-family:'Roboto',sans-serif;background:#F5F7FA;display:flex;align-items:center;justify-content:center;min-height:100vh">
+      <div style="background:#fff;border-radius:12px;padding:48px 40px;text-align:center;max-width:480px;width:90%;box-shadow:0 4px 24px rgba(0,0,0,.12)">
+        <i data-lucide="ban" style="width:64px;height:64px;color:#D32F2F;display:block;margin:0 auto 12px"></i>
+        <h1 style="font-size:22px;font-weight:700;color:#212121;margin-bottom:8px">Access Revoked</h1>
+        <p style="color:#757575;font-size:14px;line-height:1.6">Your account is not authorised to access the<br><strong>${APP_TITLE}</strong></p>
+        ${safeEmail ? `<div style="background:#FFEBEE;color:#C62828;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;display:inline-block;margin:12px 0">${safeEmail}</div>` : ''}
+        <p style="color:#9E9E9E;font-size:12px;margin-top:16px;border-top:1px solid #EEE;padding-top:16px">Contact your administrator to request access.</p>
+        ${safeDebugMsg ? `<div style="margin-top:16px;background:#F5F5F5;border-radius:6px;padding:12px;text-align:left;font-size:11px;font-family:monospace;color:#333;word-break:break-all;white-space:pre-wrap">${safeDebugMsg}</div>` : ''}
+      </div>
+    </div>`;
+  renderIcons();
+  Store._mountDebugButton();
+}
+</script>

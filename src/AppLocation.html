@@ -1,0 +1,65 @@
+<script>
+// ─── Location name normaliser ─────────────────────────────────────────────────
+// Strips Unicode diacritical marks (ī→i, ā→a, etc.) that countriesnow returns.
+function _normalizeLocationName(str) {
+  if (!str) return '';
+  return String(str)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^\x00-\x7F]/g, '')
+    .toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim();
+}
+
+// ─── State → City cascade (countriesnow.space, no API key) ───────────────────
+const _cityCache = {};
+
+async function _fetchCitiesForState(stateName) {
+  if (!stateName) return [];
+  if (_cityCache[stateName] !== undefined) return _cityCache[stateName];
+  try {
+    const res = await fetch('https://countriesnow.space/api/v0.1/countries/state/cities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ country: 'India', state: stateName })
+    });
+    const json = await res.json();
+    const raw = json.error ? [] : (json.data || []);
+    const cleaned = [...new Set(raw.map(_normalizeLocationName).filter(Boolean))].sort();
+    _cityCache[stateName] = cleaned;
+  } catch (_) {
+    _cityCache[stateName] = [];
+  }
+  return _cityCache[stateName];
+}
+
+async function _initStateCityDropdowns(root, initState, initCity) {
+  const stateEl = root.querySelector('[name="State"]');
+  const cityEl  = root.querySelector('[name="City"]');
+  if (!stateEl || !cityEl || cityEl.tagName !== 'SELECT') return;
+
+  async function refresh(stateName, selectedCity) {
+    const cleanSelected = _normalizeLocationName(selectedCity);
+    cityEl.innerHTML = '<option value="">Loading cities…</option>';
+    cityEl.disabled = true;
+    const cities = await _fetchCitiesForState(stateName);
+    cityEl.disabled = false;
+    cityEl.innerHTML = '<option value="">Select City</option>';
+    cities.forEach(name => {
+      const o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      if (name === cleanSelected || name === selectedCity) o.selected = true;
+      cityEl.appendChild(o);
+    });
+    if (cleanSelected && !Array.from(cityEl.options).some(o => o.value === cleanSelected)) {
+      const o = document.createElement('option');
+      o.value = cleanSelected; o.textContent = cleanSelected; o.selected = true;
+      cityEl.insertBefore(o, cityEl.options[1] || null);
+    }
+  }
+
+  stateEl.addEventListener('change', () => refresh(stateEl.value, ''));
+  if (initState || stateEl.value) await refresh(initState || stateEl.value, initCity);
+}
+</script>

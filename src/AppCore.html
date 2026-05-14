@@ -1,0 +1,133 @@
+<script>
+// ─── Global App (thin wrapper over Store) ────────────────────────────────────
+const App = {
+  get user()        { return Store.getState().user; },
+  get config()      { return Store.getState().config; },
+  get currentPage() { return Store.getState().currentPage; }
+};
+
+// ─── AppLookup — centralised ID → label resolver ─────────────────────────────
+const AppLookup = (() => {
+  let _u = {};
+  let _s = {};
+
+  return {
+    rebuild() {
+      const cfg = App.config || {};
+      _u = cfg.userNameMap || {};
+      _s = (cfg.allStages || cfg.stages || []).reduce((m, s) => {
+        const id = s['Stage ID'];
+        if (id) m[id] = {
+          name:  s['Stage Name']  || id,
+          color: s['Color']       || '#9E9E9E',
+          order: Number(s['Stage Order']) || 0
+        };
+        return m;
+      }, {});
+    },
+    userName(id) {
+      if (!id) return '—';
+      const raw = String(id);
+      const hit = _u[raw] || _u[raw.trim().toLowerCase()];
+      if (hit) return hit;
+      return raw.includes('@') ? raw : '—';
+    },
+    stageName(id)  { if (!id) return '—'; return _s[id]?.name  || String(id); },
+    stageColor(id) { if (!id) return '#9E9E9E'; return safeColor(_s[id]?.color, '#9E9E9E'); },
+    stageObj(id)   { return id ? (_s[id] || null) : null; }
+  };
+})();
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+async function fetchCurrentUser() {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res) return reject(new Error('Server returned null. Push the latest code, redeploy the web app, and check Apps Script executions for the server error.'));
+        if (res.success) resolve(res.data);
+        else reject(new Error(res.error || 'ACCESS_DENIED'));
+      })
+      .withFailureHandler(err => reject(new Error(err.message || String(err))))
+      .apiGetCurrentUser();
+  });
+}
+
+// ─── Write Webhook ────────────────────────────────────────────────────────────
+async function writePost(fn, payload = {}) {
+  const token = localStorage.getItem('nbd_token');
+  if (!token) throw new Error('Not authenticated. Please sign in again.');
+  return api._read('apiExecuteWrite', fn, payload, token);
+}
+
+async function refreshWriteSession() {
+  const token = localStorage.getItem('nbd_token');
+  if (!token) return;
+  const boot = await api.bootstrapWithToken(token);
+  Store.dispatch('SET_USER', boot.user);
+  Store.dispatch('SET_CONFIG', boot.config);
+  AppCache.touch('config');
+  AppLookup.rebuild();
+  renderSidebar();
+}
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+const api = {
+  _read(fn, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res) return reject(new Error(`${fn} returned null. Push the latest code, redeploy the web app, and check Apps Script executions for the server error.`));
+          if (res.success) resolve(res.data);
+          else reject(new Error(`${fn}: ${res.error}`));
+        })
+        .withFailureHandler(err => reject(new Error(`${fn} failed: ${err.message || err}`)))
+        [fn](...args);
+    });
+  },
+  _token()              { return localStorage.getItem('nbd_token') || ''; },
+  _authedRead(fn, ...args) { return api._read(fn, api._token(), ...args); },
+
+  // ── Session auth ──────────────────────────────────────────────────────────
+  login:               (e, p)  => api._read('apiLogin', e, p),
+  loginWithGoogle:     (t)     => api._read('apiLoginWithGoogle', t),
+  bootstrapWithToken:  (t)     => api._read('apiBootstrapWithToken', t),
+  logout:              (t)     => api._read('apiLogout', t),
+
+  // ── Reads ─────────────────────────────────────────────────────────────────
+  bootstrap:           ()      => api._read('apiBootstrap'),
+  getDataStamps:       ()      => api._authedRead('apiGetDataStamps'),
+  getAppConfig:        ()      => api._authedRead('apiGetAppConfig'),
+  getAllStages:         ()      => api._authedRead('apiGetAllStages'),
+  getAllConfigs:        ()      => api._authedRead('apiGetAllConfigs'),
+  getFieldConfig:      (s)     => api._authedRead('apiGetFieldConfig', s),
+  getAllFieldConfigs:   (s)     => api._authedRead('apiGetAllFieldConfigs', s),
+  getLeads:            ()      => api._authedRead('apiGetLeads'),
+  getLead:             (id)    => api._authedRead('apiGetLead', id),
+  getFollowups:        (f)     => api._authedRead('apiGetFollowups', f),
+  getFollowupHistory:  (f)     => api._authedRead('apiGetFollowupHistory', f),
+  getLeadActivityLogs: (f)     => api._authedRead('apiGetLeadActivityLogs', f),
+  getFollowupLeads:    ()      => api._authedRead('apiGetFollowupLeads'),
+  getFollowupFormData: ()      => api._authedRead('apiGetFollowupFormData'),
+  getUsers:            ()      => api._authedRead('apiGetUsers'),
+
+  // ── Queue endpoints ───────────────────────────────────────────────────────
+  enqueueJob:    (mod, act, payload, rid) => api._authedRead('apiEnqueueJob', mod, act, payload, rid),
+  getJobStatuses:(ids)                    => api._authedRead('apiGetJobStatuses', ids),
+  getChanges:    (seq)                    => api._authedRead('apiGetChanges', seq),
+
+  // ── Writes (direct — used for admin/config ops that need immediate response)
+  saveLead:            (d)           => writePost('saveLead', d),
+  deleteLead:          (id)          => writePost('deleteLead', { id }),
+  updateLeadStage:     (leadId, stageId, note) => writePost('updateLeadStage', { leadId, stageId, note }),
+  moveLeadStageWithFields: (leadId, stageId, fields, note) => writePost('moveLeadStageWithFields', { leadId, stageId, fields, note }),
+  saveFollowup:        (d)           => writePost('saveFollowup', d),
+  markFollowupDone:    (id, data)    => writePost('markFollowupDone', { id, data }),
+  addConfig:           (type, value) => writePost('addConfig', { type, value }),
+  updateConfigStatus:  (id, status)  => writePost('updateConfigStatus', { id, status }),
+  saveStage:           (s)           => writePost('saveStage', s),
+  reorderStages:       (ids)         => writePost('reorderStages', { ids }),
+  saveFieldConfig:     (f)           => writePost('saveFieldConfig', f),
+  savePortalSettings:  (s)           => writePost('savePortalSettings', s),
+  saveUser:            (u)           => writePost('saveUser', u)
+};
+</script>

@@ -1,0 +1,294 @@
+<script>
+// ─── Page meta ────────────────────────────────────────────────────────────────
+const _PAGE_META = {
+  dashboard: { title: 'Dashboard',   crumb: 'Dashboard' },
+  leads:     { title: 'Lead Master', crumb: 'Lead Master' },
+  pipeline:  { title: 'Pipeline',    crumb: 'Pipeline' },
+  followups: { title: 'Follow Up',   crumb: 'Follow Up' },
+  leadform:  { title: 'Lead Form',   crumb: 'Lead Form' },
+  config:    { title: 'Config',      crumb: 'Config' },
+};
+
+function navigate(page) {
+  if (!canNavigate(page)) {
+    el('page-title').textContent = 'Access Denied';
+    el('content').innerHTML = `<div class="card" style="padding:24px;color:#666">You do not have permission to open this module.</div>`;
+    return;
+  }
+  Store.dispatch('SET_PAGE', page);
+  document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.remove('active'));
+  const link = document.querySelector(`#sidebar nav a[data-page="${page}"]`);
+  if (link) link.classList.add('active');
+  const meta = _PAGE_META[page] || { title: page.charAt(0).toUpperCase() + page.slice(1), crumb: page };
+  el('page-title').textContent = meta.title;
+  const crumbEl = el('tb-breadcrumb-page');
+  if (crumbEl) crumbEl.textContent = meta.crumb;
+  setContentLoading(pageSkeletonType(page));
+  try {
+    if      (page === 'dashboard')         loadDashboard();
+    else if (page === 'leads')              loadLeads();
+    else if (page === 'pipeline')           loadPipeline();
+    else if (page === 'followups')          loadFollowups('all');
+    else if (page === 'followups-today')    loadFollowups('today');
+    else if (page === 'followups-overdue')  loadFollowups('overdue');
+    else if (page === 'followups-custom')   loadFollowups('custom');
+    else if (page === 'followups-new')      { loadFollowups('all'); openFollowupForm(); }
+    else if (page === 'config')             loadConfig();
+    else if (page === 'leadform')           loadLeadForm();
+    else el('content').innerHTML = '<p>Page not found.</p>';
+  } catch(err) {
+    el('content').innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+function renderInitialLoading() {
+  const nav = qs('#sidebar nav');
+  if (nav) {
+    nav.innerHTML = Array.from({ length: 5 }, () => `
+      <div class="nav-skeleton-item">
+        <span class="skeleton-nav-icon"></span>
+        <span class="skeleton-nav-line"></span>
+      </div>`).join('');
+  }
+  setContentLoading('dashboard');
+}
+
+function renderSidebar() {
+  const u   = App.user;
+  const nav = qs('#sidebar nav');
+  const isAdmin = u.role === 'ADMIN';
+  const show = mod => isAdmin || hasModule(mod);
+
+  const fuCount   = AppCache.getRows('followups').filter(r => String(r['Status']||'Open').toLowerCase() !== 'closed').length;
+  const pipeCount = AppCache.getRows('leads').filter(r => String(r['Lead Status']||'Open').toLowerCase() === 'open').length;
+  const badge = n => n > 0 ? `<span class="nav-badge">${n > 99 ? '99+' : n}</span>` : '';
+
+  const navItem = (page, lucideIcon, label, extraBadge = '') =>
+    `<a href="#" data-page="${page}" data-tooltip="${label}" onclick="navigate('${page}');return false;">
+      ${icon(lucideIcon, 18)}
+      <span class="nav-item-label">${label}</span>
+      ${extraBadge}
+    </a>`;
+
+  let html = '';
+
+  const mainItems = [
+    show('Dashboard') ? navItem('dashboard', 'layout-dashboard', 'Dashboard') : '',
+    show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount))   : '',
+    show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
+  ].filter(Boolean).join('');
+  if (mainItems) html += `<div class="nav-section">Main</div>${mainItems}`;
+
+  const leadItems = [
+    show('Leads')    ? navItem('leads',    'list-todo', 'Lead Master') : '',
+    show('LeadForm') ? navItem('leadform', 'file-plus', 'Lead Form')   : '',
+  ].filter(Boolean).join('');
+  if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
+
+  if (u.canEditConfig || u.canManageUsers) {
+    html += `<div class="nav-section">System</div>${navItem('config', 'settings-2', 'Config')}`;
+  }
+
+  nav.innerHTML = html;
+
+  const displayName = u.title || u.name || u.email || '';
+  const role        = { ADMIN: 'Administrator', MANAGER: 'Manager', SALES: 'Sales', USER: 'User' }[u.role] || u.role || '';
+  const initials    = displayName.trim().split(/\s+/).map(w => w[0]||'').join('').slice(0,2).toUpperCase() || '?';
+
+  qs('#user-name').textContent = displayName;
+
+  const avatarEl = el('sb-user-avatar');
+  const nameEl   = el('sb-user-name-footer');
+  const roleEl   = el('sb-user-role-footer');
+  if (avatarEl) avatarEl.textContent = initials;
+  if (nameEl)   nameEl.textContent   = displayName;
+  if (roleEl)   roleEl.textContent   = role;
+
+  const tbAvatar = el('tb-user-avatar-top');
+  const tbName   = el('tb-user-name-top');
+  const tbRole   = el('tb-user-role-top');
+  if (tbAvatar) tbAvatar.textContent = initials;
+  if (tbName)   tbName.textContent   = displayName;
+  if (tbRole)   tbRole.textContent   = role;
+
+  const logoutBtn = el('logout-btn');
+  if (logoutBtn) logoutBtn.classList.add('visible');
+
+  renderIcons(nav);
+}
+
+function toggleNavGroup(id) {
+  const grp = el(id);
+  if (grp) grp.classList.toggle('open');
+}
+
+function hasModule(name) {
+  const target = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (App.user.modules || []).some(m => String(m || '').toLowerCase().replace(/[^a-z0-9]/g, '') === target);
+}
+
+function canNavigate(page) {
+  if (!App.user) return false;
+  const moduleMap = {
+    dashboard: 'Dashboard', leads: 'Leads', pipeline: 'Pipeline',
+    followups: 'Followups', 'followups-today': 'Followups',
+    'followups-overdue': 'Followups', 'followups-custom': 'Followups', 'followups-new': 'Followups'
+  };
+  if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
+  if (page === 'leadform')  return hasModule('LeadForm');
+  return hasModule(moduleMap[page] || page);
+}
+
+function defaultPageForUser() {
+  const ordered = [
+    ['dashboard', 'Dashboard'], ['leads', 'Leads'], ['pipeline', 'Pipeline'],
+    ['followups', 'Followups'], ['leadform', 'LeadForm']
+  ];
+  const match = ordered.find(([page]) => canNavigate(page));
+  if (match) return match[0];
+  if (App.user?.canEditConfig || App.user?.canManageUsers) return 'config';
+  return 'dashboard';
+}
+
+function toggleSidebar() {
+  const sidebar = el('sidebar');
+  if (!sidebar) return;
+  if (window.matchMedia('(max-width: 768px)').matches) {
+    sidebar.classList.toggle('mobile-open');
+  } else {
+    sidebar.classList.toggle('collapsed');
+    const btn = el('sb-toggle-btn');
+    if (btn) {
+      const collapsed = sidebar.classList.contains('collapsed');
+      btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      btn.innerHTML = collapsed ? `<i data-lucide="panel-left-open"></i>` : `<i data-lucide="panel-left-close"></i>`;
+      renderIcons(btn);
+    }
+  }
+}
+
+// ─── Topbar search ────────────────────────────────────────────────────────────
+let _searchFocusedIdx = -1;
+
+function _topbarSearchInput(input) {
+  const q = (input.value || '').trim().toLowerCase();
+  const drop = el('tb-search-drop');
+  if (!drop) return;
+  if (!q) { _closeSearchDrop(); return; }
+
+  const leads = AppCache.getRows('leads');
+  const matched = leads.filter(l =>
+    String(l['Company Name']   || '').toLowerCase().includes(q) ||
+    String(l['Contact Person'] || '').toLowerCase().includes(q) ||
+    String(l['Remark']         || '').toLowerCase().includes(q)
+  );
+  const results = matched.slice(0, 6);
+
+  if (!results.length) {
+    drop.innerHTML = `<div style="padding:12px 14px;text-align:center;color:#9CA3AF;font-size:13px">No results found</div>`;
+    drop.style.display = 'block';
+    _searchFocusedIdx = -1;
+    return;
+  }
+
+  const _badgeCls = s => {
+    const sl = String(s || '').toLowerCase();
+    if (sl === 'won')  return 'tb-sd-badge-won';
+    if (sl === 'lost') return 'tb-sd-badge-lost';
+    if (sl === 'hold') return 'tb-sd-badge-hold';
+    return 'tb-sd-badge-open';
+  };
+
+  let html = results.map((l, i) => {
+    const name    = escapeHtml(l['Company Name']   || '—');
+    const contact = escapeHtml(l['Contact Person'] || '');
+    const status  = l['Lead Status'] || 'Open';
+    const stage   = escapeHtml(AppLookup.stageName(l['Stage ID']));
+    const leadId  = String(l['Lead ID'] || '');
+    const bcls    = _badgeCls(status);
+    return `<div class="tb-sd-item" data-idx="${i}" data-lead-id="${escapeHtml(leadId)}" onclick="_topbarSelectLead(${JSON.stringify(leadId)})">
+      <div class="tb-sd-icon">${icon('building-2', 15)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="tb-sd-name">${name}</div>
+        <div class="tb-sd-sub">${contact ? contact + ' · ' : ''}${stage}</div>
+      </div>
+      <span class="tb-sd-badge ${bcls}">${escapeHtml(status)}</span>
+    </div>`;
+  }).join('');
+
+  if (matched.length > 6) {
+    html += `<div class="tb-sd-footer" onclick="_topbarSearch(${JSON.stringify(input.value.trim())})">View all ${matched.length} results →</div>`;
+  }
+
+  drop.innerHTML = html;
+  drop.style.display = 'block';
+  _searchFocusedIdx = -1;
+  renderIcons(drop);
+}
+
+function _topbarSearchKey(event) {
+  const drop = el('tb-search-drop');
+  if (!drop || drop.style.display === 'none') return;
+  const items = Array.from(drop.querySelectorAll('.tb-sd-item[data-lead-id]'));
+  if (!items.length) return;
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    _searchFocusedIdx = Math.min(_searchFocusedIdx + 1, items.length - 1);
+    items.forEach((it, i) => it.classList.toggle('focused', i === _searchFocusedIdx));
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    _searchFocusedIdx = Math.max(_searchFocusedIdx - 1, 0);
+    items.forEach((it, i) => it.classList.toggle('focused', i === _searchFocusedIdx));
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    if (_searchFocusedIdx >= 0 && items[_searchFocusedIdx]) {
+      _topbarSelectLead(items[_searchFocusedIdx].dataset.leadId);
+    } else {
+      const inp = el('tb-search-input');
+      if (inp && inp.value.trim()) _topbarSearch(inp.value.trim());
+    }
+  } else if (event.key === 'Escape') {
+    _closeSearchDrop();
+  }
+}
+
+function _topbarSelectLead(leadId) {
+  _closeSearchDrop();
+  if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
+  navigate('leads');
+  setTimeout(() => { if (typeof openLeadDetail === 'function') openLeadDetail(leadId); }, 500);
+}
+
+function _closeSearchDrop() {
+  const drop = el('tb-search-drop');
+  if (drop) { drop.style.display = 'none'; drop.innerHTML = ''; }
+  const inp = el('tb-search-input');
+  if (inp) inp.value = '';
+  _searchFocusedIdx = -1;
+}
+
+function _topbarSearch(query) {
+  const q = String(query || '').trim();
+  if (!q) return;
+  _closeSearchDrop();
+  if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
+  navigate('leads');
+  setTimeout(() => {
+    const s = qs('#lead-search') || qs('input[placeholder*="Search"]');
+    if (s) { s.value = q; s.dispatchEvent(new Event('input')); }
+  }, 400);
+}
+
+function _topbarRefresh(btn) {
+  if (btn) btn.classList.add('spinning');
+  AppCache.invalidateAll();
+  const page = Store.getState().currentPage || 'dashboard';
+  navigate(page);
+  setTimeout(() => { if (btn) btn.classList.remove('spinning'); }, 1500);
+}
+
+function _topbarHelp() {
+  toast('For help, contact your system administrator.', 'info');
+}
+</script>

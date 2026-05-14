@@ -1,0 +1,125 @@
+<script>
+// ─── Cache helpers ────────────────────────────────────────────────────────────
+const _fetching = {};
+
+function _ensureCached(col, fetchFn) {
+  if (AppCache.isLoaded(col)) return Promise.resolve();
+  if (_fetching[col]) return _fetching[col];
+  _fetching[col] = fetchFn()
+    .then(rows => AppCache.setRows(col, rows))
+    .finally(() => delete _fetching[col]);
+  return _fetching[col];
+}
+
+// ─── Shared date/time helpers ─────────────────────────────────────────────────
+function _fmtDate(d) {
+  if (!d) return '';
+  const s = String(d);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  try { return localDateInputValue(new Date(s.replace(' ', 'T'))); } catch(e) { return ''; }
+}
+
+function _nowStr() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+// ─── Cache revalidation ───────────────────────────────────────────────────────
+// Sequence number of the last change log entry we processed.
+let _lastChangeSeq = 0;
+
+async function _checkCacheStamps() {
+  try {
+    // Stamp-based invalidation (server-side write detection)
+    const stamps = await api.getDataStamps();
+    const _stamp = key => { const n = Number(stamps[key]); return n > 0 ? n : null; };
+    const _stale = (key, col) => { const s = _stamp(key); return s !== null && s > AppCache.getLoadedAt(col); };
+    if (_stale('leads',          'leads'))          await _refreshLeadsCache();
+    if (_stale('followups',      'followups'))      await _refreshFollowupsCache();
+    if (_stale('followupHistory','followupHistory')) await _refreshFollowupHistoryCache();
+    if (_stale('activityLogs',   'activityLogs'))   await _refreshActivityLogsCache();
+    const configStamp = Math.max(_stamp('stages') || 0, _stamp('fields') || 0, _stamp('config') || 0);
+    if (configStamp > 0 && configStamp > AppCache.getLoadedAt('config')) await _refreshAppConfig();
+
+    // Change-log incremental sync (queue worker writes here after each job)
+    const changes = await api.getChanges(_lastChangeSeq);
+    if (changes && changes.length) {
+      _lastChangeSeq = Math.max(...changes.map(c => c.sequence || 0));
+      _applyChangeLog(changes);
+    }
+  } catch(e) { /* silent — revalidation is best-effort */ }
+}
+
+function _applyChangeLog(changes) {
+  const modules = {};
+  changes.forEach(c => { if (c.module) modules[c.module] = true; });
+
+  if (modules['leads']) {
+    QueueManager.onServerChange('leads');
+    if (['leads', 'pipeline', 'dashboard'].includes(App.currentPage)) _refreshLeadsCache().catch(() => {});
+  }
+  if (modules['followups']) {
+    QueueManager.onServerChange('followups');
+    if (App.currentPage?.startsWith('followups') || App.currentPage === 'dashboard') {
+      _refreshFollowupsCache().catch(() => {});
+    }
+  }
+}
+
+async function _refreshLeadsCache() {
+  const rows = await api.getLeads().catch(() => api.getFollowupLeads());
+  AppCache.setRows('leads', rows);
+  const pg = App.currentPage;
+  if (pg === 'leads') {
+    if (window.leadTable) {
+      window.leadTable.replaceData(AppCache.getRows('leads'));
+      if (typeof applyLeadFilters === 'function') applyLeadFilters();
+    } else { loadLeads(); }
+  } else if (pg === 'pipeline') {
+    loadPipeline();
+  } else if (pg === 'dashboard') {
+    loadDashboard();
+  }
+}
+
+async function _refreshFollowupsCache() {
+  const rows = await api.getFollowups({});
+  AppCache.setRows('followups', rows);
+  const pg = App.currentPage;
+  if (pg && pg.startsWith('followups')) {
+    _renderFUTab(window.currentFollowupTab || 'all');
+  } else if (pg === 'dashboard') {
+    loadDashboard();
+  }
+}
+
+async function _refreshFollowupHistoryCache() {
+  const rows = await api.getFollowupHistory({});
+  AppCache.setRows('followupHistory', rows);
+  const pg = App.currentPage;
+  if (pg && pg.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+}
+
+async function _refreshActivityLogsCache() {
+  const rows = await api.getLeadActivityLogs({});
+  AppCache.setRows('activityLogs', rows);
+}
+
+async function _refreshAppConfig() {
+  const config = await api.getAppConfig();
+  Store.dispatch('SET_CONFIG', config);
+  AppCache.touch('config');
+  AppLookup.rebuild();
+  const pg = App.currentPage;
+  if (pg === 'pipeline') loadPipeline();
+  else if (pg === 'dashboard') loadDashboard();
+  else if (pg === 'config') loadConfig();
+}
+
+function startCacheRevalidation() {
+  window.addEventListener('focus', _checkCacheStamps);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkCacheStamps(); });
+  setInterval(_checkCacheStamps, 15_000);
+}
+</script>

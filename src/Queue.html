@@ -1,0 +1,178 @@
+<script>
+// ─── Client-side Queue Manager ────────────────────────────────────────────────
+// Enqueues write operations locally, shows live status badges, polls server
+// for completion, and applies incremental cache updates.
+// Works like Redis: enqueue fast (<50ms), process in background via GAS trigger.
+const QueueManager = (() => {
+  const LS_KEY     = 'nbd_queue_v1';
+  const POLL_MS    = 4_000;   // poll every 4 s while jobs are pending
+  const MAX_AGE_MS = 24 * 60 * 60 * 1000; // discard stale jobs after 24 h
+
+  // job shape: { requestId, status, module, actionType, tempId, enqueuedAt, finalRecordId, error }
+  let _jobs = {};       // requestId → job
+  let _pollTimer = null;
+  let _callbacks = {};  // requestId → { onDone, onFail }
+
+  // ── Persistence ──────────────────────────────────────────────────────────────
+  function _save() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(_jobs)); } catch (_) {}
+  }
+
+  function _load() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const cutoff = Date.now() - MAX_AGE_MS;
+      _jobs = {};
+      Object.values(parsed).forEach(j => {
+        if ((j.enqueuedAt || 0) > cutoff && j.status !== 'DONE' && j.status !== 'DEAD') {
+          _jobs[j.requestId] = j;
+        }
+      });
+    } catch (_) { _jobs = {}; }
+  }
+
+  // ── Status badge HTML ─────────────────────────────────────────────────────────
+  function badgeHtml(requestId) {
+    const j = _jobs[requestId];
+    if (!j) return '';
+    const cls = {
+      QUEUED:     'q-queued',
+      PROCESSING: 'q-processing',
+      DONE:       'q-done',
+      FAILED:     'q-failed',
+      DEAD:       'q-dead'
+    }[j.status] || 'q-queued';
+    const label = {
+      QUEUED:     'Queued',
+      PROCESSING: 'Saving…',
+      DONE:       'Saved',
+      FAILED:     'Retrying',
+      DEAD:       'Failed'
+    }[j.status] || j.status;
+    return `<span class="q-badge ${cls}" data-rid="${escapeHtml(requestId)}">${label}</span>`;
+  }
+
+  // ── Polling ───────────────────────────────────────────────────────────────────
+  function _pendingIds() {
+    return Object.values(_jobs)
+      .filter(j => j.status === 'QUEUED' || j.status === 'PROCESSING' || j.status === 'FAILED')
+      .map(j => j.requestId);
+  }
+
+  function _updateBadge(requestId) {
+    document.querySelectorAll(`[data-rid="${requestId}"]`).forEach(el => {
+      el.outerHTML = badgeHtml(requestId);
+    });
+  }
+
+  async function _poll() {
+    const ids = _pendingIds();
+    if (!ids.length) { _stopPoll(); return; }
+
+    try {
+      const statuses = await api.getJobStatuses(ids);
+      let changed = false;
+      ids.forEach(rid => {
+        const srv = statuses[rid];
+        if (!srv || !_jobs[rid]) return;
+        const prev = _jobs[rid].status;
+        _jobs[rid].status = srv.status;
+        if (srv.finalRecordId) _jobs[rid].finalRecordId = srv.finalRecordId;
+        if (srv.error)         _jobs[rid].error         = srv.error;
+        if (srv.status !== prev) {
+          changed = true;
+          _updateBadge(rid);
+          if (srv.status === 'DONE') {
+            _callbacks[rid]?.onDone?.(_jobs[rid]);
+            delete _callbacks[rid];
+          } else if (srv.status === 'DEAD') {
+            _callbacks[rid]?.onFail?.(_jobs[rid]);
+            delete _callbacks[rid];
+          }
+        }
+      });
+      if (changed) _save();
+    } catch (_) { /* silent — retry on next tick */ }
+  }
+
+  function _startPoll() {
+    if (_pollTimer) return;
+    _pollTimer = setInterval(_poll, POLL_MS);
+  }
+
+  function _stopPoll() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  }
+
+  // ── Server change notification (called from _applyChangeLog) ─────────────────
+  function onServerChange(moduleName) {
+    // Mark any FAILED jobs for that module as potentially PROCESSING again
+    // (the worker may have just processed them). Polling will update status.
+    Object.values(_jobs).forEach(j => {
+      if (j.module === moduleName && j.status === 'FAILED') {
+        j.status = 'PROCESSING';
+      }
+    });
+    _save();
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────────
+  return {
+    // Call once at app startup to resume pending jobs from localStorage.
+    init() {
+      _load();
+      if (_pendingIds().length) _startPoll();
+    },
+
+    // Enqueue a write operation. Returns { requestId, tempId } immediately.
+    // opts: { module, actionType, payload, tempId, onDone, onFail }
+    async enqueue(opts) {
+      const requestId = 'rq-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const tempId    = opts.tempId || requestId;
+
+      _jobs[requestId] = {
+        requestId,
+        status:      'QUEUED',
+        module:      opts.module,
+        actionType:  opts.actionType,
+        tempId,
+        enqueuedAt:  Date.now(),
+        finalRecordId: null,
+        error:       null
+      };
+      _save();
+
+      if (opts.onDone) _callbacks[requestId] = { onDone: opts.onDone, onFail: opts.onFail };
+
+      // Fire and forget — send to server queue
+      try {
+        await api.enqueueJob(opts.module, opts.actionType, opts.payload, requestId);
+      } catch (err) {
+        _jobs[requestId].status = 'DEAD';
+        _jobs[requestId].error  = err.message || String(err);
+        _save();
+        _updateBadge(requestId);
+        opts.onFail?.(_jobs[requestId]);
+        return { requestId, tempId };
+      }
+
+      _startPoll();
+      return { requestId, tempId };
+    },
+
+    // Get current status of a job.
+    getStatus(requestId) { return _jobs[requestId] || null; },
+
+    // Badge HTML for inline display in table rows / cards.
+    badgeHtml,
+
+    // Called from _applyChangeLog when a server-side change is detected.
+    onServerChange,
+
+    // Expose pending count (for debug / banner display).
+    pendingCount() { return _pendingIds().length; }
+  };
+})();
+</script>

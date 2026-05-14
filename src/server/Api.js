@@ -241,6 +241,48 @@ function apiGetUsers(token) {
   });
 }
 
+// ── Queue endpoints ───────────────────────────────────────────────────────────
+// Fast enqueue — validates auth + writes ONE queue row. Returns in < 500ms.
+function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+
+    const allowed = ['leads', 'followups'];
+    if (!allowed.includes(String(moduleName || ''))) throw new Error('Invalid module.');
+
+    const allowedActions = ['saveLead', 'saveFollowup', 'markFollowupDone',
+                            'updateLeadStage', 'moveLeadStageWithFields'];
+    if (!allowedActions.includes(String(actionType || ''))) throw new Error('Invalid action.');
+
+    const payloadStr = JSON.stringify(payload || {});
+    if (payloadStr.length > 200000) throw new Error('Payload too large (max 200 KB).');
+
+    const result = enqueueJob_(user.email, moduleName, actionType, payload || {}, requestId || '');
+    return respond(result);
+  });
+}
+
+// Poll status for up to 20 requestIds at once.
+function apiGetJobStatuses(token, requestIds) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireAuthToken_(token);
+    if (!Array.isArray(requestIds)) throw new Error('requestIds must be an array.');
+    if (requestIds.length > 20) throw new Error('Max 20 IDs per request.');
+    return respond(getJobStatuses_(requestIds));
+  });
+}
+
+// Incremental change log — returns only entries after lastSeq.
+function apiGetChanges(token, lastSeq) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireAuthToken_(token);
+    return respond(getChangesAfter_(Number(lastSeq) || 0));
+  });
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 function _apiUser() {
