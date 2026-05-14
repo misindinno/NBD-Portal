@@ -11,6 +11,8 @@
 name: Deploy to Google Apps Script
 
 on:
+  push:
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -45,41 +47,13 @@ jobs:
           fi
           echo "$CLASPRC_JSON" > ~/.clasprc.json
 
-      - name: Deploy all clients
+      - name: Push code to all clients
         run: |
-          BRANCH="${{ github.ref_name }}"
-          IS_DEV="false"
-          if [ "$BRANCH" = "develop" ]; then IS_DEV="true"; fi
-
-          echo "Branch: $BRANCH | Dev mode: $IS_DEV"
-
           for client_dir in clients/*/; do
             client_name=$(basename "$client_dir")
-            echo ""
-            echo "==> Deploying: $client_name (branch: $BRANCH)"
-
-            # Swap client-specific files into place
+            echo "==> Pushing: $client_name"
             cp "${client_dir}ClientConfig.js" src/server/ClientConfig.js
             cp "${client_dir}.clasp.json"     .clasp.json
-
-            # Push source to GAS
             clasp push --force
-
-            # Pick prod or dev deployment ID based on branch
-            if [ "$IS_DEV" = "true" ]; then
-              deployment_id=$(jq -r '.devDeploymentId // ""' "${client_dir}client.json")
-              description=$(jq    -r '.devDescription  // "Dev"' "${client_dir}client.json")
-            else
-              deployment_id=$(jq -r '.deploymentId // ""' "${client_dir}client.json")
-              description=$(jq    -r '.description  // "Deploy"' "${client_dir}client.json")
-            fi
-
-            if [ -n "$deployment_id" ]; then
-              clasp deploy --deploymentId "$deployment_id" --description "$description"
-            else
-              echo "No deploymentId set for $client_name — creating new deployment"
-              clasp deploy --description "$description"
-            fi
-
             echo "==> Done: $client_name"
           done
