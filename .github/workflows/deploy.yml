@@ -32,7 +32,15 @@ jobs:
         run: npm install -g @google/clasp
 
       - name: Authenticate clasp
-        run: echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "ERROR: CLASPRC_JSON secret is not set."
+            echo "Run 'clasp login' locally, copy ~/.clasprc.json, and add it as a GitHub secret named CLASPRC_JSON."
+            exit 1
+          fi
+          echo "$CLASPRC_JSON" > ~/.clasprc.json
 
       - name: Deploy all clients
         run: |
