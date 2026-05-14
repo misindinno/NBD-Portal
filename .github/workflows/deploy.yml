@@ -1,0 +1,64 @@
+# ─── deploy.yml ──────────────────────────────────────────────────────────────
+# Automatically pushes code to all GAS clients when you push to main/master.
+#
+# ONE-TIME SETUP — add this GitHub secret before first run:
+#   1. On your machine, run:  clasp login
+#   2. Copy the file content: cat ~/.clasprc.json
+#   3. In GitHub → repo → Settings → Secrets → Actions → New secret:
+#        Name:  CLASPRC_JSON
+#        Value: (paste the full JSON content)
+
+name: Deploy to Google Apps Script
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:        # also allows manual trigger from GitHub UI
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Authenticate clasp
+        run: echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+
+      - name: Deploy all clients
+        run: |
+          for client_dir in clients/*/; do
+            client_name=$(basename "$client_dir")
+            echo ""
+            echo "==> Deploying: $client_name"
+
+            # Swap client-specific files into place
+            cp "${client_dir}ClientConfig.js" src/server/ClientConfig.js
+            cp "${client_dir}.clasp.json"     .clasp.json
+
+            # Push source to GAS
+            clasp push --force
+
+            # Read deployment config
+            deployment_id=$(node -e "const c=require('./${client_dir}client.json'); process.stdout.write(c.deploymentId||'')")
+            description=$(node   -e "const c=require('./${client_dir}client.json'); process.stdout.write(c.description||'Deploy')")
+
+            # Deploy (update existing deployment or create new one)
+            if [ -n "$deployment_id" ]; then
+              clasp deploy --deploymentId "$deployment_id" --description "$description"
+            else
+              echo "No deploymentId set for $client_name — creating new deployment"
+              clasp deploy --description "$description"
+            fi
+
+            echo "==> Done: $client_name"
+          done
