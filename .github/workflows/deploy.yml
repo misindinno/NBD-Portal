@@ -48,9 +48,9 @@ jobs:
             # Push source to GAS
             clasp push --force
 
-            # Read deployment config
-            deployment_id=$(node -e "const c=require('./${client_dir}client.json'); process.stdout.write(c.deploymentId||'')")
-            description=$(node   -e "const c=require('./${client_dir}client.json'); process.stdout.write(c.description||'Deploy')")
+            # Read deployment config (jq is pre-installed on ubuntu-latest)
+            deployment_id=$(jq -r '.deploymentId // ""' "${client_dir}client.json")
+            description=$(jq    -r '.description  // "Deploy"' "${client_dir}client.json")
 
             # Deploy (update existing deployment or create new one)
             if [ -n "$deployment_id" ]; then
