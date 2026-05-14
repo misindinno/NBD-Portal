@@ -29,7 +29,12 @@ jobs:
           node-version: '20'
 
       - name: Install clasp
-        run: npm install -g @google/clasp
+        run: |
+          if command -v clasp >/dev/null 2>&1; then
+            echo "clasp already installed: $(clasp --version)"
+          else
+            npm install -g @google/clasp
+          fi
 
       - name: Authenticate clasp
         env:
