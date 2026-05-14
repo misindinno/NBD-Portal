@@ -850,52 +850,55 @@ function renderSidebar() {
   const isAdmin = u.role === 'ADMIN';
   const show = mod => isAdmin || hasModule(mod);
 
+  const fuCount    = (AppCache.followups    || []).filter(r => String(r['Status']||'Open').toLowerCase() !== 'closed').length;
+  const pipeCount  = (AppCache.leads        || []).filter(r => String(r['Lead Status']||'Open').toLowerCase() === 'open').length;
+  const badge = n => n > 0 ? `<span class="nav-badge">${n > 99 ? '99+' : n}</span>` : '';
+
+  const navItem = (page, lucideIcon, label, extraBadge = '') =>
+    `<a href="#" data-page="${page}" data-tooltip="${label}" onclick="navigate('${page}');return false;">
+      ${icon(lucideIcon, 18)}
+      <span class="nav-item-label">${label}</span>
+      ${extraBadge}
+    </a>`;
+
   let html = '';
 
-  if (show('Dashboard')) {
-    html += `<a href="#" data-page="dashboard" onclick="navigate('dashboard');return false;">
-      ${icon('layout-dashboard', 20)}
-      <span class="nav-label">Dashboard</span>
-    </a>`;
-  }
+  // ── MAIN ──
+  const mainItems = [
+    show('Dashboard') ? navItem('dashboard',  'layout-dashboard', 'Dashboard') : '',
+    show('Followups') ? navItem('followups',   'phone-call',       'Follow Up',  badge(fuCount))   : '',
+    show('Pipeline')  ? navItem('pipeline',    'kanban',           'Pipeline',   badge(pipeCount)) : '',
+  ].filter(Boolean).join('');
+  if (mainItems) html += `<div class="nav-section">Main</div>${mainItems}`;
 
-  if (show('Followups')) {
-    html += `<a href="#" data-page="followups" onclick="navigate('followups');return false;">
-      ${icon('phone', 20)}
-      <span class="nav-label">Follow Up</span>
-    </a>`;
-  }
+  // ── LEADS ──
+  const leadItems = [
+    show('Leads')    ? navItem('leads',    'list-todo', 'Lead Master') : '',
+    show('LeadForm') ? navItem('leadform', 'file-plus', 'Lead Form')   : '',
+  ].filter(Boolean).join('');
+  if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
 
-  if (show('Pipeline')) {
-    html += `<a href="#" data-page="pipeline" onclick="navigate('pipeline');return false;">
-      ${icon('kanban', 20)}
-      <span class="nav-label">Pipeline</span>
-    </a>`;
-  }
-
-  if (show('Leads')) {
-    html += `<a href="#" data-page="leads" onclick="navigate('leads');return false;">
-      ${icon('list-todo', 20)}
-      <span class="nav-label">Lead Master</span>
-    </a>`;
-  }
-
-  if (show('LeadForm')) {
-    html += `<a href="#" data-page="leadform" onclick="navigate('leadform');return false;">
-      ${icon('file-plus', 20)}
-      <span class="nav-label">Lead Form</span>
-    </a>`;
-  }
-
+  // ── SYSTEM ──
   if (u.canEditConfig || u.canManageUsers) {
-    html += `<a href="#" data-page="config" onclick="navigate('config');return false;">
-      ${icon('settings', 20)}
-      <span class="nav-label">Config</span>
-    </a>`;
+    html += `<div class="nav-section">System</div>${navItem('config', 'settings-2', 'Config')}`;
   }
 
   nav.innerHTML = html;
-  qs('#user-name').textContent = u.title || u.name || u.email || '';
+
+  // Topbar user name
+  const displayName = u.title || u.name || u.email || '';
+  qs('#user-name').textContent = displayName;
+
+  // Sidebar footer user card
+  const role = { ADMIN: 'Administrator', MANAGER: 'Manager', SALES: 'Sales', USER: 'User' }[u.role] || u.role || '';
+  const initials = displayName.trim().split(/\s+/).map(w => w[0]||'').join('').slice(0,2).toUpperCase() || '?';
+  const avatarEl = el('sb-user-avatar');
+  const nameEl   = el('sb-user-name-footer');
+  const roleEl   = el('sb-user-role-footer');
+  if (avatarEl) avatarEl.textContent = initials;
+  if (nameEl)   nameEl.textContent   = displayName;
+  if (roleEl)   roleEl.textContent   = role;
+
   renderIcons(nav);
 }
 
@@ -949,6 +952,15 @@ function toggleSidebar() {
     sidebar.classList.toggle('mobile-open');
   } else {
     sidebar.classList.toggle('collapsed');
+    const btn = el('sb-toggle-btn');
+    if (btn) {
+      const collapsed = sidebar.classList.contains('collapsed');
+      btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      btn.innerHTML = collapsed
+        ? `<i data-lucide="panel-left-open"></i>`
+        : `<i data-lucide="panel-left-close"></i>`;
+      renderIcons(btn);
+    }
   }
 }
 

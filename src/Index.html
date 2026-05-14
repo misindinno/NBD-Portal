@@ -32,16 +32,30 @@
   <div id="app-shell">
     <!-- Sidebar -->
     <div id="sidebar">
-      <div class="brand">
-        <div class="brand-mark">
-          <i data-lucide="zap" style="width:20px;height:20px;margin-right:6px;"></i>
-          <span class="brand-text"><?= CLIENT_CONFIG.APP_TITLE ?></span>
+      <div class="sb-header">
+        <div class="sb-brand">
+          <div class="sb-logo-wrap">
+            <i data-lucide="zap"></i>
+          </div>
+          <div class="sb-brand-text">
+            <span class="sb-brand-name"><?= CLIENT_CONFIG.APP_TITLE ?></span>
+            <span class="sb-brand-sub">CRM Workspace</span>
+          </div>
         </div>
-        <button class="sidebar-toggle" title="Toggle sidebar" onclick="toggleSidebar()">
-          <i data-lucide="menu" style="width:20px;height:20px;"></i>
+        <button class="sb-toggle" id="sb-toggle-btn" title="Collapse sidebar" onclick="toggleSidebar()">
+          <i data-lucide="panel-left-close"></i>
         </button>
       </div>
-      <nav></nav>
+      <nav class="sb-nav"></nav>
+      <div class="sb-footer">
+        <div class="sb-user-card">
+          <div class="sb-user-avatar" id="sb-user-avatar"></div>
+          <div class="sb-user-info">
+            <span class="sb-user-name" id="sb-user-name-footer"></span>
+            <span class="sb-user-role" id="sb-user-role-footer"></span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Main -->
