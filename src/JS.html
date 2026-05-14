@@ -264,6 +264,15 @@ function startCacheRevalidation() {
   setInterval(_checkCacheStamps, 15_000);
 }
 
+const _PAGE_META = {
+  dashboard: { title: 'Dashboard',    crumb: 'Dashboard' },
+  leads:     { title: 'Lead Master',  crumb: 'Lead Master' },
+  pipeline:  { title: 'Pipeline',     crumb: 'Pipeline' },
+  followups: { title: 'Follow Up',    crumb: 'Follow Up' },
+  leadform:  { title: 'Lead Form',    crumb: 'Lead Form' },
+  config:    { title: 'Config',       crumb: 'Config' },
+};
+
 function navigate(page) {
   if (!canNavigate(page)) {
     el('page-title').textContent = 'Access Denied';
@@ -274,7 +283,10 @@ function navigate(page) {
   document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.remove('active'));
   const link = document.querySelector(`#sidebar nav a[data-page="${page}"]`);
   if (link) link.classList.add('active');
-  el('page-title').textContent = page.charAt(0).toUpperCase() + page.slice(1);
+  const meta = _PAGE_META[page] || { title: page.charAt(0).toUpperCase() + page.slice(1), crumb: page };
+  el('page-title').textContent = meta.title;
+  const crumbEl = el('tb-breadcrumb-page');
+  if (crumbEl) crumbEl.textContent = meta.crumb;
   setContentLoading(pageSkeletonType(page));
   // Fix #21: wrap page load calls in try/catch to prevent uncaught ReferenceError
   try {
@@ -538,7 +550,7 @@ async function _continueAppInit(token) {
   AppLookup.rebuild();
   Store.dispatch('SET_LOADING', { key: 'auth', value: false });
   renderSidebar();
-  el('logout-btn').style.display = 'inline-flex';
+  // logout button shown via renderSidebar → .visible class
 
   const defaultPage = defaultPageForUser();
   _ensureCached('leads',          () => api.getLeads().catch(() => api.getFollowupLeads())).catch(() => {});
@@ -885,19 +897,33 @@ function renderSidebar() {
 
   nav.innerHTML = html;
 
-  // Topbar user name
+  // User meta
   const displayName = u.title || u.name || u.email || '';
+  const role     = { ADMIN: 'Administrator', MANAGER: 'Manager', SALES: 'Sales', USER: 'User' }[u.role] || u.role || '';
+  const initials = displayName.trim().split(/\s+/).map(w => w[0]||'').join('').slice(0,2).toUpperCase() || '?';
+
+  // Hidden span (keeps old JS references working)
   qs('#user-name').textContent = displayName;
 
-  // Sidebar footer user card
-  const role = { ADMIN: 'Administrator', MANAGER: 'Manager', SALES: 'Sales', USER: 'User' }[u.role] || u.role || '';
-  const initials = displayName.trim().split(/\s+/).map(w => w[0]||'').join('').slice(0,2).toUpperCase() || '?';
+  // Sidebar footer card
   const avatarEl = el('sb-user-avatar');
   const nameEl   = el('sb-user-name-footer');
   const roleEl   = el('sb-user-role-footer');
   if (avatarEl) avatarEl.textContent = initials;
   if (nameEl)   nameEl.textContent   = displayName;
   if (roleEl)   roleEl.textContent   = role;
+
+  // Topbar user chip
+  const tbAvatar = el('tb-user-avatar-top');
+  const tbName   = el('tb-user-name-top');
+  const tbRole   = el('tb-user-role-top');
+  if (tbAvatar) tbAvatar.textContent = initials;
+  if (tbName)   tbName.textContent   = displayName;
+  if (tbRole)   tbRole.textContent   = role;
+
+  // Topbar logout button
+  const logoutBtn = el('logout-btn');
+  if (logoutBtn) logoutBtn.classList.add('visible');
 
   renderIcons(nav);
 }
@@ -968,6 +994,33 @@ function toggleSidebar() {
 // Strips Unicode diacritical marks (ī→i, ā→a, ń→n, etc.) that the
 // countriesnow API returns for Indian city names, then applies Title Case.
 // e.g. "SonīPat" → "Sonipat",  "Ahmedābād" → "Ahmedabad"
+// ─── Topbar helpers ───────────────────────────────────────────────────────────
+function _topbarSearch(query) {
+  const q = String(query || '').trim();
+  if (!q) return;
+  if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
+  navigate('leads');
+  // Populate the lead search box if it exists (rendered after navigate)
+  setTimeout(() => {
+    const s = qs('#lead-search') || qs('input[placeholder*="Search"]');
+    if (s) { s.value = q; s.dispatchEvent(new Event('input')); }
+  }, 400);
+  const inp = el('tb-search-input');
+  if (inp) inp.value = '';
+}
+
+function _topbarRefresh(btn) {
+  if (btn) btn.classList.add('spinning');
+  ['leads','followups','followupHistory','activityLogs','config'].forEach(c => AppCache.setRows(c, []));
+  const page = Store.getState().currentPage || 'dashboard';
+  navigate(page);
+  setTimeout(() => { if (btn) btn.classList.remove('spinning'); }, 1200);
+}
+
+function _topbarHelp() {
+  toast('For help, contact your system administrator.', 'info');
+}
+
 function _normalizeLocationName(str) {
   if (!str) return '';
   return String(str)

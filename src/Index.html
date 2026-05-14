@@ -61,14 +61,50 @@
     <!-- Main -->
     <div id="main">
       <div id="topbar">
-        <h1 id="page-title">Dashboard</h1>
-        <div style="display:flex;align-items:center;gap:10px">
-          <span id="user-name" style="font-size:13px;color:#666;"></span>
-          <button id="logout-btn" onclick="logout()" title="Sign out"
-            style="display:none;background:none;border:1px solid #ddd;border-radius:6px;padding:4px 10px;font-size:12px;color:#666;cursor:pointer;font-family:inherit">
-            Sign out
+        <!-- Left: breadcrumb + title -->
+        <div class="tb-left">
+          <div class="tb-breadcrumb">
+            <span class="tb-breadcrumb-app"><?= CLIENT_CONFIG.APP_TITLE ?></span>
+            <i data-lucide="chevron-right" style="width:12px;height:12px;"></i>
+            <span class="tb-breadcrumb-page" id="tb-breadcrumb-page">Dashboard</span>
+          </div>
+          <div class="tb-title-row">
+            <h1 id="page-title">Dashboard</h1>
+          </div>
+        </div>
+
+        <!-- Center: search -->
+        <div class="tb-center">
+          <div class="tb-search">
+            <i data-lucide="search"></i>
+            <input type="text" id="tb-search-input" placeholder="Search leads, clients, follow-ups..." autocomplete="off" onkeydown="if(event.key==='Enter')_topbarSearch(this.value)">
+          </div>
+        </div>
+
+        <!-- Right: actions + user -->
+        <div class="tb-right">
+          <button class="tb-icon-btn" id="tb-refresh-btn" title="Refresh data" onclick="_topbarRefresh(this)">
+            <i data-lucide="refresh-cw"></i>
+          </button>
+          <button class="tb-icon-btn" title="Help" onclick="_topbarHelp()">
+            <i data-lucide="help-circle"></i>
+          </button>
+          <div class="tb-divider"></div>
+          <div class="tb-user-chip" id="tb-user-chip">
+            <div class="tb-user-avatar" id="tb-user-avatar-top"></div>
+            <div class="tb-user-info-wrap">
+              <span class="tb-user-name" id="tb-user-name-top"></span>
+              <span class="tb-user-role" id="tb-user-role-top"></span>
+            </div>
+          </div>
+          <button id="logout-btn" onclick="logout()" title="Sign out" class="tb-logout-btn">
+            <i data-lucide="log-out"></i>
+            <span>Sign out</span>
           </button>
         </div>
+
+        <!-- hidden — keeps existing JS references working -->
+        <span id="user-name" style="display:none;"></span>
       </div>
       <div id="content">
         <div class="skeleton-page skeleton-dashboard">
