@@ -1,0 +1,826 @@
+<script>
+// ─── Follow-ups Page ─────────────────────────────────────────────────────────
+
+async function loadFollowups(tab = 'all') {
+  window.currentFollowupTab = tab;
+  el('page-title').textContent = 'Follow-ups';
+
+  // Keep nav-group open
+  const grp = el('nav-group-fu');
+  if (grp) grp.classList.add('open');
+
+  el('content').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="tabs" style="margin-bottom:0;border:none">
+        <button class="tab-btn ${tab==='all'?'active':''}"     onclick="loadFollowups('all')">All</button>
+        <button class="tab-btn ${tab==='today'?'active':''}"   onclick="loadFollowups('today')">Today</button>
+        <button class="tab-btn ${tab==='overdue'?'active':''}" onclick="loadFollowups('overdue')">Overdue</button>
+        <button class="tab-btn ${tab==='custom'?'active':''}"  onclick="loadFollowups('custom')">Custom Query</button>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openFollowupForm()">
+        ${icon('plus', 16)} Add Follow-up
+      </button>
+    </div>
+    <div id="fu-body">${skeletonPage('table')}</div>`;
+  renderIcons();
+
+  if      (tab === 'today')   await _renderFUTab('today');
+  else if (tab === 'overdue') await _renderFUTab('overdue');
+  else if (tab === 'custom')  _renderCustomQuery();
+  else                        await _renderFUTab('all');
+}
+
+async function _renderFUTab(tab) {
+  const body = el('fu-body');
+  if (!body) return;
+  if (!AppCache.isLoaded('followups') || !AppCache.isLoaded('leads')) {
+    body.innerHTML = skeletonPage('table');
+    await Promise.all([
+      _ensureCached('followups', () => api.getFollowups({})),
+      _ensureCached('leads',     () => api.getFollowupLeads())
+    ]);
+  }
+  try {
+    const todayStr = localDateInputValue();
+    let rows = AppCache.getRows('followups')
+      .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+      .filter(_isOpenFollowupRow);
+    if (tab === 'today') {
+      rows = rows.filter(r => _fmtDate(_fuPlannedDate(r)) === todayStr);
+    } else if (tab === 'overdue') {
+      rows = rows.filter(r => {
+        const d = _fmtDate(_fuPlannedDate(r));
+        return d && d < todayStr;
+      });
+    }
+    const ctx = _buildFollowupContext(AppCache.getRows('leads'));
+    body.innerHTML = _fuTable(rows, `No ${tab} follow-ups found.`, ctx);
+    renderIcons(body);
+  } catch(e) { body.innerHTML = `<p style="color:red">${e}</p>`; }
+}
+
+async function _loadFollowupContext() {
+  const data = await _getFollowupFormData();
+  return _buildFollowupContext(data.leads || []);
+}
+
+async function _getFollowupFormData(force = false) {
+  // Serve open leads from cache if available; only hit the API when forced
+  // (e.g. lead picker refresh) or when cache is not yet loaded.
+  if (!force && AppCache.isLoaded('leads')) {
+    return { leads: AppCache.getRows('leads').filter(l => l['Lead Status'] === 'Open') };
+  }
+  return api.getFollowupFormData();
+}
+
+function _buildFollowupContext(leads = []) {
+  return {
+    leadMap: _mapRowsBy(leads, 'Lead ID'),
+    userMap: App.config.userNameMap || (App.config.users || []).reduce((m, u) => { m[u.id] = u.name; return m; }, {}),
+    stageMap: (App.config.allStages || App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {})
+  };
+}
+
+function _mapRowsBy(rows, key) {
+  return (rows || []).reduce((m, row) => {
+    if (row && row[key]) m[row[key]] = row;
+    return m;
+  }, {});
+}
+
+function _isActivityLog(row) {
+  return String(row?.['Follow-up Type'] || '').toLowerCase() === 'stage change';
+}
+
+function _isOpenFollowupRow(row) {
+  return String(row?.['Status'] || (row?.['Outcome'] ? 'Closed' : 'Open')).toLowerCase() !== 'closed';
+}
+
+function _fuPlannedDate(row) {
+  return row?.['Planned Date'] || row?.['Next Follow-up Date'] || row?.['Follow-up Date'] || '';
+}
+
+function _decorateFollowup(row, ctx) {
+  const lead = ctx?.leadMap?.[row['Lead ID']];
+  const stage = ctx?.stageMap?.[row['Updated Stage ID']];
+  const leadCurrentStage = lead ? ctx?.stageMap?.[lead['Stage ID']] : null;
+  return {
+    ...row,
+    _leadLabel: lead ? _fuLeadLabel(lead) : (row['Lead ID'] ? 'Linked lead unavailable' : ''),
+    _clientLabel: lead ? _fuClientLabel(lead) : '',
+    _remarkLabel: lead ? (lead['Remark'] || '') : '',
+    _createdByLabel: ctx?.userMap?.[row['Created By']] || '',
+    _assignedToLabel: lead ? (ctx?.userMap?.[lead['Assigned To']] || '') : '',
+    _updatedStageLabel: stage ? stage['Stage Name'] : '',
+    _leadPhone: lead ? (lead['Phone'] || '') : '',
+    _leadStageLabel: leadCurrentStage ? leadCurrentStage['Stage Name'] : '',
+    _companyName: lead ? (lead['Company Name'] || '') : '',
+    _contactPerson: lead ? (lead['Contact Person'] || '') : ''
+  };
+}
+
+function _fuCards(rows, emptyMsg, ctx) {
+  if (!rows.length) return `<p style="color:#999;padding:20px">${emptyMsg}</p>`;
+  return rows.map(row => {
+    const r = ctx ? _decorateFollowup(row, ctx) : row;
+    const typeColor = { Call:'#1565C0', WhatsApp:'#2E7D32', Visit:'#6A1B9A', Email:'#E65100', Payment:'#B71C1C' };
+    const color = typeColor[r['Follow-up Type']] || '#555555';
+    return `<div class="fu-card" style="border-left-color:${color};padding:14px 16px">
+      <div class="fu-card-header" style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="badge" style="background:${color}20;color:${color}">${escapeHtml(r['Follow-up Type']||'')}</span>
+          <span style="font-size:12px;color:#999">${icon('calendar', 12)} ${formatDate(r['Follow-up Date'])}</span>
+          ${r['Outcome'] ? `<span class="badge" style="background:#E8F5E9;color:#2E7D32">${escapeHtml(r['Outcome'])}</span>` : ''}
+        </div>
+        ${r._createdByLabel ? `<span style="font-size:12px;color:#999;white-space:nowrap">${icon('user', 12)} ${escapeHtml(r._createdByLabel)}</span>` : ''}
+      </div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:${r._remarkLabel ? '4px' : '8px'};line-height:1.4">${escapeHtml(r['Discussion']||'')}</div>
+      ${r._remarkLabel ? `<div style="font-size:12px;color:#555;background:#F5F5F5;border-radius:4px;padding:5px 8px;margin-bottom:8px">${icon('message-square', 12)} <em>${escapeHtml(r._remarkLabel)}</em></div>` : ''}
+      <div class="fu-card-meta" style="margin-bottom:${r['Next Follow-up Date'] ? '8px' : '0'}">
+        ${r._clientLabel ? `<span>${icon('building-2', 12)} ${escapeHtml(r._clientLabel)}</span>` : (r._leadLabel ? `<span style="color:#aaa">${icon('target', 12)} ${escapeHtml(r._leadLabel)}</span>` : '<span style="color:#aaa">Standalone</span>')}
+        ${_followupCustomFieldMeta(r)}
+      </div>
+      ${r['Next Follow-up Date'] ? `<div style="display:flex;align-items:center;gap:12px;background:#EEF2FF;border-radius:4px;padding:6px 10px;font-size:12px">
+        <span style="color:#3949AB;font-weight:600">${icon('calendar-clock', 13)} Next Follow-up: ${formatDate(r['Next Follow-up Date'])}</span>
+        ${r._assignedToLabel ? `<span style="color:#555">${icon('user-check', 13)} Assigned: ${escapeHtml(r._assignedToLabel)}</span>` : ''}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function _fuTable(rows, emptyMsg, ctx) {
+  const data = (rows || [])
+    .map(row => ctx ? _decorateFollowup(row, ctx) : row)
+    .sort(_compareFollowupDue);
+  const counts = data.reduce((m, row) => {
+    const bucket = _followupDueBucket(row);
+    if (bucket === 'overdue' || bucket === 'today' || bucket === 'future') m[bucket]++;
+    return m;
+  }, { overdue: 0, today: 0, future: 0 });
+
+  if (!data.length) {
+    return `
+      <div class="fu-table-summary">
+        <span class="fu-summary-pill danger">Overdue 0</span>
+        <span class="fu-summary-pill success">Today 0</span>
+        <span class="fu-summary-pill">Future 0</span>
+      </div>
+      <div class="table-wrap fu-table-wrap">
+        <table class="fu-table">
+          <thead>
+            <tr>
+              <th>Due</th><th>Lead Details</th><th>Last Remark</th><th>Remark Date</th><th>Stage</th><th>Owner</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="7" class="empty-table-cell">${escapeHtml(emptyMsg)}</td></tr></tbody>
+        </table>
+      </div>`;
+  }
+
+  return `
+    <div class="fu-table-summary">
+      <span class="fu-summary-pill danger">Overdue ${counts.overdue}</span>
+      <span class="fu-summary-pill success">Today ${counts.today}</span>
+      <span class="fu-summary-pill">Future ${counts.future}</span>
+    </div>
+    <div class="table-wrap fu-table-wrap">
+      <table class="fu-table">
+        <thead>
+          <tr>
+            <th>Due</th>
+            <th>Lead Details</th>
+            <th>Last Remark</th>
+            <th>Remark Date</th>
+            <th>Stage</th>
+            <th>Owner</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>${data.map(_fuTableRow).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+function _fuTableRow(r) {
+  const leadId = r['Lead ID'] || '';
+  const company = r._companyName || (leadId ? 'Linked lead unavailable' : 'Standalone');
+  const doneAction = _isOpenFollowupRow(r)
+    ? `<button type="button" class="btn btn-primary btn-sm fu-action-btn" data-followup-id="${escapeHtml(r['Follow-up ID'] || '')}" onclick="openMarkFollowupDoneForm(this.dataset.followupId)">${icon('check-circle', 14)} Mark Done</button>`
+    : '';
+  const leadAction = leadId && r._leadLabel !== 'Linked lead unavailable'
+    ? `<button type="button" class="btn btn-outlined btn-sm fu-action-btn" data-lead-id="${escapeHtml(leadId)}" onclick="_openFollowupLead(this)">${icon('history', 14)} Lead & History</button>`
+    : `<span class="muted-text">No linked lead</span>`;
+  const action = `<div class="fu-action-stack">${doneAction}${leadAction}</div>`;
+  return `<tr class="fu-row fu-row-${_followupDueBucket(r)}">
+    ${_fuDueCell(r)}
+    <td>
+      <div class="fu-lead-title">${escapeHtml(company)}</div>
+      ${r._contactPerson ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson)}</div>` : ''}
+      ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
+    </td>
+    <td><div class="fu-discussion">${escapeHtml(r['Discussion'] || '-')}</div></td>
+    <td><div class="fu-date-sub">${formatDate(r['Created At'] || r['Follow-up Date'] || '')}</div></td>
+    <td>${r._leadStageLabel ? `<span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(r._leadStageLabel)}</span>` : '-'}</td>
+    <td><div>${escapeHtml(r._assignedToLabel || r._createdByLabel || '-')}</div></td>
+    <td>${action}</td>
+  </tr>`;
+}
+
+function _fuDueCell(row) {
+  const bucket = _followupDueBucket(row);
+  const date = _fuPlannedDate(row);
+  const labels = { overdue: 'Overdue', today: 'Today', future: 'Future', done: 'Done', none: 'No Date' };
+  return `<td class="fu-due-cell fu-due-${bucket}">
+    <div class="fu-due-label">${labels[bucket]}</div>
+    <div class="fu-due-date">${date ? formatDate(date) : '-'}</div>
+  </td>`;
+}
+
+function _followupDueBucket(row) {
+  if (row && !_isOpenFollowupRow(row)) return 'done';
+  const d = _fmtDate(_fuPlannedDate(row));
+  if (!d) return 'none';
+  const today = localDateInputValue();
+  if (d < today) return 'overdue';
+  if (d === today) return 'today';
+  return 'future';
+}
+
+function _compareFollowupDue(a, b) {
+  const order = { overdue: 0, today: 1, future: 2, none: 3, done: 4 };
+  const bucketDiff = order[_followupDueBucket(a)] - order[_followupDueBucket(b)];
+  if (bucketDiff) return bucketDiff;
+  const ad = _fmtDate(_fuPlannedDate(a)) || '9999-12-31';
+  const bd = _fmtDate(_fuPlannedDate(b)) || '9999-12-31';
+  if (ad !== bd) return ad.localeCompare(bd);
+  return _followupTimeValue(b['Created At']) - _followupTimeValue(a['Created At']);
+}
+
+function _followupTimeValue(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  const t = new Date(normalized).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function _openFollowupLead(btn) {
+  const leadId = btn?.dataset?.leadId || '';
+  if (!leadId) return;
+  if (typeof openLeadDetail === 'function') openLeadDetail(leadId);
+}
+
+function _activityLogCards(rows, emptyMsg, ctx) {
+  if (!rows.length) return `<p style="color:#999;padding:20px">${emptyMsg}</p>`;
+  return rows.map(row => {
+    const r = _decorateFollowup(row, ctx);
+    const title = r._updatedStageLabel ? `Moved to ${r._updatedStageLabel}` : (r['Discussion'] || 'Activity recorded');
+    return `<div class="fu-card activity-log-card" style="border-left-color:#607D8B">
+      <div class="fu-card-header">
+        <div class="fu-card-title">
+          <span class="badge" style="background:#ECEFF1;color:#455A64;margin-right:8px">Activity</span>
+          ${escapeHtml(title)}
+        </div>
+        <span style="color:#999;font-size:12px">${formatDate(r['Created At'] || r['Follow-up Date'])}</span>
+      </div>
+      <div class="fu-card-meta">
+        ${r._createdByLabel ? `<span>${icon('user', 12)} ${escapeHtml(r._createdByLabel)}</span>` : ''}
+        ${r._clientLabel ? `<span>${icon('building-2', 12)} ${escapeHtml(r._clientLabel)}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _followupHistoryTable(rows, emptyMsg, ctx) {
+  const data = (rows || []).slice().sort((a, b) => _followupTimeValue(b['Created At'] || b['Done Date']) - _followupTimeValue(a['Created At'] || a['Done Date']));
+  if (!data.length) return `<div class="table-wrap fu-table-wrap"><table class="fu-table history-table"><tbody><tr><td class="empty-table-cell">${escapeHtml(emptyMsg)}</td></tr></tbody></table></div>`;
+  return `<div class="table-wrap fu-table-wrap">
+    <table class="fu-table history-table">
+      <thead><tr>
+        <th>Planned Date</th><th>Done Date</th><th>Done By</th><th>Remark</th><th>Stage</th><th>Next Planned</th>
+      </tr></thead>
+      <tbody>${data.map(row => {
+        const stageLabel = row['Updated Stage ID']
+          ? (ctx?.stageMap?.[row['Updated Stage ID']]?.['Stage Name'] || row['Updated Stage ID'])
+          : '-';
+        return `<tr>
+          <td>${formatDate(row['Planned Date']) || '-'}</td>
+          <td>${formatDate(row['Done Date']) || '-'}</td>
+          <td>${escapeHtml(ctx?.userMap?.[row['Done By']] || row['Done By'] || '-')}</td>
+          <td><div class="fu-discussion">${escapeHtml(row['Remark'] || '-')}</div></td>
+          <td>${stageLabel !== '-' ? `<span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(stageLabel)}</span>` : '-'}</td>
+          <td>${formatDate(row['Next Planned Date']) || '-'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>
+  </div>`;
+}
+
+function _activityLogTable(rows, emptyMsg, ctx) {
+  const data = (rows || []).slice().sort((a, b) => _followupTimeValue(b['Created At']) - _followupTimeValue(a['Created At']));
+  if (!data.length) return `<div class="table-wrap fu-table-wrap"><table class="fu-table history-table"><tbody><tr><td class="empty-table-cell">${escapeHtml(emptyMsg)}</td></tr></tbody></table></div>`;
+  return `<div class="table-wrap fu-table-wrap">
+    <table class="fu-table history-table">
+      <thead><tr><th>Date</th><th>Action</th><th>From</th><th>To</th><th>Remark</th><th>By</th></tr></thead>
+      <tbody>${data.map(row => `<tr>
+        <td>${formatDate(row['Created At']) || '-'}</td>
+        <td><span class="badge" style="background:#ECEFF1;color:#455A64">${escapeHtml(row['Action Type'] || 'Activity')}</span></td>
+        <td>${escapeHtml(_activityValueLabel(row['Old Value'], ctx)) || '-'}</td>
+        <td>${escapeHtml(_activityValueLabel(row['New Value'], ctx)) || '-'}</td>
+        <td><div class="fu-discussion">${escapeHtml(row['Remark'] || '-')}</div></td>
+        <td>${escapeHtml(ctx?.userMap?.[row['Created By']] || row['Created By'] || '-')}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>`;
+}
+
+function _activityValueLabel(value, ctx) {
+  if (!value) return '';
+  return ctx?.stageMap?.[value]?.['Stage Name'] || value;
+}
+
+function _fuLeadLabel(l) {
+  return [l['Remark'], l['Source']].filter(Boolean).join(' - ');
+}
+
+function _followupCustomFieldMeta(row) {
+  return (App.config.followupFields || [])
+    .filter(f => row[f['Column Key']] !== undefined && row[f['Column Key']] !== '')
+    .map(f => `<span>${icon('clipboard-list', 12)} ${escapeHtml(f['Field Name'])}: ${_customFieldDisplayValue(row[f['Column Key']], f)}</span>`)
+    .join('');
+}
+
+function _renderCustomQuery() {
+  el('fu-body').innerHTML = `
+    <div class="query-builder">
+      <div style="font-weight:600;margin-bottom:10px;font-size:13px">Build Query</div>
+      <div id="query-rows"></div>
+      <button class="query-add-btn" onclick="_addQueryRow()">${icon('plus', 14)} Add Filter</button>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" onclick="_runCustomQuery()">Run Query</button>
+        <button class="btn btn-outlined btn-sm" onclick="_clearQuery()">Clear</button>
+      </div>
+    </div>
+    <div id="query-results"></div>`;
+  renderIcons(el('fu-body'));
+  _addQueryRow(); // start with one row
+}
+
+const BASE_QUERY_FIELDS = [
+  { field: 'Follow-up Type', label: 'Type' },
+  { field: 'Outcome', label: 'Outcome' },
+  { field: '_leadLabel', label: 'Lead' },
+  { field: '_clientLabel', label: 'Client' },
+  { field: 'Planned Date', label: 'Planned Date' },
+  { field: 'Status', label: 'Status' },
+  { field: '_createdByLabel', label: 'Created By' },
+  { field: '_updatedStageLabel', label: 'Updated Stage' }
+];
+const QUERY_OPS = ['=','!=','contains','starts with','is empty','is not empty','before','after'];
+
+function _followupQueryFields() {
+  const custom = (App.config.followupFields || []).map(f => ({
+    field: f['Column Key'],
+    label: f['Field Name']
+  }));
+  return BASE_QUERY_FIELDS.concat(custom);
+}
+
+function _addQueryRow() {
+  const container = el('query-rows');
+  const idx = container.children.length;
+  const div = document.createElement('div');
+  div.className = 'query-row';
+  div.dataset.idx = idx;
+  div.innerHTML = `
+    <select class="form-control" name="field">
+      ${_followupQueryFields().map(f => `<option value="${escapeHtml(f.field)}">${escapeHtml(f.label)}</option>`).join('')}
+    </select>
+    <select class="form-control" name="op" style="max-width:140px">
+      ${QUERY_OPS.map(o => `<option>${o}</option>`).join('')}
+    </select>
+    <input class="form-control" name="val" placeholder="Value">
+    <button onclick="this.parentElement.remove()" title="Remove filter" style="background:none;border:none;color:#D32F2F;cursor:pointer;padding:3px 4px">${icon('x', 16)}</button>`;
+  container.appendChild(div);
+  renderIcons(div);
+}
+
+function _clearQuery() {
+  el('query-rows').innerHTML = '';
+  el('query-results').innerHTML = '';
+  _addQueryRow();
+}
+
+async function _runCustomQuery() {
+  const rows = el('query-rows').querySelectorAll('.query-row');
+  const filters = Array.from(rows).map(row => ({
+    field: row.querySelector('[name=field]').value,
+    op:    row.querySelector('[name=op]').value,
+    val:   row.querySelector('[name=val]').value.trim()
+  })).filter(f => f.val || f.op === 'is empty' || f.op === 'is not empty');
+
+  el('query-results').innerHTML = skeletonPage('table');
+  try {
+    await Promise.all([
+      _ensureCached('followups', () => api.getFollowups({})),
+      _ensureCached('leads',     () => api.getFollowupLeads())
+    ]);
+    const ctx = _buildFollowupContext(AppCache.getRows('leads'));
+    let data = AppCache.getRows('followups')
+      .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+      .filter(_isOpenFollowupRow)
+      .map(r => _decorateFollowup(r, ctx))
+      .filter(r => filters.every(f => _applyFilter(r, f)));
+    el('query-results').innerHTML = `
+      <div style="font-size:13px;color:#666;margin-bottom:8px">${data.length} result(s)</div>
+      ${_fuTable(data, 'No results match your query.')}`;
+    renderIcons(el('query-results'));
+  } catch(e) { el('query-results').innerHTML = `<p style="color:red">${e}</p>`; }
+}
+
+function _applyFilter(row, { field, op, val }) {
+  const cell = String(row[field] || '').toLowerCase();
+  const v    = val.toLowerCase();
+  switch (op) {
+    case '=':            return cell === v;
+    case '!=':           return cell !== v;
+    case 'contains':     return cell.includes(v);
+    case 'starts with':  return cell.startsWith(v);
+    case 'is empty':     return !cell;
+    case 'is not empty': return !!cell;
+    case 'before':       return val && new Date(row[field]) < new Date(val);
+    case 'after':        return val && new Date(row[field]) > new Date(val);
+    default:             return true;
+  }
+}
+
+// ── Follow-up Form ────────────────────────────────────────────────────────────
+// leadId/clientId optional — supports standalone follow-ups with no lead
+async function openFollowupForm(leadId = '', leadName = '') {
+  const cfg = App.config;
+  const formData = await _getFollowupFormData();
+  const leads = formData.leads || [];
+  const selectedLead = leads.find(l => l['Lead ID'] === leadId);
+  const selectedLeadLabel = leadName || (selectedLead ? _fuLeadLabel(selectedLead) : '');
+  const followupFields = cfg.followupFields || [];
+  const configOptions = _configOptionsMap(cfg._allConfigs || []);
+  const overlay = showModal(`
+    <div class="modal-header">
+      <h2>${leadName ? `Follow-up: ${escapeHtml(leadName)}` : 'Add Follow-up'}</h2>
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    </div>
+    <form id="fu-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Planned Date *</label>
+          <input class="form-control" name="Planned Date" type="date" value="${localDateInputValue()}" required>
+        </div>
+        <div class="form-group">
+          <label>Type *</label>
+          <select class="form-control" name="Follow-up Type" required>
+            ${cfg.followupTypes.map(t => `<option>${escapeHtml(t)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Link to Lead <span style="color:#999;font-weight:400">(optional)</span></label>
+        <div style="display:flex;gap:8px">
+          <input type="hidden" name="Lead ID" id="fu-lead-id" value="${escapeHtml(leadId)}">
+          <input class="form-control" id="fu-lead-display" value="${escapeHtml(selectedLeadLabel)}" placeholder="Standalone follow-up" readonly>
+          <button type="button" class="btn btn-outlined btn-sm" onclick="_fuPickLead()" style="white-space:nowrap">Pick Lead</button>
+          <button type="button" class="btn btn-outlined btn-sm" onclick="_clearSelectedLead()" title="Clear lead">${icon('x', 14)}</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Discussion / Remarks *</label>
+        <textarea class="form-control" name="Discussion" rows="3" required></textarea>
+      </div>
+
+      <div class="form-group" id="fu-stage-wrap" style="${leadId ? '' : 'display:none'}">
+        <label>Move to Next Stage</label>
+        <select class="form-control" name="Updated Stage ID" ${leadId ? '' : 'disabled'}>
+          ${_fuNextStageOptionsHTML(leadId, leads)}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Next Action</label>
+        <input class="form-control" name="Next Action" placeholder="What to do next...">
+      </div>
+
+      ${buildFollowupCustomFieldsHTML({}, followupFields, configOptions)}
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Follow-up</button>
+      </div>
+    </form>`);
+
+  const fuForm = overlay.querySelector('#fu-form');
+  initFollowupCustomFields(overlay);
+  _initFollowupValidator(fuForm).onSuccess(async () => {
+    if (!validateCfMultiselects(fuForm)) return;
+    const btn = fuForm.querySelector('[type=submit]');
+    setButtonLoading(btn, 'Saving...');
+    try {
+      const payload = await collectLeadFormPayload(fuForm);
+      if (!payload['Lead ID'])          delete payload['Lead ID'];
+      if (!payload['Updated Stage ID']) delete payload['Updated Stage ID'];
+      if (!payload['Lead ID'])          delete payload['Updated Stage ID'];
+      payload['Follow-up Date'] = payload['Follow-up Date'] || payload['Planned Date'];
+      payload['Next Follow-up Date'] = payload['Planned Date'];
+      payload['Status'] = 'Open';
+
+      const newId = await api.saveFollowup(payload);
+
+      // Update followup cache
+      AppCache.addRow('followups', {
+        ...payload,
+        'Follow-up ID': newId,
+        'Created By': App.user.id,
+        'Created At': _nowStr(),
+        'Updated At': _nowStr()
+      });
+
+      // Patch the linked lead's planned follow-up date + stage in cache.
+      if (payload['Lead ID']) {
+        const patch = { 'Next Follow-up Date': payload['Planned Date'], 'Updated At': _nowStr() };
+        if (payload['Updated Stage ID'])    patch['Stage ID'] = payload['Updated Stage ID'];
+        AppCache.patchRow('leads', 'Lead ID', payload['Lead ID'], patch);
+      }
+
+      toast('Follow-up saved!');
+      overlay.remove();
+      if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+    } catch (err) {
+      toast(err, 'error');
+      resetButtonLoading(btn);
+    }
+  });
+  initFollowupCustomFields(overlay);
+  const leadInput = overlay.querySelector('#fu-lead-id');
+  if (leadInput) leadInput.addEventListener('input', () => _toggleFUStageField(!!leadInput.value.trim()));
+}
+
+async function openMarkFollowupDoneForm(followupId) {
+  const row = AppCache.getRows('followups').find(f => f['Follow-up ID'] === followupId);
+  if (!row) return toast('Follow-up not found in the current view.', 'error');
+  const lead = row['Lead ID'] ? AppCache.getRows('leads').find(l => l['Lead ID'] === row['Lead ID']) : null;
+  const ctx = _buildFollowupContext(lead ? [lead] : AppCache.getRows('leads'));
+  const decorated = _decorateFollowup(row, ctx);
+  const issueOptions = (App.config._allConfigs || [])
+    .filter(c => c['Config Type'] === 'Issues' && c['Status'] === 'Active')
+    .map(c => '<option>' + escapeHtml(c['Value']) + '</option>').join('');
+  const stageOptionsHTML = lead ? _fuNextStageOptionsHTML(lead['Lead ID'], AppCache.getRows('leads')) : '<option value="">No Change</option>';
+  const todayStr = localDateInputValue();
+  const _maxD = new Date(); _maxD.setDate(_maxD.getDate() + 7);
+  const maxNextDate = _maxD.toISOString().split('T')[0];
+  const stageMap = (App.config.allStages || App.config.stages || []).reduce(function(m,s){m[s['Stage ID']]=s;return m;},{});
+  const leadStageName = lead && stageMap[lead['Stage ID']] ? stageMap[lead['Stage ID']]['Stage Name'] : '—';
+  const leadFields    = App.config.leadFields || [];
+  const configOptions = _configOptionsMap(App.config._allConfigs || []);
+  const leadDetailHTML = lead
+    ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;font-size:12px;margin-bottom:10px">'
+      + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Company</div><div style="font-weight:600;color:#111827">' + escapeHtml(lead['Company Name']||'—') + '</div></div>'
+      + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Contact</div><div style="font-weight:600;color:#111827">' + escapeHtml(lead['Contact Person']||'—') + '</div></div>'
+      + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Phone</div><div style="font-weight:600;color:#111827">' + escapeHtml(lead['Phone']||'—') + '</div></div>'
+      + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Stage</div><div style="font-weight:600;color:#111827">' + escapeHtml(leadStageName) + '</div></div>'
+      + '</div>'
+    : '<div style="font-size:13px;color:#6b7280;margin-bottom:8px">Standalone follow-up</div>';
+  const issueFieldHTML = issueOptions
+    ? '<div class="form-group"><label>Issues</label><select class="form-control" name="Issues"><option value="">None</option>' + issueOptions + '</select></div>'
+    : '';
+  const stageFieldHTML = lead
+    ? '<div class="form-group"><label>Move to Stage</label><select class="form-control" name="Updated Stage ID" onchange="_onMarkDoneStageChange(this)">' + stageOptionsHTML + '</select></div><div id="fu-done-stage-fields"></div>'
+    : '';
+
+  const overlay = showModal(`
+    <div class="modal-header">
+      <h2>Mark Follow-up Done</h2>
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    </div>
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:14px">
+      ${leadDetailHTML}
+      <div style="border-top:1px solid #e5e7eb;padding-top:8px">
+        <div style="font-size:11px;color:#9ca3af;margin-bottom:3px">Planned: ${formatDate(_fuPlannedDate(row))}</div>
+        <div style="font-size:13px;color:#374151;font-weight:500">${escapeHtml(row['Discussion'] || '—')}</div>
+      </div>
+    </div>
+    <form id="fu-done-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Done Date *</label>
+          <input class="form-control" name="Done Date" type="date" value="${todayStr}" max="${todayStr}" required>
+        </div>
+        <div class="form-group">
+          <label>Next Planned Date * <span style="font-size:10px;color:#9ca3af;font-weight:400">(within 7 days)</span></label>
+          <input class="form-control" name="Next Follow-up Date" type="date" min="${todayStr}" max="${maxNextDate}" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Done Remark *</label>
+        <textarea class="form-control" name="Remark" rows="3" required placeholder="What happened in this follow-up?"></textarea>
+      </div>
+      ${issueFieldHTML}
+      ${stageFieldHTML}
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+        <button type="submit" class="btn btn-primary">${icon('check-circle', 16)} Save Done</button>
+      </div>
+    </form>`);
+
+  const form = overlay.querySelector('#fu-done-form');
+  const validator = _makeValidator(form);
+  validator.addField(form.querySelector('[name="Done Date"]'),          [{ rule: 'required', errorMessage: 'Done date is required.' }]);
+  validator.addField(form.querySelector('[name="Remark"]'),             [{ rule: 'required', errorMessage: 'Done remark is required.' }]);
+  validator.addField(form.querySelector('[name="Next Follow-up Date"]'),[
+    { rule: 'required', errorMessage: 'Next planned date is required.' },
+    { rule: 'function', validator: function(val) {
+        if (!val) return false;
+        const d = new Date(val); const t = new Date(); t.setHours(0,0,0,0);
+        const mx = new Date(t); mx.setDate(mx.getDate() + 7);
+        return d >= t && d <= mx;
+      }, errorMessage: 'Next planned date must be within the next 7 days.' }
+  ]);
+  validator.onSuccess(async () => {
+    if (!validateCfMultiselects(form)) return;
+    const stageFieldsCont = document.getElementById('fu-done-stage-fields');
+    if (stageFieldsCont) {
+      const firstInvalid = stageFieldsCont.querySelector('[required]:invalid');
+      if (firstInvalid) { firstInvalid.reportValidity(); return; }
+    }
+    const btn = form.querySelector('[type=submit]');
+    setButtonLoading(btn, 'Saving...');
+    try {
+      const payload = await collectLeadFormPayload(form);
+      if (!payload['Updated Stage ID']) delete payload['Updated Stage ID'];
+      if (!payload['Issues'])           delete payload['Issues'];
+      const result = await api.markFollowupDone(followupId, payload);
+      _applyFollowupDoneResult(result);
+      toast('Follow-up saved. Next follow-up planned.');
+      overlay.remove();
+    } catch (err) {
+      toast(err, 'error');
+      resetButtonLoading(btn);
+    }
+  });
+  renderIcons(overlay);
+}
+
+function _applyFollowupDoneResult(result) {
+  if (!result) return;
+  const followup = result.followup;
+  if (followup) {
+    if (_isOpenFollowupRow(followup)) AppCache.patchRow('followups', 'Follow-up ID', followup['Follow-up ID'], followup);
+    else AppCache.removeRow('followups', 'Follow-up ID', followup['Follow-up ID']);
+  }
+  if (result.history) AppCache.addRow('followupHistory', result.history);
+  if (result.activityLog) AppCache.addRow('activityLogs', result.activityLog);
+  if (result.leadId && result.leadPatch) AppCache.patchRow('leads', 'Lead ID', result.leadId, result.leadPatch);
+  if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+  if (App.currentPage === 'dashboard') loadDashboard();
+}
+
+// Lead picker — shows a quick searchable list of open leads
+async function _fuPickLead() {
+  const formData = await _getFollowupFormData(true);
+  const leads = formData.leads || [];
+  const open  = leads.filter(l => l['Lead Status'] === 'Open');
+  const overlay = showModal(`
+    <div class="modal-header">
+      <h2>Pick a Lead</h2>
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    </div>
+    <input class="form-control" id="lead-picker-search" placeholder="Search lead or company..." style="margin-bottom:12px" oninput="_filterLeadPicker(this.value)">
+    <div id="lead-picker-list" style="max-height:320px;overflow-y:auto">
+      ${open.map(l => `
+        <div class="fu-card lead-picker-item" style="cursor:pointer;border-left-color:#1565C0"
+          data-lead-id="${escapeHtml(l['Lead ID']||'')}"
+          data-lead-name="${escapeHtml(_fuLeadLabel(l))}">
+          <div class="fu-card-title">${escapeHtml(l['Remark']||'')}</div>
+          <div class="fu-card-meta">
+            ${l['Company Name'] ? `<span>${icon('building-2', 12)} ${escapeHtml(l['Company Name'])}</span>` : ''}
+            <span>${escapeHtml(l['Source']||'')}</span>
+            <span class="badge badge-${_badgeClass(l['Priority'])}">${escapeHtml(l['Priority']||'')}</span>
+          </div>
+        </div>`).join('')}
+    </div>`);
+  overlay.querySelectorAll('.lead-picker-item').forEach(item => {
+    item.addEventListener('click', () => {
+      _selectLead(item.dataset.leadId || '', item.dataset.leadName || '');
+    });
+  });
+  overlay._leads = open;
+}
+
+function _filterLeadPicker(q) {
+  const items = el('lead-picker-list').querySelectorAll('.fu-card');
+  items.forEach(item => {
+    item.style.display = item.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
+  });
+}
+
+function _selectLead(leadId, leadName) {
+  const leadInput   = el('fu-lead-id');
+  const leadDisplay = el('fu-lead-display');
+  if (leadInput)   leadInput.value   = leadId;
+  if (leadDisplay) leadDisplay.value = leadName || '';
+  const stageSelect = el('fu-stage-wrap')?.querySelector('[name="Updated Stage ID"]');
+  if (stageSelect) stageSelect.innerHTML = _fuNextStageOptionsHTML(leadId, AppCache.getRows('leads'));
+  _toggleFUStageField(!!leadId);
+  document.querySelectorAll('.modal-overlay')[1]?.remove();
+}
+
+function _fuNextStageOptionsHTML(leadId, leads = []) {
+  if (!leadId) return '<option value="">No Change</option>';
+  const lead = leads.find(l => l['Lead ID'] === leadId);
+  const stages = App.config.stages;
+  const idx = lead ? stages.findIndex(s => s['Stage ID'] === lead['Stage ID']) : -1;
+  const next = idx >= 0 && idx < stages.length - 1 ? stages[idx + 1] : null;
+  const currentLabel = idx >= 0 ? ` (currently: ${escapeHtml(stages[idx]['Stage Name'])})` : '';
+  if (!next) return `<option value="">No Change — already at final stage</option>`;
+  return `<option value="">No Change${currentLabel}</option><option value="${escapeHtml(next['Stage ID'])}">${escapeHtml(next['Stage Name'])}</option>`;
+}
+
+function _clearSelectedLead() {
+  const leadInput = el('fu-lead-id');
+  const leadDisplay = el('fu-lead-display');
+  if (leadInput) leadInput.value = '';
+  if (leadDisplay) leadDisplay.value = '';
+  _toggleFUStageField(false);
+}
+
+function _badgeClass(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+function _toggleFUStageField(enabled) {
+  const wrap = el('fu-stage-wrap');
+  const select = wrap?.querySelector('[name="Updated Stage ID"]');
+  if (!wrap || !select) return;
+  wrap.style.display = enabled ? '' : 'none';
+  // Fix #23: explicitly clear value before disabling so FormData never submits a stale stage
+  select.value = enabled ? select.value : '';
+  select.disabled = !enabled;
+}
+
+function _initFollowupValidator(form) {
+  const v = _makeValidator(form);
+  const f = name => form.querySelector(`[name="${name}"]`);
+  v.addField(f('Planned Date'), [{ rule: 'required', errorMessage: 'Planned date is required.' }]);
+  v.addField(f('Follow-up Type'), [{ rule: 'required', errorMessage: 'Please select a follow-up type.' }]);
+  v.addField(f('Discussion'),     [{ rule: 'required', errorMessage: 'Discussion / remarks are required.' }]);
+  return v;
+}
+
+function buildFollowupCustomFieldsHTML(d = {}, fields = [], configOptions = {}) {
+  const visible = (fields || []).filter(f => f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE');
+  if (!visible.length) return '';
+  return `<div class="custom-field-section">
+    <h3 style="font-size:14px;font-weight:600;margin:8px 0 12px;color:var(--md-primary)">Follow-up Fields</h3>
+    ${visible.map(f => _customFieldControlHTML(f, d, configOptions)).join('')}
+  </div>`;
+}
+
+function initFollowupCustomFields(root) {
+  root.querySelectorAll('.lead-custom-field').forEach(row => {
+    row.style.display = '';
+    row.querySelectorAll('input,select,textarea').forEach(input => {
+      input.disabled = false;
+      if (!(input.type === 'hidden' && input.hasAttribute('data-cf-ms-value'))) {
+        input.required = input.dataset.required === 'true';
+      }
+    });
+  });
+  _initCfMultiselects(root);
+}
+
+function _fuClientLabel(c) {
+  return [c['Company Name'], c['Contact Person'], c['City']]
+    .filter(Boolean)
+    .join(' - ');
+}
+
+function _onMarkDoneStageChange(select) {
+  const stageId   = select.value;
+  const container = document.getElementById('fu-done-stage-fields');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!stageId) return;
+  const configOptions = _configOptionsMap(App.config._allConfigs || []);
+  const fields = (App.config.leadFields || []).filter(f =>
+    f['Stage ID'] === stageId &&
+    f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE' &&
+    f['Field Type'] !== 'Formula'
+  );
+  if (!fields.length) return;
+  container.innerHTML = `<div class="custom-field-section">
+    <h3 style="font-size:14px;font-weight:600;margin:8px 0 12px;color:var(--md-primary)">Stage Fields</h3>
+    ${fields.map(f => _customFieldControlHTML(f, {}, configOptions)).join('')}
+  </div>`;
+  _initCfMultiselects(container);
+  renderIcons(container);
+}
+</script>

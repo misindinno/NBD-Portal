@@ -1,0 +1,355 @@
+<script>
+async function loadPipeline() {
+  el('page-title').textContent = 'Pipeline';
+  if (!AppCache.isLoaded('leads')) {
+    setContentLoading('kanban');
+    await _ensureCached('leads', () => api.getLeads());
+  }
+
+  const openLeads = AppCache.getRows('leads').filter(r => r['Lead Status'] === 'Open');
+  const pipeline  = App.config.stages.map(s => ({
+    stage: s, leads: openLeads.filter(l => l['Stage ID'] === s['Stage ID'])
+  }));
+  const userMap  = App.config.users.reduce((m, u) => { m[u.id] = u; return m; }, {});
+  const stageMap = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
+  window.pipelineLeadMap = {};
+  pipeline.forEach(col => col.leads.forEach(lead => {
+    window.pipelineLeadMap[lead['Lead ID']] = lead;
+  }));
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  // TAT-based overdue: days in current stage > stage TAT Days
+  function _isOverdue(lead) {
+    const stage   = stageMap[lead['Stage ID']];
+    const tatDays = stage ? Number(stage['TAT Days'] || 0) : 0;
+    if (tatDays <= 0) return { overdue: false };
+    const dateStr = lead['Stage Updated At'] || lead['Updated At'];
+    if (!dateStr) return { overdue: false };
+    const entered = new Date(dateStr); entered.setHours(0, 0, 0, 0);
+    const daysIn  = Math.floor((today - entered) / 86400000);
+    return daysIn > tatDays
+      ? { overdue: true, daysOver: daysIn - tatDays, daysIn, tatDays }
+      : { overdue: false };
+  }
+
+  function _priorityEdge(priority, overdue) {
+    if (overdue) return 'pc-edge-overdue';
+    const p = String(priority || '').toUpperCase();
+    if (p === 'HOT')  return 'pc-edge-hot';
+    if (p === 'WARM') return 'pc-edge-warm';
+    if (p === 'COLD') return 'pc-edge-cold';
+    return 'pc-edge-none';
+  }
+
+  function _initials(name) {
+    if (!name) return '?';
+    const p = name.trim().split(/\s+/);
+    return p.length === 1 ? p[0].slice(0, 2).toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase();
+  }
+
+  function _avatarBg(name) {
+    const COLORS = ['#1565C0','#7B1FA2','#00838F','#2E7D32','#C62828','#E65100','#4527A0','#00695C'];
+    if (!name) return '#757575';
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xFFFF;
+    return COLORS[h % COLORS.length];
+  }
+
+  function renderCard(lead) {
+    const od           = _isOverdue(lead);
+    const edgeCls      = _priorityEdge(lead['Priority'], od.overdue);
+    const u            = userMap[lead['Assigned To']];
+    const assignedName = u ? (u.name || '') : '';
+    const company      = escapeHtml(lead['Company Name'] || '');
+    const contactPerson      = escapeHtml(lead['Contact Person'] || '');
+    const remark       = escapeHtml(lead['Remark'] || '');
+    const phone        = escapeHtml(lead['Phone'] || '');
+    const altPhone     = escapeHtml(lead['Alternate No'] || '');
+    const email        = escapeHtml(lead['Email'] || '');
+    const city         = escapeHtml(lead['City'] || '');
+    const state        = escapeHtml(lead['State'] || '');
+    const category     = escapeHtml(lead['Category'] || '');
+    const source       = escapeHtml(lead['Source'] || '');
+    const product      = escapeHtml(lead['Product Interest'] || '');
+    const cityState    = [city, state].filter(Boolean).join(', ');
+    const leadRef      = String(lead['Lead ID'] || '').slice(0, 8).toUpperCase();
+    const title        = company || remark;
+    const priority     = lead['Priority'] || '';
+    const dueDate      = lead['Next Follow-up Date'];
+    const tooltip      = [lead['Company Name'], lead['Contact Person'], lead['Phone'], lead['Email'], lead['City'], lead['State'], lead['Remark']].filter(Boolean).join(' · ');
+    const overdueLabel = od.overdue ? `&#9888; ${od.daysOver}d over TAT` : '';
+
+    return `<div class="pipeline-card" data-lead-id="${escapeHtml(lead['Lead ID'])}" title="${escapeHtml(tooltip)}">
+      <div class="pc-edge ${edgeCls}"></div>
+      <div class="pc-body">
+        <div class="pc-title">${title}</div>
+        ${contactPerson   ? `<div class="pc-contact">${contactPerson}</div>` : ''}
+        <div class="pc-fields">
+          ${assignedName ? `<div class="pc-field">${icon('user', 10)} ${escapeHtml(contactPerson)}</div>` : ''}
+          ${phone    ? `<div class="pc-field">${icon('phone', 10)} ${phone}${altPhone ? ` &nbsp;·&nbsp; ${altPhone}` : ''}</div>` : (altPhone ? `<div class="pc-field">${icon('phone', 10)} ${altPhone}</div>` : '')}
+          ${email    ? `<div class="pc-field">${icon('mail', 10)} ${email}</div>` : ''}
+          ${cityState? `<div class="pc-field">${icon('map-pin', 10)} ${cityState}</div>` : ''}
+          ${category ? `<div class="pc-field">${icon('tag', 10)} ${category}</div>` : ''}
+          ${source   ? `<div class="pc-field">${icon('share-2', 10)} ${source}</div>` : ''}
+          ${product  ? `<div class="pc-field">${icon('package', 10)} ${product}</div>` : ''}
+        </div>
+        ${(priority || od.overdue) ? `<div class="pc-tags">
+          ${priority  ? `<span class="badge badge-${escapeHtml(priority.toLowerCase())}">${escapeHtml(priority)}</span>` : ''}
+          ${od.overdue ? `<span class="pc-overdue-flag">${overdueLabel}</span>` : ''}
+        </div>` : ''}
+        <div class="pc-footer">
+          <div class="pc-assignee">
+            ${assignedName
+              ? `<div class="pc-avatar" style="background:${_avatarBg(assignedName)}">${_initials(assignedName)}</div>
+                 <span class="pc-assignee-name" title="${escapeHtml(assignedName)}">${escapeHtml(assignedName)}</span>`
+              : ''
+            }
+          </div>
+          <div class="pc-footer-right">
+            <span class="pc-lead-ref">${leadRef}</span>
+            ${dueDate ? `<span class="pc-due">${icon('calendar', 10)} ${formatDate(dueDate)}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderCol(col) {
+    const tat = col.stage['TAT Days'] ? `<span class="pipeline-col-tat" title="TAT: ${escapeHtml(col.stage['TAT Days'])} days">TAT ${escapeHtml(col.stage['TAT Days'])}d</span>` : '';
+    return `<div class="pipeline-col">
+      <div class="pipeline-col-header">
+        <div class="pipeline-col-header-left">
+          <div class="pipeline-col-dot" style="background:${safeColor(col.stage.Color)}"></div>
+          <span class="pipeline-col-name">${escapeHtml(col.stage['Stage Name'])}</span>
+          ${tat}
+        </div>
+        <span class="pipeline-col-count">${col.leads.length}</span>
+      </div>
+      <div class="pipeline-cards" data-stage-id="${col.stage['Stage ID']}">
+        ${col.leads.length
+          ? col.leads.map(renderCard).join('')
+          : `<div class="pipeline-empty">
+               <div class="pipeline-empty-icon">${icon('inbox', 16)}</div>
+               <div class="pipeline-empty-text">No leads</div>
+               <div class="pipeline-empty-hint">Drop a card here</div>
+             </div>`
+        }
+      </div>
+    </div>`;
+  }
+
+  el('content').innerHTML = `
+    <div class="pipeline-topbar">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="pipeline-topbar-hint">${icon('move', 13)} Move leads forward by dragging</span>
+        <span class="pipeline-topbar-meta">${openLeads.length} open lead${openLeads.length !== 1 ? 's' : ''}</span>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>
+    </div>
+    <div id="pipeline-board">
+      ${pipeline.map(renderCol).join('')}
+    </div>`;
+
+  renderIcons();
+
+  window.pipelineSortables = [];
+  window.pipelineUpdateInFlight = false;
+
+  document.querySelectorAll('.pipeline-cards').forEach(col => {
+    const sortable = Sortable.create(col, {
+      group: 'pipeline',
+      animation: 180,
+      easing: 'cubic-bezier(.2,0,0,1)',
+      forceFallback: true,
+      fallbackOnBody: true,
+      fallbackTolerance: 4,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      dragClass: 'sortable-drag',
+      filter: '.pipeline-empty',
+      preventOnFilter: true,
+      onMove: (evt) => {
+        if (window.pipelineUpdateInFlight) return false;
+        const fromId = evt.from.dataset.stageId;
+        const toId   = evt.to.dataset.stageId;
+        if (fromId === toId) return true;
+        const stages = App.config.stages;
+        const fromIdx = stages.findIndex(s => s['Stage ID'] === fromId);
+        const toIdx   = stages.findIndex(s => s['Stage ID'] === toId);
+        return toIdx === fromIdx + 1;
+      },
+      onEnd: async (evt) => {
+        const leadId     = evt.item.dataset.leadId;
+        const newStageId = evt.to.dataset.stageId;
+        const oldStageId = evt.from.dataset.stageId;
+        _updatePipelineCounts();
+        _updatePipelineEmptyStates();
+        if (newStageId === oldStageId) return;
+        const stages = App.config.stages;
+        const oldIdx = stages.findIndex(s => s['Stage ID'] === oldStageId);
+        const newIdx = stages.findIndex(s => s['Stage ID'] === newStageId);
+        if (newIdx !== oldIdx + 1) {
+          _restorePipelineDrag(evt);
+          _updatePipelineCounts();
+          _updatePipelineEmptyStates();
+          toast('Leads can only be moved to the next stage in sequence.', 'error');
+          return;
+        }
+        const targetFields = _pipelineStageFields(newStageId);
+        if (targetFields.length) {
+          _restorePipelineDrag(evt);
+          _updatePipelineCounts();
+          _updatePipelineEmptyStates();
+          openPipelineStageFieldsDialog(leadId, newStageId, targetFields);
+          return;
+        }
+        _setPipelineUpdating(true, evt.item);
+        _updatePipelineCounts();
+        try {
+          const result = await api.updateLeadStage(leadId, newStageId, '');
+          const status = _applyPipelineStageResult(leadId, newStageId, result);
+          if (status !== 'Open') evt.item.remove();
+          toast('Stage updated!');
+        } catch (err) {
+          toast(err, 'error');
+          _restorePipelineDrag(evt);
+        } finally {
+          _setPipelineUpdating(false, evt.item);
+          _updatePipelineCounts();
+          _updatePipelineEmptyStates();
+        }
+      }
+    });
+    window.pipelineSortables.push(sortable);
+  });
+}
+
+function _pipelineStageFields(stageId) {
+  return (App.config.leadFields || [])
+    .filter(f => f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE')
+    .filter(f => f['Stage ID'] === stageId)
+    .filter(f => f['Field Type'] !== 'Formula');
+}
+
+function _restorePipelineDrag(evt) {
+  evt.from.insertBefore(evt.item, evt.from.children[evt.oldDraggableIndex] || null);
+}
+
+function _applyPipelineStageResult(leadId, stageId, result, extraPatch = {}) {
+  const status = result?.leadStatus || result?.patch?.['Lead Status'] || 'Open';
+  const patch = {
+    ...(result?.patch || {}),
+    ...extraPatch,
+    'Stage ID': stageId,
+    'Stage Updated At': new Date().toISOString(),
+    'Lead Status': status,
+    'Updated At': _nowStr()
+  };
+  AppCache.patchRow('leads', 'Lead ID', leadId, patch);
+  if (window.pipelineLeadMap?.[leadId]) {
+    window.pipelineLeadMap[leadId] = { ...window.pipelineLeadMap[leadId], ...patch };
+  }
+  return status;
+}
+
+function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageFields(stageId)) {
+  const lead  = window.pipelineLeadMap?.[leadId] || AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
+  const stage = (App.config.stages || []).find(s => s['Stage ID'] === stageId);
+  if (!lead || !stage || !fields.length) return;
+  const configOptions = _configOptionsMap(App.config._allConfigs || []);
+  const stageData = { ...lead, 'Stage ID': stageId };
+  const overlay = showModal(`
+    <div class="modal-header">
+      <h2>${escapeHtml(stage['Stage Name'])} Fields</h2>
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&#x2715;</button>
+    </div>
+    <form id="pipeline-stage-fields-form">
+      <input type="hidden" name="Lead ID" value="${escapeHtml(leadId)}">
+      <select id="lead-stage-select" name="Stage ID" style="display:none">
+        <option value="${escapeHtml(stageId)}" selected>${escapeHtml(stage['Stage Name'])}</option>
+      </select>
+      <div style="font-size:13px;color:#666;margin-bottom:12px">
+        ${escapeHtml(lead['Company Name'] || lead['Remark'] || 'Lead')}
+        ${lead['Contact Person'] ? `<span style="color:#999;margin-left:6px">· ${escapeHtml(lead['Contact Person'])}</span>` : ''}
+      </div>
+      ${buildLeadCustomFieldsHTML(stageData, fields, configOptions)}
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+        <button type="submit" class="btn btn-primary">${icon('arrow-right', 14)} Move Lead</button>
+      </div>
+    </form>`);
+
+  const form = overlay.querySelector('#pipeline-stage-fields-form');
+  initLeadCustomFields(overlay);
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!form.reportValidity()) return;
+    if (!validateCfMultiselects(form)) return;
+    const btn = form.querySelector('[type=submit]');
+    setButtonLoading(btn, 'Moving...');
+    try {
+      const payload = await collectLeadFormPayload(form);
+      const fieldPayload = {};
+      fields.forEach(field => {
+        const key = field['Column Key'];
+        if (payload[key] !== undefined) fieldPayload[key] = payload[key];
+      });
+      const result = await api.moveLeadStageWithFields(leadId, stageId, fieldPayload, '');
+      _applyPipelineStageResult(leadId, stageId, result, fieldPayload);
+      toast('Stage updated!');
+      overlay.remove();
+      if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+      loadPipeline();
+    } catch (err) {
+      toast(err, 'error');
+      resetButtonLoading(btn);
+    }
+  });
+}
+
+function _setPipelineUpdating(isUpdating, card) {
+  window.pipelineUpdateInFlight = isUpdating;
+  (window.pipelineSortables || []).forEach(s => s.option('disabled', isUpdating));
+  document.querySelectorAll('.pipeline-card').forEach(c => c.classList.toggle('drag-disabled', isUpdating));
+  if (!card) return;
+  card.classList.toggle('is-updating', isUpdating);
+  card.setAttribute('aria-busy', isUpdating ? 'true' : 'false');
+  let badge = card.querySelector('.pipeline-update-badge');
+  if (isUpdating && !badge) {
+    badge = document.createElement('div');
+    badge.className = 'pipeline-update-badge';
+    badge.innerHTML = `${icon('loader-circle', 13, 'spin-icon')} Updating`;
+    card.appendChild(badge);
+    renderIcons(card);
+  } else if (!isUpdating && badge) {
+    badge.remove();
+  }
+}
+
+function _updatePipelineCounts() {
+  document.querySelectorAll('.pipeline-col').forEach(col => {
+    const cards   = col.querySelector('.pipeline-cards');
+    const countEl = col.querySelector('.pipeline-col-count');
+    if (countEl && cards) countEl.textContent = cards.querySelectorAll('.pipeline-card').length;
+  });
+}
+
+function _updatePipelineEmptyStates() {
+  document.querySelectorAll('.pipeline-cards').forEach(col => {
+    const hasCards = col.querySelectorAll('.pipeline-card').length > 0;
+    const empty    = col.querySelector('.pipeline-empty');
+    if (hasCards && empty) {
+      empty.remove();
+    } else if (!hasCards && !empty) {
+      const div = document.createElement('div');
+      div.className = 'pipeline-empty';
+      div.innerHTML = `<div class="pipeline-empty-icon">${icon('inbox', 16)}</div>
+        <div class="pipeline-empty-text">No leads</div>
+        <div class="pipeline-empty-hint">Drop a card here</div>`;
+      col.appendChild(div);
+      renderIcons(div);
+    }
+  });
+}
+</script>

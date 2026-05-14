@@ -1,0 +1,226 @@
+<script>
+async function loadLeadForm() {
+  el('page-title').textContent = 'Add New Lead';
+  const cfg = App.config;
+  const leadFields = cfg.leadFields || [];
+  const configOptions = _configOptionsMap(cfg._allConfigs || []);
+  const canAssign = ['ADMIN', 'MANAGER'].includes(App.user.role);
+  const productInterests = cfg.productInterests || [];
+  const stageMap = cfg.stages.reduce((m, s) => { m[s['Stage ID']] = s['Stage Name']; return m; }, {});
+  const initialStage = (cfg.stages || []).find(function(s) { return s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE'; }) || cfg.stages[0];
+  const hiddenStageInput = initialStage ? '<input type="hidden" name="Stage ID" value="' + escapeHtml(initialStage['Stage ID']) + '">' : '';
+  const statesHTML    = cfg.states.map(function(s){ return '<option>' + escapeHtml(s) + '</option>'; }).join('');
+  const categoriesHTML = cfg.categories.map(function(c){ return '<option>' + escapeHtml(c) + '</option>'; }).join('');
+  const sourcesHTML   = cfg.sources.map(function(s){ return '<option>' + escapeHtml(s) + '</option>'; }).join('');
+  const prioritiesHTML = cfg.priorities.map(function(p){ return '<option>' + escapeHtml(p) + '</option>'; }).join('');
+  const productInterestHTML = productInterests.length
+    ? '<div class="form-group"><label>Product Interest</label><select class="form-control" name="Product Interest"><option value="">Select Product Interest</option>'
+      + productInterests.map(function(p){ return '<option>' + escapeHtml(p) + '</option>'; }).join('')
+      + '</select></div>'
+    : '';
+  const assignedToHTML = canAssign
+    ? '<div class="form-group"><label>Assigned To</label><select class="form-control" name="Assigned To">'
+      + cfg.users.map(function(u){ return '<option value="' + escapeHtml(u.id) + '"' + (u.id === App.user.id ? ' selected' : '') + '>' + escapeHtml(u.name) + '</option>'; }).join('')
+      + '</select></div>'
+    : '';
+
+  el('content').innerHTML = `
+    <div id="lf-wrap" style="max-width:700px;margin:0 auto;padding-bottom:40px">
+      <div class="card" style="border-top:6px solid var(--md-primary);padding:32px 36px 28px">
+        <div style="margin-bottom:28px">
+          <h1 style="font-size:22px;font-weight:700;color:var(--md-primary);margin-bottom:6px">Add New Lead</h1>
+          <p style="color:#666;font-size:13px">Fill in the lead details below. Fields marked * are required.</p>
+        </div>
+
+        <form id="lf-form" autocomplete="off">
+          ${hiddenStageInput}
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Company Name *</label>
+              <input class="form-control input-capitalize" name="Company Name" autocapitalize="words" required placeholder="e.g. Acme Corp">
+            </div>
+            <div class="form-group">
+              <label>Contact Person *</label>
+              <input class="form-control input-capitalize" name="Contact Person" autocapitalize="words" required placeholder="e.g. Raj Kumar">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Phone *</label>
+              <input class="form-control" name="Phone" type="tel" required placeholder="+91 98765 43210">
+            </div>
+            <div class="form-group">
+              <label>Alternate No</label>
+              <input class="form-control" name="Alternate No" type="tel" placeholder="+91 98765 43210">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Email</label>
+              <input class="form-control input-lowercase" name="Email" type="email" autocapitalize="none" autocorrect="off" placeholder="name@company.com">
+            </div>
+            <div class="form-group">
+              <label>GST No</label>
+              <input class="form-control input-uppercase" name="GST No" oninput="this.value=this.value.toUpperCase()" placeholder="22AAAAA0000A1Z5">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>State *</label>
+              <select class="form-control" name="State" required>
+                <option value="">Select State</option>
+                ${statesHTML}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>City *</label>
+              <select class="form-control" name="City" required>
+                <option value="">Select City</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Category *</label>
+              <select class="form-control" name="Category" required>
+                <option value="">Select</option>
+                ${categoriesHTML}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Address</label>
+              <input class="form-control" name="Address" placeholder="Street / Area">
+            </div>
+          </div>
+
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--md-primary);margin:20px 0 14px;padding-bottom:6px;border-bottom:1px solid #E8EAF6">Lead Information</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Remark *</label>
+              <input class="form-control" name="Remark" required placeholder="Brief description of the lead">
+            </div>
+            <div class="form-group">
+              <label>Source *</label>
+              <select class="form-control" name="Source" required>
+                <option value="">Select Source</option>
+                ${sourcesHTML}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Priority</label>
+            <select class="form-control" name="Priority">
+              ${prioritiesHTML}
+            </select>
+          </div>
+
+          ${productInterestHTML}
+          ${assignedToHTML}
+
+          ${_lfCustomFieldsHTML(leadFields, configOptions)}
+
+          <div style="margin-top:28px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button type="submit" class="btn btn-primary" style="min-width:160px;padding:10px 24px;font-size:15px">
+              ${icon('send', 16)} Submit Lead
+            </button>
+            <button type="button" class="btn btn-outlined" onclick="_lfResetForm()">Clear Form</button>
+          </div>
+
+        </form>
+      </div>
+    </div>`;
+
+  renderIcons();
+  initLeadCustomFields(el('content'));
+  _initStateCityDropdowns(el('content'), '', '');
+  _lfInitValidator();
+}
+
+function _lfCustomFieldsHTML(leadFields, configOptions) {
+  if (!leadFields.length) return '';
+  const cfg = App.config;
+  const initialStage = cfg.stages.find(s => s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE') || cfg.stages[0];
+  const initialStageId = initialStage ? initialStage['Stage ID'] : '';
+  // Show global fields (no stage) AND fields belonging to the initial stage
+  const visibleFields = leadFields.filter(f => !f['Stage ID'] || f['Stage ID'] === initialStageId);
+  if (!visibleFields.length) return '';
+  return `
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--md-primary);margin:20px 0 14px;padding-bottom:6px;border-bottom:1px solid #E8EAF6">Additional Fields</div>
+    ${visibleFields.map(f => _customFieldControlHTML(f, {}, configOptions)).join('')}`;
+}
+
+function _lfInitValidator() {
+  const form = el('lf-form');
+  if (!form) return;
+  const v = _makeValidator(form);
+  const f = name => form.querySelector(`[name="${name}"]`);
+  v.addField(f('Company Name'),   [{ rule: 'required', errorMessage: 'Company name is required.' }]);
+  v.addField(f('Remark'),         [{ rule: 'required', errorMessage: 'Remark is required.' }]);
+  if (f('Contact Person'))
+    v.addField(f('Contact Person'),[{ rule: 'required', errorMessage: 'Contact person is required.' }]);
+  if (f('Phone'))
+    v.addField(f('Phone'), [{ rule: 'function', validator: val => !!val && /^[0-9+\-\s()]{7,20}$/.test(val), errorMessage: 'Phone number is required (7–20 digits).' }]);
+  if (f('Category'))
+    v.addField(f('Category'),      [{ rule: 'required', errorMessage: 'Category is required.' }]);
+  if (f('Source'))
+    v.addField(f('Source'),        [{ rule: 'required', errorMessage: 'Source is required.' }]);
+  if (f('State'))
+    v.addField(f('State'),         [{ rule: 'required', errorMessage: 'State is required.' }]);
+  if (f('City'))
+    v.addField(f('City'),          [{ rule: 'required', errorMessage: 'City is required.' }]);
+  if (f('Email'))
+    v.addField(f('Email'), [{ rule: 'function', validator: val => !val || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val), errorMessage: 'Enter a valid email.' }]);
+  if (f('GST No'))
+    v.addField(f('GST No'), [{ rule: 'function', validator: val => !val || /^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z]Z[0-9A-Za-z]$/i.test(val), errorMessage: 'Enter a valid GST number.' }]);
+
+  v.onSuccess(async () => {
+    if (!validateCfMultiselects(form)) return;
+    const btn = form.querySelector('[type=submit]');
+    setButtonLoading(btn, 'Submitting...');
+    try {
+      const payload = await collectLeadFormPayload(form);
+      const resultId = await api.saveLead(payload);
+      AppCache.addRow('leads', {
+        ...payload, 'Lead ID': resultId,
+        'Lead Status': 'Open',
+        'Created At': _nowStr(), 'Updated At': _nowStr()
+      });
+      if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+      _lfShowSuccess(payload['Company Name'] || payload['Remark']);
+    } catch (err) {
+      toast(err, 'error');
+      resetButtonLoading(btn);
+    }
+  });
+}
+
+function _lfShowSuccess(label) {
+  const wrap = el('lf-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div class="card" style="border-top:6px solid #388E3C;padding:48px 36px;text-align:center">
+      <div style="width:64px;height:64px;background:#E8F5E9;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px">
+        ${icon('check-circle', 36)}
+      </div>
+      <h2 style="font-size:22px;font-weight:700;color:#388E3C;margin-bottom:8px">Lead Submitted!</h2>
+      <p style="color:#555;font-size:14px;margin-bottom:28px"><b>${escapeHtml(label)}</b> has been added successfully.</p>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="loadLeadForm()">${icon('plus', 14)} Add Another Lead</button>
+        ${canNavigate('leads') ? `<button class="btn btn-outlined" onclick="navigate('leads')">${icon('list', 14)} View All Leads</button>` : ''}
+      </div>
+    </div>`;
+  renderIcons(wrap);
+}
+
+function _lfResetForm() {
+  const form = el('lf-form');
+  if (form) form.reset();
+}
+</script>

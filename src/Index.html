@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><?= CLIENT_CONFIG.APP_TITLE ?></title>
+
+  <!-- Fonts + Icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Tabulator -->
+  <link href="https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_materialize.min.css" rel="stylesheet">
+  <script src="https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js"></script>
+
+  <!-- SortableJS -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- Toastify -->
+  <link href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+
+  <?!= include('CSS'); ?>
+</head>
+<body>
+  <div id="app-shell">
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">
+          <i data-lucide="zap" style="width:20px;height:20px;margin-right:6px;"></i>
+          <span class="brand-text">NBD Portal</span>
+        </div>
+        <button class="sidebar-toggle" title="Toggle sidebar" onclick="toggleSidebar()">
+          <i data-lucide="menu" style="width:20px;height:20px;"></i>
+        </button>
+      </div>
+      <nav></nav>
+    </div>
+
+    <!-- Main -->
+    <div id="main">
+      <div id="topbar">
+        <h1 id="page-title">Dashboard</h1>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="user-name" style="font-size:13px;color:#666;"></span>
+          <button id="logout-btn" onclick="logout()" title="Sign out"
+            style="display:none;background:none;border:1px solid #ddd;border-radius:6px;padding:4px 10px;font-size:12px;color:#666;cursor:pointer;font-family:inherit">
+            Sign out
+          </button>
+        </div>
+      </div>
+      <div id="content">
+        <div class="skeleton-page skeleton-dashboard">
+          <div class="skeleton-block" style="height:48px;border-radius:8px"></div>
+          <div class="skeleton-stat-grid">
+            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
+            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
+            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
+          </div>
+          <div class="skeleton-stat-grid">
+            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
+            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
+            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:3fr 2fr;gap:16px">
+            <div class="skeleton-block" style="height:260px"></div>
+            <div class="skeleton-block" style="height:260px"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div class="skeleton-block" style="height:230px"></div>
+            <div class="skeleton-block" style="height:230px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <?!= include('Store'); ?>
+  <?!= include('Cache'); ?>
+  <?!= include('Dashboard'); ?>
+  <?!= include('Leads'); ?>
+  <?!= include('Pipeline'); ?>
+  <?!= include('Followups'); ?>
+  <?!= include('Config'); ?>
+  <?!= include('LeadForm'); ?>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>const GOOGLE_CLIENT_ID = '<?!= (function(){ try { return PropertiesService.getScriptProperties().getProperty("GOOGLE_CLIENT_ID") || ""; } catch(e) { return ""; } })() ?>';</script>
+  <?!= include('JS'); ?>
+</body>
+</html>

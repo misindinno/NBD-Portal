@@ -1,0 +1,59 @@
+<script>
+// ─── AppCache — single in-memory store for all data collections ───────────────
+// Each collection entry: { rows: [], loadedAt: <Unix ms> }
+// loadedAt is also bumped on every optimistic write, so stamp checks
+// against server (Number(serverStamp) > loadedAt) only trigger a refetch
+// when another user's write occurred AFTER our last load/write.
+
+const AppCache = (() => {
+  const _c = {};
+
+  function _e(col) {
+    if (!_c[col]) _c[col] = { rows: [], loadedAt: 0 };
+    return _c[col];
+  }
+
+  // Replace entire collection. Called after a successful API fetch.
+  function setRows(col, rows) {
+    _c[col] = { rows: Array.isArray(rows) ? rows : [], loadedAt: Date.now() };
+  }
+
+  // Read rows for a collection.
+  function getRows(col) { return _c[col]?.rows || []; }
+
+  // Unix ms timestamp of when this collection was last fetched or locally written.
+  function getLoadedAt(col) { return _c[col]?.loadedAt || 0; }
+
+  // True once the collection has been fetched at least once.
+  function isLoaded(col) { return !!(_c[col]?.loadedAt); }
+
+  function touch(col) {
+    const e = _e(col);
+    e.loadedAt = Date.now();
+  }
+
+  // Merge patch into one row identified by keyField === id.
+  function patchRow(col, keyField, id, patch) {
+    const e = _e(col);
+    const idx = e.rows.findIndex(r => r[keyField] === id);
+    if (idx !== -1) e.rows[idx] = { ...e.rows[idx], ...patch };
+    e.loadedAt = Date.now(); // bump so revalidation doesn't immediately refetch our own write
+  }
+
+  // Prepend a new row (most-recent-first order).
+  function addRow(col, row) {
+    const e = _e(col);
+    e.rows = [row, ...e.rows];
+    e.loadedAt = Date.now();
+  }
+
+  // Remove the row matching keyField === id.
+  function removeRow(col, keyField, id) {
+    const e = _e(col);
+    e.rows = e.rows.filter(r => r[keyField] !== id);
+    e.loadedAt = Date.now();
+  }
+
+  return { setRows, getRows, getLoadedAt, isLoaded, touch, patchRow, addRow, removeRow };
+})();
+</script>

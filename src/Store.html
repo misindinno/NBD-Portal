@@ -1,0 +1,253 @@
+<script>
+// ─── Store.js — Lightweight Redux-inspired State Manager ─────────────────────
+// Usage:
+//   Store.dispatch('SET_USER', { name: 'Shallu' })
+//   Store.getState().user
+//   Store.subscribe((state, action) => console.log(action, state))
+
+const Store = (() => {
+  // ── Initial State ───────────────────────────────────────────────────────────
+  const INITIAL_STATE = {
+    user:        null,
+    config:      null,
+    currentPage: 'dashboard',
+    leads:       [],
+    followups:   [],
+    pipeline:    [],
+    loading:     {},   // { leads: true, clients: false, ... }
+    errors:      {},   // { leads: 'Failed to load', ... }
+    filters:     {
+      leads: { status: '', priority: '', stageId: '', search: '' }
+    }
+  };
+
+  let _state       = JSON.parse(JSON.stringify(INITIAL_STATE));
+  let _subscribers = [];
+  let _history     = []; // action log for debug panel
+
+  // ── Reducer ─────────────────────────────────────────────────────────────────
+  function _reduce(state, action, payload) {
+    switch (action) {
+      case 'SET_USER':        return { ...state, user: payload };
+      case 'SET_CONFIG':      return { ...state, config: payload };
+      case 'SET_PAGE':        return { ...state, currentPage: payload };
+      case 'SET_LEADS':       return { ...state, leads: payload };
+      case 'SET_FOLLOWUPS':   return { ...state, followups: payload };
+      case 'SET_PIPELINE':    return { ...state, pipeline: payload };
+      case 'SET_LOADING':     return { ...state, loading: { ...state.loading, [payload.key]: payload.value } };
+      case 'SET_ERROR':       return { ...state, errors:  { ...state.errors,  [payload.key]: payload.value } };
+      case 'CLEAR_ERROR':     return { ...state, errors:  { ...state.errors,  [payload]: null } };
+      case 'SET_FILTER':      return { ...state, filters: { ...state.filters,
+          [payload.module]: { ...state.filters[payload.module], [payload.key]: payload.value }
+        }};
+      case 'RESET':           return JSON.parse(JSON.stringify(INITIAL_STATE));
+      default:                return state;
+    }
+  }
+
+  // ── Public API ───────────────────────────────────────────────────────────────
+  function dispatch(action, payload) {
+    const prev  = _state;
+    _state      = _reduce(_state, action, payload);
+    const entry = { action, payload, time: new Date().toLocaleTimeString('en-IN'), state: JSON.parse(JSON.stringify(_state)) };
+    _history.push(entry);
+    if (_history.length > 50) _history.shift(); // keep last 50
+    _subscribers.forEach(fn => fn(_state, action, payload));
+    _debugRefresh(entry);
+  }
+
+  function getState()          { return _state; }
+  function getHistory()        { return _history; }
+  function subscribe(fn)       { _subscribers.push(fn); return () => _subscribers = _subscribers.filter(s => s !== fn); }
+  function isLoading(key)      { return !!_state.loading[key]; }
+  function getError(key)       { return _state.errors[key] || null; }
+  function getFilter(mod, key) { return _state.filters[mod]?.[key] ?? ''; }
+
+  // ── Async action helpers ─────────────────────────────────────────────────────
+  async function fetchData(key, apiFn, storeAction) {
+    dispatch('SET_LOADING', { key, value: true });
+    dispatch('CLEAR_ERROR', key);
+    try {
+      const data = await apiFn();
+      dispatch(storeAction, data);
+    } catch (err) {
+      dispatch('SET_ERROR', { key, value: String(err) });
+    } finally {
+      dispatch('SET_LOADING', { key, value: false });
+    }
+  }
+
+  // ── Debug Panel ──────────────────────────────────────────────────────────────
+  let _panel = null, _panelVisible = false;
+
+  function _createPanel() {
+    const div = document.createElement('div');
+    div.id = 'store-debug-panel';
+    div.innerHTML = `
+      <div id="sdp-header">
+        <span>🗃 Store Debug</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button onclick="Store._clearHistory()" style="background:#555;border:none;color:#fff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px">Clear</button>
+          <button onclick="Store._togglePanel()" style="background:#555;border:none;color:#fff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px">✕</button>
+        </div>
+      </div>
+      <div id="sdp-tabs">
+        <button class="sdp-tab active" onclick="Store._switchTab(this,'sdp-state')">State</button>
+        <button class="sdp-tab" onclick="Store._switchTab(this,'sdp-log')">Log</button>
+      </div>
+      <div id="sdp-state" class="sdp-pane">
+        <pre id="sdp-state-pre"></pre>
+      </div>
+      <div id="sdp-log" class="sdp-pane" style="display:none">
+        <div id="sdp-log-list"></div>
+      </div>`;
+    document.body.appendChild(div);
+
+    // Drag support
+    const header = div.querySelector('#sdp-header');
+    let ox = 0, oy = 0, dragging = false;
+    header.addEventListener('mousedown', e => {
+      dragging = true;
+      ox = e.clientX - div.offsetLeft;
+      oy = e.clientY - div.offsetTop;
+    });
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      div.style.left = (e.clientX - ox) + 'px';
+      div.style.top  = (e.clientY - oy) + 'px';
+      div.style.right = 'auto';
+      div.style.bottom = 'auto';
+    });
+    document.addEventListener('mouseup', () => dragging = false);
+    return div;
+  }
+
+  function _debugRefresh(entry) {
+    if (!_panel || !_panelVisible) return;
+    // Update state pane
+    const statePre = document.getElementById('sdp-state-pre');
+    if (statePre) {
+      const display = { ..._state };
+      delete display.leads; delete display.followups; delete display.pipeline;
+      statePre.textContent = JSON.stringify(display, null, 2);
+    }
+    // Update log pane
+    const logList = document.getElementById('sdp-log-list');
+    if (logList) {
+      const item = document.createElement('div');
+      item.className = 'sdp-log-item';
+      item.innerHTML = `
+        <span class="sdp-action">${entry.action}</span>
+        <span class="sdp-time">${entry.time}</span>
+        <div class="sdp-payload">${JSON.stringify(entry.payload ?? null).substring(0, 120)}</div>`;
+      logList.insertBefore(item, logList.firstChild);
+      // Keep max 30 items in DOM
+      while (logList.children.length > 30) logList.removeChild(logList.lastChild);
+    }
+  }
+
+  function _togglePanel() {
+    if (!_panel || !_panel.isConnected) _panel = _createPanel();
+    _panelVisible = !_panelVisible;
+    _panel.style.display = _panelVisible ? 'flex' : 'none';
+    if (_panelVisible) {
+      const statePre = document.getElementById('sdp-state-pre');
+      if (statePre) {
+        const display = { ..._state };
+        delete display.leads; delete display.followups; delete display.pipeline;
+        statePre.textContent = JSON.stringify(display, null, 2);
+      }
+      const logList = document.getElementById('sdp-log-list');
+      if (logList) {
+        logList.innerHTML = '';
+        [..._history].reverse().forEach(entry => {
+          const item = document.createElement('div');
+          item.className = 'sdp-log-item';
+          item.innerHTML = `
+            <span class="sdp-action">${entry.action}</span>
+            <span class="sdp-time">${entry.time}</span>
+            <div class="sdp-payload">${JSON.stringify(entry.payload ?? null).substring(0, 120)}</div>`;
+          logList.appendChild(item);
+        });
+      }
+    }
+  }
+
+  function _switchTab(btn, paneId) {
+    document.querySelectorAll('.sdp-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.sdp-pane').forEach(p => p.style.display = 'none');
+    document.getElementById(paneId).style.display = '';
+  }
+
+  function _clearHistory() {
+    _history = [];
+    const logList = document.getElementById('sdp-log-list');
+    if (logList) logList.innerHTML = '';
+  }
+
+  function _mountDebugButton() {
+    if (document.getElementById('store-debug-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'store-debug-btn';
+    btn.innerHTML = '🗃';
+    btn.title = 'Toggle Store Debug Panel';
+    btn.onclick = () => Store._togglePanel();
+    document.body.appendChild(btn);
+  }
+
+  return { dispatch, getState, getHistory, subscribe, isLoading, getError, getFilter, fetchData,
+           _togglePanel, _switchTab, _clearHistory, _mountDebugButton };
+})();
+
+// ── Debug toggle button (bottom-right corner) ─────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  Store._mountDebugButton();
+});
+</script>
+
+<style>
+/* ── Debug toggle button ───────────────────────────────────────────────────── */
+#store-debug-btn {
+  position: fixed; bottom: 16px; right: 16px; z-index: 9998;
+  width: 40px; height: 40px; border-radius: 50%; border: none;
+  background: #1565C0; color: #fff; font-size: 18px;
+  cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  display: flex; align-items: center; justify-content: center;
+}
+#store-debug-btn:hover { background: #1976D2; }
+
+/* ── Debug panel ───────────────────────────────────────────────────────────── */
+#store-debug-panel {
+  position: fixed; bottom: 64px; right: 16px; z-index: 9999;
+  width: 380px; max-height: 480px; background: #1E1E1E; color: #D4D4D4;
+  border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  font-family: 'Courier New', monospace; font-size: 12px;
+  display: none; flex-direction: column; overflow: hidden;
+}
+#sdp-header {
+  background: #2D2D2D; padding: 8px 12px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-weight: 700; font-size: 13px; cursor: move; user-select: none;
+  border-bottom: 1px solid #444;
+}
+#sdp-tabs {
+  display: flex; background: #252525; border-bottom: 1px solid #444;
+}
+.sdp-tab {
+  flex: 1; padding: 6px; border: none; background: none;
+  color: #888; cursor: pointer; font-size: 12px; font-family: inherit;
+}
+.sdp-tab.active { color: #4FC3F7; border-bottom: 2px solid #4FC3F7; }
+.sdp-pane { flex: 1; overflow-y: auto; padding: 8px; }
+#sdp-state-pre {
+  margin: 0; white-space: pre-wrap; word-break: break-all;
+  color: #9CDCFE; font-size: 11px; line-height: 1.5;
+}
+.sdp-log-item {
+  padding: 6px 0; border-bottom: 1px solid #333; line-height: 1.4;
+}
+.sdp-action { color: #4EC9B0; font-weight: 700; margin-right: 8px; }
+.sdp-time   { color: #888; font-size: 10px; }
+.sdp-payload{ color: #CE9178; font-size: 10px; margin-top: 2px; word-break: break-all; }
+</style>
