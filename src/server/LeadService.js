@@ -283,7 +283,12 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email) {
 }
 
 function deleteLead(leadId, email) {
-  requireRole(['ADMIN']);
+  const trustedEmail = TRUSTED_WRITE_EMAIL;
+  if (!trustedEmail) throw new Error('Direct write calls are disabled.');
+  const result = getCurrentUserByEmail_(trustedEmail);
+  if (!result.success) throw new Error(result.error);
+  const user = result.data;
+  if (String(user.designation || '').trim().toUpperCase() !== 'MIS') throw new Error('Permission denied. Only MIS designation users can delete leads.');
   deleteRow(SHEET_NAMES.LEADS, 'Lead ID', leadId);
   // Cascade: remove all follow-up, history, and activity data linked to this lead
   deleteAllRowsWhere(SHEET_NAMES.FOLLOWUPS,           r => r['Lead ID'] === leadId);

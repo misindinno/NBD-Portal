@@ -130,6 +130,24 @@
         //   },
         //   cellClick: function(e, cell) { openLeadDetail(_leadRowId(cell.getRow().getData())); }
         // }
+        ...(String(App.user.designation || '').trim().toUpperCase() === 'MIS' ? [{
+          title: '', width: 80, hozAlign: 'center', headerSort: false,
+          formatter: function() {
+            return '<button class="btn btn-sm" style="color:#D32F2F;border-color:#D32F2F;padding:2px 10px;font-size:11px;font-weight:600">Delete</button>';
+          },
+          cellClick: async function(e, cell) {
+            e.stopPropagation();
+            const leadId = _leadRowId(cell.getRow().getData());
+            if (!leadId) return;
+            if (!confirm('Delete this lead and all its follow-ups? This cannot be undone.')) return;
+            try {
+              await api.deleteLead(leadId);
+              AppCache.removeRow('leads', 'Lead ID', leadId);
+              cell.getRow().delete();
+              toast('Lead deleted!');
+            } catch(err) { toast(err, 'error'); }
+          }
+        }] : [])
       ]
     });
 
