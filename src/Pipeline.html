@@ -147,7 +147,7 @@ async function loadPipeline() {
       </div>
       <button class="btn btn-primary btn-sm" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>
     </div>
-    <div id="pipeline-board">
+    <div id="pipeline-board" class="pipeline-content">
       ${pipeline.map(renderCol).join('')}
     </div>`;
 

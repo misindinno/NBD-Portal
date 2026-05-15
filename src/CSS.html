@@ -379,6 +379,13 @@
   #pipeline-board::-webkit-scrollbar { height: 6px; }
   #pipeline-board::-webkit-scrollbar-track { background: transparent; }
   #pipeline-board::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 3px; }
+  .pipeline-content {
+    width: calc(100vw - var(--sidebar-w));
+    transition: width 0.22s cubic-bezier(.4,0,.2,1);
+  }
+  #sidebar.collapsed ~ #main .pipeline-content {
+    width: calc(100vw - var(--sb-collapsed));
+  }
 
   .pipeline-col {
     width: 272px; flex-shrink: 0;
