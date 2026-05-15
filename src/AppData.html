@@ -29,10 +29,25 @@ function _nowStr() {
 // Sequence number of the last change log entry we processed.
 let _lastChangeSeq = 0;
 
+// App version seen at startup — compared against server on every poll.
+// null = not yet initialized (first poll sets it without triggering a reload).
+let _knownAppVersion = null;
+
 async function _checkCacheStamps() {
   try {
     // Stamp-based invalidation (server-side write detection)
     const stamps = await api.getDataStamps();
+
+    // ── App version check (live reload) ──────────────────────────────────────
+    if (stamps.appVersion && stamps.appVersion !== '0') {
+      if (_knownAppVersion === null) {
+        _knownAppVersion = stamps.appVersion; // first poll — store baseline
+      } else if (stamps.appVersion !== _knownAppVersion) {
+        _showUpdateBanner();
+        return; // skip cache refresh — page is about to reload
+      }
+    }
+
     const _stamp = key => { const n = Number(stamps[key]); return n > 0 ? n : null; };
     const _stale = (key, col) => { const s = _stamp(key); return s !== null && s > AppCache.getLoadedAt(col); };
     if (_stale('leads',          'leads'))          await _refreshLeadsCache();
@@ -49,6 +64,39 @@ async function _checkCacheStamps() {
       _applyChangeLog(changes);
     }
   } catch(e) { /* silent — revalidation is best-effort */ }
+}
+
+// ─── Update banner ────────────────────────────────────────────────────────────
+let _updateCountdown = null;
+
+function _showUpdateBanner() {
+  if (document.getElementById('app-update-banner')) return; // already visible
+
+  const banner = document.createElement('div');
+  banner.id = 'app-update-banner';
+  banner.innerHTML = `
+    <div class="app-update-inner">
+      <span class="app-update-icon">${icon('refresh-cw', 16)}</span>
+      <span class="app-update-msg">A new version of the portal is available. Reloading in <b id="app-update-count">10</b>s…</span>
+      <button class="app-update-btn" onclick="window.location.reload()">Reload Now</button>
+      <button class="app-update-dismiss" onclick="_dismissUpdateBanner()" title="Dismiss">✕</button>
+    </div>`;
+  document.body.appendChild(banner);
+  renderIcons(banner);
+
+  let secs = 10;
+  _updateCountdown = setInterval(() => {
+    secs--;
+    const el_ = document.getElementById('app-update-count');
+    if (el_) el_.textContent = secs;
+    if (secs <= 0) { clearInterval(_updateCountdown); window.location.reload(); }
+  }, 1000);
+}
+
+function _dismissUpdateBanner() {
+  const b = document.getElementById('app-update-banner');
+  if (b) b.remove();
+  if (_updateCountdown) { clearInterval(_updateCountdown); _updateCountdown = null; }
 }
 
 function _applyChangeLog(changes) {

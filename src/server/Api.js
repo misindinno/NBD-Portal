@@ -117,6 +117,7 @@ function apiGetDataStamps(token) {
       stages:         p.getProperty('STAMP_STAGES')          || '0',
       fields:         p.getProperty('STAMP_FIELDS')          || '0',
       config:         p.getProperty('STAMP_CONFIG')          || '0',
+      appVersion:     p.getProperty('APP_VERSION')           || '0',
     });
   });
 }

@@ -1083,6 +1083,33 @@
   /* Generic spinning class for any button with a Lucide icon */
   .btn.spinning .lucide { animation: spin .7s linear infinite; }
 
+  /* ── App update banner ───────────────────────────────────────────────────── */
+  #app-update-banner {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 9999; animation: lo-in .3s ease;
+  }
+  .app-update-inner {
+    display: flex; align-items: center; gap: 10px;
+    background: #1E40AF; color: #fff;
+    padding: 10px 16px; border-radius: 10px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.25);
+    font-size: 13px; white-space: nowrap;
+  }
+  .app-update-icon .lucide { width: 16px; height: 16px; animation: spin .9s linear infinite; }
+  .app-update-btn {
+    background: #fff; color: #1E40AF; border: none;
+    border-radius: 6px; padding: 4px 12px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    flex-shrink: 0;
+  }
+  .app-update-btn:hover { background: #DBEAFE; }
+  .app-update-dismiss {
+    background: none; border: none; color: rgba(255,255,255,.7);
+    cursor: pointer; font-size: 14px; padding: 0 2px; line-height: 1;
+    flex-shrink: 0;
+  }
+  .app-update-dismiss:hover { color: #fff; }
+
   /* ── Queue status badges ─────────────────────────────────────────────────── */
   .q-badge {
     display: inline-flex; align-items: center; gap: 4px;

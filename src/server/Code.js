@@ -76,6 +76,8 @@ function onOpen() {
     .createMenu(CLIENT_CONFIG.APP_TITLE)
     .addItem('⚙️ Run Setup', 'setupSheets')
     .addSeparator()
+    .addItem('🔄 Push Update to All Clients', 'pushUpdate')
+    .addSeparator()
     .addItem('▶️ Install Queue Trigger', 'setupQueueTrigger')
     .addItem('⏹️ Remove Queue Trigger', 'removeQueueTrigger')
     .addItem('📋 Queue Trigger Status', '_showQueueStatus')
@@ -88,6 +90,18 @@ function onOpen() {
 function _showQueueStatus() {
   const status = getQueueTriggerStatus();
   SpreadsheetApp.getUi().alert('Queue Trigger Status', status, SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// Bumps APP_VERSION in Script Properties. All open client tabs detect this
+// on their next 15-second poll and reload automatically.
+function pushUpdate() {
+  const v = String(Date.now());
+  PropertiesService.getScriptProperties().setProperty('APP_VERSION', v);
+  SpreadsheetApp.getUi().alert(
+    'Update Pushed',
+    'All open portal tabs will reload within 15 seconds.\n\nVersion: ' + v,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
 }
 
 function openPortal() {
