@@ -24,6 +24,7 @@ function navigate(page) {
   el('page-title').textContent = meta.title;
   const crumbEl = el('tb-breadcrumb-page');
   if (crumbEl) crumbEl.textContent = meta.crumb;
+  el('content').classList.remove('pipeline-content');
   setContentLoading(pageSkeletonType(page));
   try {
     if      (page === 'dashboard')         loadDashboard();

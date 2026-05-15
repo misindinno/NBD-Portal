@@ -507,7 +507,8 @@
     const stage = allStages.find(s => s['Stage ID'] === stageId);
     const visibleFields = fields.filter(f => !f['Stage ID'] || f['Stage ID'] === stageId);
     if (!visibleFields.length) return '';
-    const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE'));
+    const hasSkipOnlyFields = visibleFields.some(f => (f['Skip Visibility'] || 'normal') === 'skip_only');
+    const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE')) && hasSkipOnlyFields;
     const skipToggle = isSkippable ? `
       <div class="cf-skip-row">
         <label class="cf-skip-label">
