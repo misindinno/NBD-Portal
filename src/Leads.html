@@ -625,7 +625,7 @@
         const skipped = isSkippable && skipCb && skipCb.checked;
         const skipVis = row.dataset.skipVis || 'normal';
         const active = stageActive && (isSkippable ? (skipped ? skipVis === 'skip_only' : skipVis === 'normal') : true);
-        row.style.display = active ? '' : 'none';
+        row.style.display = active ? 'block' : 'none';
         row.querySelectorAll('input,select,textarea').forEach(input => {
           input.disabled = !active;
           if (!(input.type === 'hidden' && input.hasAttribute('data-cf-ms-value'))) {
