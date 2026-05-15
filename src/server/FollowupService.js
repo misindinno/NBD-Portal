@@ -224,6 +224,19 @@ function _prepareFollowupPayload(data) {
   return payload;
 }
 
+function deleteFollowup(followupId, email) {
+  const trustedEmail = TRUSTED_WRITE_EMAIL;
+  if (!trustedEmail) throw new Error('Direct write calls are disabled.');
+  const result = getCurrentUserByEmail_(trustedEmail);
+  if (!result.success) throw new Error(result.error);
+  const user = result.data;
+  const isMIS = String(user.designation || '').trim().toUpperCase() === 'MIS';
+  if (!isMIS) throw new Error('Permission denied. Only MIS designation users can delete follow-ups.');
+  deleteRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
+  _bumpStamp('followups');
+  return respond(true);
+}
+
 function _followupRows() {
   return getRowsWithCustomFieldValues_('Followups', getAllRows(SHEET_NAMES.FOLLOWUPS))
     .filter(_isFollowupTaskRow)

@@ -120,6 +120,7 @@ function _dispatchWrite(fn, email, payload) {
     // ── Follow-ups
     case 'saveFollowup':      return saveFollowup(payload, email);
     case 'markFollowupDone':  return markFollowupDone(payload.id, payload.data || {}, email);
+    case 'deleteFollowup':    return deleteFollowup(payload.id, email);
     // ── Config (admin only — role checked inside each fn)
     case 'addConfig':         return addConfig(payload.type, payload.value, email);
     case 'updateConfigStatus':return updateConfigStatus(payload.id, payload.status, email);

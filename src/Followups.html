@@ -201,6 +201,10 @@ function _fuTable(rows, emptyMsg, ctx) {
     </div>`;
 }
 
+function _canDeleteFollowup() {
+  return String(App.user.designation || '').trim().toUpperCase() === 'MIS';
+}
+
 function _fuTableRow(r) {
   const leadId = r['Lead ID'] || '';
   const company = r._companyName || (leadId ? 'Linked lead unavailable' : 'Standalone');
@@ -210,7 +214,10 @@ function _fuTableRow(r) {
   const leadAction = leadId && r._leadLabel !== 'Linked lead unavailable'
     ? `<button type="button" class="btn btn-outlined btn-sm fu-action-btn" data-lead-id="${escapeHtml(leadId)}" onclick="_openFollowupLead(this)">${icon('history', 14)} Lead & History</button>`
     : `<span class="muted-text">No linked lead</span>`;
-  const action = `<div class="fu-action-stack">${doneAction}${leadAction}</div>`;
+  const deleteAction = _canDeleteFollowup()
+    ? `<button type="button" class="btn btn-sm fu-action-btn" style="color:#D32F2F;border-color:#D32F2F" data-followup-id="${escapeHtml(r['Follow-up ID'] || '')}" onclick="_confirmDeleteFollowup(this.dataset.followupId)">${icon('trash-2', 14)} Delete</button>`
+    : '';
+  const action = `<div class="fu-action-stack">${doneAction}${leadAction}${deleteAction}</div>`;
   return `<tr class="fu-row fu-row-${_followupDueBucket(r)}">
     ${_fuDueCell(r)}
     <td>
@@ -224,6 +231,20 @@ function _fuTableRow(r) {
     <td><div>${escapeHtml(r._assignedToLabel || r._createdByLabel || '-')}</div></td>
     <td>${action}</td>
   </tr>`;
+}
+
+async function _confirmDeleteFollowup(followupId) {
+  if (!followupId) return;
+  const confirmed = confirm('Delete this follow-up permanently? This cannot be undone.');
+  if (!confirmed) return;
+  try {
+    await api.deleteFollowup(followupId);
+    AppCache.removeRow('followups', 'Follow-up ID', followupId);
+    toast('Follow-up deleted.');
+    if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+  } catch (err) {
+    toast(err, 'error');
+  }
 }
 
 function _fuDueCell(row) {

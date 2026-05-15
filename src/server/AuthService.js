@@ -46,6 +46,7 @@ function getCurrentUserByEmail_(email) {
     role,
     department:    user['Department'],
     jobTitle:      user['Job Title'],
+    designation:   user['Designation'],
     modules,
     canEditConfig: role === 'ADMIN' || isTruthyPermission(user['Can Edit Config']) || userHasModule({ modules }, 'Config'),
     canManageUsers:role === 'ADMIN' || userHasModule({ modules }, 'Users')

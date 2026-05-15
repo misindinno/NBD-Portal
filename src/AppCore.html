@@ -123,6 +123,7 @@ const api = {
   moveLeadStageWithFields: (leadId, stageId, fields, note, skipped) => writePost('moveLeadStageWithFields', { leadId, stageId, fields: { ...(fields || {}), __stage_skipped: skipped ? 'true' : '' }, note }),
   saveFollowup:        (d)           => writePost('saveFollowup', d),
   markFollowupDone:    (id, data)    => writePost('markFollowupDone', { id, data }),
+  deleteFollowup:      (id)          => writePost('deleteFollowup', { id }),
   addConfig:           (type, value) => writePost('addConfig', { type, value }),
   updateConfigStatus:  (id, status)  => writePost('updateConfigStatus', { id, status }),
   saveStage:           (s)           => writePost('saveStage', s),
