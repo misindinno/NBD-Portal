@@ -202,7 +202,7 @@ function _fuTable(rows, emptyMsg, ctx) {
 }
 
 function _canDeleteFollowup() {
-  return String(App.user.designation || '').trim().toUpperCase() === 'MIS';
+  return String(App.user.department || '').trim().toUpperCase() === 'MIS';
 }
 
 function _fuTableRow(r) {
