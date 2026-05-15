@@ -92,16 +92,65 @@ function _showQueueStatus() {
   SpreadsheetApp.getUi().alert('Queue Trigger Status', status, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
-// Bumps APP_VERSION in Script Properties. All open client tabs detect this
-// on their next 15-second poll and reload automatically.
+// Creates a new GAS version from the current pushed code, updates all real
+// deployments to it, then bumps APP_VERSION so every open browser tab reloads.
 function pushUpdate() {
-  const v = String(Date.now());
-  PropertiesService.getScriptProperties().setProperty('APP_VERSION', v);
-  SpreadsheetApp.getUi().alert(
-    'Update Pushed',
-    'All open portal tabs will reload within 15 seconds.\n\nVersion: ' + v,
-    SpreadsheetApp.getUi().ButtonSet.OK
-  );
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const scriptId = ScriptApp.getScriptId();
+    const token    = ScriptApp.getOAuthToken();
+    const base     = 'https://script.googleapis.com/v1/projects/' + scriptId;
+    const hdrs     = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+
+    function apiFetch(url, opts) {
+      const res = UrlFetchApp.fetch(url, Object.assign({ muteHttpExceptions: true }, opts));
+      const body = JSON.parse(res.getContentText());
+      if (body.error) throw new Error(body.error.message || JSON.stringify(body.error));
+      return body;
+    }
+
+    // 1. Create a new version snapshot of whatever code is currently pushed
+    const ts  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+    const ver = apiFetch(base + '/versions', {
+      method: 'post', headers: hdrs,
+      payload: JSON.stringify({ description: 'Auto-deployed ' + ts })
+    });
+    if (!ver.versionNumber) throw new Error('Version creation returned no versionNumber.');
+
+    // 2. List all deployments; skip the @HEAD pseudo-deployment (versionNumber absent or 0)
+    const allDeps  = apiFetch(base + '/deployments', { headers: hdrs }).deployments || [];
+    const realDeps = allDeps.filter(function(d) {
+      return d.deploymentConfig && Number(d.deploymentConfig.versionNumber) > 0;
+    });
+
+    // 3. Update each real deployment to the new version
+    realDeps.forEach(function(d) {
+      apiFetch(base + '/deployments/' + d.deploymentId + '?updateMask=deploymentConfig', {
+        method: 'put', headers: hdrs,
+        payload: JSON.stringify({
+          deploymentConfig: {
+            scriptId:         d.deploymentConfig.scriptId,
+            versionNumber:    ver.versionNumber,
+            manifestFileName: d.deploymentConfig.manifestFileName || 'appsscript',
+            description:      d.deploymentConfig.description || ''
+          }
+        })
+      });
+    });
+
+    // 4. Bump APP_VERSION — all open portal tabs will detect this and reload
+    PropertiesService.getScriptProperties().setProperty('APP_VERSION', String(Date.now()));
+
+    ui.alert(
+      '✅ Update Deployed',
+      'Version ' + ver.versionNumber + ' deployed to ' + realDeps.length + ' deployment(s).\n' +
+      'All open portal tabs will reload within 15 seconds.',
+      ui.ButtonSet.OK
+    );
+
+  } catch (err) {
+    ui.alert('❌ Deploy Failed', String(err.message || err), ui.ButtonSet.OK);
+  }
 }
 
 function openPortal() {
