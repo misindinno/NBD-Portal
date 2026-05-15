@@ -230,8 +230,8 @@ function deleteFollowup(followupId, email) {
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   const user = result.data;
-  const isMIS = String(user.designation || '').trim().toUpperCase() === 'MIS';
-  if (!isMIS) throw new Error('Permission denied. Only MIS designation users can delete follow-ups.');
+  const isMIS = String(user.department || '').trim().toUpperCase() === 'MIS';
+  if (!isMIS) throw new Error('Permission denied. Only MIS department users can delete follow-ups.');
   deleteRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
   _bumpStamp('followups');
   return respond(true);
