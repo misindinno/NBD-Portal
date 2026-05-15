@@ -193,14 +193,14 @@ function setupSheets() {
     ensureFollowupSheets_();
     ensureCustomFieldValueSheets_();
     safeInitHeaders(SHEET_NAMES.STAGES, [
-      'Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Created At'
+      'Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Created At'
     ]);
     safeInitHeaders(SHEET_NAMES.FIELD_CONFIG, [
       'Field ID','Sheet Name','Field Name','Column Key','Field Type',
       'Stage ID','Dropdown Source','Formula Logic',
       'Validation Min','Validation Max','Validation Regex','Validation Message',
       'Help Text','File Types','Max File MB',
-      'Is Required','Is Visible','Display Order'
+      'Is Required','Is Visible','Display Order','Skip Visibility'
     ]);
     safeInitHeaders(SHEET_NAMES.CONFIG, [
       'Config ID','Config Type','Value','Status'

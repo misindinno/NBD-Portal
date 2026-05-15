@@ -226,10 +226,15 @@ async function loadPipeline() {
 }
 
 function _pipelineStageFields(stageId) {
+  const allStages = App.config.allStages || App.config.stages || [];
+  const stage = allStages.find(s => s['Stage ID'] === stageId);
+  const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE'));
   return (App.config.leadFields || [])
     .filter(f => f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE')
     .filter(f => f['Stage ID'] === stageId)
-    .filter(f => f['Field Type'] !== 'Formula');
+    .filter(f => f['Field Type'] !== 'Formula')
+    // For skippable stages, include skip_only fields; otherwise only normal fields trigger the dialog
+    .filter(f => isSkippable || (f['Skip Visibility'] || 'normal') === 'normal');
 }
 
 function _restorePipelineDrag(evt) {
@@ -255,7 +260,8 @@ function _applyPipelineStageResult(leadId, stageId, result, extraPatch = {}) {
 
 function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageFields(stageId)) {
   const lead  = window.pipelineLeadMap?.[leadId] || AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
-  const stage = (App.config.stages || []).find(s => s['Stage ID'] === stageId);
+  const allStages = (App.config.allStages || App.config.stages || []);
+  const stage = allStages.find(s => s['Stage ID'] === stageId);
   if (!lead || !stage || !fields.length) return;
   const configOptions = _configOptionsMap(App.config._allConfigs || []);
   const stageData = { ...lead, 'Stage ID': stageId };
@@ -290,12 +296,13 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
     setButtonLoading(btn, 'Moving...');
     try {
       const payload = await collectLeadFormPayload(form);
+      const skipped = payload['__stage_skipped'] === 'true';
       const fieldPayload = {};
       fields.forEach(field => {
         const key = field['Column Key'];
         if (payload[key] !== undefined) fieldPayload[key] = payload[key];
       });
-      const result = await api.moveLeadStageWithFields(leadId, stageId, fieldPayload, '');
+      const result = await api.moveLeadStageWithFields(leadId, stageId, fieldPayload, '', skipped);
       _applyPipelineStageResult(leadId, stageId, result, fieldPayload);
       toast('Stage updated!');
       overlay.remove();

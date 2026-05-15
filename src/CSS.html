@@ -1138,4 +1138,23 @@
     border-radius: 6px; padding: 8px 14px; margin-bottom: 12px;
     font-size: 12px; color: #1E40AF;
   }
+
+  /* ── Skip-field toggle ─────────────────────────────────────────────────────── */
+  .cf-skip-row {
+    display: flex; align-items: center; gap: 10px;
+    background: #F3E5F5; border: 1px solid #CE93D8;
+    border-radius: 8px; padding: 9px 14px; margin-bottom: 14px;
+  }
+  .cf-skip-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 500; color: #6A1B9A;
+    cursor: pointer; user-select: none;
+  }
+  .cf-skip-label input[type="checkbox"] {
+    width: 16px; height: 16px; accent-color: #7B1FA2; cursor: pointer;
+  }
+  /* fields with skip-only visibility start hidden — JS controls them */
+  .custom-field-section[data-skippable="true"] .lead-custom-field[data-skip-vis="skip_only"] {
+    display: none;
+  }
 </style>

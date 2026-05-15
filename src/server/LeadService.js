@@ -19,13 +19,14 @@ function getLead(leadId) {
 function saveLead(data, email) {
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
   const leadId = _leadIdFromPayload(data);
+  const skipped = data['__stage_skipped'] === 'true' || data['skipped'] === true;
   if (leadId) {
     data['Lead ID'] = leadId;
     const existing = getLead(leadId);
     if (!existing || !existing.lead) return respond(null, 'Lead not found.');
     if (!_canWriteLead(existing.lead, user)) return respond(null, 'Permission denied.');
     if (user.role === 'SALES') data['Assigned To'] = user.id;
-    const prepared = _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead);
+    const prepared = _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped);
     _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']);
     const updatePayload = { ...prepared, 'Updated At': now() };
     const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(updatePayload));
@@ -36,7 +37,7 @@ function saveLead(data, email) {
   }
   const id = generateUUID();
   if (user.role === 'SALES') data['Assigned To'] = user.id;
-  const prepared = _prepareLeadPayload(data, data['Stage ID'], {});
+  const prepared = _prepareLeadPayload(data, data['Stage ID'], {}, skipped);
   _applyLeadStatusFromStage(prepared, prepared['Stage ID']);
   const followupDate = today();
   const leadRow = {
@@ -73,7 +74,7 @@ function _leadIdFromPayload(data) {
   return String(data['Lead ID'] || data['LeadID'] || data['Lead Id'] || data['ID'] || '').trim();
 }
 
-function _prepareLeadPayload(data, stageId, existing) {
+function _prepareLeadPayload(data, stageId, existing, skipped) {
   const payload = { ...data };
   const fields = getLeadCustomFieldsForStage(stageId);
   fields.forEach(field => {
@@ -86,7 +87,15 @@ function _prepareLeadPayload(data, stageId, existing) {
     if ((value === undefined || value === '') && existing && existing[key]) value = existing[key];
     // Fix #5: only validate required if this field actually belongs to the current stage (or is global)
     const fieldBelongsToStage = !field['Stage ID'] || field['Stage ID'] === stageId;
-    if (fieldBelongsToStage) _validateCustomFieldValue(field, value);
+    if (fieldBelongsToStage) {
+      // When skipped: bypass required validation for normal fields; still validate skip_only required fields
+      const skipVis = field['Skip Visibility'] === 'skip_only' ? 'skip_only' : 'normal';
+      if (skipped && skipVis === 'normal') {
+        if (value !== undefined && value !== '') _validateCustomFieldValue({ ...field, 'Is Required': false }, value);
+      } else {
+        _validateCustomFieldValue(field, value);
+      }
+    }
     if (value !== undefined) payload[key] = value;
   });
   return payload;
@@ -240,6 +249,7 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email) {
 
   const stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === newStageId)[0];
   if (!stage) return respond(null, 'Stage not found.');
+  const skipped = !!(fields && (fields['__stage_skipped'] === 'true' || fields['__stage_skipped'] === true));
   const stageFields = getLeadCustomFieldsForStage(newStageId)
     .filter(f => f['Field Type'] !== 'Formula');
   const allowed = stageFields.reduce((m, f) => {
@@ -254,7 +264,8 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email) {
   const prepared = _prepareLeadPayload(
     { ...fieldPayload, 'Lead ID': leadId, 'Stage ID': newStageId },
     newStageId,
-    lead
+    lead,
+    skipped
   );
   const leadPatch = { ...prepared, 'Stage ID': newStageId, 'Stage Updated At': now(), 'Updated At': now() };
   const nextStatus = _leadStatusForStage(stage);
@@ -266,14 +277,8 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email) {
   upsertCustomFieldValues_('Leads', leadId, prepared, user.id, newStageId);
   _bumpStamp('leads');
 
-  insertLeadActivityLog_(
-    leadId,
-    'Stage Change',
-    lead['Stage ID'] || '',
-    newStageId,
-    note || `Stage updated to ${stage['Stage Name']}`,
-    user.id
-  );
+  const logNote = note || `Stage updated to ${stage['Stage Name']}${skipped ? ' (custom fields skipped)' : ''}`;
+  insertLeadActivityLog_(leadId, 'Stage Change', lead['Stage ID'] || '', newStageId, logNote, user.id);
   return respond({ leadId, stageId: newStageId, leadStatus: leadPatch['Lead Status'], patch: leadPatch });
 }
 

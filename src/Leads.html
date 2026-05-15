@@ -501,12 +501,24 @@
   function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}) {
     if (!fields.length) return '';
     const cfg = App.config;
+    const allStages = cfg.allStages || cfg.stages || [];
     const initialStage = cfg.stages.find(s => s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE') || cfg.stages[0];
-    const initialStageId = d['Stage ID'] || (initialStage ? initialStage['Stage ID'] : '');
-    const visibleFields = fields.filter(f => !f['Stage ID'] || f['Stage ID'] === initialStageId);
+    const stageId = d['Stage ID'] || (initialStage ? initialStage['Stage ID'] : '');
+    const stage = allStages.find(s => s['Stage ID'] === stageId);
+    const visibleFields = fields.filter(f => !f['Stage ID'] || f['Stage ID'] === stageId);
     if (!visibleFields.length) return '';
-    return `<div class="custom-field-section">
+    const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE'));
+    const skipToggle = isSkippable ? `
+      <div class="cf-skip-row">
+        <label class="cf-skip-label">
+          <input type="checkbox" class="cf-skip-checkbox" onchange="_toggleSkipFields(this)">
+          <span>Skip custom fields for this stage</span>
+        </label>
+        <input type="hidden" name="__stage_skipped" value="">
+      </div>` : '';
+    return `<div class="custom-field-section" data-skippable="${isSkippable ? 'true' : 'false'}">
     <h3 style="font-size:14px;font-weight:600;margin:8px 0 12px;color:var(--md-primary)">Stage Fields</h3>
+    ${skipToggle}
     ${visibleFields.map(f => _customFieldControlHTML(f, d, configOptions)).join('')}
   </div>`;
   }
@@ -581,7 +593,7 @@
 
     const stageMap = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s['Stage Name']; return m; }, {});
     const stageMeta = field['Stage ID'] ? (stageMap[field['Stage ID']] || '') : 'All stages';
-    return `<div class="form-group lead-custom-field" data-stage-id="${escapeHtml(field['Stage ID'] || '')}" data-field-key="${escapeHtml(key)}" data-field-type="${escapeHtml(type)}">
+    return `<div class="form-group lead-custom-field" data-stage-id="${escapeHtml(field['Stage ID'] || '')}" data-field-key="${escapeHtml(key)}" data-field-type="${escapeHtml(type)}" data-skip-vis="${escapeHtml(field['Skip Visibility'] || 'normal')}">
     <label style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
       <span>${escapeHtml(field['Field Name'])}${required ? ' *' : ''}</span>
       <span style="font-size:11px;color:#999;font-weight:400">${escapeHtml(type)} &middot; ${escapeHtml(stageMeta)}</span>
@@ -605,7 +617,13 @@
       const stageId = getStageId();
       let hasActive = false;
       root.querySelectorAll('.lead-custom-field').forEach(row => {
-        const active = !row.dataset.stageId || row.dataset.stageId === stageId;
+        const stageActive = !row.dataset.stageId || row.dataset.stageId === stageId;
+        const section = row.closest('.custom-field-section');
+        const isSkippable = section && section.dataset.skippable === 'true';
+        const skipCb = section && section.querySelector('.cf-skip-checkbox');
+        const skipped = isSkippable && skipCb && skipCb.checked;
+        const skipVis = row.dataset.skipVis || 'normal';
+        const active = stageActive && (isSkippable ? (skipped ? skipVis === 'skip_only' : skipVis === 'normal') : true);
         row.style.display = active ? '' : 'none';
         row.querySelectorAll('input,select,textarea').forEach(input => {
           input.disabled = !active;
@@ -613,18 +631,31 @@
             input.required = active && input.dataset.required === 'true';
           }
         });
-        // Visual disable for cf-multiselect trigger
         const trigger = row.querySelector('.cf-ms-trigger');
         if (trigger) { trigger.style.opacity = active ? '' : '.45'; trigger.style.pointerEvents = active ? '' : 'none'; }
         if (active) hasActive = true;
       });
       const section = root.querySelector('.custom-field-section');
-      if (section) section.style.display = hasActive ? '' : 'none';
+      if (section) section.style.display = hasActive || section.querySelector('.cf-skip-row') ? '' : 'none';
     };
 
     if (stageSelect) stageSelect.addEventListener('change', refresh);
     _initCfMultiselects(root);
     refresh();
+    root._cfRefresh = refresh;
+  }
+
+  function _toggleSkipFields(checkbox) {
+    const section = checkbox.closest('.custom-field-section');
+    const skipInput = section && section.querySelector('[name="__stage_skipped"]');
+    if (skipInput) skipInput.value = checkbox.checked ? 'true' : '';
+    const root = section && section.closest('.modal, #lf-wrap, #tab-edit, #content, form');
+    if (root && root._cfRefresh) root._cfRefresh();
+    else if (section) {
+      // fallback: walk up to find _cfRefresh
+      let el = section.parentElement;
+      while (el) { if (el._cfRefresh) { el._cfRefresh(); break; } el = el.parentElement; }
+    }
   }
 
   function _initCfMultiselects(root) {

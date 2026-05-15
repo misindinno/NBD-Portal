@@ -208,6 +208,7 @@ function _normalizeFieldConfig(field) {
     "Is Visible":
       field["Is Visible"] !== false && field["Is Visible"] !== "FALSE",
     "Display Order": Number(field["Display Order"]) || 100,
+    "Skip Visibility": field["Skip Visibility"] === "skip_only" ? "skip_only" : "normal",
   };
 }
 

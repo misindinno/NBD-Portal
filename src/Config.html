@@ -127,6 +127,7 @@ async function loadStagesConfig() {
             ${s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE' ? '<span class="badge" style="background:#E8F5E9;color:#2E7D32;margin-left:6px">Initial</span>' : ''}
             ${s['Is Final Stage'] ? '<span class="badge" style="background:#E3F2FD;color:#1565C0;margin-left:6px">Final</span>' : ''}
             ${s['TAT Days'] ? '<span class="badge" style="background:#FFF8E1;color:#F57F17;margin-left:6px">TAT: ' + escapeHtml(s['TAT Days']) + 'd</span>' : ''}
+            ${s['Is Skippable'] === true || s['Is Skippable'] === 'TRUE' ? '<span class="badge" style="background:#F3E5F5;color:#6A1B9A;margin-left:6px">Skippable</span>' : ''}
           </div>
           <button class="btn btn-sm btn-outlined" onclick="openStageForm(${JSON.stringify(s).replace(/"/g,'&quot;')})">Edit</button>
         </div>`).join('')}
@@ -183,6 +184,7 @@ function openStageForm(data = {}) {
           <label><input type="checkbox" name="Is Active" ${data['Is Active']!==false&&data['Is Active']!=='FALSE'?'checked':''}> Is Active</label>
           <label><input type="checkbox" name="Is Final Stage" ${data['Is Final Stage']?'checked':''}> Is Final Stage</label>
           <label><input type="checkbox" name="Is Initial Stage" ${data['Is Initial Stage']===true||data['Is Initial Stage']==='TRUE'?'checked':''}> Is Initial Stage</label>
+          <label><input type="checkbox" name="Is Skippable" ${data['Is Skippable']===true||data['Is Skippable']==='TRUE'?'checked':''}> Allow Skip</label>
         </div>
       </div>
       ${stageFieldsHTML}
@@ -202,7 +204,8 @@ function openStageForm(data = {}) {
       'TAT Days': fd.get('TAT Days') || '',
       'Is Active': fd.has('Is Active'),
       'Is Final Stage': fd.has('Is Final Stage'),
-      'Is Initial Stage': fd.has('Is Initial Stage')
+      'Is Initial Stage': fd.has('Is Initial Stage'),
+      'Is Skippable': fd.has('Is Skippable')
     };
     if (isEdit) payload['Stage ID'] = data['Stage ID'];
     const btn = e.target.querySelector('[type=submit]');
@@ -359,12 +362,13 @@ function renderFieldConfigList() {
       <td>${f['Is Required']===true||f['Is Required']==='TRUE'?'Yes':'No'}</td>
       <td>${_fieldValidationSummary(f)}</td>
       <td>${f['Is Visible']===false||f['Is Visible']==='FALSE'?'No':'Yes'}</td>
+      <td>${f['Skip Visibility']==='skip_only'?'<span class="badge" style="background:#F3E5F5;color:#6A1B9A">Skip Only</span>':'Normal'}</td>
       <td><button class="btn btn-sm btn-outlined" onclick='openFieldForm(${JSON.stringify(f).replace(/'/g,"&apos;")})'>Edit</button></td>
     </tr>`;
   }).join('');
   el('field-config-list').innerHTML = `
     <div class="table-wrap"><table>
-      <thead><tr><th>Field</th><th>Target</th><th>Stage</th><th>Type</th><th>Required</th><th>Validation</th><th>Visible</th><th></th></tr></thead>
+      <thead><tr><th>Field</th><th>Target</th><th>Stage</th><th>Type</th><th>Required</th><th>Validation</th><th>Visible</th><th>Skip</th><th></th></tr></thead>
       <tbody>${rows || '<tr><td colspan="8" style="color:#888;text-align:center;padding:18px">No custom fields yet.</td></tr>'}</tbody>
     </table></div>`;
   renderIcons(el('field-config-list'));
@@ -437,6 +441,13 @@ function openFieldForm(data = {}) {
         <div class="form-group"><label><input type="checkbox" name="Is Required" ${data['Is Required']===true||data['Is Required']==='TRUE'?'checked':''}> Required</label></div>
         <div class="form-group"><label><input type="checkbox" name="Is Visible" ${data['Is Visible']!==false&&data['Is Visible']!=='FALSE'?'checked':''}> Visible</label></div>
       </div>
+      <div class="form-group field-option-stage field-skip-vis-row"><label>Skip Visibility</label>
+        <select class="form-control" name="Skip Visibility">
+          <option value="normal" ${(data['Skip Visibility']||'normal')==='normal'?'selected':''}>Normal — always shown</option>
+          <option value="skip_only" ${data['Skip Visibility']==='skip_only'?'selected':''}>Skip Only — shown when user skips</option>
+        </select>
+        <div style="font-size:11px;color:#777;margin-top:3px">Only applies to Leads stage fields when the stage has Allow Skip enabled.</div>
+      </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
         <button type="submit" class="btn btn-primary">Save</button>
@@ -452,6 +463,7 @@ function openFieldForm(data = {}) {
     if (payload['Sheet Name'] === 'Followups') payload['Stage ID'] = '';
     payload['Is Required'] = fd.has('Is Required');
     payload['Is Visible'] = fd.has('Is Visible');
+    payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
     if (isEdit) payload['Field ID'] = data['Field ID'];
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
