@@ -200,13 +200,20 @@ function _lfInitValidator() {
     setButtonLoading(btn, 'Submitting...');
     try {
       const payload = await collectLeadFormPayload(form);
-      const resultId = await api.saveLead(payload);
+      const tempId  = 'temp-' + Date.now();
       AppCache.addRow('leads', {
-        ...payload, 'Lead ID': resultId,
+        ...payload, 'Lead ID': tempId, '_queueTemp': true,
         'Lead Status': 'Open',
         'Created At': _nowStr(), 'Updated At': _nowStr()
       });
-      if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+      QueueManager.enqueue({
+        module: 'leads', actionType: 'saveLead', payload, tempId,
+        onDone: j => {
+          if (j.finalRecordId) AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': j.finalRecordId, '_queueTemp': false });
+          if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+        },
+        onFail: j => console.warn('[LeadForm] save failed:', j.error)
+      });
       _lfShowSuccess(payload['Company Name'] || payload['Remark']);
     } catch (err) {
       toast(err, 'error');

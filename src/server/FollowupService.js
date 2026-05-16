@@ -41,19 +41,6 @@ function getLeadActivityLogs(filters) {
   return rows.sort((a, b) => _timeValue(b['Created At']) - _timeValue(a['Created At']));
 }
 
-function getTodayFollowups() {
-  const t = today();
-  return _followupRows().filter(r => _isOpenFollowup(r) && formatDate(_plannedDate(r)) === t);
-}
-
-function getOverdueFollowups() {
-  const t = today();
-  return _followupRows().filter(r => {
-    const d = formatDate(_plannedDate(r));
-    return _isOpenFollowup(r) && d && d < t;
-  });
-}
-
 function saveFollowup(data, email) {
   ensureFollowupSheets_();
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES', 'USER']);

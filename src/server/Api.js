@@ -63,19 +63,6 @@ function apiLoginWithGoogle(idToken) {
   });
 }
 
-// ── Write aggregation ─────────────────────────────────────────────────────────
-// Single entry point for all write operations. Validates the auth token,
-// then dispatches to the appropriate write handler.
-function apiExecuteWrite(fn, payload, token) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireAuthToken_(token);
-    const result = withTrustedWriteUser_(user.email, () => _dispatchWrite(fn, user.email, payload || {}));
-    if (!result.success) return result;
-    return respond(result.data);
-  });
-}
-
 // ── Legacy bootstrap (GAS Session — only works on "Execute as: User" deployment) ──
 function apiGetCurrentUser() {
   return apiGuard_(() => {

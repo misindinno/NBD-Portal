@@ -52,24 +52,6 @@ async function fetchCurrentUser() {
   });
 }
 
-// ─── Write Webhook ────────────────────────────────────────────────────────────
-async function writePost(fn, payload = {}) {
-  const token = localStorage.getItem('nbd_token');
-  if (!token) throw new Error('Not authenticated. Please sign in again.');
-  return api._read('apiExecuteWrite', fn, payload, token);
-}
-
-async function refreshWriteSession() {
-  const token = localStorage.getItem('nbd_token');
-  if (!token) return;
-  const boot = await api.bootstrapWithToken(token);
-  Store.dispatch('SET_USER', boot.user);
-  Store.dispatch('SET_CONFIG', boot.config);
-  AppCache.touch('config');
-  AppLookup.rebuild();
-  renderSidebar();
-}
-
 // ─── API ──────────────────────────────────────────────────────────────────────
 const api = {
   _read(fn, ...args) {
@@ -115,21 +97,5 @@ const api = {
   getJobStatuses:  (ids)                    => api._authedRead('apiGetJobStatuses', ids),
   getChanges:      (seq)                    => api._authedRead('apiGetChanges', seq),
   getQueueHistory: (limit)                  => api._authedRead('apiGetQueueHistory', limit || 50),
-
-  // ── Writes (direct — used for admin/config ops that need immediate response)
-  saveLead:            (d)           => writePost('saveLead', d),
-  deleteLead:          (id)          => writePost('deleteLead', { id }),
-  updateLeadStage:     (leadId, stageId, note) => writePost('updateLeadStage', { leadId, stageId, note }),
-  moveLeadStageWithFields: (leadId, stageId, fields, note, skipped) => writePost('moveLeadStageWithFields', { leadId, stageId, fields: { ...(fields || {}), __stage_skipped: skipped ? 'true' : '' }, note }),
-  saveFollowup:        (d)           => writePost('saveFollowup', d),
-  markFollowupDone:    (id, data)    => writePost('markFollowupDone', { id, data }),
-  deleteFollowup:      (id)          => writePost('deleteFollowup', { id }),
-  addConfig:           (type, value) => writePost('addConfig', { type, value }),
-  updateConfigStatus:  (id, status)  => writePost('updateConfigStatus', { id, status }),
-  saveStage:           (s)           => writePost('saveStage', s),
-  reorderStages:       (ids)         => writePost('reorderStages', { ids }),
-  saveFieldConfig:     (f)           => writePost('saveFieldConfig', f),
-  savePortalSettings:  (s)           => writePost('savePortalSettings', s),
-  saveUser:            (u)           => writePost('saveUser', u)
 };
 </script>
