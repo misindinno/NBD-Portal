@@ -156,6 +156,11 @@ async function loadPipeline() {
   window.pipelineSortables = [];
   window.pipelineUpdateInFlight = false;
 
+  const _stages        = App.config.stages;
+  const _regularStages = _stages.filter(s => !_isFinalStage(s));
+  const _lastRegularId = _regularStages[_regularStages.length - 1]?.['Stage ID'];
+  const _lastRegularIdx = _stages.findIndex(s => s['Stage ID'] === _lastRegularId);
+
   document.querySelectorAll('.pipeline-cards').forEach(col => {
     const sortable = Sortable.create(col, {
       group: 'pipeline',
@@ -174,10 +179,9 @@ async function loadPipeline() {
         const fromId = evt.from.dataset.stageId;
         const toId   = evt.to.dataset.stageId;
         if (fromId === toId) return true;
-        const stages = App.config.stages;
-        const fromIdx = stages.findIndex(s => s['Stage ID'] === fromId);
-        const toIdx   = stages.findIndex(s => s['Stage ID'] === toId);
-        return toIdx === fromIdx + 1;
+        const fromIdx = _stages.findIndex(s => s['Stage ID'] === fromId);
+        const toIdx   = _stages.findIndex(s => s['Stage ID'] === toId);
+        return _isValidPipelineMove(fromIdx, toIdx, _lastRegularIdx, _stages);
       },
       onEnd: async (evt) => {
         const leadId     = evt.item.dataset.leadId;
@@ -186,14 +190,13 @@ async function loadPipeline() {
         _updatePipelineCounts();
         _updatePipelineEmptyStates();
         if (newStageId === oldStageId) return;
-        const stages = App.config.stages;
-        const oldIdx = stages.findIndex(s => s['Stage ID'] === oldStageId);
-        const newIdx = stages.findIndex(s => s['Stage ID'] === newStageId);
-        if (newIdx !== oldIdx + 1) {
+        const oldIdx = _stages.findIndex(s => s['Stage ID'] === oldStageId);
+        const newIdx = _stages.findIndex(s => s['Stage ID'] === newStageId);
+        if (!_isValidPipelineMove(oldIdx, newIdx, _lastRegularIdx, _stages)) {
           _restorePipelineDrag(evt);
           _updatePipelineCounts();
           _updatePipelineEmptyStates();
-          toast('Leads can only be moved to the next stage in sequence.', 'error');
+          toast('Leads can only move to the next stage, or to a final stage from the last step.', 'error');
           return;
         }
         const targetFields = _pipelineStageFields(newStageId);
@@ -223,6 +226,15 @@ async function loadPipeline() {
     });
     window.pipelineSortables.push(sortable);
   });
+}
+
+function _isFinalStage(stage) {
+  return stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE';
+}
+
+function _isValidPipelineMove(fromIdx, toIdx, lastRegularIdx, stages) {
+  if (toIdx === fromIdx + 1) return true;
+  return _isFinalStage(stages[toIdx]) && fromIdx === lastRegularIdx;
 }
 
 function _pipelineStageFields(stageId) {
