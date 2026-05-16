@@ -163,10 +163,6 @@ async function _refreshAppConfig() {
   Store.dispatch('SET_CONFIG', config);
   AppCache.touch('config');
   AppLookup.rebuild();
-  const pg = App.currentPage;
-  if (pg === 'pipeline') loadPipeline();
-  else if (pg === 'dashboard') loadDashboard();
-  else if (pg === 'config') loadConfig();
 }
 
 function startCacheRevalidation() {
