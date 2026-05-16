@@ -135,17 +135,23 @@
           formatter: function() {
             return '<button class="btn btn-sm" style="color:#D32F2F;border-color:#D32F2F;padding:2px 10px;font-size:11px;font-weight:600">Delete</button>';
           },
-          cellClick: async function(e, cell) {
+          cellClick: function(e, cell) {
             e.stopPropagation();
             const leadId = _leadRowId(cell.getRow().getData());
             if (!leadId) return;
             if (!confirm('Delete this lead and all its follow-ups? This cannot be undone.')) return;
-            try {
-              await api.deleteLead(leadId);
-              AppCache.removeRow('leads', 'Lead ID', leadId);
-              cell.getRow().delete();
-              toast('Lead deleted!');
-            } catch(err) { toast(err, 'error'); }
+            AppCache.removeRow('leads', 'Lead ID', leadId);
+            cell.getRow().delete();
+            QueueManager.enqueue({
+              module: 'leads', actionType: 'deleteLead',
+              payload: { id: leadId },
+              onDone: () => toast('Lead deleted!'),
+              onFail: j => {
+                toast('Delete failed: ' + (j.error || 'Error'), 'error');
+                _refreshLeadsCache().catch(() => {});
+              }
+            });
+            toast('Deleting…', 'info');
           }
         }] : [])
       ]
@@ -501,19 +507,22 @@
     }
   }
 
-  async function deleteLeadConfirm(leadId, overlay) {
+  function deleteLeadConfirm(leadId, overlay) {
     if (!leadId) return;
-    const ok = await confirm('Delete this lead? This cannot be undone.');
-    if (!ok) return;
-    try {
-      await api.deleteLead(leadId);
-      AppCache.removeRow('leads', 'Lead ID', leadId);
-      toast('Lead deleted!');
-      if (overlay) overlay.remove();
-      _refreshLeadViewsAfterLocalChange();
-    } catch (err) {
-      toast(err, 'error');
-    }
+    if (!confirm('Delete this lead? This cannot be undone.')) return;
+    AppCache.removeRow('leads', 'Lead ID', leadId);
+    if (overlay) overlay.remove();
+    _refreshLeadViewsAfterLocalChange();
+    QueueManager.enqueue({
+      module: 'leads', actionType: 'deleteLead',
+      payload: { id: leadId },
+      onDone: () => toast('Lead deleted!'),
+      onFail: j => {
+        toast('Delete failed: ' + (j.error || 'Error'), 'error');
+        _refreshLeadsCache().catch(() => {});
+      }
+    });
+    toast('Deleting…', 'info');
   }
 
   function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}) {

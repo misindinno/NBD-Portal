@@ -84,16 +84,24 @@ function _processQueueJob_(job) {
 // ── Route to service function ─────────────────────────────────────────────────
 function _dispatchQueuedJob_(actionType, userEmail, payload) {
   switch (actionType) {
-    case 'saveLead':
-      return saveLead(payload, userEmail);
-    case 'saveFollowup':
-      return saveFollowup(payload, userEmail);
-    case 'markFollowupDone':
-      return markFollowupDone(payload.id, payload.data || {}, userEmail);
-    case 'updateLeadStage':
-      return updateLeadStage(payload.leadId, payload.stageId, payload.note, userEmail);
+    // ── Leads
+    case 'saveLead':              return saveLead(payload, userEmail);
+    case 'deleteLead':            return deleteLead(payload.id, userEmail);
+    case 'updateLeadStage':       return updateLeadStage(payload.leadId, payload.stageId, payload.note, userEmail);
     case 'moveLeadStageWithFields':
       return moveLeadStageWithFields(payload.leadId, payload.stageId, payload.fields || {}, payload.note, userEmail);
+    // ── Follow-ups
+    case 'saveFollowup':          return saveFollowup(payload, userEmail);
+    case 'markFollowupDone':      return markFollowupDone(payload.id, payload.data || {}, userEmail);
+    case 'deleteFollowup':        return deleteFollowup(payload.id, userEmail);
+    // ── Config / admin
+    case 'addConfig':             return addConfig(payload.type, payload.value, userEmail);
+    case 'updateConfigStatus':    return updateConfigStatus(payload.id, payload.status, userEmail);
+    case 'saveStage':             return saveStage(payload, userEmail);
+    case 'reorderStages':         return reorderStages(payload.ids, userEmail);
+    case 'saveFieldConfig':       return saveFieldConfig(payload, userEmail);
+    case 'savePortalSettings':    return savePortalSettings(payload, userEmail);
+    case 'saveUser':              return _saveUser(payload, userEmail);
     default:
       return respond(null, 'Unknown action type: ' + actionType);
   }
@@ -131,6 +139,9 @@ function _bumpStampForModule_(moduleName) {
   const stampMap = {
     leads:     ['leads'],
     followups: ['followups'],
+    config:    ['config'],
+    stages:    ['stages', 'config'],
+    fields:    ['fields', 'config'],
   };
   (stampMap[moduleName] || []).forEach(s => _bumpStamp(s));
 }

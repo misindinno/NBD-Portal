@@ -207,21 +207,26 @@ async function loadPipeline() {
           openPipelineStageFieldsDialog(leadId, newStageId, targetFields);
           return;
         }
-        _setPipelineUpdating(true, evt.item);
+        const destStage    = _stages.find(s => s['Stage ID'] === newStageId);
+        const isFinal      = destStage ? _isFinalStage(destStage) : false;
+        const stageName    = String(destStage?.['Stage Name'] || '').toLowerCase();
+        const optStatus    = isFinal
+          ? (stageName.includes('lost') || stageName.includes('disqualif') ? 'Lost' : 'Won')
+          : 'Open';
+        _applyPipelineStageResult(leadId, newStageId, { leadStatus: optStatus });
+        if (isFinal) evt.item.remove();
         _updatePipelineCounts();
-        try {
-          const result = await api.updateLeadStage(leadId, newStageId, '');
-          const status = _applyPipelineStageResult(leadId, newStageId, result);
-          if (status !== 'Open') evt.item.remove();
-          toast('Stage updated!');
-        } catch (err) {
-          toast(err, 'error');
-          _restorePipelineDrag(evt);
-        } finally {
-          _setPipelineUpdating(false, evt.item);
-          _updatePipelineCounts();
-          _updatePipelineEmptyStates();
-        }
+        _updatePipelineEmptyStates();
+        QueueManager.enqueue({
+          module: 'leads', actionType: 'updateLeadStage',
+          payload: { leadId, stageId: newStageId, note: '' },
+          onDone: () => toast('Stage updated!'),
+          onFail: j => {
+            toast('Stage update failed: ' + (j.error || 'Error'), 'error');
+            loadPipeline();
+          }
+        });
+        toast('Moving lead…', 'info');
       }
     });
     window.pipelineSortables.push(sortable);
@@ -314,12 +319,22 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
         const key = field['Column Key'];
         if (payload[key] !== undefined) fieldPayload[key] = payload[key];
       });
-      const result = await api.moveLeadStageWithFields(leadId, stageId, fieldPayload, '', skipped);
-      _applyPipelineStageResult(leadId, stageId, result, fieldPayload);
-      toast('Stage updated!');
+      _applyPipelineStageResult(leadId, stageId, { leadStatus: 'Open' }, fieldPayload);
       overlay.remove();
-      if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
       loadPipeline();
+      QueueManager.enqueue({
+        module: 'leads', actionType: 'moveLeadStageWithFields',
+        payload: { leadId, stageId, fields: { ...(fieldPayload || {}), __stage_skipped: skipped ? 'true' : '' }, note: '' },
+        onDone: () => {
+          toast('Stage updated!');
+          if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+        },
+        onFail: j => {
+          toast('Stage update failed: ' + (j.error || 'Error'), 'error');
+          loadPipeline();
+        }
+      });
+      toast('Moving lead…', 'info');
     } catch (err) {
       toast(err, 'error');
       resetButtonLoading(btn);

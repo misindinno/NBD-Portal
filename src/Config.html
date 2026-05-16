@@ -74,24 +74,20 @@ async function loadPortalSettings() {
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    try {
-      await api.savePortalSettings({ visibleDepartments: fd.getAll('visibleDepartments') });
-      const boot = await api.bootstrap();
-      Store.dispatch('SET_USER', boot.user);
-      Store.dispatch('SET_CONFIG', boot.config);
-      AppCache.touch('config');
-      await Promise.all([
-        api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {}),
-        api.getFollowups({}).then(rows => AppCache.setRows('followups', rows)).catch(() => {}),
-        api.getFollowupHistory({}).then(rows => AppCache.setRows('followupHistory', rows)).catch(() => {}),
-        api.getLeadActivityLogs({}).then(rows => AppCache.setRows('activityLogs', rows)).catch(() => {})
-      ]);
-      toast('Settings saved!');
-      loadPortalSettings();
-    } catch (err) {
-      toast(err, 'error');
-      resetButtonLoading(btn);
-    }
+    resetButtonLoading(btn);
+    QueueManager.enqueue({
+      module: 'config', actionType: 'savePortalSettings',
+      payload: { visibleDepartments: fd.getAll('visibleDepartments') },
+      onDone: async () => {
+        const token = localStorage.getItem('nbd_token');
+        const boot = token ? await api.bootstrapWithToken(token).catch(() => null) : null;
+        if (boot) { Store.dispatch('SET_USER', boot.user); Store.dispatch('SET_CONFIG', boot.config); AppCache.touch('config'); }
+        toast('Settings saved!');
+        if (App.currentPage === 'config') loadPortalSettings();
+      },
+      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+    });
+    toast('Saving settings…', 'info');
   });
 }
 
@@ -139,10 +135,16 @@ async function loadStagesConfig() {
     handle: '.drag-handle',
     onEnd: async (evt) => {
       const orderedIds = Array.from(evt.to.children).map(el => el.dataset.stageId);
-      try {
-        await api.reorderStages(orderedIds);
-        toast('Stages reordered!');
-      } catch (err) { toast(err, 'error'); }
+      QueueManager.enqueue({
+        module: 'stages', actionType: 'reorderStages',
+        payload: { ids: orderedIds },
+        onDone: () => toast('Stages reordered!'),
+        onFail: j => {
+          toast('Reorder failed: ' + (j.error || 'Error'), 'error');
+          if (App.currentPage === 'config') loadStagesConfig();
+        }
+      });
+      toast('Saving order…', 'info');
     }
   });
 }
@@ -210,16 +212,17 @@ function openStageForm(data = {}) {
     if (isEdit) payload['Stage ID'] = data['Stage ID'];
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    try {
-      await api.saveStage(payload);
-      toast('Stage saved!');
-      overlay.remove();
-      loadStagesConfig();
-      await _refreshAppConfig();
-    } catch (err) {
-      toast(err, 'error');
-      resetButtonLoading(btn);
-    }
+    overlay.remove();
+    QueueManager.enqueue({
+      module: 'stages', actionType: 'saveStage',
+      payload,
+      onDone: () => {
+        toast('Stage saved!');
+        if (App.currentPage === 'config') loadStagesConfig();
+      },
+      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+    });
+    toast('Saving stage…', 'info');
   });
 }
 
@@ -295,26 +298,34 @@ function openConfigForm() {
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn, 'Adding...');
-    try {
-      await api.addConfig(fd.get('type'), fd.get('value'));
-      toast('Config added!');
-      overlay.remove();
-      loadDropdownsConfig();
-      await _refreshAppConfig();
-    } catch (err) {
-      toast(err, 'error');
-      resetButtonLoading(btn);
-    }
+    overlay.remove();
+    QueueManager.enqueue({
+      module: 'config', actionType: 'addConfig',
+      payload: { type: fd.get('type'), value: fd.get('value') },
+      onDone: () => {
+        toast('Config added!');
+        if (App.currentPage === 'config') loadDropdownsConfig();
+      },
+      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+    });
+    toast('Adding…', 'info');
   });
 }
 
-async function toggleConfigStatus(id, newStatus) {
-  try {
-    await api.updateConfigStatus(id, newStatus);
-    toast('Status updated!');
-    loadDropdownsConfig();
-    await _refreshAppConfig();
-  } catch (err) { toast(err, 'error'); }
+function toggleConfigStatus(id, newStatus) {
+  QueueManager.enqueue({
+    module: 'config', actionType: 'updateConfigStatus',
+    payload: { id, status: newStatus },
+    onDone: () => {
+      toast('Status updated!');
+      if (App.currentPage === 'config') loadDropdownsConfig();
+    },
+    onFail: j => {
+      toast('Update failed: ' + (j.error || 'Error'), 'error');
+      if (App.currentPage === 'config') loadDropdownsConfig();
+    }
+  });
+  toast('Updating…', 'info');
 }
 
 // ── Users Config ─────────────────────────────────────────────────────────────
@@ -467,17 +478,17 @@ function openFieldForm(data = {}) {
     if (isEdit) payload['Field ID'] = data['Field ID'];
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    try {
-      await api.saveFieldConfig(payload);
-      toast('Custom field saved!');
-      overlay.remove();
-      loadFieldConfig();
-      Store.dispatch('SET_CONFIG', await api.getAppConfig());
-      AppCache.touch('config');
-    } catch (err) {
-      toast(err, 'error');
-      resetButtonLoading(btn);
-    }
+    overlay.remove();
+    QueueManager.enqueue({
+      module: 'fields', actionType: 'saveFieldConfig',
+      payload,
+      onDone: () => {
+        toast('Custom field saved!');
+        if (App.currentPage === 'config') loadFieldConfig();
+      },
+      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+    });
+    toast('Saving field…', 'info');
   });
 }
 
@@ -670,31 +681,29 @@ function openUserForm(data = {}) {
     }
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    try {
-      const pw = fd.get('Password') || '';
-      const pwConfirm = fd.get('Password Confirm') || '';
-      if (pw && pw !== pwConfirm) {
-        const errEl = e.target.querySelector('#pw-match-err');
-        if (errEl) errEl.style.display = 'block';
-        resetButtonLoading(btn);
-        return;
-      }
-      if (pw) payload['Password'] = pw;
-      await api.saveUser(payload);
-      toast('User saved!');
-      overlay.remove();
-      const token = localStorage.getItem('nbd_token');
-      const boot = token ? await api.bootstrapWithToken(token) : await api.bootstrap();
-      Store.dispatch('SET_USER', boot.user);
-      Store.dispatch('SET_CONFIG', boot.config);
-      AppCache.touch('config');
-      renderSidebar();
-      if (canNavigate('config')) loadConfig();
-      else navigate(defaultPageForUser());
-    } catch (err) {
-      toast(err, 'error');
+    const pw = fd.get('Password') || '';
+    const pwConfirm = fd.get('Password Confirm') || '';
+    if (pw && pw !== pwConfirm) {
+      const errEl = e.target.querySelector('#pw-match-err');
+      if (errEl) errEl.style.display = 'block';
       resetButtonLoading(btn);
+      return;
     }
+    if (pw) payload['Password'] = pw;
+    overlay.remove();
+    QueueManager.enqueue({
+      module: 'config', actionType: 'saveUser',
+      payload,
+      onDone: async () => {
+        toast('User saved!');
+        const token = localStorage.getItem('nbd_token');
+        const boot = token ? await api.bootstrapWithToken(token).catch(() => null) : null;
+        if (boot) { Store.dispatch('SET_USER', boot.user); Store.dispatch('SET_CONFIG', boot.config); AppCache.touch('config'); renderSidebar(); }
+        if (App.currentPage === 'config' && canNavigate('config')) loadConfig();
+      },
+      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+    });
+    toast('Saving user…', 'info');
   });
 }
 

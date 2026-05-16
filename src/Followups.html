@@ -233,18 +233,23 @@ function _fuTableRow(r) {
   </tr>`;
 }
 
-async function _confirmDeleteFollowup(followupId) {
+function _confirmDeleteFollowup(followupId) {
   if (!followupId) return;
-  const confirmed = confirm('Delete this follow-up permanently? This cannot be undone.');
-  if (!confirmed) return;
-  try {
-    await api.deleteFollowup(followupId);
-    AppCache.removeRow('followups', 'Follow-up ID', followupId);
-    toast('Follow-up deleted.');
-    if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
-  } catch (err) {
-    toast(err, 'error');
-  }
+  if (!confirm('Delete this follow-up permanently? This cannot be undone.')) return;
+  const row = AppCache.getRows('followups').find(r => r['Follow-up ID'] === followupId);
+  AppCache.removeRow('followups', 'Follow-up ID', followupId);
+  if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+  QueueManager.enqueue({
+    module: 'followups', actionType: 'deleteFollowup',
+    payload: { id: followupId },
+    onDone: () => toast('Follow-up deleted.'),
+    onFail: j => {
+      if (row) AppCache.addRow('followups', row);
+      if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+      toast('Delete failed: ' + (j.error || 'Error'), 'error');
+    }
+  });
+  toast('Deleting…', 'info');
 }
 
 function _fuDueCell(row) {
