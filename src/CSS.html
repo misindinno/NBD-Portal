@@ -838,10 +838,14 @@
     --lo-muted2: #9CA3AF;
     --lo-line:   rgba(0,0,0,0.07);
     --lo-line2:  rgba(0,0,0,0.13);
-    --lo-acc:    #4F46E5;
-    --lo-acc-h:  #4338CA;
-    --lo-acc2:   #7C3AED;
-    --lo-soft:   rgba(79,70,229,0.10);
+    --lo-acc:         #4F46E5;
+    --lo-acc-h:       #4338CA;
+    --lo-acc2:        #7C3AED;
+    --lo-soft:        rgba(79,70,229,0.10);
+    --lo-glow-1:      rgba(79,70,229,0.26);
+    --lo-glow-2:      rgba(124,58,237,0.18);
+    --lo-glow-3:      rgba(99,102,241,0.06);
+    --lo-mark-shadow: rgba(79,70,229,0.55);
     --lo-ok:     #10B981;
     --lo-err:    #EF4444;
     --lo-r:      10px;
@@ -881,9 +885,9 @@
   .lo-side-glow {
     position: absolute; inset: 0; pointer-events: none;
     background:
-      radial-gradient(ellipse 55% 40% at 12% 8%, rgba(79,70,229,0.26), transparent 60%),
-      radial-gradient(ellipse 40% 45% at 80% 82%, rgba(124,58,237,0.18), transparent 55%),
-      radial-gradient(ellipse 60% 30% at 50% 50%, rgba(99,102,241,0.06), transparent 70%);
+      radial-gradient(ellipse 55% 40% at 12% 8%, var(--lo-glow-1), transparent 60%),
+      radial-gradient(ellipse 40% 45% at 80% 82%, var(--lo-glow-2), transparent 55%),
+      radial-gradient(ellipse 60% 30% at 50% 50%, var(--lo-glow-3), transparent 70%);
   }
 
   /* Brand */
@@ -895,9 +899,9 @@
   }
   .lo-mark {
     width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
-    background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
+    background: linear-gradient(135deg, var(--lo-acc2) 0%, var(--lo-acc) 100%);
     display: inline-flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 10px rgba(79,70,229,0.55);
+    box-shadow: 0 2px 10px var(--lo-mark-shadow);
   }
   .lo-mark::after {
     content: ''; width: 10px; height: 10px; border-radius: 3px;

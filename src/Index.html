@@ -27,6 +27,24 @@
   <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
 
   <?!= include('CSS'); ?>
+  <style>
+    :root {
+      --md-primary:       <?= CLIENT_CONFIG.THEME.PRIMARY ?>;
+      --md-primary-light: <?= CLIENT_CONFIG.THEME.PRIMARY_LIGHT ?>;
+      --sb-bg-from:       <?= CLIENT_CONFIG.THEME.SB_FROM ?>;
+      --sb-bg-to:         <?= CLIENT_CONFIG.THEME.SB_TO ?>;
+    }
+    #nbd-login-overlay {
+      --lo-acc:         <?= CLIENT_CONFIG.THEME.LO_ACC ?>;
+      --lo-acc-h:       <?= CLIENT_CONFIG.THEME.LO_ACC_H ?>;
+      --lo-acc2:        <?= CLIENT_CONFIG.THEME.LO_ACC2 ?>;
+      --lo-soft:        <?= CLIENT_CONFIG.THEME.LO_SOFT ?>;
+      --lo-glow-1:      <?= CLIENT_CONFIG.THEME.LO_GLOW_1 ?>;
+      --lo-glow-2:      <?= CLIENT_CONFIG.THEME.LO_GLOW_2 ?>;
+      --lo-glow-3:      <?= CLIENT_CONFIG.THEME.LO_GLOW_3 ?>;
+      --lo-mark-shadow: <?= CLIENT_CONFIG.THEME.LO_MARK_SHADOW ?>;
+    }
+  </style>
 </head>
 <body style="overflow-y: hidden;">
   <div id="app-shell">
