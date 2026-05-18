@@ -60,7 +60,8 @@ async function _checkCacheStamps() {
     // Change-log incremental sync (queue worker writes here after each job)
     const changes = await api.getChanges(_lastChangeSeq);
     if (changes && changes.length) {
-      _lastChangeSeq = Math.max(...changes.map(c => c.sequence || 0));
+      const seqs = changes.map(c => c.sequence).filter(s => s > 0);
+      if (seqs.length) _lastChangeSeq = Math.max(...seqs);
       _applyChangeLog(changes);
     }
   } catch(e) { /* silent — revalidation is best-effort */ }

@@ -98,6 +98,13 @@ function markFollowupDone(followupId, data, email) {
   const remark = String(data['Remark'] || '').trim();
   if (!remark) return respond(null, 'Done remark is required.');
 
+  // Pre-validate stage before any writes to avoid partial-write inconsistency
+  let stage = null;
+  if (lead && data['Updated Stage ID'] && data['Updated Stage ID'] !== lead['Stage ID']) {
+    stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === data['Updated Stage ID'])[0];
+    if (!stage) return respond(null, 'Selected stage not found.');
+  }
+
   const statusAfter = nextDate ? 'Open' : 'Closed';
   const history = {
     'History ID': generateUUID(),
@@ -112,7 +119,6 @@ function markFollowupDone(followupId, data, email) {
     'Status After': statusAfter,
     'Created At': now()
   };
-  insertRow(SHEET_NAMES.FOLLOWUP_HISTORY, history);
 
   const followupPatch = {
     'Status': statusAfter,
@@ -134,6 +140,9 @@ function markFollowupDone(followupId, data, email) {
   const updated = updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId, followupPatch);
   if (!updated) return respond(null, 'Follow-up record not found — it may have been deleted. Please refresh and try again.');
 
+  // Write history only after the followup row update succeeds
+  insertRow(SHEET_NAMES.FOLLOWUP_HISTORY, history);
+
   let leadPatch = null;
   let activityLog = null;
   if (lead) {
@@ -142,9 +151,7 @@ function markFollowupDone(followupId, data, email) {
       'Next Follow-up Date': nextDate,
       'Updated At': now()
     };
-    if (data['Updated Stage ID'] && data['Updated Stage ID'] !== lead['Stage ID']) {
-      const stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === data['Updated Stage ID'])[0];
-      if (!stage) return respond(null, 'Selected stage not found.');
+    if (stage) {
       // Validate required custom fields for the new stage and save their values.
       // _prepareLeadPayload merges existing lead values so only stage-specific
       // fields the user submitted are required to be new.
