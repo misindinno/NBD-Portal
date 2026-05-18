@@ -79,9 +79,8 @@ async function loadPortalSettings() {
       module: 'config', actionType: 'savePortalSettings',
       payload: { visibleDepartments: fd.getAll('visibleDepartments') },
       onDone: async () => {
-        const token = localStorage.getItem('nbd_token');
-        const boot = token ? await api.bootstrapWithToken(token).catch(() => null) : null;
-        if (boot) { Store.dispatch('SET_USER', boot.user); Store.dispatch('SET_CONFIG', boot.config); AppCache.touch('config'); }
+        await _refreshAppConfig().catch(() => {});
+        api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
         toast('Settings saved!');
         if (App.currentPage === 'config') loadPortalSettings();
       },
@@ -138,7 +137,7 @@ async function loadStagesConfig() {
       QueueManager.enqueue({
         module: 'stages', actionType: 'reorderStages',
         payload: { ids: orderedIds },
-        onDone: () => toast('Stages reordered!'),
+        onDone: () => { toast('Stages reordered!'); _refreshAppConfig().catch(() => {}); },
         onFail: j => {
           toast('Reorder failed: ' + (j.error || 'Error'), 'error');
           if (App.currentPage === 'config') loadStagesConfig();
@@ -218,6 +217,7 @@ function openStageForm(data = {}) {
       payload,
       onDone: () => {
         toast('Stage saved!');
+        _refreshAppConfig().catch(() => {});
         if (App.currentPage === 'config') loadStagesConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
@@ -304,6 +304,7 @@ function openConfigForm() {
       payload: { type: fd.get('type'), value: fd.get('value') },
       onDone: () => {
         toast('Config added!');
+        _refreshAppConfig().catch(() => {});
         if (App.currentPage === 'config') loadDropdownsConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
@@ -318,6 +319,7 @@ function toggleConfigStatus(id, newStatus) {
     payload: { id, status: newStatus },
     onDone: () => {
       toast('Status updated!');
+      _refreshAppConfig().catch(() => {});
       if (App.currentPage === 'config') loadDropdownsConfig();
     },
     onFail: j => {
@@ -484,6 +486,7 @@ function openFieldForm(data = {}) {
       payload,
       onDone: () => {
         toast('Custom field saved!');
+        _refreshAppConfig().catch(() => {});
         if (App.currentPage === 'config') loadFieldConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
@@ -696,9 +699,8 @@ function openUserForm(data = {}) {
       payload,
       onDone: async () => {
         toast('User saved!');
-        const token = localStorage.getItem('nbd_token');
-        const boot = token ? await api.bootstrapWithToken(token).catch(() => null) : null;
-        if (boot) { Store.dispatch('SET_USER', boot.user); Store.dispatch('SET_CONFIG', boot.config); AppCache.touch('config'); renderSidebar(); }
+        await _refreshAppConfig().catch(() => {});
+        renderSidebar();
         if (App.currentPage === 'config' && canNavigate('config')) loadConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
