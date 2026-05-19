@@ -28,6 +28,8 @@ async function loadFollowups(tab = 'all') {
 
   if      (tab === 'today')   await _renderFUTab('today');
   else if (tab === 'overdue') await _renderFUTab('overdue');
+  else if (tab === 'future')  await _renderFUTab('future');
+  else if (tab === 'closed')  await _renderFUTab('closed');
   else if (tab === 'custom')  _renderCustomQuery();
   else                        await _renderFUTab('all');
 }
@@ -80,12 +82,17 @@ async function _getFollowupFormData(force = false) {
 }
 
 function _buildFollowupContext(leads = []) {
-  const followups = AppCache.getRows('followups') || [];
+  const allFuRows = [
+    ...(AppCache.getRows('followups') || []),
+    ...(AppCache.getRows('followupHistory') || [])
+  ];
   const lastDiscussionMap = {};
-  followups
-    .filter(f => !_isActivityLog(f) && f['Lead ID'] && f['Discussion'])
+  allFuRows
+    .filter(f => !_isActivityLog(f) && f['Lead ID'] && (f['Discussion'] || f['Remark']))
     .sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0))
-    .forEach(f => { if (!lastDiscussionMap[f['Lead ID']]) lastDiscussionMap[f['Lead ID']] = f['Discussion']; });
+    .forEach(f => {
+      if (!lastDiscussionMap[f['Lead ID']]) lastDiscussionMap[f['Lead ID']] = f['Discussion'] || f['Remark'];
+    });
   return {
     leadMap: _mapRowsBy(leads, 'Lead ID'),
     userMap: App.config.userNameMap || (App.config.users || []).reduce((m, u) => { m[u.id] = u.name; return m; }, {}),
