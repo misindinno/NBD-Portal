@@ -212,7 +212,11 @@ function _lfInitValidator() {
           if (j.finalRecordId) AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': j.finalRecordId, '_queueTemp': false });
           if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
         },
-        onFail: j => console.warn('[LeadForm] save failed:', j.error)
+        onFail: j => {
+          AppCache.removeRow('leads', 'Lead ID', tempId);
+          if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+          toast('Lead save failed: ' + (j.error || 'Error'), 'error');
+        }
       });
       _lfShowSuccess(payload['Company Name'] || payload['Remark']);
     } catch (err) {

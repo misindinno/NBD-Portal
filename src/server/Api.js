@@ -284,6 +284,14 @@ function apiGetQueueHistory(token, limit) {
   });
 }
 
+function apiGetQueueHealth(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    return respond(getQueueHealth_(user.email));
+  });
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 function _apiUser() {
