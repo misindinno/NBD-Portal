@@ -473,7 +473,7 @@ function openFieldForm(data = {}) {
     if (isEdit) payload['Field ID'] = data['Field ID'];
 
     // ── Client-side validation via shared FieldValidation ──────────────────────
-    const check = FieldValidation.validateField(payload, _cfgFieldsCache?.fields || []);
+    const check = FieldValidation.validateField(payload, window._cfgFieldContext?.fields || []);
     if (!check.ok) {
       const inputEl = e.target.querySelector(`[name="${check.field}"]`);
       if (check.derivedKey && inputEl) inputEl.value = check.derivedKey;
