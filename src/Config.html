@@ -91,10 +91,20 @@ async function loadPortalSettings() {
 }
 
 // ── Pipeline Stages ──────────────────────────────────────────────────────────
-function loadStagesConfig() {
+async function loadStagesConfig() {
+  const container = el('cfg-stages');
+  if (!container) return;
+  container.innerHTML = skeletonPage('cards');
+  let stages;
+  try {
+    stages = await api.getAllStages();
+  } catch (err) {
+    const c = el('cfg-stages');
+    if (c) c.innerHTML = `<div class="card" style="padding:24px;color:#D32F2F">${escapeHtml(err.message || String(err))}</div>`;
+    return;
+  }
   const c = el('cfg-stages');
   if (!c) return;
-  const stages = App.config.allStages || [];
   const nextOrder = stages.reduce((max, s) => Math.max(max, Number(s['Stage Order']) || 0), 0) + 1;
   c.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -217,8 +227,9 @@ function openStageForm(data = {}) {
 }
 
 // ── Dropdowns Config ─────────────────────────────────────────────────────────
-function loadDropdownsConfig() {
-  const configs = App.config._allConfigs || [];
+async function loadDropdownsConfig() {
+  el('cfg-dropdowns').innerHTML = skeletonPage('cards');
+  const configs = await api.getAllConfigs();
   const types = [...new Set(configs.map(c => c['Config Type']))];
   
   el('cfg-dropdowns').innerHTML = `
@@ -327,11 +338,7 @@ async function loadFieldConfig() {
     api.getAllStages(),
     api.getAllConfigs()
   ]);
-  _renderFieldConfig({ fields, stages, configs });
-}
-
-function _renderFieldConfig(ctx) {
-  window._cfgFieldContext = ctx;
+  window._cfgFieldContext = { fields, stages, configs };
   el('cfg-fields').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <div>
@@ -471,24 +478,6 @@ function openFieldForm(data = {}) {
     payload['Is Visible'] = fd.has('Is Visible');
     payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
     if (isEdit) payload['Field ID'] = data['Field ID'];
-
-    // ── Client-side validation via shared FieldValidation ──────────────────────
-    const check = FieldValidation.validateField(payload, window._cfgFieldContext?.fields || []);
-    if (!check.ok) {
-      const inputEl = e.target.querySelector(`[name="${check.field}"]`);
-      if (check.derivedKey && inputEl) inputEl.value = check.derivedKey;
-      if (inputEl) {
-        inputEl.setCustomValidity(check.message);
-        inputEl.reportValidity();
-        inputEl.addEventListener('input', () => inputEl.setCustomValidity(''), { once: true });
-      } else {
-        toast(check.message, 'error');
-      }
-      return;
-    }
-    payload['Column Key'] = check.derivedKey;
-    // ── End validation ──────────────────────────────────────────────────────────
-
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
     overlay.remove();
@@ -543,10 +532,7 @@ function _fieldValidationSummary(f) {
 
 async function loadUsersConfig() {
   el('cfg-users').innerHTML = skeletonPage('table');
-  _renderUsersConfig(await api.getUsers());
-}
-
-function _renderUsersConfig(allUsers) {
+  const allUsers = await api.getUsers();
   const selectedDepartments = _parseDepartmentList(App.config.settings?.visibleDepartments || []);
   const selectedMap = selectedDepartments.reduce((m, d) => {
     m[String(d || '').trim().toLowerCase()] = true;
@@ -555,6 +541,7 @@ function _renderUsersConfig(allUsers) {
   const users = selectedDepartments.length
     ? allUsers.filter(u => selectedMap[String(u['Department'] || '').trim().toLowerCase()])
     : allUsers;
+  
   el('cfg-users').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <p style="color:#666;font-size:13px">Manage user roles and permissions</p>
@@ -714,7 +701,7 @@ function openUserForm(data = {}) {
         toast('User saved!');
         await _refreshAppConfig().catch(() => {});
         renderSidebar();
-        if (App.currentPage === 'config' && canNavigate('config')) loadUsersConfig();
+        if (App.currentPage === 'config' && canNavigate('config')) loadConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
@@ -859,6 +846,4 @@ function _togglePasswordSection(btn) {
     if (err) err.style.display = 'none';
   }
 }
-
-window.loadConfig = loadConfig;
 </script>
