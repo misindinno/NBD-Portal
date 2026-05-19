@@ -236,11 +236,15 @@ function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
 
-    const allowed = ['leads', 'followups'];
+    const allowed = ['leads', 'followups', 'config', 'stages', 'fields'];
     if (!allowed.includes(String(moduleName || ''))) throw new Error('Invalid module.');
 
-    const allowedActions = ['saveLead', 'saveFollowup', 'markFollowupDone',
-                            'updateLeadStage', 'moveLeadStageWithFields'];
+    const allowedActions = [
+      'saveLead', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
+      'saveFollowup', 'markFollowupDone', 'deleteFollowup',
+      'addConfig', 'updateConfigStatus', 'saveStage', 'reorderStages',
+      'saveFieldConfig', 'savePortalSettings', 'saveUser',
+    ];
     if (!allowedActions.includes(String(actionType || ''))) throw new Error('Invalid action.');
 
     const payloadStr = JSON.stringify(payload || {});
