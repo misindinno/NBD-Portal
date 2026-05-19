@@ -248,10 +248,16 @@ function _pipelineStageFields(stageId) {
   const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE'));
   return (App.config.leadFields || [])
     .filter(f => f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE')
-    .filter(f => f['Stage ID'] === stageId)
     .filter(f => f['Field Type'] !== 'Formula')
-    // For skippable stages, include skip_only fields; otherwise only normal fields trigger the dialog
-    .filter(f => isSkippable || (f['Skip Visibility'] || 'normal') === 'normal');
+    .filter(f => {
+      if (f['Stage ID'] && f['Stage ID'] !== stageId) return false; // belongs to a different stage
+      const isGlobal  = !f['Stage ID'];
+      const isSkipOnly = (f['Skip Visibility'] || 'normal') === 'skip_only';
+      // Global fields: only show in stage dialog when skippable and the field is skip_only
+      if (isGlobal) return isSkippable && isSkipOnly;
+      // Stage-specific fields: show normally; skip_only only if stage is skippable
+      return isSkippable || !isSkipOnly;
+    });
 }
 
 function _restorePipelineDrag(evt) {
