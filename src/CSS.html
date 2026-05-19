@@ -303,6 +303,11 @@
   }
   #content { flex: 1; overflow-y: auto; padding: 20px; }
   #content[data-page="pipeline"] { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+  #content[data-page="config"]   { padding: 16px 20px; }
+  #content[data-page="queue"]    { padding: 16px 20px; }
+  /* Config tabs fill available height so background doesn't show gaps */
+  #content[data-page="config"] .tabs { position: sticky; top: 0; z-index: 10; background: var(--md-bg); padding-bottom: 8px; margin-bottom: 0; }
+  #cfg-settings, #cfg-stages, #cfg-dropdowns, #cfg-fields, #cfg-users { min-height: 0; }
 
   /* Cards */
   .card { background: var(--md-card); border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 16px; }

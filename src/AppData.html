@@ -115,8 +115,15 @@ function _applyChangeLog(changes) {
     }
   }
   // Refresh queue page if it's open and any module changed
-  if ((modules['leads'] || modules['followups']) && App.currentPage === 'queue') {
+  const anyModule = modules['leads'] || modules['followups'] || modules['config'] || modules['stages'] || modules['fields'];
+  if (anyModule && App.currentPage === 'queue') {
     if (typeof _refreshQueuePage === 'function') _refreshQueuePage();
+  }
+
+  // Re-render config tabs that read from App.config when config data changes
+  if ((modules['config'] || modules['stages'] || modules['fields']) && App.currentPage === 'config') {
+    if (typeof loadStagesConfig === 'function') loadStagesConfig();
+    if (typeof loadDropdownsConfig === 'function') loadDropdownsConfig();
   }
 }
 

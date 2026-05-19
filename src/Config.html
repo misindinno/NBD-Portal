@@ -1,4 +1,8 @@
 <script>
+// Module-level caches — populated on first fetch, cleared after saves
+let _cfgFieldsCache = null;  // { fields, stages, configs }
+let _cfgUsersCache  = null;  // []
+
 async function loadConfig() {
   el('page-title').textContent = 'Configuration';
   const canEditConfig = !!App.user?.canEditConfig;
@@ -91,20 +95,10 @@ async function loadPortalSettings() {
 }
 
 // ── Pipeline Stages ──────────────────────────────────────────────────────────
-async function loadStagesConfig() {
-  const container = el('cfg-stages');
-  if (!container) return;
-  container.innerHTML = skeletonPage('cards');
-  let stages;
-  try {
-    stages = await api.getAllStages();
-  } catch (err) {
-    const c = el('cfg-stages');
-    if (c) c.innerHTML = `<div class="card" style="padding:24px;color:#D32F2F">${escapeHtml(err.message || String(err))}</div>`;
-    return;
-  }
+function loadStagesConfig() {
   const c = el('cfg-stages');
   if (!c) return;
+  const stages = App.config.allStages || [];
   const nextOrder = stages.reduce((max, s) => Math.max(max, Number(s['Stage Order']) || 0), 0) + 1;
   c.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -227,9 +221,8 @@ function openStageForm(data = {}) {
 }
 
 // ── Dropdowns Config ─────────────────────────────────────────────────────────
-async function loadDropdownsConfig() {
-  el('cfg-dropdowns').innerHTML = skeletonPage('cards');
-  const configs = await api.getAllConfigs();
+function loadDropdownsConfig() {
+  const configs = App.config._allConfigs || [];
   const types = [...new Set(configs.map(c => c['Config Type']))];
   
   el('cfg-dropdowns').innerHTML = `
@@ -332,13 +325,20 @@ function toggleConfigStatus(id, newStatus) {
 
 // ── Users Config ─────────────────────────────────────────────────────────────
 async function loadFieldConfig() {
-  el('cfg-fields').innerHTML = skeletonPage('table');
-  const [fields, stages, configs] = await Promise.all([
-    api.getAllFieldConfigs(''),
-    api.getAllStages(),
-    api.getAllConfigs()
-  ]);
-  window._cfgFieldContext = { fields, stages, configs };
+  if (!_cfgFieldsCache) {
+    el('cfg-fields').innerHTML = skeletonPage('table');
+    const [fields, stages, configs] = await Promise.all([
+      api.getAllFieldConfigs(''),
+      api.getAllStages(),
+      api.getAllConfigs()
+    ]);
+    _cfgFieldsCache = { fields, stages, configs };
+  }
+  _renderFieldConfig(_cfgFieldsCache);
+}
+
+function _renderFieldConfig(ctx) {
+  window._cfgFieldContext = ctx;
   el('cfg-fields').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <div>
@@ -485,6 +485,7 @@ function openFieldForm(data = {}) {
       module: 'fields', actionType: 'saveFieldConfig',
       payload,
       onDone: () => {
+        _cfgFieldsCache = null;
         toast('Custom field saved!');
         _refreshAppConfig().catch(() => {});
         if (App.currentPage === 'config') loadFieldConfig();
@@ -531,8 +532,14 @@ function _fieldValidationSummary(f) {
 }
 
 async function loadUsersConfig() {
-  el('cfg-users').innerHTML = skeletonPage('table');
-  const allUsers = await api.getUsers();
+  if (!_cfgUsersCache) {
+    el('cfg-users').innerHTML = skeletonPage('table');
+    _cfgUsersCache = await api.getUsers();
+  }
+  _renderUsersConfig(_cfgUsersCache);
+}
+
+function _renderUsersConfig(allUsers) {
   const selectedDepartments = _parseDepartmentList(App.config.settings?.visibleDepartments || []);
   const selectedMap = selectedDepartments.reduce((m, d) => {
     m[String(d || '').trim().toLowerCase()] = true;
@@ -541,7 +548,6 @@ async function loadUsersConfig() {
   const users = selectedDepartments.length
     ? allUsers.filter(u => selectedMap[String(u['Department'] || '').trim().toLowerCase()])
     : allUsers;
-  
   el('cfg-users').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <p style="color:#666;font-size:13px">Manage user roles and permissions</p>
@@ -698,10 +704,11 @@ function openUserForm(data = {}) {
       module: 'config', actionType: 'saveUser',
       payload,
       onDone: async () => {
+        _cfgUsersCache = null;
         toast('User saved!');
         await _refreshAppConfig().catch(() => {});
         renderSidebar();
-        if (App.currentPage === 'config' && canNavigate('config')) loadConfig();
+        if (App.currentPage === 'config' && canNavigate('config')) loadUsersConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
