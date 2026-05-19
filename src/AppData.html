@@ -102,17 +102,30 @@ function _dismissUpdateBanner() {
 
 function _applyChangeLog(changes) {
   const modules = {};
-  changes.forEach(c => { if (c.module) modules[c.module] = true; });
+  const collections = {};
+  changes.forEach(c => {
+    if (c.module) modules[c.module] = true;
+    _collectionsForQueueAction(c.actionType, c.module).forEach(col => { collections[col] = true; });
+  });
 
-  if (modules['leads']) {
+  if (modules['leads'] || collections.leads) {
     QueueManager.onServerChange('leads');
     if (['leads', 'pipeline', 'dashboard'].includes(App.currentPage)) _refreshLeadsCache().catch(() => {});
   }
-  if (modules['followups']) {
+  if (modules['followups'] || collections.followups) {
     QueueManager.onServerChange('followups');
     if (App.currentPage?.startsWith('followups') || App.currentPage === 'dashboard') {
       _refreshFollowupsCache().catch(() => {});
     }
+  }
+  if (collections.followupHistory && AppCache.isLoaded('followupHistory')) {
+    _refreshFollowupHistoryCache().catch(() => {});
+  }
+  if (collections.activityLogs && AppCache.isLoaded('activityLogs')) {
+    _refreshActivityLogsCache().catch(() => {});
+  }
+  if (collections.config) {
+    _refreshAppConfig().catch(() => {});
   }
   // Refresh queue page if it's open and any module changed
   const anyModule = modules['leads'] || modules['followups'] || modules['config'] || modules['stages'] || modules['fields'];
@@ -125,6 +138,48 @@ function _applyChangeLog(changes) {
     if (typeof loadStagesConfig === 'function') loadStagesConfig();
     if (typeof loadDropdownsConfig === 'function') loadDropdownsConfig();
   }
+}
+
+function _collectionsForQueueAction(actionType, moduleName) {
+  const map = {
+    saveLead:                ['leads', 'followups'],
+    deleteLead:              ['leads', 'followups', 'followupHistory', 'activityLogs'],
+    updateLeadStage:         ['leads', 'activityLogs'],
+    moveLeadStageWithFields: ['leads', 'activityLogs'],
+    saveFollowup:            ['followups', 'leads', 'activityLogs'],
+    markFollowupDone:        ['followups', 'followupHistory', 'leads', 'activityLogs'],
+    deleteFollowup:          ['followups'],
+    addConfig:               ['config'],
+    updateConfigStatus:      ['config'],
+    saveStage:               ['config'],
+    reorderStages:           ['config'],
+    saveFieldConfig:         ['config'],
+    savePortalSettings:      ['config', 'leads'],
+    saveUser:                ['config']
+  };
+  if (map[actionType]) return map[actionType];
+  return {
+    leads: ['leads'],
+    followups: ['followups'],
+    config: ['config'],
+    stages: ['config'],
+    fields: ['config']
+  }[moduleName] || [];
+}
+
+function _refreshAfterQueueJob(job) {
+  const collections = _collectionsForQueueAction(job?.actionType, job?.module);
+  if (collections.includes('leads')) _refreshLeadsCache().catch(() => {});
+  if (collections.includes('followups')) _refreshFollowupsCache().catch(() => {});
+  if (collections.includes('followupHistory') && AppCache.isLoaded('followupHistory')) _refreshFollowupHistoryCache().catch(() => {});
+  if (collections.includes('activityLogs') && AppCache.isLoaded('activityLogs')) _refreshActivityLogsCache().catch(() => {});
+  if (collections.includes('config')) _refreshAppConfig().catch(() => {});
+  if (App.currentPage === 'queue' && typeof _refreshQueuePage === 'function') _refreshQueuePage();
+}
+
+function _recoverFailedQueueJob(job) {
+  toast('Queued save failed: ' + (job?.error || 'Unknown error'), 'error');
+  _refreshAfterQueueJob(job);
 }
 
 async function _refreshLeadsCache() {

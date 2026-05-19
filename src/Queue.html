@@ -84,10 +84,12 @@ const QueueManager = (() => {
           changed = true;
           _updateBadge(rid);
           if (srv.status === 'DONE') {
-            _callbacks[rid]?.onDone?.(_jobs[rid]);
+            if (_callbacks[rid]?.onDone) _callbacks[rid].onDone(_jobs[rid]);
+            else if (typeof _refreshAfterQueueJob === 'function') _refreshAfterQueueJob(_jobs[rid]);
             delete _callbacks[rid];
           } else if (srv.status === 'DEAD') {
-            _callbacks[rid]?.onFail?.(_jobs[rid]);
+            if (_callbacks[rid]?.onFail) _callbacks[rid].onFail(_jobs[rid]);
+            else if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[rid]);
             delete _callbacks[rid];
           }
         }
@@ -154,6 +156,7 @@ const QueueManager = (() => {
         _save();
         _updateBadge(requestId);
         opts.onFail?.(_jobs[requestId]);
+        if (!opts.onFail && typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[requestId]);
         return { requestId, tempId };
       }
 

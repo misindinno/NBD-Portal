@@ -595,7 +595,12 @@ async function openFollowupForm(leadId = '', leadName = '') {
           if (j.finalRecordId) AppCache.patchRow('followups', 'Follow-up ID', tempId, { 'Follow-up ID': j.finalRecordId, '_queueTemp': false });
           toast('Follow-up saved!');
         },
-        onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+        onFail: j => {
+          AppCache.removeRow('followups', 'Follow-up ID', tempId);
+          if (payload['Lead ID']) _refreshLeadsCache().catch(() => {});
+          if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+          toast('Save failed: ' + (j.error || 'Error'), 'error');
+        }
       });
       toast('Saving follow-up…', 'info');
     } catch (err) {

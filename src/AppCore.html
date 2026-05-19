@@ -97,5 +97,6 @@ const api = {
   getJobStatuses:  (ids)                    => api._authedRead('apiGetJobStatuses', ids),
   getChanges:      (seq)                    => api._authedRead('apiGetChanges', seq),
   getQueueHistory: (limit)                  => api._authedRead('apiGetQueueHistory', limit || 50),
+  getQueueHealth:  ()                       => api._authedRead('apiGetQueueHealth'),
 };
 </script>
