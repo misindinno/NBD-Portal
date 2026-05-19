@@ -3,7 +3,7 @@
 let _cfgFieldsCache = null;  // { fields, stages, configs }
 let _cfgUsersCache  = null;  // []
 
-async function loadConfig() {
+window.loadConfig = async function loadConfig() {
   el('page-title').textContent = 'Configuration';
   const canEditConfig = !!App.user?.canEditConfig;
   const canManageUsers = !!App.user?.canManageUsers;
@@ -31,7 +31,7 @@ async function loadConfig() {
   if (activeTab === 'cfg-dropdowns') loadDropdownsConfig();
   if (activeTab === 'cfg-fields') loadFieldConfig();
   if (activeTab === 'cfg-users') loadUsersConfig();
-}
+};
 
 function switchConfigTab(btn, tabId) {
   btn.closest('#content').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -872,5 +872,5 @@ function _togglePasswordSection(btn) {
   }
 }
 
-window.loadConfig = loadConfig;
+var loadConfig = window.loadConfig;
 </script>

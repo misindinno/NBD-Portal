@@ -45,7 +45,7 @@ function navigate(page) {
 }
 
 function _runPageLoader(name, attempt = 0) {
-  const loader = window[name];
+  const loader = _findPageLoader(name);
   if (typeof loader === 'function') {
     loader();
     return;
@@ -55,6 +55,15 @@ function _runPageLoader(name, attempt = 0) {
     return;
   }
   el('content').innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(name)} is not available. Please refresh the portal.</p>`;
+}
+
+function _findPageLoader(name) {
+  if (typeof window[name] === 'function') return window[name];
+  try {
+    const loader = eval(`typeof ${name} === "function" ? ${name} : null`);
+    if (typeof loader === 'function') return loader;
+  } catch (_) {}
+  return null;
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────

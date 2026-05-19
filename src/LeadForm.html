@@ -1,5 +1,5 @@
 <script>
-async function loadLeadForm() {
+window.loadLeadForm = async function loadLeadForm() {
   el('page-title').textContent = 'Add New Lead';
   const cfg = App.config;
   const leadFields = cfg.leadFields || [];
@@ -141,7 +141,7 @@ async function loadLeadForm() {
   initLeadCustomFields(el('content'));
   _initStateCityDropdowns(el('content'), '', '');
   _lfInitValidator();
-}
+};
 
 function _lfCustomFieldsHTML(leadFields, configOptions) {
   if (!leadFields.length) return '';
@@ -245,5 +245,5 @@ function _lfResetForm() {
   if (form) form.reset();
 }
 
-window.loadLeadForm = loadLeadForm;
+var loadLeadForm = window.loadLeadForm;
 </script>
