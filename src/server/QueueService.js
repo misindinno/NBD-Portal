@@ -286,6 +286,67 @@ function getQueueHistory_(userEmail, limit) {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+// Queue operational health for the Queue page and debugging stuck jobs.
+function getQueueHealth_(userEmail) {
+  assertServerContext_();
+  const rows = getAllRows(SHEET_NAMES.QUEUE);
+  const nowMs = Date.now();
+  const stats = {
+    total: rows.length,
+    queued: 0,
+    processing: 0,
+    failed: 0,
+    dead: 0,
+    done: 0,
+    staleProcessing: 0,
+    oldestPendingAt: '',
+    oldestPendingMinutes: null
+  };
+  let oldestPendingMs = 0;
+
+  rows.forEach(r => {
+    const status = String(r['Status'] || '');
+    if (status === Q_STATUS.QUEUED) stats.queued++;
+    else if (status === Q_STATUS.PROCESSING) stats.processing++;
+    else if (status === Q_STATUS.FAILED) stats.failed++;
+    else if (status === Q_STATUS.DEAD) stats.dead++;
+    else if (status === Q_STATUS.DONE) stats.done++;
+
+    const leaseUntil = _dateMs_(r['Lease Until']);
+    if (status === Q_STATUS.PROCESSING && leaseUntil > 0 && leaseUntil < nowMs) stats.staleProcessing++;
+
+    if (status === Q_STATUS.QUEUED || status === Q_STATUS.PROCESSING || status === Q_STATUS.FAILED) {
+      const createdMs = _dateMs_(r['Created At']);
+      if (createdMs && (!oldestPendingMs || createdMs < oldestPendingMs)) {
+        oldestPendingMs = createdMs;
+        stats.oldestPendingAt = String(r['Created At'] || '');
+      }
+    }
+  });
+
+  if (oldestPendingMs) {
+    stats.oldestPendingMinutes = Math.max(0, Math.floor((nowMs - oldestPendingMs) / 60000));
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const triggers = ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'processQueue');
+  return {
+    triggerActive: triggers.length > 0,
+    triggerCount: triggers.length,
+    triggerStatus: triggers.length > 0
+      ? 'ACTIVE - ' + triggers.length + ' trigger(s) running'
+      : 'NOT SET - run setupQueueTrigger() to enable background processing',
+    lastStartedAt: props.getProperty('QUEUE_WORKER_LAST_STARTED_AT') || '',
+    lastFinishedAt: props.getProperty('QUEUE_WORKER_LAST_FINISHED_AT') || '',
+    lastStatus: props.getProperty('QUEUE_WORKER_LAST_STATUS') || '',
+    lastClaimed: Number(props.getProperty('QUEUE_WORKER_LAST_CLAIMED') || 0),
+    lastProcessed: Number(props.getProperty('QUEUE_WORKER_LAST_PROCESSED') || 0),
+    lastError: props.getProperty('QUEUE_WORKER_LAST_ERROR') || '',
+    stats
+  };
+}
+
 function _findQueueRow_(requestId) {
   const rows = getAllRows(SHEET_NAMES.QUEUE);
   return rows.find(r => String(r['Request ID'] || '') === String(requestId)) || null;
@@ -307,4 +368,11 @@ function _nextChangeLogSeq_() {
 
 function _msToDateStr_(ms) {
   return Utilities.formatDate(new Date(ms), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+}
+
+function _dateMs_(value) {
+  if (!value) return 0;
+  const d = value instanceof Date ? value : new Date(String(value).replace(' ', 'T'));
+  const ms = d.getTime();
+  return isNaN(ms) ? 0 : ms;
 }
