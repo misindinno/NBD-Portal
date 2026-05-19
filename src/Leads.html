@@ -55,6 +55,7 @@
 
     const priColors = { hot: 'background:#fee2e2;color:#dc2626', warm: 'background:#fff7ed;color:#ea580c', cold: 'background:#eff6ff;color:#2563eb' };
 
+    if (leadTable) { try { leadTable.destroy(); } catch(e) {} leadTable = null; }
     leadTable = new Tabulator('#lead-table', {
       data: leads,
       layout: 'fitColumns',

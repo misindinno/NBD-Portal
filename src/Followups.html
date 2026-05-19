@@ -15,6 +15,8 @@ async function loadFollowups(tab = 'all') {
         <button class="tab-btn ${tab==='all'?'active':''}"     onclick="loadFollowups('all')">All</button>
         <button class="tab-btn ${tab==='today'?'active':''}"   onclick="loadFollowups('today')">Today</button>
         <button class="tab-btn ${tab==='overdue'?'active':''}" onclick="loadFollowups('overdue')">Overdue</button>
+        <button class="tab-btn ${tab==='future'?'active':''}"  onclick="loadFollowups('future')">Future</button>
+        <button class="tab-btn ${tab==='closed'?'active':''}"  onclick="loadFollowups('closed')">Closed</button>
         <button class="tab-btn ${tab==='custom'?'active':''}"  onclick="loadFollowups('custom')">Custom Query</button>
       </div>
       <button class="btn btn-primary btn-sm" onclick="openFollowupForm()">
@@ -42,16 +44,20 @@ async function _renderFUTab(tab) {
   }
   try {
     const todayStr = localDateInputValue();
-    let rows = AppCache.getRows('followups')
-      .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
-      .filter(_isOpenFollowupRow);
-    if (tab === 'today') {
-      rows = rows.filter(r => _fmtDate(_fuPlannedDate(r)) === todayStr);
-    } else if (tab === 'overdue') {
-      rows = rows.filter(r => {
-        const d = _fmtDate(_fuPlannedDate(r));
-        return d && d < todayStr;
-      });
+    const allFu = AppCache.getRows('followups')
+      .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+    let rows;
+    if (tab === 'closed') {
+      rows = allFu.filter(r => !_isOpenFollowupRow(r));
+    } else {
+      rows = allFu.filter(_isOpenFollowupRow);
+      if (tab === 'today') {
+        rows = rows.filter(r => _fmtDate(_fuPlannedDate(r)) === todayStr);
+      } else if (tab === 'overdue') {
+        rows = rows.filter(r => { const d = _fmtDate(_fuPlannedDate(r)); return d && d < todayStr; });
+      } else if (tab === 'future') {
+        rows = rows.filter(r => { const d = _fmtDate(_fuPlannedDate(r)); return d && d > todayStr; });
+      }
     }
     const ctx = _buildFollowupContext(AppCache.getRows('leads'));
     body.innerHTML = _fuTable(rows, `No ${tab} follow-ups found.`, ctx);
@@ -74,10 +80,17 @@ async function _getFollowupFormData(force = false) {
 }
 
 function _buildFollowupContext(leads = []) {
+  const followups = AppCache.getRows('followups') || [];
+  const lastDiscussionMap = {};
+  followups
+    .filter(f => !_isActivityLog(f) && f['Lead ID'] && f['Discussion'])
+    .sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0))
+    .forEach(f => { if (!lastDiscussionMap[f['Lead ID']]) lastDiscussionMap[f['Lead ID']] = f['Discussion']; });
   return {
     leadMap: _mapRowsBy(leads, 'Lead ID'),
     userMap: App.config.userNameMap || (App.config.users || []).reduce((m, u) => { m[u.id] = u.name; return m; }, {}),
-    stageMap: (App.config.allStages || App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {})
+    stageMap: (App.config.allStages || App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {}),
+    lastDiscussionMap
   };
 }
 
@@ -112,7 +125,7 @@ function _decorateFollowup(row, ctx) {
     ...row,
     _leadLabel: lead ? _fuLeadLabel(lead) : (row['Lead ID'] ? 'Linked lead unavailable' : ''),
     _clientLabel: lead ? _fuClientLabel(lead) : '',
-    _remarkLabel: lead ? (lead['Remark'] || '') : '',
+    _remarkLabel: ctx?.lastDiscussionMap?.[row['Lead ID']] || (lead ? (lead['Remark'] || '') : ''),
     _createdByLabel: ctx?.userMap?.[row['Created By']] || '',
     _assignedToLabel: lead ? (ctx?.userMap?.[lead['Assigned To']] || '') : '',
     _updatedStageLabel: stage ? stage['Stage Name'] : '',
