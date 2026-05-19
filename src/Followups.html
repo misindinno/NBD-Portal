@@ -37,22 +37,36 @@ async function loadFollowups(tab = 'all') {
 async function _renderFUTab(tab) {
   const body = el('fu-body');
   if (!body) return;
-  if (!AppCache.isLoaded('followups') || !AppCache.isLoaded('leads')) {
-    body.innerHTML = skeletonPage('table');
-    await Promise.all([
-      _ensureCached('followups', () => api.getFollowups({})),
-      _ensureCached('leads',     () => api.getFollowupLeads())
-    ]);
+
+  // Closed tab uses followupHistory; all others use followups
+  if (tab === 'closed') {
+    if (!AppCache.isLoaded('followupHistory') || !AppCache.isLoaded('leads')) {
+      body.innerHTML = skeletonPage('table');
+      await Promise.all([
+        _ensureCached('followupHistory', () => api.getFollowupHistory({})),
+        _ensureCached('leads',           () => api.getFollowupLeads())
+      ]);
+    }
+  } else {
+    if (!AppCache.isLoaded('followups') || !AppCache.isLoaded('leads')) {
+      body.innerHTML = skeletonPage('table');
+      await Promise.all([
+        _ensureCached('followups', () => api.getFollowups({})),
+        _ensureCached('leads',     () => api.getFollowupLeads())
+      ]);
+    }
   }
+
   try {
     const todayStr = localDateInputValue();
-    const allFu = AppCache.getRows('followups')
-      .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
     let rows;
     if (tab === 'closed') {
-      rows = allFu.filter(r => !_isOpenFollowupRow(r));
+      rows = AppCache.getRows('followupHistory')
+        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
     } else {
-      rows = allFu.filter(_isOpenFollowupRow);
+      rows = AppCache.getRows('followups')
+        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+        .filter(_isOpenFollowupRow);
       if (tab === 'today') {
         rows = rows.filter(r => _fmtDate(_fuPlannedDate(r)) === todayStr);
       } else if (tab === 'overdue') {
@@ -249,7 +263,7 @@ function _fuTableRow(r) {
       ${r._contactPerson ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson)}</div>` : ''}
       ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
     </td>
-    <td><div class="fu-discussion">${escapeHtml(r._remarkLabel || r['Discussion'] || '-')}</div></td>
+    <td><div class="fu-discussion">${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '-')}</div></td>
     <td><div class="fu-date-sub">${formatDate(r['Created At'] || r['Follow-up Date'] || '')}</div></td>
     <td>${r._leadStageLabel ? `<span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(r._leadStageLabel)}</span>` : '-'}</td>
     <td><div>${escapeHtml(r._assignedToLabel || r._createdByLabel || '-')}</div></td>
