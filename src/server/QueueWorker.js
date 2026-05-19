@@ -17,15 +17,32 @@ const WORKER_CUTOFF_MS  = 4.5 * 60 * 1000; // stop before 6-min GAS limit
 function processQueue() {
   return withServerContext_(() => {
     const startMs = Date.now();
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('QUEUE_WORKER_LAST_STARTED_AT', now());
+    props.setProperty('QUEUE_WORKER_LAST_STATUS', 'RUNNING');
     try {
       const jobs = claimJobs_(WORKER_ID, WORKER_BATCH_SIZE);
-      if (!jobs.length) return; // nothing to do
+      props.setProperty('QUEUE_WORKER_LAST_CLAIMED', String(jobs.length));
+      let processed = 0;
+      if (!jobs.length) {
+        props.setProperty('QUEUE_WORKER_LAST_FINISHED_AT', now());
+        props.setProperty('QUEUE_WORKER_LAST_PROCESSED', '0');
+        props.setProperty('QUEUE_WORKER_LAST_STATUS', 'IDLE');
+        return; // nothing to do
+      }
 
       for (const job of jobs) {
         if (Date.now() - startMs > WORKER_CUTOFF_MS) break; // safety cutoff
         _processQueueJob_(job);
+        processed++;
       }
+      props.setProperty('QUEUE_WORKER_LAST_FINISHED_AT', now());
+      props.setProperty('QUEUE_WORKER_LAST_PROCESSED', String(processed));
+      props.setProperty('QUEUE_WORKER_LAST_STATUS', processed < jobs.length ? 'CUTOFF' : 'OK');
     } catch (e) {
+      props.setProperty('QUEUE_WORKER_LAST_FINISHED_AT', now());
+      props.setProperty('QUEUE_WORKER_LAST_STATUS', 'ERROR');
+      props.setProperty('QUEUE_WORKER_LAST_ERROR', String(e.message || e).slice(0, 500));
       // Worker-level failure — log but don't crash the trigger
       try {
         Logger.log('[QueueWorker] Fatal error: ' + e.message);
@@ -74,7 +91,7 @@ function _processQueueJob_(job) {
     const finalRecordId = _extractRecordId_(result.data, actionType, payload);
     markJobDone_(requestId, finalRecordId);
     appendChangeLog_(moduleName, finalRecordId || requestId, actionType, userEmail);
-    _bumpStampForModule_(moduleName);
+    _bumpStampForModule_(moduleName, actionType);
 
   } catch (e) {
     _handleJobError_(requestId, e.message, attempt, actionType);
@@ -135,7 +152,7 @@ function _extractRecordId_(data, actionType, payload) {
   return '';
 }
 
-function _bumpStampForModule_(moduleName) {
+function _bumpStampForModule_(moduleName, actionType) {
   const stampMap = {
     leads:     ['leads'],
     followups: ['followups'],
@@ -143,7 +160,23 @@ function _bumpStampForModule_(moduleName) {
     stages:    ['stages', 'config'],
     fields:    ['fields', 'config'],
   };
-  (stampMap[moduleName] || []).forEach(s => _bumpStamp(s));
+  const actionMap = {
+    saveLead:                ['leads', 'followups'],
+    deleteLead:              ['leads', 'followups', 'followup_history', 'activity_logs'],
+    updateLeadStage:         ['leads', 'activity_logs'],
+    moveLeadStageWithFields: ['leads', 'activity_logs'],
+    saveFollowup:            ['followups', 'leads', 'activity_logs'],
+    markFollowupDone:        ['followups', 'followup_history', 'leads', 'activity_logs'],
+    deleteFollowup:          ['followups'],
+    addConfig:               ['config'],
+    updateConfigStatus:      ['config'],
+    saveStage:               ['stages', 'config'],
+    reorderStages:           ['stages', 'config'],
+    saveFieldConfig:         ['fields', 'config'],
+    savePortalSettings:      ['config', 'leads'],
+    saveUser:                ['config']
+  };
+  Array.from(new Set(actionMap[actionType] || stampMap[moduleName] || [])).forEach(s => _bumpStamp(s));
 }
 
 // ── Trigger management ────────────────────────────────────────────────────────
