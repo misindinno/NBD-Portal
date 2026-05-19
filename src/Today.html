@@ -126,15 +126,19 @@ function _todayApply() {
   const userFilter = el('td-user')?.value || '';
   const typeFilter = el('td-type')?.value || '';
 
-  const userMap  = (App.config.users || []).reduce((m, u) => { m[u.id] = u.name; return m; }, {});
+  const userMap = {};
+  (App.config.users || []).forEach(u => {
+    if (u.id)    userMap[u.id]    = u.name;
+    if (u.email) userMap[u.email] = u.name;
+  });
   const leadMap  = AppCache.getRows('leads').reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
 
   // ── History rows in range ──
   let history = AppCache.getRows('followupHistory').filter(r => {
-    const d = _fmtDate(r['Created At'] || r['Follow-up Date'] || '');
+    const d = _fmtDate(r['Created At'] || r['Done Date'] || '');
     return d >= from && d <= to;
   });
-  if (userFilter) history = history.filter(r => r['Created By'] === userFilter || leadMap[r['Lead ID']]?.['Assigned To'] === userFilter);
+  if (userFilter) history = history.filter(r => r['Done By'] === userFilter || r['Created By'] === userFilter || leadMap[r['Lead ID']]?.['Assigned To'] === userFilter);
   if (typeFilter) history = history.filter(r => r['Follow-up Type'] === typeFilter);
 
   // ── Activity logs in range ──
@@ -142,7 +146,7 @@ function _todayApply() {
     const d = _fmtDate(r['Created At'] || '');
     return d >= from && d <= to;
   });
-  if (userFilter) actLogs = actLogs.filter(r => r['Changed By'] === userFilter || r['Created By'] === userFilter);
+  if (userFilter) actLogs = actLogs.filter(r => r['Created By'] === userFilter);
 
   // ── New leads in range ──
   let newLeads = AppCache.getRows('leads').filter(r => {
@@ -155,7 +159,7 @@ function _todayApply() {
   const callsDone  = history.filter(r => r['Follow-up Type'] === 'Call').length;
   const visitsDone = history.filter(r => r['Follow-up Type'] === 'Visit').length;
   const waDone     = history.filter(r => r['Follow-up Type'] === 'WhatsApp').length;
-  const stageMovs  = actLogs.filter(r => String(r['Follow-up Type'] || r['Action'] || '').toLowerCase().includes('stage')).length;
+  const stageMovs  = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase().includes('stage')).length;
 
   const cards = [
     { label: 'Follow-ups Done', value: history.length,   sub: 'from history', color: '#6366f1' },
@@ -178,32 +182,55 @@ function _todayApply() {
   _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap);
   _todayChartOutcome(history);
 
-  // ── Table ──
+  // ── Table: merge followupHistory + activityLogs ──
+  const logRows = actLogs.map(r => {
+    const oldStage = r['Old Value'] ? (AppLookup.stageName(r['Old Value']) || r['Old Value']) : '';
+    const newStage = r['New Value'] ? (AppLookup.stageName(r['New Value']) || r['New Value']) : '';
+    const remark = r['Remark'] || (oldStage && newStage ? `${oldStage} → ${newStage}` : newStage || '');
+    return {
+      _isLog: true,
+      'Created At': r['Created At'] || '',
+      'Lead ID':    r['Lead ID'] || '',
+      'Created By': r['Created By'] || '',
+      'Follow-up Type': r['Action Type'] || 'Log',
+      'Remark': remark,
+      'Outcome': '',
+      'Next Follow-up Date': '',
+    };
+  });
+
   const tbody = el('td-tbody');
-  if (!history.length) {
+  const allRows = [...history, ...logRows];
+  if (!allRows.length) {
     tbody.innerHTML = `<tr><td colspan="7" class="td-empty">No activity found for the selected period.</td></tr>`;
     return;
   }
-  const sorted = [...history].sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0));
+  const sorted = [...allRows].sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0));
   tbody.innerHTML = sorted.map(r => {
     const lead    = leadMap[r['Lead ID']] || {};
     const company = escapeHtml(lead['Company Name'] || r['Lead ID'] || '—');
-    const agent   = escapeHtml(userMap[r['Created By']] || r['Created By'] || '—');
+    const createdBy = r['Created By'] || r['Done By'] || '';
+    const agent   = escapeHtml(userMap[createdBy] || createdBy || '—');
     const type    = r['Follow-up Type'] || '';
-    const typeColors = { Call:'#1565C0', WhatsApp:'#2E7D32', Visit:'#6A1B9A', Email:'#E65100', Payment:'#B71C1C' };
-    const tc = typeColors[type] || '#555';
+    const typeColors = { Call:'#1565C0', WhatsApp:'#2E7D32', Visit:'#6A1B9A', Email:'#E65100', Payment:'#B71C1C', Log:'#64748b', 'Stage Change':'#64748b' };
+    const tc = typeColors[type] || '#6b7280';
+    const isLog = !!r._isLog;
+    const typeBadge = type
+      ? `<span style="background:${isLog ? '#f1f5f9' : tc+'20'};color:${isLog ? '#64748b' : tc};font-size:11px;font-weight:${isLog ? 500 : 700};padding:2px 8px;border-radius:999px">${escapeHtml(type)}</span>`
+      : `<span style="color:#9ca3af;font-size:12px">—</span>`;
     const remark  = escapeHtml(r['Remark'] || r['Discussion'] || '—');
     const outcome = escapeHtml(r['Outcome'] || '—');
     const next    = r['Next Follow-up Date'] ? formatDate(r['Next Follow-up Date']) : '—';
     const doneAt  = formatDate(r['Created At'] || r['Follow-up Date'] || '');
     const leadId  = r['Lead ID'] || '';
-    return `<tr onclick="${leadId ? `_todayOpenLead('${escapeHtml(leadId)}')` : ''}">
+    const rowStyle = isLog ? 'opacity:.75' : '';
+    return `<tr style="${rowStyle}" onclick="${leadId ? `_todayOpenLead('${escapeHtml(leadId)}')` : ''}">
       <td style="white-space:nowrap;font-size:12px;color:#6b7280">${doneAt}</td>
       <td style="font-size:12px">${agent}</td>
       <td><div style="font-weight:600;font-size:13px">${company}</div></td>
-      <td><span style="background:${tc}20;color:${tc};font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px">${escapeHtml(type)}</span></td>
+      <td>${typeBadge}</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${remark}">${remark}</td>
-      <td style="font-size:12px">${outcome}</td>
+      <td style="font-size:12px">${outcome !== '—' ? outcome : ''}</td>
       <td style="font-size:12px;white-space:nowrap">${next}</td>
     </tr>`;
   }).join('');
