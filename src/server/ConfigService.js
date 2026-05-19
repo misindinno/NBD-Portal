@@ -112,16 +112,10 @@ function _fieldConfigRows(sheetName, includeHidden) {
 
 function saveFieldConfig(field, email) {
   requireConfigEditor();
-  const normalized = _normalizeFieldConfig(field);
-  const duplicate = queryRows(
-    SHEET_NAMES.FIELD_CONFIG,
-    (r) =>
-      (r["Sheet Name"] || "Leads") === normalized["Sheet Name"] &&
-      r["Column Key"] === normalized["Column Key"] &&
-      r["Field ID"] !== normalized["Field ID"],
-  )[0];
-  if (duplicate)
-    return respond(null, "Column Key already exists for this sheet.");
+  const existingFields = getAllRows(SHEET_NAMES.FIELD_CONFIG);
+  const check = FieldValidation.validateField(field, existingFields);
+  if (!check.ok) return respond(null, check.message);
+  const normalized = _normalizeFieldConfig({ ...field, 'Column Key': check.derivedKey });
   ensureCustomFieldValueSheets_();
 
   if (normalized["Field ID"]) {
@@ -143,50 +137,11 @@ function saveFieldConfig(field, email) {
 }
 
 function _normalizeFieldConfig(field) {
-  const type = String(field["Field Type"] || "Text").trim();
+  // Validation already done by FieldValidation.validateField() before this is called
+  const type      = String(field["Field Type"] || "Text").trim();
   const fieldName = String(field["Field Name"] || "").trim();
-  if (!fieldName) throw new Error("Field Name is required.");
-  const columnKey = String(
-    field["Column Key"] || _columnKeyFromName(fieldName),
-  ).trim();
-  if (!columnKey) throw new Error("Column Key is required.");
-  // Fix #8: removed space from allowed chars to prevent sheet column lookup failures
-  if (!/^[A-Za-z][A-Za-z0-9_]{1,60}$/.test(columnKey)) {
-    throw new Error(
-      "Column Key must start with a letter and use only letters, numbers, or underscores.",
-    );
-  }
-  const allowedTypes = [
-    "Text",
-    "Textarea",
-    "Number",
-    "Date",
-    "Date Time",
-    "Time",
-    "Select",
-    "Multi Select",
-    "Checkbox",
-    "Email",
-    "Phone",
-    "URL",
-    "File",
-    "Formula",
-  ];
-  if (!allowedTypes.includes(type))
-    throw new Error("Unsupported field type: " + type);
-  if (field["Validation Regex"]) {
-    try {
-      new RegExp(field["Validation Regex"]);
-    } catch (e) {
-      throw new Error("Validation Regex is invalid.");
-    }
-  }
-  const sheetName = String(field["Sheet Name"] || "Leads").trim();
-  if (!["Leads", "Followups"].includes(sheetName)) {
-    throw new Error(
-      "Custom fields can only be created for Leads or Followups.",
-    );
-  }
+  const columnKey = String(field["Column Key"]  || FieldValidation.columnKeyFromName(fieldName)).trim();
+  const sheetName = String(field["Sheet Name"]  || "Leads").trim();
   return {
     ...field,
     "Sheet Name": sheetName,
@@ -217,16 +172,6 @@ function _fieldConfigValue(field, key) {
   return value === undefined || value === null ? "" : value;
 }
 
-function _columnKeyFromName(name) {
-  return (
-    "CF_" +
-    String(name || "")
-      .trim()
-      .replace(/[^A-Za-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 50)
-  );
-}
 
 // ── App Bootstrap ─────────────────────────────────────────────────────────────
 

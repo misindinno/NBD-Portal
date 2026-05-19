@@ -479,45 +479,22 @@ function openFieldForm(data = {}) {
     payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
     if (isEdit) payload['Field ID'] = data['Field ID'];
 
-    // ── Client-side validation (mirrors server _normalizeFieldConfig + saveFieldConfig) ──
-    const fieldName  = String(payload['Field Name'] || '').trim();
-    const sheetName  = payload['Sheet Name'];
-    const regex      = payload['Validation Regex'];
-    // Derive key the same way the server does when left blank
-    const rawKey = String(payload['Column Key'] || '').trim() ||
-      ('CF_' + fieldName.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50));
-    payload['Column Key'] = rawKey;
-
-    const keyInput = e.target.querySelector('[name="Column Key"]');
-    const _fieldErr = (input, msg) => {
-      if (input) { input.setCustomValidity(msg); input.reportValidity(); input.addEventListener('input', () => input.setCustomValidity(''), { once: true }); }
-      else toast(msg, 'error');
-    };
-
-    if (!fieldName) { _fieldErr(e.target.querySelector('[name="Field Name"]'), 'Field Name is required.'); return; }
-    if (!/^[A-Za-z][A-Za-z0-9_]{1,60}$/.test(rawKey)) {
-      _fieldErr(keyInput, 'Column Key must start with a letter and use only letters, numbers, or underscores (2–61 chars).');
-      if (keyInput) keyInput.value = rawKey; // show derived key so user can fix it
-      return;
-    }
-    if (regex) {
-      try { new RegExp(regex); } catch (_) {
-        _fieldErr(e.target.querySelector('[name="Validation Regex"]'), 'Validation Regex is invalid.');
-        return;
+    // ── Client-side validation via shared FieldValidation ──────────────────────
+    const check = FieldValidation.validateField(payload, _cfgFieldsCache?.fields || []);
+    if (!check.ok) {
+      const inputEl = e.target.querySelector(`[name="${check.field}"]`);
+      if (check.derivedKey && inputEl) inputEl.value = check.derivedKey;
+      if (inputEl) {
+        inputEl.setCustomValidity(check.message);
+        inputEl.reportValidity();
+        inputEl.addEventListener('input', () => inputEl.setCustomValidity(''), { once: true });
+      } else {
+        toast(check.message, 'error');
       }
-    }
-    const existingFields = (_cfgFieldsCache?.fields || []);
-    const duplicate = existingFields.find(f =>
-      (f['Sheet Name'] || 'Leads') === sheetName &&
-      f['Column Key'] === rawKey &&
-      f['Field ID'] !== payload['Field ID']
-    );
-    if (duplicate) {
-      _fieldErr(keyInput, `Column Key "${rawKey}" already exists for ${sheetName}. Choose a different key.`);
-      if (keyInput) keyInput.value = rawKey;
       return;
     }
-    // ── End validation ──
+    payload['Column Key'] = check.derivedKey;
+    // ── End validation ──────────────────────────────────────────────────────────
 
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
