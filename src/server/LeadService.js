@@ -89,9 +89,11 @@ function _prepareLeadPayload(data, stageId, existing, skipped) {
     // Fix #5: only validate required if this field actually belongs to the current stage (or is global)
     const fieldBelongsToStage = !field['Stage ID'] || field['Stage ID'] === stageId;
     if (fieldBelongsToStage) {
-      // When skipped: bypass required validation for normal fields; still validate skip_only required fields
       const skipVis = field['Skip Visibility'] === 'skip_only' ? 'skip_only' : 'normal';
-      if (skipped && skipVis === 'normal') {
+      if (!skipped && skipVis === 'skip_only') {
+        // Not skipping — skip_only fields are irrelevant, don't validate them at all
+      } else if (skipped && skipVis === 'normal') {
+        // Skipping — normal fields are bypassed but still format-validated if a value was supplied
         if (value !== undefined && value !== '') _validateCustomFieldValue({ ...field, 'Is Required': false }, value);
       } else {
         _validateCustomFieldValue(field, value);
