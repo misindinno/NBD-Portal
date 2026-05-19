@@ -48,6 +48,19 @@ const FieldValidation = {
       message: 'Unsupported field type: ' + fieldType,
     };
 
+    if (fieldType === 'Formula' && !String(field['Formula Logic'] || '').trim()) return {
+      ok: false, field: 'Formula Logic',
+      message: 'Formula Logic is required for formula fields.',
+    };
+
+    if (fieldType === 'File' && field['Max File MB'] !== '' && field['Max File MB'] !== undefined) {
+      const maxMb = Number(field['Max File MB']);
+      if (!Number.isFinite(maxMb) || maxMb <= 0) return {
+        ok: false, field: 'Max File MB',
+        message: 'Max File MB must be a positive number.',
+      };
+    }
+
     const regexStr = field['Validation Regex'];
     if (regexStr) {
       try { new RegExp(regexStr); } catch (_) {

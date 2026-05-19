@@ -17,25 +17,29 @@ function evaluateFormula(formulaStr, rowData) {
 }
 
 function _safeEval(expr) {
-  // DATEDIFF(date1, date2)
-  expr = expr.replace(/DATEDIFF\(([^,]+),([^)]+)\)/g, (_, d1, d2) => {
-    const diff = new Date(d2.trim().replace(/"/g,'')) - new Date(d1.trim().replace(/"/g,''));
-    return Math.floor(diff / 86400000);
-  });
   // TODAY()
   expr = expr.replace(/TODAY\(\)/g, `"${today()}"`);
+  // DATEDIFF(date1, date2)
+  expr = _replaceFunctionCalls(expr, 'DATEDIFF', inner => {
+    const args = _splitArgs(inner);
+    if (args.length < 2) return '#ERR';
+    const start = new Date(args[0].trim().replace(/^"|"$/g, ''));
+    const end = new Date(args[1].trim().replace(/^"|"$/g, ''));
+    if (String(start) === 'Invalid Date' || String(end) === 'Invalid Date') return '#ERR';
+    return Math.floor((end - start) / 86400000);
+  });
   // IF(cond, trueVal, falseVal) — Fix #3: use a proper arg splitter to handle commas inside strings
-  expr = expr.replace(/IF\((.+)\)/g, (_, inner) => {
+  expr = _replaceFunctionCalls(expr, 'IF', inner => {
     const args = _splitArgs(inner);
     if (args.length < 3) return '#ERR';
     return _evalCondition(args[0].trim()) ? args[1].trim() : args[2].trim();
   });
   // SUM(a, b, ...)
-  expr = expr.replace(/SUM\(([^)]+)\)/g, (_, args) =>
-    args.split(',').reduce((s, v) => s + (parseFloat(v.trim()) || 0), 0)
+  expr = _replaceFunctionCalls(expr, 'SUM', inner =>
+    _splitArgs(inner).reduce((s, v) => s + (parseFloat(v.trim()) || 0), 0)
   );
   // CONCAT(a, b, ...) — Fix #4: support any number of arguments
-  expr = expr.replace(/CONCAT\((.+?)\)/g, (_, inner) =>
+  expr = _replaceFunctionCalls(expr, 'CONCAT', inner =>
     `"${_splitArgs(inner).map(a => a.trim().replace(/^"|"$/g, '')).join('').replace(/"/g, '\\"')}"`
   );
   // Basic arithmetic only
@@ -43,6 +47,46 @@ function _safeEval(expr) {
   const trimmed = expr.trim();
   if (/^"([^"\\]|\\.)*"$/.test(trimmed)) return trimmed.slice(1, -1).replace(/\\"/g, '"');
   return '#ERR';
+}
+
+function _replaceFunctionCalls(expr, name, handler) {
+  const needle = name + '(';
+  let out = '';
+  let pos = 0;
+  while (pos < expr.length) {
+    const start = expr.indexOf(needle, pos);
+    if (start === -1) {
+      out += expr.slice(pos);
+      break;
+    }
+    out += expr.slice(pos, start);
+    let depth = 1;
+    let inQuote = false;
+    let quoteChar = '';
+    let end = start + needle.length;
+    for (; end < expr.length; end++) {
+      const ch = expr[end];
+      if (inQuote) {
+        if (ch === '\\') { end++; continue; }
+        if (ch === quoteChar) inQuote = false;
+      } else if (ch === '"' || ch === "'") {
+        inQuote = true;
+        quoteChar = ch;
+      } else if (ch === '(') {
+        depth++;
+      } else if (ch === ')') {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (depth !== 0) {
+      out += expr.slice(start);
+      break;
+    }
+    out += handler(expr.slice(start + needle.length, end));
+    pos = end + 1;
+  }
+  return out;
 }
 
 function _evalCondition(cond) {
@@ -139,6 +183,25 @@ function _splitArgs(str) {
       current += ch;
     } else if (ch === '"' || ch === "'") {
       inQuote = true; quoteChar = ch; current += ch;
+    } else if (ch === '(') {
+      current += ch;
+      let depth = 1;
+      while (depth > 0 && ++i < str.length) {
+        const inner = str[i];
+        current += inner;
+        if (inner === '"' || inner === "'") {
+          const q = inner;
+          while (++i < str.length) {
+            current += str[i];
+            if (str[i] === '\\' && i + 1 < str.length) current += str[++i];
+            else if (str[i] === q) break;
+          }
+        } else if (inner === '(') {
+          depth++;
+        } else if (inner === ')') {
+          depth--;
+        }
+      }
     } else if (ch === ',') {
       args.push(current); current = '';
     } else {

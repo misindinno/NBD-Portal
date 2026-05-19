@@ -3,8 +3,8 @@
 //
 // Status lifecycle:
 //   QUEUED → PROCESSING → DONE
-//   QUEUED → PROCESSING → FAILED → QUEUED (retry, up to maxAttempts)
-//   QUEUED → PROCESSING → FAILED → DEAD   (maxAttempts exceeded)
+//   QUEUED → PROCESSING → FAILED → PROCESSING (retry, up to maxAttempts)
+//   QUEUED → PROCESSING → FAILED → DEAD       (maxAttempts exceeded)
 //
 // Lease system prevents two workers from claiming the same job.
 // Worker sets leaseUntil = now + 3 min. Stale jobs (leaseUntil expired
@@ -32,10 +32,6 @@ function enqueueJob_(userEmail, moduleName, actionType, payload, requestId) {
   assertServerContext_();
   const id = requestId || generateUUID();
 
-  // Idempotency check — prevent duplicate queue entries for the same request
-  const existing = _findQueueRow_(id);
-  if (existing) return { requestId: id, status: existing['Status'], alreadyQueued: true };
-
   const payloadStr = JSON.stringify(payload || {});
   if (payloadStr.length > 200000) throw new Error('Payload exceeds 200 KB limit.');
 
@@ -62,6 +58,11 @@ function enqueueJob_(userEmail, moduleName, actionType, payload, requestId) {
   const lock = LockService.getScriptLock();
   lock.waitLock(8000);
   try {
+    // Keep the idempotency check inside the append lock so concurrent requests
+    // with the same requestId cannot both enqueue.
+    const existing = _findQueueRow_(id);
+    if (existing) return { requestId: id, status: existing['Status'], alreadyQueued: true };
+
     const sheet = getSheet(SHEET_NAMES.QUEUE);
     const headers = getHeaders(SHEET_NAMES.QUEUE);
     sheet.appendRow(headers.map(h => row[h] !== undefined ? row[h] : ''));
@@ -140,6 +141,7 @@ function claimJobs_(workerOwner, batchSize) {
 
       const isClaimable = (
         (status === Q_STATUS.QUEUED    && nextRetry <= nowMs) ||
+        (status === Q_STATUS.FAILED    && nextRetry > 0 && nextRetry <= nowMs) ||
         (status === Q_STATUS.PROCESSING && leaseUntil > 0 && leaseUntil < nowMs) // stale lease
       );
       if (!isClaimable) continue;

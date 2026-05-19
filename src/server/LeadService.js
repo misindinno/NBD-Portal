@@ -79,12 +79,13 @@ function _prepareLeadPayload(data, stageId, existing, skipped) {
   const fields = getLeadCustomFieldsForStage(stageId);
   fields.forEach(field => {
     const key = field['Column Key'];
+    const hasValue = Object.prototype.hasOwnProperty.call(payload, key);
     let value = payload[key];
     if (field['Field Type'] === 'Formula') return;
-    if (field['Field Type'] === 'Checkbox') value = value === true || value === 'TRUE' || value === 'on' ? 'TRUE' : '';
+    if (field['Field Type'] === 'Checkbox' && hasValue) value = value === true || value === 'TRUE' || value === 'on' ? 'TRUE' : '';
     if (field['Field Type'] === 'Multi Select' && Array.isArray(value)) value = value.join(', ');
     if (field['Field Type'] === 'File' && value && typeof value === 'object') value = _uploadCustomFieldFile(value, field);
-    if ((value === undefined || value === '') && existing && existing[key]) value = existing[key];
+    if (!hasValue && existing && existing[key] !== undefined) value = existing[key];
     // Fix #5: only validate required if this field actually belongs to the current stage (or is global)
     const fieldBelongsToStage = !field['Stage ID'] || field['Stage ID'] === stageId;
     if (fieldBelongsToStage) {
@@ -218,7 +219,8 @@ function updateLeadStage(leadId, newStageId, note, email) {
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
   const stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === newStageId)[0];
-  const stageName = stage ? stage['Stage Name'] : 'selected stage';
+  if (!stage) return respond(null, 'Stage not found.');
+  const stageName = stage['Stage Name'] || 'selected stage';
   const missing = getLeadCustomFieldsForStage(newStageId)
     .filter(f => f['Is Required'] === true || f['Is Required'] === 'TRUE')
     .filter(f => f['Field Type'] !== 'Formula')
@@ -228,7 +230,8 @@ function updateLeadStage(leadId, newStageId, note, email) {
   const leadPatch = { 'Stage ID': newStageId, 'Stage Updated At': now(), 'Updated At': now() };
   const nextStatus = _leadStatusForStage(stage);
   if (nextStatus) leadPatch['Lead Status'] = nextStatus;
-  updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, leadPatch);
+  const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, leadPatch);
+  if (!updated) return respond(null, 'Lead update failed. Lead ID was not found in the lead sheet.');
   _bumpStamp('leads');
   insertLeadActivityLog_(
     leadId,

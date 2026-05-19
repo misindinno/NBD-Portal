@@ -45,6 +45,8 @@ function saveFollowup(data, email) {
   ensureFollowupSheets_();
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES', 'USER']);
   let lead = null;
+  let stage = null;
+  let preparedLeadForStage = null;
   if (data['Lead ID']) {
     lead = queryRows(SHEET_NAMES.LEADS, r => r['Lead ID'] === data['Lead ID'])[0];
     if (!lead) return respond(null, 'Lead not found.');
@@ -52,6 +54,11 @@ function saveFollowup(data, email) {
   }
   const id = generateUUID();
   const payload = _prepareFollowupPayload(data);
+  if (lead && payload['Updated Stage ID'] && payload['Updated Stage ID'] !== lead['Stage ID']) {
+    stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === payload['Updated Stage ID'])[0];
+    if (!stage) return respond(null, 'Selected stage not found.');
+    preparedLeadForStage = _prepareLeadPayload(payload, payload['Updated Stage ID'], lead);
+  }
   const plannedDate = _plannedDate(payload) || today();
   const row = {
     ...payload,
@@ -69,11 +76,33 @@ function saveFollowup(data, email) {
   upsertCustomFieldValues_('Followups', id, payload, user.id);
   if (lead) {
     const updates = { 'Next Follow-up Date': plannedDate, 'Updated At': now() };
-    if (payload['Updated Stage ID']) updates['Stage ID'] = payload['Updated Stage ID'];
+    let activityLog = null;
+    if (stage) {
+      upsertCustomFieldValues_('Leads', lead['Lead ID'], preparedLeadForStage, user.id, payload['Updated Stage ID']);
+      updates['Stage ID'] = payload['Updated Stage ID'];
+      updates['Stage Updated At'] = now();
+      const nextStatus = _leadStatusForStage(stage);
+      if (nextStatus) updates['Lead Status'] = nextStatus;
+      activityLog = {
+        leadId: lead['Lead ID'],
+        oldStageId: lead['Stage ID'] || '',
+        newStageId: payload['Updated Stage ID'],
+        remark: payload['Discussion'] || payload['Remark'] || 'Stage updated from follow-up'
+      };
+    }
     const leadUpdated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', payload['Lead ID'], updates);
     if (!leadUpdated) {
       // Follow-up was saved; log that the linked lead could not be updated (may have been deleted concurrently)
       Logger.log('saveFollowup: follow-up saved but lead row not found for Lead ID ' + payload['Lead ID']);
+    } else if (activityLog) {
+      insertLeadActivityLog_(
+        activityLog.leadId,
+        'Stage Change',
+        activityLog.oldStageId,
+        activityLog.newStageId,
+        activityLog.remark,
+        user.id
+      );
     }
     _bumpStamp('leads');
   }
@@ -100,9 +129,11 @@ function markFollowupDone(followupId, data, email) {
 
   // Pre-validate stage before any writes to avoid partial-write inconsistency
   let stage = null;
+  let preparedLeadForStage = null;
   if (lead && data['Updated Stage ID'] && data['Updated Stage ID'] !== lead['Stage ID']) {
     stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === data['Updated Stage ID'])[0];
     if (!stage) return respond(null, 'Selected stage not found.');
+    preparedLeadForStage = _prepareLeadPayload(data, data['Updated Stage ID'], lead);
   }
 
   const statusAfter = nextDate ? 'Open' : 'Closed';
@@ -152,24 +183,32 @@ function markFollowupDone(followupId, data, email) {
       'Updated At': now()
     };
     if (stage) {
-      // Validate required custom fields for the new stage and save their values.
-      // _prepareLeadPayload merges existing lead values so only stage-specific
-      // fields the user submitted are required to be new.
-      const prepared = _prepareLeadPayload(data, data['Updated Stage ID'], lead);
-      upsertCustomFieldValues_('Leads', lead['Lead ID'], prepared, user.id, data['Updated Stage ID']);
+      upsertCustomFieldValues_('Leads', lead['Lead ID'], preparedLeadForStage, user.id, data['Updated Stage ID']);
       leadPatch['Stage ID'] = data['Updated Stage ID'];
+      leadPatch['Stage Updated At'] = now();
       const nextStatus = _leadStatusForStage(stage);
       if (nextStatus) leadPatch['Lead Status'] = nextStatus;
+      activityLog = {
+        leadId: lead['Lead ID'],
+        oldStageId: lead['Stage ID'] || '',
+        newStageId: data['Updated Stage ID'],
+        remark
+      };
+    }
+    const leadUpdated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', lead['Lead ID'], leadPatch);
+    if (!leadUpdated) {
+      Logger.log('markFollowupDone: follow-up saved but lead row not found for Lead ID ' + lead['Lead ID']);
+      activityLog = null;
+    } else if (activityLog) {
       activityLog = insertLeadActivityLog_(
-        lead['Lead ID'],
+        activityLog.leadId,
         'Stage Change',
-        lead['Stage ID'] || '',
-        data['Updated Stage ID'],
-        remark,
+        activityLog.oldStageId,
+        activityLog.newStageId,
+        activityLog.remark,
         user.id
       );
     }
-    updateRow(SHEET_NAMES.LEADS, 'Lead ID', lead['Lead ID'], leadPatch);
     _bumpStamp('leads');
   }
 
