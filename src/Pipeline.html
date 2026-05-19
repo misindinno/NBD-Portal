@@ -13,7 +13,12 @@ async function loadPipeline() {
   const pipelineLeads = AppCache.getRows('leads').filter(r =>
     r['Lead Status'] === 'Open' || finalStageIds[r['Stage ID']]
   );
-  const pipeline  = App.config.stages.map(s => ({
+  const _activeStageIdSet = new Set((App.config.stages || []).map(s => s['Stage ID']));
+  const _allPipelineStages = [
+    ...App.config.stages,
+    ...(App.config.allStages || []).filter(s => _isFinalStage(s) && !_activeStageIdSet.has(s['Stage ID']))
+  ];
+  const pipeline = _allPipelineStages.map(s => ({
     stage: s, leads: pipelineLeads.filter(l => l['Stage ID'] === s['Stage ID'])
   }));
   const userMap  = App.config.users.reduce((m, u) => { m[u.id] = u; return m; }, {});
@@ -162,7 +167,7 @@ async function loadPipeline() {
   window.pipelineSortables = [];
   window.pipelineUpdateInFlight = false;
 
-  const _stages        = App.config.stages;
+  const _stages        = _allPipelineStages;
   const _regularStages = _stages.filter(s => !_isFinalStage(s));
   const _lastRegularId = _regularStages[_regularStages.length - 1]?.['Stage ID'];
   const _lastRegularIdx = _stages.findIndex(s => s['Stage ID'] === _lastRegularId);

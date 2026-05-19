@@ -1,8 +1,4 @@
 <script>
-// Module-level caches — populated on first fetch, cleared after saves
-let _cfgFieldsCache = null;  // { fields, stages, configs }
-let _cfgUsersCache  = null;  // []
-
 async function loadConfig() {
   el('page-title').textContent = 'Configuration';
   const canEditConfig = !!App.user?.canEditConfig;
@@ -325,16 +321,13 @@ function toggleConfigStatus(id, newStatus) {
 
 // ── Users Config ─────────────────────────────────────────────────────────────
 async function loadFieldConfig() {
-  if (!_cfgFieldsCache) {
-    el('cfg-fields').innerHTML = skeletonPage('table');
-    const [fields, stages, configs] = await Promise.all([
-      api.getAllFieldConfigs(''),
-      api.getAllStages(),
-      api.getAllConfigs()
-    ]);
-    _cfgFieldsCache = { fields, stages, configs };
-  }
-  _renderFieldConfig(_cfgFieldsCache);
+  el('cfg-fields').innerHTML = skeletonPage('table');
+  const [fields, stages, configs] = await Promise.all([
+    api.getAllFieldConfigs(''),
+    api.getAllStages(),
+    api.getAllConfigs()
+  ]);
+  _renderFieldConfig({ fields, stages, configs });
 }
 
 function _renderFieldConfig(ctx) {
@@ -503,7 +496,6 @@ function openFieldForm(data = {}) {
       module: 'fields', actionType: 'saveFieldConfig',
       payload,
       onDone: () => {
-        _cfgFieldsCache = null;
         toast('Custom field saved!');
         _refreshAppConfig().catch(() => {});
         if (App.currentPage === 'config') loadFieldConfig();
@@ -550,11 +542,8 @@ function _fieldValidationSummary(f) {
 }
 
 async function loadUsersConfig() {
-  if (!_cfgUsersCache) {
-    el('cfg-users').innerHTML = skeletonPage('table');
-    _cfgUsersCache = await api.getUsers();
-  }
-  _renderUsersConfig(_cfgUsersCache);
+  el('cfg-users').innerHTML = skeletonPage('table');
+  _renderUsersConfig(await api.getUsers());
 }
 
 function _renderUsersConfig(allUsers) {
@@ -722,7 +711,6 @@ function openUserForm(data = {}) {
       module: 'config', actionType: 'saveUser',
       payload,
       onDone: async () => {
-        _cfgUsersCache = null;
         toast('User saved!');
         await _refreshAppConfig().catch(() => {});
         renderSidebar();
