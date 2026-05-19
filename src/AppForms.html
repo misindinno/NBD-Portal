@@ -55,7 +55,6 @@ function showModal(html) {
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `<div class="modal">${html}</div>`;
   document.body.appendChild(overlay);
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   renderIcons(overlay);
   return overlay;
 }
