@@ -68,15 +68,15 @@ function _renderToday() {
     <div class="td-charts">
       <div class="td-chart-box">
         <div class="td-chart-title">By Type</div>
-        <canvas id="td-chart-type" height="180"></canvas>
+        <div style="position:relative;height:180px"><canvas id="td-chart-type"></canvas></div>
       </div>
       <div class="td-chart-box">
         <div class="td-chart-title">Daily Trend (7 days)</div>
-        <canvas id="td-chart-trend" height="180"></canvas>
+        <div style="position:relative;height:180px"><canvas id="td-chart-trend"></canvas></div>
       </div>
       <div class="td-chart-box">
         <div class="td-chart-title">Outcomes</div>
-        <canvas id="td-chart-outcome" height="180"></canvas>
+        <div style="position:relative;height:180px"><canvas id="td-chart-outcome"></canvas></div>
       </div>
     </div>
 
@@ -217,6 +217,11 @@ function _todayOpenLead(leadId) {
 function _todayDestroyCharts() {
   Object.values(_todayCharts).forEach(c => { try { c.destroy(); } catch(e) {} });
   _todayCharts = {};
+  // Reset canvas elements so Chart.js starts fresh without stale pixel dimensions
+  ['td-chart-type', 'td-chart-trend', 'td-chart-outcome'].forEach(id => {
+    const c = el(id);
+    if (c) { c.width = c.width; } // clears canvas content and resets internal state
+  });
 }
 
 function _todayChartType(history) {
