@@ -166,7 +166,6 @@
   <?!= include('AppLocation'); ?>
   <?!= include('AppCore'); ?>
   <?!= include('AppData'); ?>
-  <?!= include('AppUI'); ?>
   <?!= include('Queue'); ?>
   <?!= include('QueuePage'); ?>
   <?!= include('AppAuth'); ?>
@@ -176,6 +175,7 @@
   <?!= include('Followups'); ?>
   <?!= include('Config'); ?>
   <?!= include('LeadForm'); ?>
+  <?!= include('AppUI'); ?>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>const GOOGLE_CLIENT_ID = '<?!= (function(){ try { return PropertiesService.getScriptProperties().getProperty("GOOGLE_CLIENT_ID") || ""; } catch(e) { return ""; } })() ?>';</script>
   <script>const APP_TITLE = '<?= CLIENT_CONFIG.APP_TITLE ?>';</script>

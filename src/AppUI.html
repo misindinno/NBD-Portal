@@ -35,13 +35,26 @@ function navigate(page) {
     else if (page === 'followups-overdue')  loadFollowups('overdue');
     else if (page === 'followups-custom')   loadFollowups('custom');
     else if (page === 'followups-new')      { loadFollowups('all'); openFollowupForm(); }
-    else if (page === 'config')             window.loadConfig();
-    else if (page === 'leadform')           window.loadLeadForm();
+    else if (page === 'config')             _runPageLoader('loadConfig');
+    else if (page === 'leadform')           _runPageLoader('loadLeadForm');
     else if (page === 'queue')              loadQueuePage();
     else el('content').innerHTML = '<p>Page not found.</p>';
   } catch(err) {
     el('content').innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(err.message)}</p>`;
   }
+}
+
+function _runPageLoader(name, attempt = 0) {
+  const loader = window[name];
+  if (typeof loader === 'function') {
+    loader();
+    return;
+  }
+  if (attempt < 20) {
+    setTimeout(() => _runPageLoader(name, attempt + 1), 50);
+    return;
+  }
+  el('content').innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(name)} is not available. Please refresh the portal.</p>`;
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
