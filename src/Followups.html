@@ -96,6 +96,10 @@ function _isOpenFollowupRow(row) {
   return String(row?.['Status'] || (row?.['Outcome'] ? 'Closed' : 'Open')).toLowerCase() !== 'closed';
 }
 
+function _fuIsFinalStage(stage) {
+  return !!stage && (stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE');
+}
+
 function _fuPlannedDate(row) {
   return row?.['Planned Date'] || row?.['Next Follow-up Date'] || row?.['Follow-up Date'] || '';
 }
@@ -605,6 +609,7 @@ async function openMarkFollowupDoneForm(followupId) {
   const _maxD = new Date(); _maxD.setDate(_maxD.getDate() + 7);
   const maxNextDate = _maxD.toISOString().split('T')[0];
   const stageMap = (App.config.allStages || App.config.stages || []).reduce(function(m,s){m[s['Stage ID']]=s;return m;},{});
+  const leadIsFinalStage = !!(lead && _fuIsFinalStage(stageMap[lead['Stage ID']]));
   const leadStageName = lead && stageMap[lead['Stage ID']] ? stageMap[lead['Stage ID']]['Stage Name'] : '—';
   const leadFields    = App.config.leadFields || [];
   const configOptions = _configOptionsMap(App.config._allConfigs || []);
@@ -620,7 +625,7 @@ async function openMarkFollowupDoneForm(followupId) {
     ? '<div class="form-group"><label>Issues</label><select class="form-control" name="Issues"><option value="">None</option>' + issueOptions + '</select></div>'
     : '';
   const stageFieldHTML = lead
-    ? '<div class="form-group"><label>Move to Stage</label><select class="form-control" name="Updated Stage ID" onchange="_onMarkDoneStageChange(this)">' + stageOptionsHTML + '</select></div><div id="fu-done-stage-fields"></div>'
+    ? '<div class="form-group"><label>Move to Stage</label><select class="form-control" name="Updated Stage ID" onchange="_onMarkDoneStageChange(this);_updateDoneNextDateRequirement(this.form)">' + stageOptionsHTML + '</select></div><div id="fu-done-stage-fields"></div>'
     : '';
 
   const overlay = showModal(`
@@ -635,15 +640,16 @@ async function openMarkFollowupDoneForm(followupId) {
         <div style="font-size:13px;color:#374151;font-weight:500">${escapeHtml(row['Discussion'] || '—')}</div>
       </div>
     </div>
-    <form id="fu-done-form">
+    <form id="fu-done-form" data-current-final-stage="${leadIsFinalStage ? 'true' : 'false'}">
       <div class="form-row">
         <div class="form-group">
           <label>Done Date *</label>
           <input class="form-control" name="Done Date" type="date" value="${todayStr}" disabled max="${todayStr}" required>
         </div>
         <div class="form-group">
-          <label>Next Planned Date * <span style="font-size:10px;color:#9ca3af;font-weight:400">(within 7 days)</span></label>
-          <input class="form-control" name="Next Follow-up Date" type="date" min="${todayStr}" max="${maxNextDate}" required>
+          <label>Next Planned Date <span id="fu-next-date-required">*</span> <span style="font-size:10px;color:#9ca3af;font-weight:400">(within 7 days unless closing)</span></label>
+          <input class="form-control" name="Next Follow-up Date" type="date" min="${todayStr}" max="${maxNextDate}" ${leadIsFinalStage ? '' : 'required'}>
+          <div id="fu-next-date-help" style="font-size:11px;color:#6b7280;margin-top:4px;display:${leadIsFinalStage ? '' : 'none'}">Final-stage follow-ups can be closed without a next planned date.</div>
         </div>
       </div>
       <div class="form-group">
@@ -663,14 +669,15 @@ async function openMarkFollowupDoneForm(followupId) {
   validator.addField(form.querySelector('[name="Done Date"]'),          [{ rule: 'required', errorMessage: 'Done date is required.' }]);
   validator.addField(form.querySelector('[name="Remark"]'),             [{ rule: 'required', errorMessage: 'Done remark is required.' }]);
   validator.addField(form.querySelector('[name="Next Follow-up Date"]'),[
-    { rule: 'required', errorMessage: 'Next planned date is required.' },
     { rule: 'function', validator: function(val) {
+        if (_markDoneClosesFollowup(form)) return true;
         if (!val) return false;
         const d = new Date(val); const t = new Date(); t.setHours(0,0,0,0);
         const mx = new Date(t); mx.setDate(mx.getDate() + 7);
         return d >= t && d <= mx;
-      }, errorMessage: 'Next planned date must be within the next 7 days.' }
+      }, errorMessage: 'Next planned date is required unless the follow-up is closing at a final stage, and must be within the next 7 days.' }
   ]);
+  _updateDoneNextDateRequirement(form);
   validator.onSuccess(async () => {
     if (!validateCfMultiselects(form)) return;
     const stageFieldsCont = document.getElementById('fu-done-stage-fields');
@@ -684,6 +691,8 @@ async function openMarkFollowupDoneForm(followupId) {
       const payload = await collectLeadFormPayload(form);
       if (!payload['Updated Stage ID']) delete payload['Updated Stage ID'];
       if (!payload['Issues'])           delete payload['Issues'];
+      const closesFollowup = _markDoneClosesFollowup(form);
+      if (closesFollowup) delete payload['Next Follow-up Date'];
       AppCache.removeRow('followups', 'Follow-up ID', followupId);
       overlay.remove();
       if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
@@ -691,7 +700,7 @@ async function openMarkFollowupDoneForm(followupId) {
       QueueManager.enqueue({
         module: 'followups', actionType: 'markFollowupDone',
         payload: { id: followupId, data: payload },
-        onDone: () => toast('Follow-up saved. Next follow-up planned.'),
+        onDone: () => toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.'),
         onFail: j => {
           AppCache.addRow('followups', row);
           if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
@@ -778,6 +787,27 @@ function _fuNextStageOptionsHTML(leadId, leads = []) {
   const idx = lead ? stages.findIndex(s => s['Stage ID'] === lead['Stage ID']) : -1;
   const next = idx >= 0 && idx < stages.length - 1 ? stages[idx + 1] : null;
   const currentLabel = idx >= 0 ? ` (currently: ${escapeHtml(stages[idx]['Stage Name'])})` : '';
+  if (idx < 0) return '<option value="">No Change</option>';
+  if (_fuIsFinalStage(stages[idx])) return `<option value="">No Change â€” already at final stage</option>`;
+  const regularStages = stages.filter(s => !_fuIsFinalStage(s));
+  const lastRegularId = regularStages[regularStages.length - 1]?.['Stage ID'];
+  const candidates = [];
+  if (next && !_fuIsFinalStage(next)) candidates.push(next);
+  if (lead['Stage ID'] === lastRegularId) {
+    stages.filter(_fuIsFinalStage).forEach(s => candidates.push(s));
+  } else if (next && _fuIsFinalStage(next)) {
+    candidates.push(next);
+  }
+  const seen = {};
+  const options = candidates.filter(s => {
+    if (!s || seen[s['Stage ID']]) return false;
+    seen[s['Stage ID']] = true;
+    return true;
+  });
+  if (options.length) {
+    return `<option value="">No Change${currentLabel}</option>` +
+      options.map(s => `<option value="${escapeHtml(s['Stage ID'])}">${escapeHtml(s['Stage Name'])}</option>`).join('');
+  }
   if (!next) return `<option value="">No Change — already at final stage</option>`;
   return `<option value="">No Change${currentLabel}</option><option value="${escapeHtml(next['Stage ID'])}">${escapeHtml(next['Stage Name'])}</option>`;
 }
@@ -839,6 +869,31 @@ function _fuClientLabel(c) {
   return [c['Company Name'], c['Contact Person'], c['City']]
     .filter(Boolean)
     .join(' - ');
+}
+
+function _selectedMarkDoneStageIsFinal(form) {
+  const stageId = form?.querySelector('[name="Updated Stage ID"]')?.value || '';
+  if (!stageId) return false;
+  const stages = App.config.allStages || App.config.stages || [];
+  return _fuIsFinalStage(stages.find(s => s['Stage ID'] === stageId));
+}
+
+function _markDoneClosesFollowup(form) {
+  return form?.dataset?.currentFinalStage === 'true' || _selectedMarkDoneStageIsFinal(form);
+}
+
+function _updateDoneNextDateRequirement(form) {
+  if (!form) return;
+  const closes = _markDoneClosesFollowup(form);
+  const input = form.querySelector('[name="Next Follow-up Date"]');
+  const marker = form.querySelector('#fu-next-date-required');
+  const help = form.querySelector('#fu-next-date-help');
+  if (input) {
+    input.required = !closes;
+    if (closes) input.value = '';
+  }
+  if (marker) marker.style.display = closes ? 'none' : '';
+  if (help) help.style.display = closes ? '' : 'none';
 }
 
 function _onMarkDoneStageChange(select) {

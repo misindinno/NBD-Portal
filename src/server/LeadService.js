@@ -229,7 +229,10 @@ function updateLeadStage(leadId, newStageId, note, email) {
   if (missing.length) return respond(null, `Required fields missing for ${stageName}: ${missing.join(', ')}`);
   const leadPatch = { 'Stage ID': newStageId, 'Stage Updated At': now(), 'Updated At': now() };
   const nextStatus = _leadStatusForStage(stage);
-  if (nextStatus) leadPatch['Lead Status'] = nextStatus;
+  if (nextStatus) {
+    leadPatch['Lead Status'] = nextStatus;
+    leadPatch['Next Follow-up Date'] = '';
+  }
   const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, leadPatch);
   if (!updated) return respond(null, 'Lead update failed. Lead ID was not found in the lead sheet.');
   _bumpStamp('leads');
@@ -272,7 +275,10 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email) {
   );
   const leadPatch = { ...prepared, 'Stage ID': newStageId, 'Stage Updated At': now(), 'Updated At': now() };
   const nextStatus = _leadStatusForStage(stage);
-  if (nextStatus) leadPatch['Lead Status'] = nextStatus;
+  if (nextStatus) {
+    leadPatch['Lead Status'] = nextStatus;
+    leadPatch['Next Follow-up Date'] = '';
+  }
   if (!leadPatch['Lead Status']) leadPatch['Lead Status'] = lead['Lead Status'] || 'Open';
 
   const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(leadPatch));

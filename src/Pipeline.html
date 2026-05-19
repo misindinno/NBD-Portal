@@ -6,9 +6,15 @@ async function loadPipeline() {
     await _ensureCached('leads', () => api.getLeads());
   }
 
-  const openLeads = AppCache.getRows('leads').filter(r => r['Lead Status'] === 'Open');
+  const finalStageIds = (App.config.allStages || App.config.stages || []).reduce((m, s) => {
+    if (_isFinalStage(s)) m[s['Stage ID']] = true;
+    return m;
+  }, {});
+  const pipelineLeads = AppCache.getRows('leads').filter(r =>
+    r['Lead Status'] === 'Open' || finalStageIds[r['Stage ID']]
+  );
   const pipeline  = App.config.stages.map(s => ({
-    stage: s, leads: openLeads.filter(l => l['Stage ID'] === s['Stage ID'])
+    stage: s, leads: pipelineLeads.filter(l => l['Stage ID'] === s['Stage ID'])
   }));
   const userMap  = App.config.users.reduce((m, u) => { m[u.id] = u; return m; }, {});
   const stageMap = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
@@ -143,7 +149,7 @@ async function loadPipeline() {
     <div class="pipeline-topbar">
       <div style="display:flex;align-items:center;gap:12px">
         <span class="pipeline-topbar-hint">${icon('move', 13)} Move leads forward by dragging</span>
-        <span class="pipeline-topbar-meta">${openLeads.length} open lead${openLeads.length !== 1 ? 's' : ''}</span>
+        <span class="pipeline-topbar-meta">${pipelineLeads.length} lead${pipelineLeads.length !== 1 ? 's' : ''}</span>
       </div>
       <button class="btn btn-primary btn-sm" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>
     </div>
@@ -274,6 +280,7 @@ function _applyPipelineStageResult(leadId, stageId, result, extraPatch = {}) {
     'Lead Status': status,
     'Updated At': _nowStr()
   };
+  if (status === 'Won' || status === 'Lost') patch['Next Follow-up Date'] = '';
   AppCache.patchRow('leads', 'Lead ID', leadId, patch);
   if (window.pipelineLeadMap?.[leadId]) {
     window.pipelineLeadMap[leadId] = { ...window.pipelineLeadMap[leadId], ...patch };
@@ -325,7 +332,12 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
         const key = field['Column Key'];
         if (payload[key] !== undefined) fieldPayload[key] = payload[key];
       });
-      _applyPipelineStageResult(leadId, stageId, { leadStatus: 'Open' }, fieldPayload);
+      const isFinal = _isFinalStage(stage);
+      const stageName = String(stage['Stage Name'] || '').toLowerCase();
+      const leadStatus = isFinal
+        ? (stageName.includes('lost') || stageName.includes('disqualif') ? 'Lost' : 'Won')
+        : 'Open';
+      _applyPipelineStageResult(leadId, stageId, { leadStatus }, fieldPayload);
       overlay.remove();
       loadPipeline();
       QueueManager.enqueue({

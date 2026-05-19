@@ -82,7 +82,10 @@ function saveFollowup(data, email) {
       updates['Stage ID'] = payload['Updated Stage ID'];
       updates['Stage Updated At'] = now();
       const nextStatus = _leadStatusForStage(stage);
-      if (nextStatus) updates['Lead Status'] = nextStatus;
+      if (nextStatus) {
+        updates['Lead Status'] = nextStatus;
+        updates['Next Follow-up Date'] = '';
+      }
       activityLog = {
         leadId: lead['Lead ID'],
         oldStageId: lead['Stage ID'] || '',
@@ -187,7 +190,10 @@ function markFollowupDone(followupId, data, email) {
       leadPatch['Stage ID'] = data['Updated Stage ID'];
       leadPatch['Stage Updated At'] = now();
       const nextStatus = _leadStatusForStage(stage);
-      if (nextStatus) leadPatch['Lead Status'] = nextStatus;
+      if (nextStatus) {
+        leadPatch['Lead Status'] = nextStatus;
+        leadPatch['Next Follow-up Date'] = '';
+      }
       activityLog = {
         leadId: lead['Lead ID'],
         oldStageId: lead['Stage ID'] || '',
