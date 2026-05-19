@@ -1,13 +1,14 @@
 <script>
 // ─── Page meta ────────────────────────────────────────────────────────────────
 const _PAGE_META = {
-  dashboard: { title: 'Dashboard',   crumb: 'Dashboard' },
-  leads:     { title: 'Lead Master', crumb: 'Lead Master' },
-  pipeline:  { title: 'Pipeline',    crumb: 'Pipeline' },
-  followups: { title: 'Follow Up',   crumb: 'Follow Up' },
-  leadform:  { title: 'Lead Form',   crumb: 'Lead Form' },
-  config:    { title: 'Config',      crumb: 'Config' },
-  queue:     { title: 'Queue',       crumb: 'Queue' },
+  dashboard: { title: 'Dashboard',        crumb: 'Dashboard' },
+  today:     { title: "Today's Activity", crumb: "Today's Activity" },
+  leads:     { title: 'Lead Master',      crumb: 'Lead Master' },
+  pipeline:  { title: 'Pipeline',         crumb: 'Pipeline' },
+  followups: { title: 'Follow Up',        crumb: 'Follow Up' },
+  leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
+  config:    { title: 'Config',           crumb: 'Config' },
+  queue:     { title: 'Queue',            crumb: 'Queue' },
 };
 
 function navigate(page) {
@@ -28,6 +29,7 @@ function navigate(page) {
   setContentLoading(pageSkeletonType(page));
   try {
     if      (page === 'dashboard')         loadDashboard();
+    else if (page === 'today')             loadToday();
     else if (page === 'leads')              loadLeads();
     else if (page === 'pipeline')           loadPipeline();
     else if (page === 'followups')          loadFollowups('all');
@@ -79,6 +81,7 @@ function renderSidebar() {
 
   const mainItems = [
     show('Dashboard') ? navItem('dashboard', 'layout-dashboard', 'Dashboard') : '',
+    show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : '',
     show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount))   : '',
     show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
   ].filter(Boolean).join('');
@@ -144,7 +147,8 @@ function canNavigate(page) {
   };
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
-  if (page === 'queue')     return !!App.user; // every logged-in user can see their own queue
+  if (page === 'queue')     return !!App.user;
+  if (page === 'today')     return !!App.user;
   return hasModule(moduleMap[page] || page);
 }
 
