@@ -35,8 +35,8 @@ function navigate(page) {
     else if (page === 'followups-overdue')  loadFollowups('overdue');
     else if (page === 'followups-custom')   loadFollowups('custom');
     else if (page === 'followups-new')      { loadFollowups('all'); openFollowupForm(); }
-    else if (page === 'config')             loadConfig();
-    else if (page === 'leadform')           loadLeadForm();
+    else if (page === 'config')             window.loadConfig();
+    else if (page === 'leadform')           window.loadLeadForm();
     else if (page === 'queue')              loadQueuePage();
     else el('content').innerHTML = '<p>Page not found.</p>';
   } catch(err) {
