@@ -560,7 +560,9 @@
   }
 
   function _customFieldControlHTML(field, d, configOptions) {
-    const key = field['Column Key'];
+    const baseKey = field['Column Key'];
+    const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
+    const key = isPerStage ? baseKey + '__' + (d['Stage ID'] || '') : baseKey;
     const type = field['Field Type'] || 'Text';
     const value = d[key] !== undefined ? d[key] : '';
     const required = type !== 'Formula' && (field['Is Required'] === true || field['Is Required'] === 'TRUE');
@@ -849,18 +851,32 @@
 
   function buildLeadCustomFieldSummary(lead, fields = [], configOptions = {}) {
     const stageMap = (App.config.allStages || App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s['Stage Name']; return m; }, {});
-    const active = (fields || []).filter(f => lead[f['Column Key']] !== undefined && lead[f['Column Key']] !== '');
+    // Expand per-stage fields into one entry per stage that has data
+    const active = [];
+    (fields || []).forEach(f => {
+      const isPerStage = (f['Per Stage'] === true || f['Per Stage'] === 'TRUE') && !f['Stage ID'];
+      if (isPerStage) {
+        Object.keys(lead).forEach(k => {
+          if (k.startsWith(f['Column Key'] + '__') && lead[k] !== undefined && lead[k] !== '') {
+            const sid = k.slice(f['Column Key'].length + 2);
+            active.push({ ...f, _effectiveKey: k, _stageLabel: stageMap[sid] || sid });
+          }
+        });
+      } else if (lead[f['Column Key']] !== undefined && lead[f['Column Key']] !== '') {
+        active.push({ ...f, _effectiveKey: f['Column Key'], _stageLabel: null });
+      }
+    });
     if (!active.length) return '';
     return `<div class="card custom-field-summary" style="margin-bottom:16px">
     <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;color:var(--md-primary)">Stage Fields</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px">
       ${active.map(f => {
-      const stageName = f['Stage ID'] ? (stageMap[f['Stage ID']] || 'Unknown Stage') : 'All Stages';
+      const stageName = f._stageLabel || (f['Stage ID'] ? (stageMap[f['Stage ID']] || 'Unknown Stage') : 'All Stages');
       const isRequired = f['Is Required'] === true || f['Is Required'] === 'TRUE';
       return `<div style="border-left:3px solid #90CAF9;padding:6px 10px;border-radius:0 4px 4px 0;background:#FAFAFA">
           <div style="font-weight:600">${escapeHtml(f['Field Name'])}${isRequired ? ' <span style="color:#D32F2F;font-size:11px">Required</span>' : ''}</div>
           <div style="color:#888;font-size:11px;margin:2px 0">${escapeHtml(f['Field Type'] || 'Text')} &middot; ${escapeHtml(stageName)}</div>
-          <div style="margin-top:3px">${_customFieldDisplayValue(lead[f['Column Key']], f)}</div>
+          <div style="margin-top:3px">${_customFieldDisplayValue(lead[f._effectiveKey], f)}</div>
         </div>`;
     }).join('')}
     </div>

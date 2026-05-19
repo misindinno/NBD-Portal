@@ -454,6 +454,10 @@ function openFieldForm(data = {}) {
         <div class="form-group"><label><input type="checkbox" name="Is Required" ${data['Is Required']===true||data['Is Required']==='TRUE'?'checked':''}> Required</label></div>
         <div class="form-group"><label><input type="checkbox" name="Is Visible" ${data['Is Visible']!==false&&data['Is Visible']!=='FALSE'?'checked':''}> Visible</label></div>
       </div>
+      <div class="form-group field-option-stage" id="fc-per-stage-row" style="${data['Stage ID'] ? 'display:none' : ''}">
+        <label><input type="checkbox" name="Per Stage" ${data['Per Stage']===true||data['Per Stage']==='TRUE'?'checked':''}> Per Stage — store separate data for each stage</label>
+        <div style="font-size:11px;color:#777;margin-top:3px">When enabled, this field saves independently for each stage the lead passes through.</div>
+      </div>
       <div class="form-group field-option-stage field-skip-vis-row"><label>Skip Visibility</label>
         <select class="form-control" name="Skip Visibility">
           <option value="normal" ${(data['Skip Visibility']||'normal')==='normal'?'selected':''}>Normal — always shown</option>
@@ -467,8 +471,11 @@ function openFieldForm(data = {}) {
       </div>
     </form>`);
 
-  _toggleFieldTargetOptions(overlay.querySelector('#field-form'));
-  overlay.querySelector('#field-form').addEventListener('submit', async e => {
+  const _ffForm = overlay.querySelector('#field-form');
+  _toggleFieldTargetOptions(_ffForm);
+  _ffForm.querySelector('[name="Stage ID"]')?.addEventListener('change', () => _toggleFieldTargetOptions(_ffForm));
+  _ffForm.querySelector('[name="Sheet Name"]')?.addEventListener('change', () => _toggleFieldTargetOptions(_ffForm));
+  _ffForm.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const payload = Object.fromEntries(fd.entries());
@@ -476,6 +483,7 @@ function openFieldForm(data = {}) {
     if (payload['Sheet Name'] === 'Followups') payload['Stage ID'] = '';
     payload['Is Required'] = fd.has('Is Required');
     payload['Is Visible'] = fd.has('Is Visible');
+    payload['Per Stage'] = fd.has('Per Stage');
     payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
     if (isEdit) payload['Field ID'] = data['Field ID'];
     const btn = e.target.querySelector('[type=submit]');
@@ -503,6 +511,10 @@ function _toggleFieldTargetOptions(form) {
     const stage = form?.querySelector('[name="Stage ID"]');
     if (stage) stage.value = '';
   }
+  // Per Stage only makes sense for All-stages fields
+  const stageVal = form?.querySelector('[name="Stage ID"]')?.value || '';
+  const perStageRow = form?.querySelector('#fc-per-stage-row');
+  if (perStageRow) perStageRow.style.display = isLead && !stageVal ? '' : 'none';
   _toggleFieldTypeOptions(form);
 }
 

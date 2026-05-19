@@ -78,7 +78,9 @@ function _prepareLeadPayload(data, stageId, existing, skipped) {
   const payload = { ...data };
   const fields = getLeadCustomFieldsForStage(stageId);
   fields.forEach(field => {
-    const key = field['Column Key'];
+    const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
+    // Per-stage global fields store under {columnKey}__{stageId} so each stage has independent data
+    const key = isPerStage ? field['Column Key'] + '__' + stageId : field['Column Key'];
     const hasValue = Object.prototype.hasOwnProperty.call(payload, key);
     let value = payload[key];
     if (field['Field Type'] === 'Formula') return;
@@ -86,14 +88,12 @@ function _prepareLeadPayload(data, stageId, existing, skipped) {
     if (field['Field Type'] === 'Multi Select' && Array.isArray(value)) value = value.join(', ');
     if (field['Field Type'] === 'File' && value && typeof value === 'object') value = _uploadCustomFieldFile(value, field);
     if (!hasValue && existing && existing[key] !== undefined) value = existing[key];
-    // Fix #5: only validate required if this field actually belongs to the current stage (or is global)
     const fieldBelongsToStage = !field['Stage ID'] || field['Stage ID'] === stageId;
     if (fieldBelongsToStage) {
       const skipVis = field['Skip Visibility'] === 'skip_only' ? 'skip_only' : 'normal';
       if (!skipped && skipVis === 'skip_only') {
         // Not skipping — skip_only fields are irrelevant, don't validate them at all
       } else if (skipped && skipVis === 'normal') {
-        // Skipping — normal fields are bypassed but still format-validated if a value was supplied
         if (value !== undefined && value !== '') _validateCustomFieldValue({ ...field, 'Is Required': false }, value);
       } else {
         _validateCustomFieldValue(field, value);
