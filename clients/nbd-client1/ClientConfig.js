@@ -2,6 +2,7 @@
 
 const CLIENT_CONFIG = {
   SPREADSHEET_ID:               '1X3ltwu9Etf9FjG2gxoCSHfw8sEDQcvXtWJTugEcUz8U',
+  NBD_TARGET_SPREADSHEET_ID:    '',
   USER_DATABASE_SPREADSHEET_ID: '1jFr5BFta-ry6mJ8GGOh1p0gk2vhCRs4bv-RayBfX4BA',
   USER_DATABASE_SHEET_NAME:     'Staff List',
   APP_TITLE:                    'NBD Portal',

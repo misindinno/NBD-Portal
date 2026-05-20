@@ -216,6 +216,7 @@
     const visibleFollowups = followups.filter(f => !_isActivityLog(f) && _isOpenFollowupRow(f));
     const stageMap = App.config.stages.reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
     const stage = stageMap[lead['Stage ID']];
+    const showNbdPush = _canPushLeadToNbd(lead, stage);
     const _sc = safeColor(stage?.Color) || '#6366f1';
     const _stageVal = '<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + _sc + ';flex-shrink:0;display:inline-block"></span>' + escapeHtml(stage?.['Stage Name'] || '—') + '</span>';
     const overlay = showModal(`
@@ -272,6 +273,9 @@
       <button class="btn btn-primary btn-sm" onclick="openFollowupForm(${JSON.stringify(String(lead['Lead ID'] || ''))},${JSON.stringify(String(lead['Remark'] || ''))})">
         ${icon('plus', 14)} Add Follow-up
       </button>
+      ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail(${JSON.stringify(String(lead['Lead ID'] || ''))})">
+        ${icon('send', 14)} Push to NBD
+      </button>` : ''}
     </div>
     <div id="tab-log" class="tab-pane">
       ${_activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
@@ -321,6 +325,42 @@
     btn.closest('.modal').querySelectorAll('.tab-pane').forEach(pane => {
       pane.style.display = pane.id === tabId ? '' : 'none';
     });
+  }
+
+  function _canPushLeadToNbd(lead, stage) {
+    if (!lead || lead['NBD Lead ID'] || lead['Pushed To NBD At']) return false;
+    const appTitle = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase();
+    if (!appTitle.includes('lq')) return false;
+    const status = String(lead['Lead Status'] || '').trim().toLowerCase();
+    const stageName = String(stage?.['Stage Name'] || '').trim().toLowerCase();
+    return ['qualified', 'won'].includes(status) || stageName.includes('qualified') || stageName.includes('won');
+  }
+
+  function pushLeadToNbdFromDetail(leadId) {
+    if (!leadId) return;
+    const btn = el('push-nbd-btn');
+    if (btn) setButtonLoading(btn, 'Pushing...');
+    QueueManager.enqueue({
+      module: 'leads',
+      actionType: 'pushLeadToNbd',
+      payload: { leadId },
+      onDone: j => {
+        const nbdLeadId = j.finalRecordId || '';
+        AppCache.patchRow('leads', 'Lead ID', leadId, {
+          'NBD Lead ID': nbdLeadId,
+          'Pushed To NBD At': _nowStr(),
+          'Updated At': _nowStr()
+        });
+        document.querySelector('.modal-overlay')?.remove();
+        _refreshLeadViewsAfterLocalChange();
+        toast('Lead pushed to NBD!', 'success');
+      },
+      onFail: j => {
+        if (btn) resetButtonLoading(btn);
+        toast('Push to NBD failed: ' + (j.error || 'Error'), 'error');
+      }
+    });
+    toast('Pushing lead to NBD...', 'info');
   }
 
   async function openLeadForm(data = {}) {

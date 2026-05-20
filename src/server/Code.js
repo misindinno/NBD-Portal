@@ -185,7 +185,9 @@ function setupSheets() {
       'City','State','Address','GST No','Category',
       'Remark','Source','Product Interest',
       'Stage ID','Priority','Assigned To','Lead Status',
-      'Stage Updated At','Last Follow-up Date','Next Follow-up Date','Created At','Updated At'
+      'Stage Updated At','Last Follow-up Date','Next Follow-up Date',
+      'Source Portal','Source Lead ID','NBD Lead ID','Pushed To NBD At',
+      'Created At','Updated At'
     ]);
     ensureFollowupSheets_();
     ensureCustomFieldValueSheets_();
@@ -197,7 +199,7 @@ function setupSheets() {
       'Stage ID','Dropdown Source','Formula Logic',
       'Validation Min','Validation Max','Validation Regex','Validation Message',
       'Help Text','File Types','Max File MB',
-      'Is Required','Is Visible','Display Order','Skip Visibility'
+      'Is Required','Is Visible','Display Order','Skip Visibility','Per Stage'
     ]);
     safeInitHeaders(SHEET_NAMES.CONFIG, [
       'Config ID','Config Type','Value','Status'

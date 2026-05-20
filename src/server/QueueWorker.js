@@ -107,6 +107,7 @@ function _dispatchQueuedJob_(actionType, userEmail, payload) {
     case 'updateLeadStage':       return updateLeadStage(payload.leadId, payload.stageId, payload.note, userEmail);
     case 'moveLeadStageWithFields':
       return moveLeadStageWithFields(payload.leadId, payload.stageId, payload.fields || {}, payload.note, userEmail);
+    case 'pushLeadToNbd':         return pushLeadToNbd(payload.leadId, userEmail);
     // ── Follow-ups
     case 'saveFollowup':          return saveFollowup(payload, userEmail);
     case 'markFollowupDone':      return markFollowupDone(payload.id, payload.data || {}, userEmail);
@@ -147,6 +148,7 @@ function _handleJobError_(requestId, errMsg, attempt, actionType) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function _extractRecordId_(data, actionType, payload) {
   if (typeof data === 'string') return data; // many services return the ID as a string
+  if (data && data.nbdLeadId)   return data.nbdLeadId;
   if (data && data.leadId)     return data.leadId;
   if (data && data.followupId) return data.followupId;
   if (payload && payload['Lead ID']) return payload['Lead ID'];
@@ -166,6 +168,7 @@ function _bumpStampForModule_(moduleName, actionType) {
     deleteLead:              ['leads', 'followups', 'followup_history', 'activity_logs'],
     updateLeadStage:         ['leads', 'activity_logs'],
     moveLeadStageWithFields: ['leads', 'activity_logs'],
+    pushLeadToNbd:           ['leads', 'activity_logs'],
     saveFollowup:            ['followups', 'leads', 'activity_logs'],
     markFollowupDone:        ['followups', 'followup_history', 'leads', 'activity_logs'],
     deleteFollowup:          ['followups'],

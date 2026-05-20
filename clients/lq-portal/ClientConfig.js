@@ -2,6 +2,7 @@
 
 const CLIENT_CONFIG = {
   SPREADSHEET_ID:               '1LeALluP02bd37clVesulu1JY7HeJjVNA4J067-QUM5w',
+  NBD_TARGET_SPREADSHEET_ID:    '1X3ltwu9Etf9FjG2gxoCSHfw8sEDQcvXtWJTugEcUz8U',
   USER_DATABASE_SPREADSHEET_ID: '1jFr5BFta-ry6mJ8GGOh1p0gk2vhCRs4bv-RayBfX4BA',
   USER_DATABASE_SHEET_NAME:     'Staff List',
   APP_TITLE:                    'LQ Portal',
