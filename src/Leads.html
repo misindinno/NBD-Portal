@@ -271,10 +271,10 @@
         <button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-primary btn-sm" onclick="openFollowupForm(${JSON.stringify(String(lead['Lead ID'] || ''))},${JSON.stringify(String(lead['Remark'] || ''))})">
+        <button class="btn btn-primary btn-sm" onclick="openFollowupForm('${escapeHtml(String(lead['Lead ID'] || ''))}','${escapeHtml(String(lead['Remark'] || '').replace(/'/g, '&#39;'))}')">
           ${icon('plus', 14)} Add Follow-up
         </button>
-        ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail(${JSON.stringify(String(lead['Lead ID'] || ''))})">
+        ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
           ${icon('send', 14)} Push to NBD
         </button>` : ''}
       </div>
