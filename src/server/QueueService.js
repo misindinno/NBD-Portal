@@ -197,7 +197,7 @@ function markJobDone_(requestId, finalRecordId) {
 // ── Mark job FAILED (with retry scheduling) ───────────────────────────────────
 function markJobFailed_(requestId, errorMsg, currentAttempt) {
   assertServerContext_();
-  const attempt    = Number(currentAttempt || 0) + 1;
+  const attempt    = Math.min(Number(currentAttempt || 0) + 1, Q_MAX_ATTEMPTS);
   const delayIndex = Math.min(attempt - 1, Q_RETRY_DELAYS.length - 1);
   const delayMs    = Q_RETRY_DELAYS[delayIndex] * 1000;
   const isDead     = attempt >= Q_MAX_ATTEMPTS;
@@ -287,11 +287,14 @@ function getQueueHistory_(userEmail, limit) {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 // Queue operational health for the Queue page and debugging stuck jobs.
-function getQueueHealth_(userEmail) {
+function getQueueHealth_(userEmail, user) {
   assertServerContext_();
-  const rows = getAllRows(SHEET_NAMES.QUEUE);
+  const email = String(userEmail || '').trim().toLowerCase();
+  const rows = getAllRows(SHEET_NAMES.QUEUE)
+    .filter(r => String(r['User Email'] || '').trim().toLowerCase() === email);
   const nowMs = Date.now();
   const stats = {
+    scope: 'user',
     total: rows.length,
     queued: 0,
     processing: 0,

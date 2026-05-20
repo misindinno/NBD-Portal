@@ -11,6 +11,10 @@ const QueueManager = (() => {
   // job shape: { requestId, status, module, actionType, tempId, enqueuedAt, finalRecordId, error }
   let _jobs = {};       // requestId → job
   let _pollTimer = null;
+  function _notifyQueueChanged() {
+    if (typeof renderSidebar !== 'function') return;
+    try { renderSidebar(); } catch (e) { console.warn('[Queue] Sidebar refresh failed', e); }
+  }
   let _callbacks = {};  // requestId → { onDone, onFail }
 
   // ── Persistence ──────────────────────────────────────────────────────────────
@@ -29,7 +33,10 @@ const QueueManager = (() => {
       Object.values(parsed).forEach(j => {
         if ((j.enqueuedAt || 0) > cutoff) _jobs[j.requestId] = j;
       });
-    } catch (_) { _jobs = {}; }
+    } catch (e) {
+      console.warn('[Queue] Could not load local queue state', e);
+      _jobs = {};
+    }
   }
 
   // ── Status badge HTML ─────────────────────────────────────────────────────────
@@ -56,6 +63,7 @@ const QueueManager = (() => {
   // ── Polling ───────────────────────────────────────────────────────────────────
   function _pendingIds() {
     return Object.values(_jobs)
+      .filter(j => j.serverEnqueued !== false)
       .filter(j => j.status === 'QUEUED' || j.status === 'PROCESSING' || j.status === 'FAILED')
       .map(j => j.requestId);
   }
@@ -66,36 +74,104 @@ const QueueManager = (() => {
     });
   }
 
+  async function _refreshJobStatuses(ids) {
+    const statuses = await api.getJobStatuses(ids);
+    let changed = false;
+    ids.forEach(rid => {
+      const srv = statuses[rid];
+      if (!srv || !_jobs[rid]) return;
+      const prev = _jobs[rid].status;
+      _jobs[rid].status = srv.status;
+      if (srv.finalRecordId) _jobs[rid].finalRecordId = srv.finalRecordId;
+      if (srv.error)         _jobs[rid].error         = srv.error;
+      if (srv.status !== prev) {
+        changed = true;
+        _updateBadge(rid);
+        if (srv.status === 'DONE') {
+          if (_callbacks[rid]?.onDone) _callbacks[rid].onDone(_jobs[rid]);
+          else if (typeof _refreshAfterQueueJob === 'function') _refreshAfterQueueJob(_jobs[rid]);
+          delete _callbacks[rid];
+        } else if (srv.status === 'DEAD') {
+          if (_callbacks[rid]?.onFail) _callbacks[rid].onFail(_jobs[rid]);
+          else if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[rid]);
+          delete _callbacks[rid];
+        }
+      }
+    });
+    if (changed) {
+      _save();
+      _notifyQueueChanged();
+    }
+    return statuses;
+  }
+
+  function _findCreateJobForTempId(tempId) {
+    return Object.values(_jobs)
+      .filter(j => j.actionType === 'saveLead' && j.tempId === tempId)
+      .sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0))[0] || null;
+  }
+
+  async function _waitForFinalLeadId(tempId) {
+    const createJob = _findCreateJobForTempId(tempId);
+    if (!createJob) throw new Error('Lead is still saving. Please wait for the save queue item to finish, then move it again.');
+    if (createJob.finalRecordId) return createJob.finalRecordId;
+    if (createJob.status === 'DEAD') throw new Error('Lead save failed first: ' + (createJob.error || 'Unknown error'));
+
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      await _refreshJobStatuses([createJob.requestId]);
+      const fresh = _jobs[createJob.requestId];
+      if (fresh?.finalRecordId) return fresh.finalRecordId;
+      if (fresh?.status === 'DEAD') throw new Error('Lead save failed first: ' + (fresh.error || 'Unknown error'));
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    throw new Error('Lead save is still pending. Stage move will not be sent until the lead has a real ID.');
+  }
+
+  async function _resolvePayloadDependencies(actionType, payload) {
+    const nextPayload = { ...(payload || {}) };
+    if (['updateLeadStage', 'moveLeadStageWithFields'].includes(actionType)) {
+      const leadId = String(nextPayload.leadId || '');
+      if (leadId.startsWith('temp-')) nextPayload.leadId = await _waitForFinalLeadId(leadId);
+    }
+    return nextPayload;
+  }
+
+  async function _sendJobToServer(job, rawPayload) {
+    const payload = await _resolvePayloadDependencies(job.actionType, rawPayload || job.payload);
+    const payloadLen = JSON.stringify(payload || {}).length;
+    if (payloadLen > 200000) {
+      throw new Error('This save is too large for the background queue. Remove large file attachments or reduce file size, then try again.');
+    }
+    await api.enqueueJob(job.module, job.actionType, payload, job.requestId);
+    job.serverEnqueued = true;
+    delete job.payload;
+    _save();
+    _notifyQueueChanged();
+  }
+
+  function _resumeUnsentJobs() {
+    Object.values(_jobs).forEach(job => {
+      if (job.serverEnqueued !== false || !job.payload || job.status === 'DONE' || job.status === 'DEAD') return;
+      _sendJobToServer(job).catch(err => {
+        job.status = 'DEAD';
+        job.error = err.message || String(err);
+        _save();
+        _notifyQueueChanged();
+        if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(job);
+      });
+    });
+  }
+
   async function _poll() {
     const ids = _pendingIds();
     if (!ids.length) { _stopPoll(); return; }
 
     try {
-      const statuses = await api.getJobStatuses(ids);
-      let changed = false;
-      ids.forEach(rid => {
-        const srv = statuses[rid];
-        if (!srv || !_jobs[rid]) return;
-        const prev = _jobs[rid].status;
-        _jobs[rid].status = srv.status;
-        if (srv.finalRecordId) _jobs[rid].finalRecordId = srv.finalRecordId;
-        if (srv.error)         _jobs[rid].error         = srv.error;
-        if (srv.status !== prev) {
-          changed = true;
-          _updateBadge(rid);
-          if (srv.status === 'DONE') {
-            if (_callbacks[rid]?.onDone) _callbacks[rid].onDone(_jobs[rid]);
-            else if (typeof _refreshAfterQueueJob === 'function') _refreshAfterQueueJob(_jobs[rid]);
-            delete _callbacks[rid];
-          } else if (srv.status === 'DEAD') {
-            if (_callbacks[rid]?.onFail) _callbacks[rid].onFail(_jobs[rid]);
-            else if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[rid]);
-            delete _callbacks[rid];
-          }
-        }
-      });
-      if (changed) _save();
-    } catch (_) { /* silent — retry on next tick */ }
+      await _refreshJobStatuses(ids);
+    } catch (e) {
+      console.warn('[Queue] Status poll failed; will retry', e);
+    }
   }
 
   function _startPoll() {
@@ -117,6 +193,7 @@ const QueueManager = (() => {
       }
     });
     _save();
+    _notifyQueueChanged();
   }
 
   // ── Public API ────────────────────────────────────────────────────────────────
@@ -124,6 +201,7 @@ const QueueManager = (() => {
     // Call once at app startup to resume pending jobs from localStorage.
     init() {
       _load();
+      _resumeUnsentJobs();
       if (_pendingIds().length) _startPoll();
     },
 
@@ -132,6 +210,7 @@ const QueueManager = (() => {
     async enqueue(opts) {
       const requestId = 'rq-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       const tempId    = opts.tempId || requestId;
+      const serializedPayload = JSON.stringify(opts.payload || {});
 
       _jobs[requestId] = {
         requestId,
@@ -141,20 +220,29 @@ const QueueManager = (() => {
         tempId,
         enqueuedAt:  Date.now(),
         finalRecordId: null,
-        error:       null
+        error:       null,
+        serverEnqueued: false,
+        payload:     serializedPayload.length < 100000 ? opts.payload : null
       };
       _save();
+      _notifyQueueChanged();
 
       if (opts.onDone) _callbacks[requestId] = { onDone: opts.onDone, onFail: opts.onFail };
 
       // Fire and forget — send to server queue
       try {
-        await api.enqueueJob(opts.module, opts.actionType, opts.payload, requestId);
+        const payload = await _resolvePayloadDependencies(opts.actionType, opts.payload);
+        const payloadLen = JSON.stringify(payload || {}).length;
+        if (payloadLen > 200000) {
+          throw new Error('This save is too large for the background queue. Remove large file attachments or reduce file size, then try again.');
+        }
+        await _sendJobToServer(_jobs[requestId], payload);
       } catch (err) {
         _jobs[requestId].status = 'DEAD';
         _jobs[requestId].error  = err.message || String(err);
         _save();
         _updateBadge(requestId);
+        _notifyQueueChanged();
         opts.onFail?.(_jobs[requestId]);
         if (!opts.onFail && typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[requestId]);
         return { requestId, tempId };

@@ -72,7 +72,7 @@ function _processQueueJob_(job) {
     const userResult = getCurrentUserByEmail_(userEmail);
     if (!userResult.success) {
       // Permanent failure — user was deactivated or removed
-      markJobFailed_(requestId, 'User not found or deactivated: ' + userEmail, Q_MAX_ATTEMPTS);
+      markJobFailed_(requestId, 'User not found or deactivated: ' + userEmail, Q_MAX_ATTEMPTS - 1);
       return;
     }
 
@@ -128,14 +128,15 @@ function _dispatchQueuedJob_(actionType, userEmail, payload) {
 function _handleJobError_(requestId, errMsg, attempt, actionType) {
   const msg = String(errMsg || 'Unknown error').slice(0, 500);
 
-  // Permanent errors — do not retry
+  // Permanent errors do not retry. "Not found" can be transient when a queued
+  // update depends on a just-created record, so it follows the retry schedule.
   const isPermanent = (
-    /permission denied|not authoris|access denied|not found/i.test(msg) ||
+    /permission denied|not authoris|access denied/i.test(msg) ||
     /invalid payload|unsupported/i.test(msg)
   );
 
   if (isPermanent) {
-    markJobFailed_(requestId, msg, Q_MAX_ATTEMPTS); // set to DEAD immediately
+    markJobFailed_(requestId, msg, Q_MAX_ATTEMPTS - 1); // set to DEAD immediately
   } else {
     markJobFailed_(requestId, msg, attempt);
   }

@@ -72,8 +72,14 @@ function saveFollowup(data, email) {
     'Created At': now(),
     'Updated At': now()
   };
-  insertRow(SHEET_NAMES.FOLLOWUPS, pickFollowupMasterFields_(row));
-  upsertCustomFieldValues_('Followups', id, payload, user.id);
+  try {
+    insertRow(SHEET_NAMES.FOLLOWUPS, pickFollowupMasterFields_(row));
+    upsertCustomFieldValues_('Followups', id, payload, user.id);
+  } catch (e) {
+    deleteRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', id);
+    deleteCustomFieldValuesForEntity_('Followups', id);
+    throw e;
+  }
   if (lead) {
     const updates = { 'Next Follow-up Date': plannedDate, 'Updated At': now() };
     let activityLog = null;
@@ -175,8 +181,14 @@ function markFollowupDone(followupId, data, email) {
   const updated = updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId, followupPatch);
   if (!updated) return respond(null, 'Follow-up record not found — it may have been deleted. Please refresh and try again.');
 
-  // Write history only after the followup row update succeeds
-  insertRow(SHEET_NAMES.FOLLOWUP_HISTORY, history);
+  // Write history only after the followup row update succeeds. If this fails,
+  // restore the follow-up row so "done" and history do not drift apart.
+  try {
+    insertRow(SHEET_NAMES.FOLLOWUP_HISTORY, history);
+  } catch (e) {
+    updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId, pickFollowupMasterFields_(row));
+    throw e;
+  }
 
   let leadPatch = null;
   let activityLog = null;

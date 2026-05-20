@@ -97,7 +97,7 @@ async function loadPipeline() {
         <div class="pc-title">${title}</div>
         ${contactPerson   ? `<div class="pc-contact">${contactPerson}</div>` : ''}
         <div class="pc-fields">
-          ${assignedName ? `<div class="pc-field">${icon('user', 10)} ${escapeHtml(contactPerson)}</div>` : ''}
+          ${assignedName ? `<div class="pc-field">${icon('user', 10)} ${escapeHtml(assignedName)}</div>` : ''}
           ${phone    ? `<div class="pc-field">${icon('phone', 10)} ${phone}${altPhone ? ` &nbsp;·&nbsp; ${altPhone}` : ''}</div>` : (altPhone ? `<div class="pc-field">${icon('phone', 10)} ${altPhone}</div>` : '')}
           ${email    ? `<div class="pc-field">${icon('mail', 10)} ${email}</div>` : ''}
           ${cityState? `<div class="pc-field">${icon('map-pin', 10)} ${cityState}</div>` : ''}

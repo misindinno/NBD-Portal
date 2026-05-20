@@ -123,7 +123,7 @@ function canManageUsersPermission(user) {
 
 function requireConfigEditor() {
   const trustedEmail = TRUSTED_WRITE_EMAIL;
-  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use apiWrite.');
+  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use the queue API.');
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   if (!canEditConfigPermission(result.data)) throw new Error('Permission denied.');
@@ -132,17 +132,17 @@ function requireConfigEditor() {
 
 function requireUserManager() {
   const trustedEmail = TRUSTED_WRITE_EMAIL;
-  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use apiWrite.');
+  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use the queue API.');
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   if (!canManageUsersPermission(result.data)) throw new Error('Permission denied.');
   return result.data;
 }
 
-// Used only by write webhook — validates email + role before any write
+// Used by queued writes — validates email + role before any write
 function requireRole(allowedRoles) {
   const trustedEmail = TRUSTED_WRITE_EMAIL;
-  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use apiWrite.');
+  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use the queue API.');
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   if (!allowedRoles.includes(result.data.role)) throw new Error('Permission denied.');
