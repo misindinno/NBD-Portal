@@ -9,7 +9,6 @@ function pushLeadToNbd(leadId, email) {
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
-  if (!_isLeadQualifiedForNbd_(lead)) return respond(null, 'Lead must be qualified before pushing to NBD.');
   safeInitHeaders(SHEET_NAMES.LEADS, LEAD_MASTER_FIELDS);
 
   const targetSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
