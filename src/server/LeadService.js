@@ -233,7 +233,7 @@ function updateLeadStage(leadId, newStageId, note, email) {
   const missing = getLeadCustomFieldsForStage(newStageId)
     .filter(f => f['Is Required'] === true || f['Is Required'] === 'TRUE')
     .filter(f => f['Field Type'] !== 'Formula')
-    .filter(f => !lead[f['Column Key']])
+    .filter(f => !lead[_leadEffectiveFieldKey_(f, newStageId)])
     .map(f => f['Field Name']);
   if (missing.length) return respond(null, `Required fields missing for ${stageName}: ${missing.join(', ')}`);
   const leadPatch = { 'Stage ID': newStageId, 'Stage Updated At': now(), 'Updated At': now() };
@@ -268,7 +268,8 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email) {
   const stageFields = getLeadCustomFieldsForStage(newStageId)
     .filter(f => f['Field Type'] !== 'Formula');
   const allowed = stageFields.reduce((m, f) => {
-    if (f['Column Key']) m[f['Column Key']] = true;
+    const key = _leadEffectiveFieldKey_(f, newStageId);
+    if (key) m[key] = true;
     return m;
   }, {});
   const fieldPayload = {};
@@ -328,6 +329,13 @@ function _leadStatusForStage(stage) {
   const name = String(stage['Stage Name'] || '').trim().toLowerCase();
   if (name.includes('lost')) return 'Lost';
   return 'Won';
+}
+
+function _leadEffectiveFieldKey_(field, stageId) {
+  const baseKey = field && field['Column Key'];
+  if (!baseKey) return '';
+  const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
+  return isPerStage && stageId ? baseKey + '__' + stageId : baseKey;
 }
 
 function _applyLeadStatusFromStage(payload, stageId) {

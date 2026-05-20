@@ -348,7 +348,9 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
       const skipped = payload['__stage_skipped'] === 'true';
       const fieldPayload = {};
       fields.forEach(field => {
-        const key = field['Column Key'];
+        const baseKey = field['Column Key'];
+        const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
+        const key = isPerStage ? baseKey + '__' + stageId : baseKey;
         if (payload[key] !== undefined) fieldPayload[key] = payload[key];
       });
       const isFinal = _isFinalStage(stage);
