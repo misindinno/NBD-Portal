@@ -6,6 +6,7 @@ let _fuFilterState = { search: '', type: '', assignedTo: '', dateFrom: '', dateT
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
   el('page-title').textContent = 'Follow-ups';
+  _fuFilterState = { search: '', type: '', assignedTo: '', dateFrom: '', dateTo: '' };
 
   const grp = el('nav-group-fu');
   if (grp) grp.classList.add('open');
@@ -112,9 +113,10 @@ function _fuApplyFilters(rows, ctx) {
     }
     if (f.type && String(row['Follow-up Type'] || '') !== f.type) return false;
     if (f.assignedTo && lead?.['Assigned To'] !== f.assignedTo) return false;
-    const plannedDate = _fmtDate(_fuPlannedDate(row));
-    if (f.dateFrom && plannedDate && plannedDate < f.dateFrom) return false;
-    if (f.dateTo   && plannedDate && plannedDate > f.dateTo)   return false;
+    // Closed tab rows use Done Date; open tabs use Planned Date
+    const dateField = row['Done Date'] ? _fmtDate(row['Done Date']) : _fmtDate(_fuPlannedDate(row));
+    if (f.dateFrom && dateField && dateField < f.dateFrom) return false;
+    if (f.dateTo   && dateField && dateField > f.dateTo)   return false;
     return true;
   });
 }
