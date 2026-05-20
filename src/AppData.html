@@ -6,6 +6,7 @@ function _ensureCached(col, fetchFn) {
   if (AppCache.isLoaded(col)) return Promise.resolve();
   if (_fetching[col]) return _fetching[col];
   _fetching[col] = fetchFn()
+    .then(rows => col === 'leads' ? _applyPendingLeadQueueOverlay(rows) : rows)
     .then(rows => AppCache.setRows(col, rows))
     .finally(() => delete _fetching[col]);
   return _fetching[col];
@@ -186,7 +187,7 @@ function _recoverFailedQueueJob(job) {
 
 async function _refreshLeadsCache() {
   const rows = await api.getLeads().catch(() => api.getFollowupLeads());
-  AppCache.setRows('leads', rows);
+  AppCache.setRows('leads', await _applyPendingLeadQueueOverlay(rows));
   const pg = App.currentPage;
   if (pg === 'leads') {
     if (window.leadTable) {
@@ -198,6 +199,45 @@ async function _refreshLeadsCache() {
   } else if (pg === 'dashboard') {
     loadDashboard();
   }
+}
+
+async function _applyPendingLeadQueueOverlay(rows) {
+  const list = (rows || []).map(r => ({ ...r }));
+  const patches = {};
+  const applyPatch = (leadId, patch) => {
+    if (!leadId || !patch || !patch['Stage ID']) return;
+    patches[leadId] = { ...(patches[leadId] || {}), ...patch };
+  };
+
+  if (typeof QueueManager !== 'undefined' && typeof QueueManager.getPendingLeadPatches === 'function') {
+    Object.entries(QueueManager.getPendingLeadPatches()).forEach(([leadId, patch]) => applyPatch(leadId, patch));
+  }
+
+  try {
+    const jobs = await api.getQueueHistory(100);
+    (jobs || []).forEach(job => {
+      const status = String(job.status || '');
+      if (!['QUEUED', 'PROCESSING', 'FAILED'].includes(status)) return;
+      if (!['updateLeadStage', 'moveLeadStageWithFields'].includes(job.actionType)) return;
+      const payload = job.pendingPayload || {};
+      const fields = payload.fields && typeof payload.fields === 'object' ? payload.fields : {};
+      applyPatch(payload.leadId, {
+        ...fields,
+        'Stage ID': payload.stageId,
+        'Stage Updated At': job.createdAt || _nowStr(),
+        'Updated At': job.updatedAt || job.createdAt || _nowStr(),
+        '_queuePendingStage': true
+      });
+    });
+  } catch (e) {
+    console.warn('[AppData] Pending queue overlay failed', e);
+  }
+
+  if (!Object.keys(patches).length) return list;
+  return list.map(row => {
+    const patch = patches[row['Lead ID']];
+    return patch ? { ...row, ...patch } : row;
+  });
 }
 
 async function _refreshFollowupsCache() {
