@@ -56,9 +56,9 @@ function upsertCustomFieldValues_(sheetName, entityId, payload, userId, stageId)
   const fields = _customFieldsForWrite_(sheetName, stageId)
     .filter(f => f['Field Type'] !== 'Formula');
   fields.forEach(field => {
-    const key = field['Column Key'];
+    const key = _customEffectiveColumnKey_(field, stageId);
     if (!key || !Object.prototype.hasOwnProperty.call(payload, key)) return;
-    _upsertCustomValue_(sheetName, entityId, field, payload[key], userId);
+    _upsertCustomValue_(sheetName, entityId, { ...field, 'Column Key': key }, payload[key], userId);
   });
 }
 
@@ -94,7 +94,8 @@ function _upsertCustomValue_(sheetName, entityId, field, value, userId) {
   const key = field['Column Key'];
   const existing = queryRows(valueSheet, r =>
     String(r[entityKey]) === String(entityId) &&
-    String(r['Field ID']) === String(fieldId)
+    String(r['Field ID']) === String(fieldId) &&
+    String(r['Column Key'] || '') === String(key || '')
   )[0];
   const isFile = field['Field Type'] === 'File';
   const row = {
@@ -184,6 +185,13 @@ function _customStoredValue_(value) {
   if (value === undefined || value === null) return '';
   if (Array.isArray(value)) return value.join(', ');
   return value;
+}
+
+function _customEffectiveColumnKey_(field, stageId) {
+  const baseKey = field && field['Column Key'];
+  if (!baseKey) return '';
+  const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
+  return isPerStage && stageId ? baseKey + '__' + stageId : baseKey;
 }
 
 function _pickFields_(payload, allowed) {
