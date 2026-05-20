@@ -123,6 +123,8 @@ async function loadStagesConfig() {
             ${s['Is Final Stage'] ? '<span class="badge" style="background:#E3F2FD;color:#1565C0;margin-left:6px">Final</span>' : ''}
             ${s['TAT Days'] ? '<span class="badge" style="background:#FFF8E1;color:#F57F17;margin-left:6px">TAT: ' + escapeHtml(s['TAT Days']) + 'd</span>' : ''}
             ${s['Is Skippable'] === true || s['Is Skippable'] === 'TRUE' ? '<span class="badge" style="background:#F3E5F5;color:#6A1B9A;margin-left:6px">Skippable</span>' : ''}
+            ${s['Stage Outcome'] === 'Won'  ? '<span class="badge" style="background:#D1FAE5;color:#065F46;margin-left:6px">Won</span>'  : ''}
+            ${s['Stage Outcome'] === 'Lost' ? '<span class="badge" style="background:#FEE2E2;color:#991B1B;margin-left:6px">Lost</span>' : ''}
           </div>
           <button class="btn btn-sm btn-outlined" onclick="openStageForm(${JSON.stringify(s).replace(/"/g,'&quot;')})">Edit</button>
         </div>`).join('')}
@@ -181,6 +183,15 @@ function openStageForm(data = {}) {
       <div class="form-row">
         <div class="form-group"><label>TAT (Days)</label>
           <input class="form-control" name="TAT Days" type="number" min="0" placeholder="Expected days in this stage" value="${escapeHtml(data['TAT Days']||'')}"></div>
+        <div class="form-group"><label>Stage Outcome</label>
+          <select class="form-control" name="Stage Outcome">
+            <option value="" ${!data['Stage Outcome']?'selected':''}>None (stays Open)</option>
+            <option value="Won"  ${data['Stage Outcome']==='Won' ?'selected':''}>Won — marks lead as Won</option>
+            <option value="Lost" ${data['Stage Outcome']==='Lost'?'selected':''}>Lost — marks lead as Lost</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
         <div class="form-group" style="display:flex;flex-direction:column;justify-content:flex-end;gap:8px">
           <label><input type="checkbox" name="Is Active" ${data['Is Active']!==false&&data['Is Active']!=='FALSE'?'checked':''}> Is Active</label>
           <label><input type="checkbox" name="Is Final Stage" ${data['Is Final Stage']?'checked':''}> Is Final Stage</label>
@@ -203,6 +214,7 @@ function openStageForm(data = {}) {
       'Color': fd.get('Color'),
       'Stage Order': fd.get('Stage Order'),
       'TAT Days': fd.get('TAT Days') || '',
+      'Stage Outcome': fd.get('Stage Outcome') || '',
       'Is Active': fd.has('Is Active'),
       'Is Final Stage': fd.has('Is Final Stage'),
       'Is Initial Stage': fd.has('Is Initial Stage'),

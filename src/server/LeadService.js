@@ -325,10 +325,15 @@ function _canWriteLead(lead, user) {
 }
 
 function _leadStatusForStage(stage) {
-  if (!stage || !(stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE')) return '';
-  const name = String(stage['Stage Name'] || '').trim().toLowerCase();
-  if (name.includes('lost')) return 'Lost';
-  return 'Won';
+  if (!stage) return '';
+  const outcome = String(stage['Stage Outcome'] || '').trim();
+  if (outcome === 'Won' || outcome === 'Lost') return outcome;
+  if (stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE') {
+    const name = String(stage['Stage Name'] || '').trim().toLowerCase();
+    if (name.includes('lost')) return 'Lost';
+    return 'Won';
+  }
+  return '';
 }
 
 function _leadEffectiveFieldKey_(field, stageId) {

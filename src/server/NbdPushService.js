@@ -110,7 +110,7 @@ function _findExternalLeadBySource_(sheet, headers, sourceLeadId) {
 
 function _nbdInitialStageId_(spreadsheetId) {
   const stagesSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.STAGES);
-  _ensureExternalHeaders_(stagesSheet, ['Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Created At']);
+  _ensureExternalHeaders_(stagesSheet, ['Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Stage Outcome','Created At']);
   if (stagesSheet.getLastRow() < 2) return '';
   const data = stagesSheet.getDataRange().getValues();
   const headers = data[0].map(String);

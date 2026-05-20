@@ -206,7 +206,7 @@ function setupSheets() {
     ensureFollowupSheets_();
     ensureCustomFieldValueSheets_();
     safeInitHeaders(SHEET_NAMES.STAGES, [
-      'Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Created At'
+      'Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Stage Outcome','Created At'
     ]);
     safeInitHeaders(SHEET_NAMES.FIELD_CONFIG, [
       'Field ID','Sheet Name','Field Name','Column Key','Field Type',
