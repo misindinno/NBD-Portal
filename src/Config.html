@@ -721,9 +721,11 @@ function openUserForm(data = {}) {
   });
 }
 
-const USER_MODULES = ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users','LeadForm'];
+const _CONFIG_IS_LQ_PORTAL = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
+const USER_MODULES = ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users','LeadForm']
+  .concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []);
 const USER_ROLE_MODULES = {
-  ADMIN:   ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users'],
+  ADMIN:   ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users'].concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []),
   MANAGER: ['Dashboard','Leads','Pipeline','Followups','Reports'],
   SALES:   ['Dashboard','Leads','Pipeline','Followups'],
   USER:    ['Dashboard','Followups'],
@@ -763,6 +765,7 @@ function _canonicalUserModule(value) {
 function _moduleLabel(moduleName) {
   if (moduleName === 'Followups') return 'Follow-ups';
   if (moduleName === 'LeadForm') return 'Lead Form';
+  if (moduleName === 'BulkEntry') return 'Bulk Entry';
   return moduleName;
 }
 

@@ -10,7 +10,9 @@ function doGet(e) {
     try {
       const googleToken = e && e.parameter && e.parameter.google_token ? e.parameter.google_token : null;
       if (googleToken) return _handleGoogleAuthRedirect_(googleToken);
-      return HtmlService.createTemplateFromFile('Index')
+      const template = HtmlService.createTemplateFromFile('Index');
+      template.initialPage = e && e.parameter && e.parameter.page ? String(e.parameter.page).replace(/[^a-z0-9_-]/gi, '') : '';
+      return template
         .evaluate()
         .setTitle(CLIENT_CONFIG.APP_TITLE)
         .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
@@ -68,7 +70,7 @@ function _serveAuthError_(msg) {
 
 // ── Custom Menu ───────────────────────────────────────────────────────────────
 function onOpen() {
-  SpreadsheetApp.getUi()
+  const menu = SpreadsheetApp.getUi()
     .createMenu(CLIENT_CONFIG.APP_TITLE)
     .addItem('⚙️ Run Setup', 'setupSheets')
     .addSeparator()
@@ -79,8 +81,11 @@ function onOpen() {
     .addItem('📋 Queue Trigger Status', '_showQueueStatus')
     .addItem('⚡ Process Queue Now', 'processQueue')
     .addSeparator()
-    .addItem('🔗 Open Portal', 'openPortal')
-    .addToUi();
+    .addItem('🔗 Open Portal', 'openPortal');
+  if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq')) {
+    menu.addItem('Bulk Entry', 'openBulkEntry');
+  }
+  menu.addToUi();
 }
 
 function _showQueueStatus() {
@@ -101,6 +106,15 @@ function openPortal() {
   SpreadsheetApp.getUi().showModalDialog(
     HtmlService.createHtmlOutput(html).setWidth(1).setHeight(1),
     'Opening Portal...'
+  );
+}
+
+function openBulkEntry() {
+  const url = ScriptApp.getService().getUrl() + '?page=bulkview';
+  const html = '<script>window.open("' + url + '", "_blank"); google.script.host.close();<\/script>';
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(html).setWidth(1).setHeight(1),
+    'Opening Bulk Entry...'
   );
 }
 
@@ -213,6 +227,9 @@ function setupSheets() {
     safeInitHeaders(SHEET_NAMES.CHANGE_LOG, [
       'Sequence','Timestamp','Module','Record ID','Action Type','Changed By'
     ]);
+    if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq') && typeof _ensureBulkSheets_ === 'function') {
+      _ensureBulkSheets_();
+    }
     _migrateLegacyFollowupData_();
     migrateLegacyCustomFieldValues_();
     _seedDefaultData();

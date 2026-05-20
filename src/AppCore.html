@@ -91,6 +91,11 @@ const api = {
   getFollowupLeads:    ()      => api._authedRead('apiGetFollowupLeads'),
   getFollowupFormData: ()      => api._authedRead('apiGetFollowupFormData'),
   getUsers:            ()      => api._authedRead('apiGetUsers'),
+  getBulkConfig:       ()      => api._authedRead('apiGetBulkConfig'),
+  validateBulkRows:    (rows)  => api._authedRead('apiValidateBulkRows', rows),
+  saveBulkRows:        (rows)  => api._authedRead('apiSaveBulkRows', rows),
+  getBulkProgress:     (id)    => api._authedRead('apiGetBulkProgress', id),
+  createErrorCsv:      (rows)  => api._authedRead('apiCreateErrorCsv', rows),
 
   // ── Queue endpoints ───────────────────────────────────────────────────────
   enqueueJob:      (mod, act, payload, rid) => api._authedRead('apiEnqueueJob', mod, act, payload, rid),
