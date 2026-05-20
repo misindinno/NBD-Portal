@@ -1,16 +1,18 @@
 <script>
 // ─── Follow-ups Page ─────────────────────────────────────────────────────────
 
+let _fuFilterState = { search: '', type: '', assignedTo: '', dateFrom: '', dateTo: '' };
+
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
   el('page-title').textContent = 'Follow-ups';
 
-  // Keep nav-group open
   const grp = el('nav-group-fu');
   if (grp) grp.classList.add('open');
 
+  const showFilters = tab !== 'custom';
   el('content').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div class="tabs" style="margin-bottom:0;border:none">
         <button class="tab-btn ${tab==='all'?'active':''}"     onclick="loadFollowups('all')">All</button>
         <button class="tab-btn ${tab==='today'?'active':''}"   onclick="loadFollowups('today')">Today</button>
@@ -23,6 +25,7 @@ async function loadFollowups(tab = 'all') {
         ${icon('plus', 16)} Add Follow-up
       </button>
     </div>
+    ${showFilters ? _fuFilterBarHTML() : ''}
     <div id="fu-body">${skeletonPage('table')}</div>`;
   renderIcons();
 
@@ -32,6 +35,88 @@ async function loadFollowups(tab = 'all') {
   else if (tab === 'closed')  await _renderFUTab('closed');
   else if (tab === 'custom')  _renderCustomQuery();
   else                        await _renderFUTab('all');
+}
+
+function _fuFilterBarHTML() {
+  const cfg = App.config || {};
+  const types = cfg.followupTypes || [];
+  const users = cfg.users || [];
+  const f = _fuFilterState;
+  return `
+  <div class="card" style="padding:10px 14px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:600;color:var(--md-primary,#4F46E5);display:flex;align-items:center;gap:5px;white-space:nowrap">
+        ${icon('sliders-horizontal', 14)} Filters
+      </span>
+      <input type="search" id="fu-f-search" class="form-control" placeholder="Search company, contact, phone…"
+        style="width:200px;padding:4px 8px;font-size:12px"
+        value="${escapeHtml(f.search)}"
+        oninput="_fuOnFilterChange('search',this.value)">
+      <select id="fu-f-type" class="form-control" style="width:140px;padding:4px 7px;font-size:12px"
+        onchange="_fuOnFilterChange('type',this.value)">
+        <option value="">All Types</option>
+        ${types.map(t=>`<option value="${escapeHtml(t)}"${f.type===t?' selected':''}>${escapeHtml(t)}</option>`).join('')}
+      </select>
+      <select id="fu-f-user" class="form-control" style="width:150px;padding:4px 7px;font-size:12px"
+        onchange="_fuOnFilterChange('assignedTo',this.value)">
+        <option value="">All Users</option>
+        ${users.map(u=>`<option value="${escapeHtml(u.id)}"${f.assignedTo===u.id?' selected':''}>${escapeHtml(u.name)}</option>`).join('')}
+      </select>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:11px;color:#888;white-space:nowrap">From</span>
+        <input type="date" id="fu-f-from" class="form-control" style="width:136px;padding:4px 7px;font-size:12px"
+          value="${escapeHtml(f.dateFrom)}"
+          onchange="_fuOnFilterChange('dateFrom',this.value)">
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:11px;color:#888;white-space:nowrap">To</span>
+        <input type="date" id="fu-f-to" class="form-control" style="width:136px;padding:4px 7px;font-size:12px"
+          value="${escapeHtml(f.dateTo)}"
+          onchange="_fuOnFilterChange('dateTo',this.value)">
+      </div>
+      <button class="btn btn-outlined" onclick="_fuClearFilters()" style="padding:4px 10px;font-size:12px;white-space:nowrap">
+        ${icon('x', 12)} Clear
+      </button>
+    </div>
+  </div>`;
+}
+
+function _fuOnFilterChange(key, value) {
+  _fuFilterState[key] = value;
+  _renderFUTab(window.currentFollowupTab || 'all');
+}
+
+function _fuClearFilters() {
+  _fuFilterState = { search: '', type: '', assignedTo: '', dateFrom: '', dateTo: '' };
+  // Reset the filter inputs without full page reload
+  const s = el('fu-f-search'); if (s) s.value = '';
+  const t = el('fu-f-type');   if (t) t.value = '';
+  const u = el('fu-f-user');   if (u) u.value = '';
+  const f = el('fu-f-from');   if (f) f.value = '';
+  const to = el('fu-f-to');    if (to) to.value = '';
+  _renderFUTab(window.currentFollowupTab || 'all');
+}
+
+function _fuApplyFilters(rows, ctx) {
+  const f = _fuFilterState;
+  if (!f.search && !f.type && !f.assignedTo && !f.dateFrom && !f.dateTo) return rows;
+  const searchQ = f.search.toLowerCase().trim();
+  return rows.filter(row => {
+    const lead = ctx?.leadMap?.[row['Lead ID']];
+    if (searchQ) {
+      const company  = String(lead?.['Company Name']   || '').toLowerCase();
+      const contact  = String(lead?.['Contact Person'] || '').toLowerCase();
+      const phone    = String(lead?.['Phone']          || '').toLowerCase();
+      const remark   = String(row['Discussion'] || row['Remark'] || '').toLowerCase();
+      if (!company.includes(searchQ) && !contact.includes(searchQ) && !phone.includes(searchQ) && !remark.includes(searchQ)) return false;
+    }
+    if (f.type && String(row['Follow-up Type'] || '') !== f.type) return false;
+    if (f.assignedTo && lead?.['Assigned To'] !== f.assignedTo) return false;
+    const plannedDate = _fmtDate(_fuPlannedDate(row));
+    if (f.dateFrom && plannedDate && plannedDate < f.dateFrom) return false;
+    if (f.dateTo   && plannedDate && plannedDate > f.dateTo)   return false;
+    return true;
+  });
 }
 
 async function _renderFUTab(tab) {
@@ -76,7 +161,12 @@ async function _renderFUTab(tab) {
       }
     }
     const ctx = _buildFollowupContext(AppCache.getRows('leads'));
-    body.innerHTML = _fuTable(rows, `No ${tab} follow-ups found.`, ctx);
+    rows = _fuApplyFilters(rows, ctx);
+    const hasFilter = Object.values(_fuFilterState).some(Boolean);
+    const emptyMsg = hasFilter
+      ? `No follow-ups match the current filters. <a href="#" onclick="_fuClearFilters();return false" style="color:#4F46E5">Clear filters</a>`
+      : `No ${tab} follow-ups found.`;
+    body.innerHTML = _fuTable(rows, emptyMsg, ctx);
     renderIcons(body);
   } catch(e) { body.innerHTML = `<p style="color:red">${e}</p>`; }
 }
@@ -210,7 +300,7 @@ function _fuTable(rows, emptyMsg, ctx) {
               <th>Due</th><th>Lead Details</th><th>Last Remark</th><th>Remark Date</th><th>Stage</th><th>Owner</th><th>Action</th>
             </tr>
           </thead>
-          <tbody><tr><td colspan="7" class="empty-table-cell">${escapeHtml(emptyMsg)}</td></tr></tbody>
+          <tbody><tr><td colspan="7" class="empty-table-cell">${emptyMsg}</td></tr></tbody>
         </table>
       </div>`;
   }

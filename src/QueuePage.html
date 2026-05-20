@@ -2,11 +2,13 @@
 // ─── Queue History Page ───────────────────────────────────────────────────────
 
 let _queuePageRefreshTimer = null;
-let _qpAdminFilter = ''; // email filter for admin view; '' = all users
+let _qpAdminFilter = '';      // email filter for admin view; '' = all users
+let _qpAllUserEmails = [];    // full email list cached on unfiltered load
 
 async function loadQueuePage() {
   _stopQueuePageRefresh();
   _qpAdminFilter = '';
+  _qpAllUserEmails = [];
   el('content').innerHTML = _queuePageShell();
   renderIcons(el('content'));
   await _refreshQueuePage();
@@ -73,7 +75,11 @@ async function _refreshQueuePage(showSpinner = false) {
       // Admin: fetch all users' jobs (optionally filtered by selected user)
       try { serverJobs = await api.getAllQueueHistory(_qpAdminFilter, 200); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
       try { health = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); }
-      _qpPopulateUserDropdown(serverJobs);
+      // Cache full email list only when showing all users (unfiltered)
+      if (!_qpAdminFilter) {
+        _qpAllUserEmails = [...new Set(serverJobs.map(j => j.userEmail).filter(Boolean))].sort();
+      }
+      _qpPopulateUserDropdown();
       displayJobs = serverJobs;
       _renderQueueHealth(health);
       _renderQueuePage(displayJobs, true);
@@ -98,14 +104,11 @@ async function _refreshQueuePage(showSpinner = false) {
   }
 }
 
-function _qpPopulateUserDropdown(jobs) {
+function _qpPopulateUserDropdown() {
   const sel = el('qp-user-select');
   if (!sel) return;
-  const emails = [...new Set(jobs.map(j => j.userEmail).filter(Boolean))].sort();
-  const current = _qpAdminFilter;
-  // Rebuild options preserving selection
   sel.innerHTML = '<option value="">All Users</option>' +
-    emails.map(e => `<option value="${escapeHtml(e)}"${e === current ? ' selected' : ''}>${escapeHtml(e)}</option>`).join('');
+    _qpAllUserEmails.map(e => `<option value="${escapeHtml(e)}"${e === _qpAdminFilter ? ' selected' : ''}>${escapeHtml(e)}</option>`).join('');
 }
 
 function _renderQueueHealth(health) {
