@@ -54,10 +54,11 @@ function saveFollowup(data, email) {
   }
   const id = generateUUID();
   const payload = _prepareFollowupPayload(data);
+  const skipped = payload['__stage_skipped'] === 'true' || payload['__stage_skipped'] === true;
   if (lead && payload['Updated Stage ID'] && payload['Updated Stage ID'] !== lead['Stage ID']) {
     stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === payload['Updated Stage ID'])[0];
     if (!stage) return respond(null, 'Selected stage not found.');
-    preparedLeadForStage = _prepareLeadPayload(payload, payload['Updated Stage ID'], lead);
+    preparedLeadForStage = _prepareLeadPayload(payload, payload['Updated Stage ID'], lead, skipped);
   }
   const plannedDate = _plannedDate(payload) || today();
   const row = {
@@ -137,12 +138,13 @@ function markFollowupDone(followupId, data, email) {
   if (!remark) return respond(null, 'Done remark is required.');
 
   // Pre-validate stage before any writes to avoid partial-write inconsistency
+  const skipped = data['__stage_skipped'] === 'true' || data['__stage_skipped'] === true;
   let stage = null;
   let preparedLeadForStage = null;
   if (lead && data['Updated Stage ID'] && data['Updated Stage ID'] !== lead['Stage ID']) {
     stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === data['Updated Stage ID'])[0];
     if (!stage) return respond(null, 'Selected stage not found.');
-    preparedLeadForStage = _prepareLeadPayload(data, data['Updated Stage ID'], lead);
+    preparedLeadForStage = _prepareLeadPayload(data, data['Updated Stage ID'], lead, skipped);
   }
 
   const statusAfter = nextDate ? 'Open' : 'Closed';

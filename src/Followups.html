@@ -940,19 +940,56 @@ function _onMarkDoneStageChange(select) {
   const container = document.getElementById('fu-done-stage-fields');
   if (!container) return;
   container.innerHTML = '';
+  delete container._cfRefresh;
   if (!stageId) return;
+
   const configOptions = _configOptionsMap(App.config._allConfigs || []);
-  const fields = (App.config.leadFields || []).filter(f =>
+  const stages  = App.config.allStages || App.config.stages || [];
+  const stage   = stages.find(s => s['Stage ID'] === stageId);
+  const fields  = (App.config.leadFields || []).filter(f =>
     f['Stage ID'] === stageId &&
     f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE' &&
     f['Field Type'] !== 'Formula'
   );
   if (!fields.length) return;
-  container.innerHTML = `<div class="custom-field-section">
+
+  const hasSkipOnlyFields = fields.some(f => (f['Skip Visibility'] || 'normal') === 'skip_only');
+  const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE')) && hasSkipOnlyFields;
+  const skipToggle = isSkippable ? `
+    <div class="cf-skip-row">
+      <label class="cf-skip-label">
+        <input type="checkbox" class="cf-skip-checkbox" onchange="_toggleSkipFields(this)">
+        <span>Skip custom fields for this stage</span>
+      </label>
+      <input type="hidden" name="__stage_skipped" value="">
+    </div>` : '';
+
+  container.innerHTML = `<div class="custom-field-section" data-skippable="${isSkippable ? 'true' : 'false'}">
     <h3 style="font-size:14px;font-weight:600;margin:8px 0 12px;color:var(--md-primary)">Stage Fields</h3>
+    ${skipToggle}
     ${fields.map(f => _customFieldControlHTML(f, {}, configOptions)).join('')}
   </div>`;
   _initCfMultiselects(container);
   renderIcons(container);
+
+  if (isSkippable) {
+    container._cfRefresh = function() {
+      const skipCb = container.querySelector('.cf-skip-checkbox');
+      const skipped = !!(skipCb && skipCb.checked);
+      container.querySelectorAll('.lead-custom-field').forEach(row => {
+        const skipVis = row.dataset.skipVis || 'normal';
+        const active  = skipped ? skipVis === 'skip_only' : skipVis === 'normal';
+        row.style.display = active ? 'block' : 'none';
+        row.querySelectorAll('input,select,textarea').forEach(inp => {
+          inp.disabled = !active;
+          if (!(inp.type === 'hidden' && inp.hasAttribute('data-cf-ms-value'))) {
+            if (!active) inp.required = false;
+          }
+        });
+        const trigger = row.querySelector('.cf-ms-trigger');
+        if (trigger) { trigger.style.opacity = active ? '' : '.45'; trigger.style.pointerEvents = active ? '' : 'none'; }
+      });
+    };
+  }
 }
 </script>
