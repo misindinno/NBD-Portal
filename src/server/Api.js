@@ -243,6 +243,7 @@ function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
 
     const allowedActions = [
       'saveLead', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
+      'pushLeadToNbd',
       'saveFollowup', 'markFollowupDone', 'deleteFollowup',
       'addConfig', 'updateConfigStatus', 'saveStage', 'reorderStages',
       'saveFieldConfig', 'savePortalSettings', 'saveUser',
@@ -341,7 +342,7 @@ function _assertCanEnqueueJob_(user, moduleName, actionType) {
     if (!misDepartment || !has('Leads')) throw new Error('Permission denied. Only MIS lead users can delete leads.');
     return;
   }
-  if (['saveLead', 'updateLeadStage', 'moveLeadStageWithFields'].includes(actionType)) {
+  if (['saveLead', 'updateLeadStage', 'moveLeadStageWithFields', 'pushLeadToNbd'].includes(actionType)) {
     if (!canWriteLead) throw new Error('Permission denied.');
     return;
   }

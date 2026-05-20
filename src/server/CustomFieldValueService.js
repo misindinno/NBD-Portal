@@ -5,7 +5,9 @@ const LEAD_MASTER_FIELDS = [
   'Lead ID','Company Name','Contact Person','Phone','Alternate No','Email',
   'City','State','Address','GST No','Category','Remark','Source','Product Interest',
   'Stage ID','Priority','Assigned To','Lead Status',
-  'Stage Updated At','Last Follow-up Date','Next Follow-up Date','Created At','Updated At'
+  'Stage Updated At','Last Follow-up Date','Next Follow-up Date',
+  'Source Portal','Source Lead ID','NBD Lead ID','Pushed To NBD At',
+  'Created At','Updated At'
 ];
 
 const FOLLOWUP_MASTER_FIELDS = [
