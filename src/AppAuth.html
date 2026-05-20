@@ -33,13 +33,20 @@ async function _continueAppInit(token) {
   Store.dispatch('SET_LOADING', { key: 'auth', value: false });
   renderSidebar();
 
-  const defaultPage = defaultPageForUser();
+  const requestedPage = _initialRequestedPage();
+  const defaultPage = requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser();
   _ensureCached('leads',          () => api.getLeads().catch(() => api.getFollowupLeads())).catch(() => {});
   _ensureCached('followups',      () => api.getFollowups({})).catch(() => {});
   _ensureCached('followupHistory',() => api.getFollowupHistory({})).catch(() => {});
   _ensureCached('activityLogs',   () => api.getLeadActivityLogs({})).catch(() => {});
   navigate(defaultPage);
   startCacheRevalidation();
+}
+
+function _initialRequestedPage() {
+  const raw = String(typeof INITIAL_PAGE !== 'undefined' ? INITIAL_PAGE : '').trim().toLowerCase();
+  const aliases = { bulkview: 'bulkview', bulkentry: 'bulkview', bulk: 'bulkview' };
+  return aliases[raw] || raw;
 }
 
 function logout() {

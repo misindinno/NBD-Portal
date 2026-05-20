@@ -1,0 +1,195 @@
+<script>
+const BulkView = (() => {
+  let hot = null;
+  let config = [];
+  let errors = [];
+  let lastBatchId = '';
+
+  function _html() {
+    return `
+    <div class="bulk-page">
+      <style>
+        .bulk-page { display:flex; flex-direction:column; gap:12px; }
+        .bulk-toolbar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+        .bulk-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .bulk-meta { font-size:12px; color:#6b7280; }
+        .bulk-grid-wrap { border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; background:#fff; min-height:420px; }
+        .bulk-progress { height:8px; background:#f3f4f6; border-radius:999px; overflow:hidden; min-width:180px; }
+        .bulk-progress span { display:block; height:100%; width:0%; background:var(--md-primary); transition:width .2s ease; }
+        .bulk-summary { display:flex; gap:8px; flex-wrap:wrap; }
+        .bulk-pill { padding:7px 12px; border-radius:8px; font-size:12px; font-weight:700; background:#f9fafb; color:#374151; }
+        .bulk-pill.ok { background:#dcfce7; color:#166534; }
+        .bulk-pill.err { background:#fee2e2; color:#991b1b; }
+        .bulk-error-row { background:#fff5f5 !important; }
+      </style>
+      <div class="bulk-toolbar">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#111827">Bulk Entry</div>
+          <div class="bulk-meta" id="bulk-config-meta">Paste Excel rows, validate, then save in one batch.</div>
+        </div>
+        <div class="bulk-actions">
+          <button class="btn btn-outlined btn-sm" onclick="BulkView.clear()">${icon('trash-2', 14)} Clear</button>
+          <button class="btn btn-outlined btn-sm" onclick="BulkView.validate()">${icon('check-circle', 14)} Validate</button>
+          <button class="btn btn-primary btn-sm" onclick="BulkView.save()">${icon('save', 14)} Save</button>
+          <button class="btn btn-outlined btn-sm" id="bulk-error-btn" onclick="BulkView.downloadErrors()" style="display:none">${icon('download', 14)} Error CSV</button>
+        </div>
+      </div>
+      <div class="bulk-summary" id="bulk-summary"></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="bulk-progress"><span id="bulk-progress-bar"></span></div>
+        <span class="bulk-meta" id="bulk-progress-label">Ready</span>
+      </div>
+      <div class="bulk-grid-wrap"><div id="bulk-hot"></div></div>
+    </div>`;
+  }
+
+  function _columns() {
+    return config.map(f => ({
+      data: f.fieldName,
+      title: f.fieldName + (f.required ? ' *' : ''),
+      type: f.dataType === 'Number' ? 'numeric' : 'text'
+    }));
+  }
+
+  function _emptyRows(count = 50) {
+    return Array.from({ length: count }, () =>
+      config.reduce((row, f) => { row[f.fieldName] = ''; return row; }, {})
+    );
+  }
+
+  function _rows() {
+    if (!hot) return [];
+    return hot.getSourceData()
+      .map(row => ({ ...row }))
+      .filter(row => Object.values(row).some(v => String(v ?? '').trim() !== ''));
+  }
+
+  function _setProgress(percent, label) {
+    const bar = el('bulk-progress-bar');
+    const text = el('bulk-progress-label');
+    if (bar) bar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+    if (text) text.textContent = label || '';
+  }
+
+  function _renderSummary(summary = {}) {
+    const box = el('bulk-summary');
+    if (!box) return;
+    box.innerHTML = [
+      `<span class="bulk-pill">Rows: ${summary.total || 0}</span>`,
+      `<span class="bulk-pill ok">Valid: ${summary.valid || 0}</span>`,
+      `<span class="bulk-pill err">Errors: ${summary.errors || 0}</span>`
+    ].join('');
+  }
+
+  function _markErrors(errorRows = []) {
+    errors = errorRows || [];
+    const btn = el('bulk-error-btn');
+    if (btn) btn.style.display = errors.length ? '' : 'none';
+    if (!hot) return;
+    hot.updateSettings({
+      cells(row) {
+        const props = {};
+        if (errors.some(e => Number(e.rowNumber) === row + 1)) props.className = 'bulk-error-row';
+        return props;
+      }
+    });
+    hot.render();
+  }
+
+  async function load() {
+    el('content').innerHTML = _html();
+    renderIcons(el('content'));
+    if (typeof Handsontable === 'undefined') {
+      el('bulk-hot').innerHTML = '<div style="padding:24px;color:#991b1b">Handsontable did not load. Check CDN/network access.</div>';
+      return;
+    }
+    config = await api.getBulkConfig();
+    const meta = el('bulk-config-meta');
+    if (meta) meta.textContent = `Paste Excel data below. Required fields: ${config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None'}`;
+    hot = new Handsontable(el('bulk-hot'), {
+      data: _emptyRows(),
+      columns: _columns(),
+      colHeaders: config.map(f => f.fieldName + (f.required ? ' *' : '')),
+      rowHeaders: true,
+      stretchH: 'all',
+      minSpareRows: 5,
+      height: 430,
+      licenseKey: 'non-commercial-and-evaluation',
+      contextMenu: true,
+      manualColumnResize: true
+    });
+    _renderSummary();
+    _setProgress(0, 'Ready');
+  }
+
+  async function validate() {
+    const rows = _rows();
+    _setProgress(20, 'Validating...');
+    try {
+      const result = await api.validateBulkRows(rows);
+      _markErrors(result.errorRows || []);
+      _renderSummary(result.summary || {});
+      _setProgress(100, result.summary?.errors ? 'Validation completed with errors' : 'Validation passed');
+      Swal.fire(result.summary?.errors ? 'Validation errors' : 'Ready to save',
+        result.summary?.errors ? `${result.summary.errors} row(s) need correction.` : `${result.summary.valid} row(s) are valid.`,
+        result.summary?.errors ? 'warning' : 'success');
+      return result;
+    } catch (err) {
+      _setProgress(0, 'Validation failed');
+      Swal.fire('Validation failed', err.message || String(err), 'error');
+      throw err;
+    }
+  }
+
+  async function save() {
+    const rows = _rows();
+    if (!rows.length) {
+      Swal.fire('No rows', 'Paste at least one row before saving.', 'info');
+      return;
+    }
+    _setProgress(25, 'Saving...');
+    try {
+      const result = await api.saveBulkRows(rows);
+      lastBatchId = result.batchId || '';
+      _markErrors(result.errorRows || []);
+      _renderSummary(result.summary || {});
+      _setProgress(100, result.summary?.errors ? 'Saved with row errors' : 'Saved');
+      if (result.summary?.saved) await _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
+      Swal.fire(result.summary?.errors ? 'Saved with errors' : 'Bulk save complete',
+        `${result.summary?.saved || 0} row(s) saved. ${result.summary?.errors || 0} row(s) failed.`,
+        result.summary?.errors ? 'warning' : 'success');
+    } catch (err) {
+      _setProgress(0, 'Save failed');
+      Swal.fire('Save failed', err.message || String(err), 'error');
+    }
+  }
+
+  async function downloadErrors() {
+    if (!errors.length) return;
+    const csv = typeof Papa !== 'undefined' ? Papa.unparse(errors) : await api.createErrorCsv(errors);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bulk-errors-${lastBatchId || Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function clear() {
+    if (hot) hot.loadData(_emptyRows());
+    _markErrors([]);
+    _renderSummary();
+    _setProgress(0, 'Ready');
+  }
+
+  return { load, validate, save, downloadErrors, clear };
+})();
+
+async function loadBulkView() {
+  return BulkView.load();
+}
+window.loadBulkView = loadBulkView;
+</script>

@@ -229,6 +229,47 @@ function apiGetUsers(token) {
   });
 }
 
+// Bulk Entry
+function apiGetBulkConfig(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireBulkEntry_();
+    return respond(getBulkConfig());
+  });
+}
+
+function apiValidateBulkRows(token, rows) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireBulkEntry_();
+    return respond(validateBulkRows(rows || []));
+  });
+}
+
+function apiSaveBulkRows(token, rows) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireBulkEntry_();
+    return respond(saveBulkRows(rows || []));
+  });
+}
+
+function apiGetBulkProgress(token, batchId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireBulkEntry_();
+    return respond(getBulkProgress(batchId || ''));
+  });
+}
+
+function apiCreateErrorCsv(token, errorRows) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireBulkEntry_();
+    return respond(createErrorCsv(errorRows || []));
+  });
+}
+
 // ── Queue endpoints ───────────────────────────────────────────────────────────
 // Fast enqueue — validates auth + writes ONE queue row. Returns in < 500ms.
 function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
@@ -329,6 +370,14 @@ function _requireConfigReader() {
   const user = _apiUser();
   if (!canEditConfigPermission(user)) throw new Error('Permission denied.');
   return user;
+}
+
+function _requireBulkEntry_() {
+  const user = _apiUser();
+  const isLqPortal = String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq');
+  if (!isLqPortal) throw new Error('Bulk Entry is available only in LQ Portal.');
+  if (user.role === 'ADMIN' || userHasModule(user, 'BulkEntry')) return user;
+  throw new Error('Permission denied.');
 }
 
 function _assertCanEnqueueJob_(user, moduleName, actionType) {

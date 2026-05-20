@@ -7,6 +7,7 @@ const _PAGE_META = {
   pipeline:  { title: 'Pipeline',         crumb: 'Pipeline' },
   followups: { title: 'Follow Up',        crumb: 'Follow Up' },
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
+  bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
   config:    { title: 'Config',           crumb: 'Config' },
   queue:     { title: 'Queue',            crumb: 'Queue' },
 };
@@ -54,6 +55,7 @@ async function navigate(page) {
     else if (page === 'followups-new')     { await _runPageLoader(page, 'loadFollowups', ['all']); await _runPageLoader(page, 'openFollowupForm'); }
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
+    else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');
     else if (page === 'queue')             await _runPageLoader(page, 'loadQueuePage');
     else el('content').innerHTML = '<p>Page not found.</p>';
   } catch(err) {
@@ -83,6 +85,7 @@ function renderSidebar() {
   const fuCount    = AppCache.getRows('followups').filter(r => String(r['Status']||'Open').toLowerCase() !== 'closed').length;
   const pipeCount  = AppCache.getRows('leads').filter(r => String(r['Lead Status']||'Open').toLowerCase() === 'open').length;
   const queueCount = typeof QueueManager !== 'undefined' ? QueueManager.pendingCount() : 0;
+  const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
   const badge = n => n > 0 ? `<span class="nav-badge">${n > 99 ? '99+' : n}</span>` : '';
 
   const navItem = (page, lucideIcon, label, extraBadge = '') =>
@@ -107,6 +110,10 @@ function renderSidebar() {
     show('LeadForm') ? navItem('leadform', 'file-plus', 'Lead Form')   : '',
   ].filter(Boolean).join('');
   if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
+
+  if (isLqPortal && show('BulkEntry')) {
+    html += `<div class="nav-section">Bulk</div>${navItem('bulkview', 'table-2', 'Bulk Entry')}`;
+  }
 
   // Queue — visible to all authenticated users
   html += `<div class="nav-section">System</div>`;
@@ -162,6 +169,7 @@ function canNavigate(page) {
   };
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
+  if (page === 'bulkview')  return String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq') && hasModule('BulkEntry');
   if (page === 'queue')     return !!App.user;
   if (page === 'today')     return !!App.user;
   return hasModule(moduleMap[page] || page);
