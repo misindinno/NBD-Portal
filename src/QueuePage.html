@@ -2,24 +2,44 @@
 // ─── Queue History Page ───────────────────────────────────────────────────────
 
 let _queuePageRefreshTimer = null;
+let _qpAdminFilter = ''; // email filter for admin view; '' = all users
 
 async function loadQueuePage() {
   _stopQueuePageRefresh();
+  _qpAdminFilter = '';
   el('content').innerHTML = _queuePageShell();
   renderIcons(el('content'));
   await _refreshQueuePage();
 }
 
+function _qpIsAdmin() {
+  return App.user && App.user.role === 'ADMIN';
+}
+
 function _queuePageShell() {
+  const isAdmin = _qpIsAdmin();
+  const subtitle = isAdmin
+    ? 'Background save history — all users'
+    : 'Background save history for your account';
+  const adminFilter = isAdmin ? `
+  <div id="qp-user-filter" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <label style="font-size:12px;color:#6b7280;font-weight:600">User:</label>
+    <select id="qp-user-select" style="font-size:12px;padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;color:#374151;background:#fff" onchange="_qpOnUserFilterChange(this.value)">
+      <option value="">All Users</option>
+    </select>
+  </div>` : '';
   return `
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div>
       <div style="font-size:14px;font-weight:600;color:#111827">Write Queue</div>
-      <div style="font-size:12px;color:#6b7280;margin-top:2px">Background save history for your account</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:2px">${subtitle}</div>
     </div>
-    <button class="btn btn-outlined btn-sm" onclick="_refreshQueuePage(true)" id="qp-refresh-btn">
-      ${icon('refresh-cw', 14)} Refresh
-    </button>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      ${adminFilter}
+      <button class="btn btn-outlined btn-sm" onclick="_refreshQueuePage(true)" id="qp-refresh-btn">
+        ${icon('refresh-cw', 14)} Refresh
+      </button>
+    </div>
   </div>
   <div id="qp-health" style="margin-bottom:16px"></div>
   <div id="qp-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px"></div>
@@ -33,27 +53,41 @@ function _queuePageSkeleton() {
   </div>`;
 }
 
+function _qpOnUserFilterChange(email) {
+  _qpAdminFilter = email || '';
+  _refreshQueuePage();
+}
+
 async function _refreshQueuePage(showSpinner = false) {
   const refreshBtn = el('qp-refresh-btn');
   if (showSpinner && refreshBtn) refreshBtn.classList.add('spinning');
 
-  try {
-    // Local jobs from QueueManager (fresh — includes this session's activity)
-    const localJobs = QueueManager.getAllJobs();
+  const isAdmin = _qpIsAdmin();
 
-    // Server history (user-scoped) — runs in parallel
+  try {
     let serverJobs = [];
     let health = null;
-    try { serverJobs = await api.getQueueHistory(100); } catch (e) { console.warn('[QueuePage] History load failed', e); }
-    try { health = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); }
 
-    // Merge: server is the ground truth; local adds items not yet reflected server-side
-    const merged = _mergeQueueJobs(localJobs, serverJobs);
-    _renderQueueHealth(health);
-    _renderQueuePage(merged);
+    let displayJobs = [];
+    if (isAdmin) {
+      // Admin: fetch all users' jobs (optionally filtered by selected user)
+      try { serverJobs = await api.getAllQueueHistory(_qpAdminFilter, 200); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
+      try { health = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); }
+      _qpPopulateUserDropdown(serverJobs);
+      displayJobs = serverJobs;
+      _renderQueueHealth(health);
+      _renderQueuePage(displayJobs, true);
+    } else {
+      // Non-admin: user-scoped view with local job merge
+      const localJobs = QueueManager.getAllJobs();
+      try { serverJobs = await api.getQueueHistory(100); } catch (e) { console.warn('[QueuePage] History load failed', e); }
+      try { health = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); }
+      displayJobs = _mergeQueueJobs(localJobs, serverJobs);
+      _renderQueueHealth(health);
+      _renderQueuePage(displayJobs, false);
+    }
 
-    // Keep refreshing while pending jobs exist
-    const hasPending = merged.some(j => j.status === 'QUEUED' || j.status === 'PROCESSING' || j.status === 'FAILED');
+    const hasPending = displayJobs.some(j => j.status === 'QUEUED' || j.status === 'PROCESSING' || j.status === 'FAILED');
     if (hasPending) _scheduleQueuePageRefresh();
 
   } catch (err) {
@@ -62,6 +96,16 @@ async function _refreshQueuePage(showSpinner = false) {
   } finally {
     if (refreshBtn) refreshBtn.classList.remove('spinning');
   }
+}
+
+function _qpPopulateUserDropdown(jobs) {
+  const sel = el('qp-user-select');
+  if (!sel) return;
+  const emails = [...new Set(jobs.map(j => j.userEmail).filter(Boolean))].sort();
+  const current = _qpAdminFilter;
+  // Rebuild options preserving selection
+  sel.innerHTML = '<option value="">All Users</option>' +
+    emails.map(e => `<option value="${escapeHtml(e)}"${e === current ? ' selected' : ''}>${escapeHtml(e)}</option>`).join('');
 }
 
 function _renderQueueHealth(health) {
@@ -142,7 +186,7 @@ function _mergeQueueJobs(localJobs, serverJobs) {
   });
 }
 
-function _renderQueuePage(jobs) {
+function _renderQueuePage(jobs, showUser = false) {
   const stats = _queueStats(jobs);
   const statsEl = el('qp-stats');
   const bodyEl  = el('qp-body');
@@ -169,12 +213,14 @@ function _renderQueuePage(jobs) {
     return;
   }
 
+  const userColHeader = showUser ? `<th style="${_qpTh()}">User</th>` : '';
   bodyEl.innerHTML = `
   <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead>
         <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb">
           <th style="${_qpTh()}">Status</th>
+          ${userColHeader}
           <th style="${_qpTh()}">Module / Action</th>
           <th style="${_qpTh()}">Request ID</th>
           <th style="${_qpTh()}">Queued At</th>
@@ -183,7 +229,7 @@ function _renderQueuePage(jobs) {
           <th style="${_qpTh()}">Error / Record</th>
         </tr>
       </thead>
-      <tbody>${jobs.map(_queueJobRow).join('')}</tbody>
+      <tbody>${jobs.map(j => _queueJobRow(j, showUser)).join('')}</tbody>
     </table>
   </div>`;
   renderIcons(bodyEl);
@@ -193,7 +239,7 @@ function _qpTh() {
   return 'padding:9px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6b7280';
 }
 
-function _queueJobRow(j) {
+function _queueJobRow(j, showUser = false) {
   const statusBadge = _qpStatusBadge(j.status);
   const module = _qpModuleLabel(j.moduleName);
   const action = _qpActionLabel(j.actionType);
@@ -211,8 +257,12 @@ function _queueJobRow(j) {
     ? `<div style="font-size:10px;color:#92400E;margin-top:2px">retry at ${_qpFmtTs(j.nextRetryAt)}</div>` : '';
   const rowBg = j.status === 'DEAD' ? 'background:#fff5f5' : j.status === 'PROCESSING' ? 'background:#fffbeb' : '';
   const td = 'padding:10px 14px;border-bottom:1px solid #f3f4f6;vertical-align:middle';
+  const userCell = showUser
+    ? `<td style="${td}"><span style="font-size:11px;color:#374151">${escapeHtml(j.userEmail || '—')}</span></td>`
+    : '';
   return `<tr style="${rowBg}">
     <td style="${td}">${statusBadge}${retryHint}</td>
+    ${userCell}
     <td style="${td}">
       <div style="font-weight:600;color:#111827">${module}</div>
       <div style="font-size:11px;color:#6b7280;margin-top:1px">${action}</div>

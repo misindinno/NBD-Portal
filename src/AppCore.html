@@ -101,7 +101,8 @@ const api = {
   enqueueJob:      (mod, act, payload, rid) => api._authedRead('apiEnqueueJob', mod, act, payload, rid),
   getJobStatuses:  (ids)                    => api._authedRead('apiGetJobStatuses', ids),
   getChanges:      (seq)                    => api._authedRead('apiGetChanges', seq),
-  getQueueHistory: (limit)                  => api._authedRead('apiGetQueueHistory', limit || 50),
-  getQueueHealth:  ()                       => api._authedRead('apiGetQueueHealth'),
+  getQueueHistory:    (limit)               => api._authedRead('apiGetQueueHistory', limit || 50),
+  getQueueHealth:     ()                    => api._authedRead('apiGetQueueHealth'),
+  getAllQueueHistory:  (filterEmail, limit) => api._authedRead('apiGetAllQueueHistory', filterEmail || '', limit || 100),
 };
 </script>

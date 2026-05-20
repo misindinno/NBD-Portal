@@ -304,6 +304,38 @@ function getQueueHistory_(userEmail, limit) {
     }));
 }
 
+// ── All-users queue history (admin only) ──────────────────────────────────────
+function getAllQueueHistory_(filterEmail, limit) {
+  assertServerContext_();
+  const maxRows = Math.min(Number(limit) || 100, 500);
+  const rows = getAllRows(SHEET_NAMES.QUEUE);
+  const filter = filterEmail ? String(filterEmail).trim().toLowerCase() : '';
+
+  return rows
+    .filter(r => !filter || String(r['User Email'] || '').trim().toLowerCase() === filter)
+    .sort((a, b) => {
+      const ta = a['Created At'] ? new Date(a['Created At']).getTime() : 0;
+      const tb = b['Created At'] ? new Date(b['Created At']).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, maxRows)
+    .map(r => ({
+      requestId:     String(r['Request ID']      || ''),
+      status:        String(r['Status']           || ''),
+      userEmail:     String(r['User Email']       || ''),
+      createdAt:     String(r['Created At']       || ''),
+      updatedAt:     String(r['Updated At']       || ''),
+      moduleName:    String(r['Module Name']      || ''),
+      actionType:    String(r['Action Type']      || ''),
+      attemptCount:  Number(r['Attempt Count']    || 0),
+      maxAttempts:   Number(r['Max Attempts']     || Q_MAX_ATTEMPTS),
+      nextRetryAt:   String(r['Next Retry At']    || ''),
+      lastError:     String(r['Last Error']       || ''),
+      processedAt:   String(r['Processed At']     || ''),
+      finalRecordId: String(r['Final Record ID']  || ''),
+    }));
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 // Queue operational health for the Queue page and debugging stuck jobs.
 function getQueueHealth_(userEmail, user) {

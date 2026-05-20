@@ -337,6 +337,16 @@ function apiGetQueueHealth(token) {
   });
 }
 
+// Admin-only: returns queue history for all users (or a specific email filter).
+function apiGetAllQueueHistory(token, filterEmail, limit) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
+    return respond(getAllQueueHistory_(filterEmail || '', Number(limit) || 100));
+  });
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 function _apiUser() {
