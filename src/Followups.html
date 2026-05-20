@@ -947,7 +947,7 @@ function _onMarkDoneStageChange(select) {
   const stages  = App.config.allStages || App.config.stages || [];
   const stage   = stages.find(s => s['Stage ID'] === stageId);
   const fields  = (App.config.leadFields || []).filter(f =>
-    f['Stage ID'] === stageId &&
+    (!f['Stage ID'] || f['Stage ID'] === stageId) &&
     f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE' &&
     f['Field Type'] !== 'Formula'
   );
