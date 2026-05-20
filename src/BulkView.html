@@ -23,6 +23,11 @@ const BulkView = (() => {
         .bulk-error-row { background:#fff5f5 !important; }
         .bulk-error-cell { background:#fee2e2 !important; color:#991b1b !important; font-weight:600 !important; }
         .bulk-cell-errmsg { background:#fff5f5 !important; color:#dc2626 !important; font-size:11px !important; white-space:normal !important; line-height:1.4 !important; }
+        .bulk-paste-zone { background:#f0f9ff; border:2px dashed #bae6fd; border-radius:8px; padding:10px 14px; }
+        .bulk-paste-label { font-size:12px;font-weight:600;color:#0369a1;margin-bottom:6px;display:flex;align-items:center;gap:6px; }
+        .bulk-paste-area { width:100%;min-height:38px;max-height:80px;overflow-y:auto;border-radius:6px;background:#fff;border:1px solid #bae6fd;padding:8px 10px;font-size:12px;color:#374151;cursor:text;outline:none;box-sizing:border-box;font-family:inherit; }
+        .bulk-paste-area:focus { border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.15); }
+        .bulk-paste-area:empty:before { content:attr(data-placeholder);color:#94a3b8;pointer-events:none; }
       </style>
       <div class="bulk-toolbar">
         <div>
@@ -37,6 +42,11 @@ const BulkView = (() => {
         </div>
       </div>
       <div class="bulk-summary" id="bulk-summary"></div>
+      <div class="bulk-paste-zone">
+        <div class="bulk-paste-label">${icon('clipboard', 14)} Paste zone — click here, then Ctrl+V to paste from Excel / Google Sheets</div>
+        <div id="bulk-paste-area" class="bulk-paste-area" contenteditable="true" tabindex="0"
+          data-placeholder="Click and press Ctrl+V — data will load into the grid automatically"></div>
+      </div>
       <div style="display:flex;align-items:center;gap:10px">
         <div class="bulk-progress"><span id="bulk-progress-bar"></span></div>
         <span class="bulk-meta" id="bulk-progress-label">Ready</span>
@@ -112,6 +122,20 @@ const BulkView = (() => {
     });
   }
 
+  function handlePaste(e) {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData || {}).getData('text/plain') || '';
+    const zone = el('bulk-paste-area');
+    if (zone) zone.innerHTML = '';
+    if (!text.trim() || !hot) return;
+    const rows = text.trim().split(/\r?\n/).map(r => r.split('\t'));
+    const selected = hot.getSelected();
+    const startRow = selected ? selected[0][0] : 0;
+    const startCol = selected ? selected[0][1] : 0;
+    hot.populateFromArray(startRow, startCol, rows);
+    _setProgress(0, `Pasted ${rows.filter(r => r.some(c => c.trim())).length} row(s) — click Validate to check`);
+  }
+
   async function load() {
     el('content').innerHTML = _html();
     renderIcons(el('content'));
@@ -121,7 +145,11 @@ const BulkView = (() => {
     }
     config = await api.getBulkConfig();
     const meta = el('bulk-config-meta');
-    if (meta) meta.textContent = `Paste Excel data below. Required fields: ${config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None'}`;
+    if (meta) meta.textContent = `Required fields: ${config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None'}`;
+
+    const pasteZone = el('bulk-paste-area');
+    if (pasteZone) pasteZone.addEventListener('paste', handlePaste);
+
     hot = new Handsontable(el('bulk-hot'), {
       data: _emptyRows(),
       columns: _columns(),
@@ -202,7 +230,7 @@ const BulkView = (() => {
     _setProgress(0, 'Ready');
   }
 
-  return { load, validate, save, downloadErrors, clear };
+  return { load, validate, save, downloadErrors, clear, handlePaste };
 })();
 
 async function loadBulkView() {

@@ -5,7 +5,32 @@ function getBulkConfig() {
   assertServerContext_();
   _ensureBulkSheets_();
   const rows = getAllRows(SHEET_NAMES.BULK_CONFIG);
-  return rows.map(_normalizeBulkConfigRow_).filter(r => r.fieldName && r.targetColumn);
+
+  // Build CONFIG-type → values map for auto-detecting dropdowns
+  const configTypeMap = {};
+  getAllRows(SHEET_NAMES.CONFIG).filter(r => r['Status'] === 'Active').forEach(r => {
+    const type = String(r['Config Type'] || '').trim();
+    const val  = String(r['Value']       || '').trim();
+    if (type && val) { if (!configTypeMap[type]) configTypeMap[type] = []; configTypeMap[type].push(val); }
+  });
+  const AUTO_DROPDOWN = {
+    'category': 'Category', 'source': 'Lead Source', 'lead source': 'Lead Source',
+    'state': 'State', 'priority': 'Priority', 'product interest': 'Product Interest',
+    'lead status': 'Lead Status', 'status': 'Lead Status',
+    'follow-up type': 'Follow-up Type', 'followup type': 'Follow-up Type',
+  };
+
+  return rows.map(r => {
+    const cfg = _normalizeBulkConfigRow_(r);
+    if (!cfg.fieldName || !cfg.targetColumn) return null;
+    if (!cfg.allowedValues.length) {
+      const key = cfg.fieldName.toLowerCase().trim();
+      const targetKey = (cfg.targetColumn || cfg.fieldName).toLowerCase().trim();
+      const configType = AUTO_DROPDOWN[key] || AUTO_DROPDOWN[targetKey];
+      if (configType && configTypeMap[configType]) cfg.allowedValues = configTypeMap[configType];
+    }
+    return cfg;
+  }).filter(Boolean);
 }
 
 function validateBulkRows(rows) {
