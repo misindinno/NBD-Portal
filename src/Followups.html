@@ -983,13 +983,14 @@ function _onMarkDoneStageChange(select) {
         row.querySelectorAll('input,select,textarea').forEach(inp => {
           inp.disabled = !active;
           if (!(inp.type === 'hidden' && inp.hasAttribute('data-cf-ms-value'))) {
-            if (!active) inp.required = false;
+            inp.required = active && inp.dataset.required === 'true';
           }
         });
         const trigger = row.querySelector('.cf-ms-trigger');
         if (trigger) { trigger.style.opacity = active ? '' : '.45'; trigger.style.pointerEvents = active ? '' : 'none'; }
       });
     };
+    container._cfRefresh();
   }
 }
 </script>
