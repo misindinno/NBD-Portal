@@ -249,7 +249,25 @@ function getChangesAfter_(lastSeq) {
       recordId:   r['Record ID']   || '',
       actionType: r['Action Type'] || '',
       changedBy:  r['Changed By']  || ''
-    }));
+}));
+}
+
+function _queuePendingPayload_(row) {
+  const status = String(row['Status'] || '');
+  const action = String(row['Action Type'] || '');
+  if (![Q_STATUS.QUEUED, Q_STATUS.PROCESSING, Q_STATUS.FAILED].includes(status)) return null;
+  if (!['updateLeadStage', 'moveLeadStageWithFields'].includes(action)) return null;
+  try {
+    const payload = JSON.parse(row['Payload JSON'] || '{}');
+    return {
+      leadId: String(payload.leadId || ''),
+      stageId: String(payload.stageId || ''),
+      fields: payload.fields && typeof payload.fields === 'object' ? payload.fields : {},
+      note: String(payload.note || '')
+    };
+  } catch (e) {
+    return null;
+  }
 }
 
 // ── Queue history for a user ──────────────────────────────────────────────────
@@ -281,7 +299,8 @@ function getQueueHistory_(userEmail, limit) {
       nextRetryAt:   String(r['Next Retry At']    || ''),
       lastError:     String(r['Last Error']       || ''),
       processedAt:   String(r['Processed At']     || ''),
-      finalRecordId: String(r['Final Record ID']  || '')
+      finalRecordId: String(r['Final Record ID']  || ''),
+      pendingPayload: _queuePendingPayload_(r)
     }));
 }
 

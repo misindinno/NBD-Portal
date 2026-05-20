@@ -145,7 +145,6 @@ const QueueManager = (() => {
     }
     await api.enqueueJob(job.module, job.actionType, payload, job.requestId);
     job.serverEnqueued = true;
-    delete job.payload;
     _save();
     _notifyQueueChanged();
   }
@@ -161,6 +160,26 @@ const QueueManager = (() => {
         if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(job);
       });
     });
+  }
+
+  function _pendingLeadPatches() {
+    const patches = {};
+    Object.values(_jobs).forEach(job => {
+      if (!['QUEUED', 'PROCESSING', 'FAILED'].includes(job.status)) return;
+      if (!['updateLeadStage', 'moveLeadStageWithFields'].includes(job.actionType)) return;
+      const payload = job.payload || {};
+      const leadId = String(payload.leadId || '');
+      const stageId = String(payload.stageId || '');
+      if (!leadId || !stageId || leadId.startsWith('temp-')) return;
+      patches[leadId] = {
+        ...(payload.fields || {}),
+        'Stage ID': stageId,
+        'Stage Updated At': new Date(job.enqueuedAt || Date.now()).toISOString(),
+        'Updated At': new Date(job.enqueuedAt || Date.now()).toISOString(),
+        '_queuePendingStage': true
+      };
+    });
+    return patches;
   }
 
   async function _poll() {
@@ -263,6 +282,8 @@ const QueueManager = (() => {
 
     // Expose pending count (for debug / banner display).
     pendingCount() { return _pendingIds().length; },
+
+    getPendingLeadPatches() { return _pendingLeadPatches(); },
 
     // All local jobs (including completed) sorted newest-first — for history page.
     getAllJobs() {
