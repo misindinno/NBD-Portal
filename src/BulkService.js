@@ -17,10 +17,10 @@ function validateBulkRows(rows) {
   const errorRows = [];
   const validRows = [];
   normalized.forEach(item => {
-    const errors = _bulkRowErrors_(item, config, existingMap);
+    const fieldErrors = _bulkRowErrors_(item, config, existingMap);
     const batchDuplicate = _bulkBatchDuplicate_(item.row, batchMap);
-    if (batchDuplicate) errors.push(batchDuplicate);
-    if (errors.length) errorRows.push({ rowNumber: item.rowNumber, errors: errors.join('; '), ...item.input });
+    if (batchDuplicate) fieldErrors.push({ fieldName: null, message: batchDuplicate });
+    if (fieldErrors.length) errorRows.push({ rowNumber: item.rowNumber, errors: fieldErrors.map(e => e.message).join('; '), fieldErrors, ...item.input });
     else validRows.push(item.row);
   });
   return {
@@ -156,7 +156,7 @@ function logBulkImport(summary) {
 
 function _ensureBulkSheets_() {
   safeInitHeaders(SHEET_NAMES.BULK_CONFIG, [
-    'Field Name','Required','Data Type','Target Column','Validation Rule'
+    'Field Name','Required','Data Type','Target Column','Validation Rule','Allowed Values'
   ]);
   safeInitHeaders(SHEET_NAMES.BULK_AUDIT_LOG, [
     'Batch ID','Timestamp','Total Rows','Valid Rows','Saved Rows','Error Rows','Imported By'
@@ -182,13 +182,16 @@ function _ensureBulkSheets_() {
 function _normalizeBulkConfigRow_(row) {
   const fieldName = String(row['Field Name'] || '').trim();
   const targetColumn = String(row['Target Column'] || fieldName).trim();
+  const rawAllowed = String(row['Allowed Values'] || '').trim();
+  const allowedValues = rawAllowed ? rawAllowed.split(',').map(s => s.trim()).filter(Boolean) : [];
   return {
     fieldName,
     required: String(row['Required'] || '').trim().toLowerCase() === 'yes' || row['Required'] === true,
     dataType: String(row['Data Type'] || 'Text').trim(),
     targetColumn,
     targetHeader: _bulkTargetHeader_(targetColumn) || fieldName,
-    validationRule: String(row['Validation Rule'] || '').trim() || 'optional'
+    validationRule: String(row['Validation Rule'] || '').trim() || 'optional',
+    allowedValues
   };
 }
 
@@ -222,17 +225,18 @@ function _bulkRowErrors_(item, config, existingMap) {
   config.forEach(field => {
     const value = item.row[field.targetHeader];
     const empty = value === undefined || value === null || value === '';
-    if (field.required && empty) errors.push(field.fieldName + ' is required');
+    if (field.required && empty) { errors.push({ fieldName: field.fieldName, message: field.fieldName + ' is required' }); return; }
     if (empty) return;
-    if (field.dataType === 'Number' && Number(value) !== value) errors.push(field.fieldName + ' must be a number');
-    if (field.dataType === 'Date' && String(new Date(value)) === 'Invalid Date') errors.push(field.fieldName + ' must be a valid date');
-    if (field.validationRule === 'greaterThanZero' && Number(value) <= 0) errors.push(field.fieldName + ' must be greater than zero');
-    if (field.validationRule === 'validDate' && String(new Date(value)) === 'Invalid Date') errors.push(field.fieldName + ' must be a valid date');
-    if (field.validationRule === 'email' && value && !isValidEmail(String(value))) errors.push(field.fieldName + ' must be a valid email');
-    if (field.validationRule === 'phone' && value && !/^[0-9+\-\s()]{7,20}$/.test(String(value))) errors.push(field.fieldName + ' must be a valid phone');
+    if (field.dataType === 'Number' && Number(value) !== value) errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be a number' });
+    if (field.dataType === 'Date' && String(new Date(value)) === 'Invalid Date') errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be a valid date' });
+    if (field.validationRule === 'greaterThanZero' && Number(value) <= 0) errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be greater than zero' });
+    if (field.validationRule === 'validDate' && String(new Date(value)) === 'Invalid Date') errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be a valid date' });
+    if (field.validationRule === 'email' && value && !isValidEmail(String(value))) errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be a valid email' });
+    if (field.validationRule === 'phone' && value && !/^[0-9+\-\s()]{7,20}$/.test(String(value))) errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be a valid phone' });
+    if (field.allowedValues && field.allowedValues.length && !field.allowedValues.map(v => v.toLowerCase()).includes(String(value).toLowerCase())) errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be one of: ' + field.allowedValues.join(', ') });
   });
   const duplicate = checkDuplicate(item.row, existingMap);
-  if (duplicate) errors.push(duplicate);
+  if (duplicate) errors.push({ fieldName: null, message: duplicate });
   return errors;
 }
 

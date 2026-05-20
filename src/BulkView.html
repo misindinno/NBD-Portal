@@ -21,6 +21,8 @@ const BulkView = (() => {
         .bulk-pill.ok { background:#dcfce7; color:#166534; }
         .bulk-pill.err { background:#fee2e2; color:#991b1b; }
         .bulk-error-row { background:#fff5f5 !important; }
+        .bulk-error-cell { background:#fee2e2 !important; color:#991b1b !important; font-weight:600 !important; }
+        .bulk-cell-errmsg { background:#fff5f5 !important; color:#dc2626 !important; font-size:11px !important; white-space:normal !important; line-height:1.4 !important; }
       </style>
       <div class="bulk-toolbar">
         <div>
@@ -44,23 +46,25 @@ const BulkView = (() => {
   }
 
   function _columns() {
-    return config.map(f => ({
-      data: f.fieldName,
-      title: f.fieldName + (f.required ? ' *' : ''),
-      type: f.dataType === 'Number' ? 'numeric' : 'text'
-    }));
+    const dataCols = config.map(f => {
+      if (f.allowedValues && f.allowedValues.length) {
+        return { data: f.fieldName, title: f.fieldName + (f.required ? ' *' : ''), type: 'autocomplete', source: f.allowedValues, strict: true, filter: true };
+      }
+      return { data: f.fieldName, title: f.fieldName + (f.required ? ' *' : ''), type: f.dataType === 'Number' ? 'numeric' : 'text' };
+    });
+    return [...dataCols, { data: '__errors__', title: 'Errors', readOnly: true, width: 240 }];
   }
 
   function _emptyRows(count = 50) {
     return Array.from({ length: count }, () =>
-      config.reduce((row, f) => { row[f.fieldName] = ''; return row; }, {})
+      config.reduce((row, f) => { row[f.fieldName] = ''; return row; }, { __errors__: '' })
     );
   }
 
   function _rows() {
     if (!hot) return [];
     return hot.getSourceData()
-      .map(row => ({ ...row }))
+      .map(({ __errors__, ...rest }) => ({ ...rest }))
       .filter(row => Object.values(row).some(v => String(v ?? '').trim() !== ''));
   }
 
@@ -86,14 +90,26 @@ const BulkView = (() => {
     const btn = el('bulk-error-btn');
     if (btn) btn.style.display = errors.length ? '' : 'none';
     if (!hot) return;
+
+    const errorMap = {};
+    errors.forEach(e => {
+      const fields = new Set((e.fieldErrors || []).map(fe => fe.fieldName).filter(Boolean));
+      errorMap[e.rowNumber] = { msg: e.errors || '', fields };
+    });
+
+    hot.getSourceData().forEach((row, i) => {
+      row.__errors__ = (errorMap[i + 1] || {}).msg || '';
+    });
+
     hot.updateSettings({
-      cells(row) {
-        const props = {};
-        if (errors.some(e => Number(e.rowNumber) === row + 1)) props.className = 'bulk-error-row';
-        return props;
+      cells(row, col, prop) {
+        const err = errorMap[row + 1];
+        if (!err) return {};
+        if (prop === '__errors__') return { className: 'bulk-cell-errmsg' };
+        if (err.fields.has(String(prop))) return { className: 'bulk-error-cell' };
+        return { className: 'bulk-error-row' };
       }
     });
-    hot.render();
   }
 
   async function load() {
@@ -109,7 +125,7 @@ const BulkView = (() => {
     hot = new Handsontable(el('bulk-hot'), {
       data: _emptyRows(),
       columns: _columns(),
-      colHeaders: config.map(f => f.fieldName + (f.required ? ' *' : '')),
+      colHeaders: [...config.map(f => f.fieldName + (f.required ? ' *' : '')), 'Errors'],
       rowHeaders: true,
       stretchH: 'all',
       minSpareRows: 5,
