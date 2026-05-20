@@ -44,8 +44,8 @@ async function _refreshQueuePage(showSpinner = false) {
     // Server history (user-scoped) — runs in parallel
     let serverJobs = [];
     let health = null;
-    try { serverJobs = await api.getQueueHistory(100); } catch (_) {}
-    try { health = await api.getQueueHealth(); } catch (_) {}
+    try { serverJobs = await api.getQueueHistory(100); } catch (e) { console.warn('[QueuePage] History load failed', e); }
+    try { health = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); }
 
     // Merge: server is the ground truth; local adds items not yet reflected server-side
     const merged = _mergeQueueJobs(localJobs, serverJobs);
@@ -200,7 +200,8 @@ function _queueJobRow(j) {
   const shortId = j.requestId ? j.requestId.slice(-12) : '—';
   const queuedAt = j.createdAt ? _qpFmtTs(j.createdAt) : '—';
   const processedAt = j.processedAt ? _qpFmtTs(j.processedAt) : '—';
-  const attempts = j.maxAttempts > 0 ? `${j.attemptCount}/${j.maxAttempts}` : '—';
+  const shownAttempts = j.maxAttempts > 0 ? Math.min(Number(j.attemptCount || 0), Number(j.maxAttempts || 0)) : 0;
+  const attempts = j.maxAttempts > 0 ? `${shownAttempts}/${j.maxAttempts}` : '—';
   const errOrId = j.lastError
     ? `<span style="color:#dc2626;font-size:11px" title="${escapeHtml(j.lastError)}">${escapeHtml(j.lastError.slice(0, 60))}${j.lastError.length > 60 ? '…' : ''}</span>`
     : j.finalRecordId
@@ -237,16 +238,32 @@ function _qpStatusBadge(status) {
 }
 
 function _qpModuleLabel(m) {
-  return { leads: 'Leads', followups: 'Follow-ups' }[String(m || '').toLowerCase()] || escapeHtml(m || '—');
+  const map = {
+    leads: 'Leads',
+    followups: 'Follow-ups',
+    config: 'Config',
+    stages: 'Stages',
+    fields: 'Fields'
+  };
+  return map[String(m || '').toLowerCase()] || escapeHtml(m || '—');
 }
 
 function _qpActionLabel(a) {
   const map = {
     saveLead:             'Save Lead',
+    deleteLead:           'Delete Lead',
+    updateLeadStage:      'Update Stage',
+    moveLeadStageWithFields: 'Move Stage + Fields',
     saveFollowup:         'Save Follow-up',
     markFollowupDone:     'Mark Follow-up Done',
-    updateLeadStage:      'Update Stage',
-    moveLeadStageWithFields: 'Move Stage + Fields'
+    deleteFollowup:       'Delete Follow-up',
+    addConfig:            'Add Config',
+    updateConfigStatus:   'Update Config Status',
+    saveStage:            'Save Stage',
+    reorderStages:        'Reorder Stages',
+    saveFieldConfig:      'Save Field',
+    savePortalSettings:   'Save Portal Settings',
+    saveUser:             'Save User'
   };
   return map[a] || escapeHtml(a || '—');
 }

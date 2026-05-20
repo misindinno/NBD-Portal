@@ -64,7 +64,9 @@ async function _checkCacheStamps() {
       if (seqs.length) _lastChangeSeq = Math.max(...seqs);
       _applyChangeLog(changes);
     }
-  } catch(e) { /* silent — revalidation is best-effort */ }
+  } catch(e) {
+    console.warn('[AppData] Cache revalidation failed', e);
+  }
 }
 
 // ─── Update banner ────────────────────────────────────────────────────────────
@@ -110,22 +112,22 @@ function _applyChangeLog(changes) {
 
   if (modules['leads'] || collections.leads) {
     QueueManager.onServerChange('leads');
-    if (['leads', 'pipeline', 'dashboard'].includes(App.currentPage)) _refreshLeadsCache().catch(() => {});
+    if (['leads', 'pipeline', 'dashboard'].includes(App.currentPage)) _refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed', e));
   }
   if (modules['followups'] || collections.followups) {
     QueueManager.onServerChange('followups');
     if (App.currentPage?.startsWith('followups') || App.currentPage === 'dashboard') {
-      _refreshFollowupsCache().catch(() => {});
+      _refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed', e));
     }
   }
   if (collections.followupHistory && AppCache.isLoaded('followupHistory')) {
-    _refreshFollowupHistoryCache().catch(() => {});
+    _refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed', e));
   }
   if (collections.activityLogs && AppCache.isLoaded('activityLogs')) {
-    _refreshActivityLogsCache().catch(() => {});
+    _refreshActivityLogsCache().catch(e => console.warn('[AppData] Activity log refresh failed', e));
   }
   if (collections.config) {
-    _refreshAppConfig().catch(() => {});
+    _refreshAppConfig().catch(e => console.warn('[AppData] Config refresh failed', e));
   }
   // Refresh queue page if it's open and any module changed
   const anyModule = modules['leads'] || modules['followups'] || modules['config'] || modules['stages'] || modules['fields'];
@@ -169,11 +171,11 @@ function _collectionsForQueueAction(actionType, moduleName) {
 
 function _refreshAfterQueueJob(job) {
   const collections = _collectionsForQueueAction(job?.actionType, job?.module);
-  if (collections.includes('leads')) _refreshLeadsCache().catch(() => {});
-  if (collections.includes('followups')) _refreshFollowupsCache().catch(() => {});
-  if (collections.includes('followupHistory') && AppCache.isLoaded('followupHistory')) _refreshFollowupHistoryCache().catch(() => {});
-  if (collections.includes('activityLogs') && AppCache.isLoaded('activityLogs')) _refreshActivityLogsCache().catch(() => {});
-  if (collections.includes('config')) _refreshAppConfig().catch(() => {});
+  if (collections.includes('leads')) _refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed after queue job', e));
+  if (collections.includes('followups')) _refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed after queue job', e));
+  if (collections.includes('followupHistory') && AppCache.isLoaded('followupHistory')) _refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed after queue job', e));
+  if (collections.includes('activityLogs') && AppCache.isLoaded('activityLogs')) _refreshActivityLogsCache().catch(e => console.warn('[AppData] Activity log refresh failed after queue job', e));
+  if (collections.includes('config')) _refreshAppConfig().catch(e => console.warn('[AppData] Config refresh failed after queue job', e));
   if (App.currentPage === 'queue' && typeof _refreshQueuePage === 'function') _refreshQueuePage();
 }
 
@@ -189,7 +191,7 @@ async function _refreshLeadsCache() {
   if (pg === 'leads') {
     if (window.leadTable) {
       window.leadTable.replaceData(AppCache.getRows('leads'));
-      if (typeof applyLeadFilters === 'function') applyLeadFilters();
+      if (typeof window.applyLeadFilters === 'function') window.applyLeadFilters();
     } else { loadLeads(); }
   } else if (pg === 'pipeline') {
     loadPipeline();

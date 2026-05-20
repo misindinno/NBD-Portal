@@ -182,6 +182,7 @@
     if (stage) filters.push({ field: 'Stage ID', type: '=', value: stage });
     filters.length ? leadTable.setFilter(filters) : leadTable.clearFilter();
   }
+  window.applyLeadFilters = applyLeadFilters;
 
   async function openLeadDetail(leadId) {
     // Serve from cache; fall back to API if not loaded (e.g. direct deep link).
@@ -771,7 +772,13 @@
       list.addEventListener('change', () => renderChips());
 
       // Close on outside click
-      const outsideClose = e => { if (!ms.contains(e.target)) closeDrop(); };
+      const outsideClose = e => {
+        if (!document.body.contains(ms)) {
+          document.removeEventListener('click', outsideClose, true);
+          return;
+        }
+        if (!ms.contains(e.target)) closeDrop();
+      };
       document.addEventListener('click', outsideClose, true);
 
       renderChips(); // initial state

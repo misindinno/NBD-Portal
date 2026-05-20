@@ -235,9 +235,11 @@ function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
+    const mod = String(moduleName || '');
+    const action = String(actionType || '');
 
     const allowed = ['leads', 'followups', 'config', 'stages', 'fields'];
-    if (!allowed.includes(String(moduleName || ''))) throw new Error('Invalid module.');
+    if (!allowed.includes(mod)) throw new Error('Invalid module.');
 
     const allowedActions = [
       'saveLead', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
@@ -245,12 +247,13 @@ function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
       'addConfig', 'updateConfigStatus', 'saveStage', 'reorderStages',
       'saveFieldConfig', 'savePortalSettings', 'saveUser',
     ];
-    if (!allowedActions.includes(String(actionType || ''))) throw new Error('Invalid action.');
+    if (!allowedActions.includes(action)) throw new Error('Invalid action.');
+    _assertCanEnqueueJob_(user, mod, action);
 
     const payloadStr = JSON.stringify(payload || {});
     if (payloadStr.length > 200000) throw new Error('Payload too large (max 200 KB).');
 
-    const result = enqueueJob_(user.email, moduleName, actionType, payload || {}, requestId || '');
+    const result = enqueueJob_(user.email, mod, action, payload || {}, requestId || '');
     return respond(result);
   });
 }
@@ -288,7 +291,7 @@ function apiGetQueueHealth(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
-    return respond(getQueueHealth_(user.email));
+    return respond(getQueueHealth_(user.email, user));
   });
 }
 
@@ -325,6 +328,36 @@ function _requireConfigReader() {
   const user = _apiUser();
   if (!canEditConfigPermission(user)) throw new Error('Permission denied.');
   return user;
+}
+
+function _assertCanEnqueueJob_(user, moduleName, actionType) {
+  const isAdmin = user.role === 'ADMIN';
+  const has = name => isAdmin || userHasModule(user, name);
+  const canWriteLead = ['ADMIN', 'MANAGER', 'SALES'].includes(user.role) && (has('Leads') || has('LeadForm'));
+  const canWriteFollowup = ['ADMIN', 'MANAGER', 'SALES', 'USER'].includes(user.role) && has('Followups');
+  const misDepartment = String(user.department || '').trim().toUpperCase() === 'MIS';
+
+  if (actionType === 'deleteLead') {
+    if (!misDepartment || !has('Leads')) throw new Error('Permission denied. Only MIS lead users can delete leads.');
+    return;
+  }
+  if (['saveLead', 'updateLeadStage', 'moveLeadStageWithFields'].includes(actionType)) {
+    if (!canWriteLead) throw new Error('Permission denied.');
+    return;
+  }
+  if (['saveFollowup', 'markFollowupDone', 'deleteFollowup'].includes(actionType)) {
+    if (!canWriteFollowup) throw new Error('Permission denied.');
+    return;
+  }
+  if (actionType === 'saveUser') {
+    if (!canManageUsersPermission(user)) throw new Error('Permission denied.');
+    return;
+  }
+  if (['addConfig', 'updateConfigStatus', 'saveStage', 'reorderStages', 'saveFieldConfig', 'savePortalSettings'].includes(actionType)) {
+    if (!canEditConfigPermission(user)) throw new Error('Permission denied.');
+    return;
+  }
+  throw new Error('Invalid action.');
 }
 
 function _hasGlobalRead(user) {

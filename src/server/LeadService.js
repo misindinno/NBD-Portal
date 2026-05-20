@@ -48,26 +48,33 @@ function saveLead(data, email) {
     'Next Follow-up Date': prepared['Next Follow-up Date'] || followupDate,
     'Created At': now(), 'Updated At': now()
   };
-  insertRow(SHEET_NAMES.LEADS, pickLeadMasterFields_(leadRow));
-  upsertCustomFieldValues_('Leads', id, prepared, user.id, prepared['Stage ID']);
-  const fuTypes = getConfigByType('Follow-up Type');
-  ensureFollowupSheets_();
-  insertRow(SHEET_NAMES.FOLLOWUPS, {
-    'Follow-up ID': generateUUID(),
-    'Lead ID': id,
-    'Planned Date': followupDate,
-    'Follow-up Date': followupDate,
-    'Follow-up Type': fuTypes[0] || 'Call',
-    'Discussion': 'New lead created',
-    'Next Follow-up Date': followupDate,
-    'Status': 'Open',
-    'Created By': user.id,
-    'Created At': now(),
-    'Updated At': now()
-  });
-  _bumpStamp('leads');
-  _bumpStamp('followups');
-  return respond(id);
+  try {
+    insertRow(SHEET_NAMES.LEADS, pickLeadMasterFields_(leadRow));
+    upsertCustomFieldValues_('Leads', id, prepared, user.id, prepared['Stage ID']);
+    const fuTypes = getConfigByType('Follow-up Type');
+    ensureFollowupSheets_();
+    insertRow(SHEET_NAMES.FOLLOWUPS, {
+      'Follow-up ID': generateUUID(),
+      'Lead ID': id,
+      'Planned Date': followupDate,
+      'Follow-up Date': followupDate,
+      'Follow-up Type': fuTypes[0] || 'Call',
+      'Discussion': 'New lead created',
+      'Next Follow-up Date': followupDate,
+      'Status': 'Open',
+      'Created By': user.id,
+      'Created At': now(),
+      'Updated At': now()
+    });
+    _bumpStamp('leads');
+    _bumpStamp('followups');
+    return respond(id);
+  } catch (e) {
+    deleteRow(SHEET_NAMES.LEADS, 'Lead ID', id);
+    deleteCustomFieldValuesForEntity_('Leads', id);
+    deleteAllRowsWhere(SHEET_NAMES.FOLLOWUPS, r => r['Lead ID'] === id);
+    throw e;
+  }
 }
 
 function _leadIdFromPayload(data) {

@@ -1,13 +1,9 @@
 // ─── Code.gs ─────────────────────────────────────────────────────────────────
-// DEPLOYMENT SETUP:
-//   Deployment 1 (READ)  — Execute as: User accessing | Access: Anyone
-//                          Used for doGet + google.script.run reads/write proxy
-//   Deployment 2 (WRITE) — Execute as: Me (owner)     | Access: Anyone
-//                          Used for doPost write webhook — apiWrite POSTs here server-side
-//
-// Store Deployment 2 URL in Script Properties:
-//   Apps Script → Project Settings → Script Properties
-//   Key: WRITE_WEBHOOK_URL  Value: <Deployment 2 web app URL>
+// Runtime setup:
+//   - doGet serves the portal UI.
+//   - google.script.run API calls read data and enqueue write jobs.
+//   - processQueue runs from the installed time trigger and performs writes
+//     through trusted user context.
 
 function doGet(e) {
   return withServerContext_(() => {

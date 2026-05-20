@@ -11,7 +11,22 @@ const _PAGE_META = {
   queue:     { title: 'Queue',            crumb: 'Queue' },
 };
 
-function navigate(page) {
+async function _runPageLoader(page, loaderName, args = []) {
+  const deadline = Date.now() + 2500;
+  while (Date.now() < deadline) {
+    let fn = window[loaderName];
+    if (typeof fn !== 'function') {
+      try { fn = (0, eval)(loaderName); } catch (e) { fn = null; }
+    }
+    if (typeof fn === 'function') return fn(...args);
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  const scriptCount = document.scripts ? document.scripts.length : 0;
+  throw new Error(`${loaderName} is not available after waiting. Loaded scripts: ${scriptCount}. Please redeploy the latest portal files and hard-refresh.`);
+}
+window._runPageLoader = _runPageLoader;
+
+async function navigate(page) {
   if (!canNavigate(page)) {
     el('page-title').textContent = 'Access Denied';
     el('content').innerHTML = `<div class="card" style="padding:24px;color:#666">You do not have permission to open this module.</div>`;
@@ -28,18 +43,18 @@ function navigate(page) {
   if (crumbEl) crumbEl.textContent = meta.crumb;
   setContentLoading(pageSkeletonType(page));
   try {
-    if      (page === 'dashboard')         loadDashboard();
-    else if (page === 'today')             loadToday();
-    else if (page === 'leads')              loadLeads();
-    else if (page === 'pipeline')           loadPipeline();
-    else if (page === 'followups')          loadFollowups('all');
-    else if (page === 'followups-today')    loadFollowups('today');
-    else if (page === 'followups-overdue')  loadFollowups('overdue');
-    else if (page === 'followups-custom')   loadFollowups('custom');
-    else if (page === 'followups-new')      { loadFollowups('all'); openFollowupForm(); }
-    else if (page === 'config')             loadConfig();
-    else if (page === 'leadform')           loadLeadForm();
-    else if (page === 'queue')              loadQueuePage();
+    if      (page === 'dashboard')         await _runPageLoader(page, 'loadDashboard');
+    else if (page === 'today')             await _runPageLoader(page, 'loadToday');
+    else if (page === 'leads')             await _runPageLoader(page, 'loadLeads');
+    else if (page === 'pipeline')          await _runPageLoader(page, 'loadPipeline');
+    else if (page === 'followups')         await _runPageLoader(page, 'loadFollowups', ['all']);
+    else if (page === 'followups-today')   await _runPageLoader(page, 'loadFollowups', ['today']);
+    else if (page === 'followups-overdue') await _runPageLoader(page, 'loadFollowups', ['overdue']);
+    else if (page === 'followups-custom')  await _runPageLoader(page, 'loadFollowups', ['custom']);
+    else if (page === 'followups-new')     { await _runPageLoader(page, 'loadFollowups', ['all']); await _runPageLoader(page, 'openFollowupForm'); }
+    else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
+    else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
+    else if (page === 'queue')             await _runPageLoader(page, 'loadQueuePage');
     else el('content').innerHTML = '<p>Page not found.</p>';
   } catch(err) {
     el('content').innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(err.message)}</p>`;

@@ -62,6 +62,14 @@ function upsertCustomFieldValues_(sheetName, entityId, payload, userId, stageId)
   });
 }
 
+function deleteCustomFieldValuesForEntity_(sheetName, entityId) {
+  ensureCustomFieldValueSheets_();
+  if (!entityId) return 0;
+  const valueSheet = _customValueSheetName_(sheetName);
+  const entityKey = _customEntityKey_(sheetName);
+  return deleteAllRowsWhere(valueSheet, r => String(r[entityKey]) === String(entityId));
+}
+
 function migrateLegacyCustomFieldValues_() {
   ensureCustomFieldValueSheets_();
   const leadCount = _migrateCustomValuesForSheet_('Leads', SHEET_NAMES.LEADS);
