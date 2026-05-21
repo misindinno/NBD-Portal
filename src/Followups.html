@@ -1059,7 +1059,7 @@ function _onMarkDoneStageChange(select) {
   container.innerHTML = `<div class="custom-field-section" data-skippable="${isSkippable ? 'true' : 'false'}">
     <h3 style="font-size:14px;font-weight:600;margin:8px 0 12px;color:var(--md-primary)">Stage Fields</h3>
     ${skipToggle}
-    ${fields.map(f => _customFieldControlHTML(f, {}, configOptions)).join('')}
+    ${fields.map(f => _customFieldControlHTML(f, { 'Stage ID': stageId }, configOptions)).join('')}
   </div>`;
   _initCfMultiselects(container);
   renderIcons(container);
