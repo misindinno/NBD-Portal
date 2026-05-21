@@ -595,10 +595,14 @@
     const initialStage = cfg.stages.find(s => s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE') || cfg.stages[0];
     const stageId = d['Stage ID'] || (initialStage ? initialStage['Stage ID'] : '');
     const stage = allStages.find(s => s['Stage ID'] === stageId);
-    const visibleFields = fields.filter(f => !f['Stage ID'] || f['Stage ID'] === stageId);
+    const isNewLead = !d['Lead ID'];
+    const visibleFields = fields.filter(f =>
+      (!f['Stage ID'] || f['Stage ID'] === stageId) &&
+      !(isNewLead && (f['Skip Visibility'] || 'normal') === 'skip_only')
+    );
     if (!visibleFields.length) return '';
-    const hasSkipOnlyFields = visibleFields.some(f => (f['Skip Visibility'] || 'normal') === 'skip_only');
-    const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE')) && hasSkipOnlyFields;
+    const hasSkipOnlyFields = !isNewLead && visibleFields.some(f => (f['Skip Visibility'] || 'normal') === 'skip_only');
+    const isSkippable = !isNewLead && !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE')) && hasSkipOnlyFields;
     const skipToggle = isSkippable ? `
       <div class="cf-skip-row">
         <label class="cf-skip-label">
