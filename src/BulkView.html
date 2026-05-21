@@ -23,6 +23,10 @@ const BulkView = (() => {
         .bulk-error-row { background:#fff5f5 !important; }
         .bulk-error-cell { background:#fee2e2 !important; color:#991b1b !important; font-weight:600 !important; }
         .bulk-cell-errmsg { background:#fff5f5 !important; color:#dc2626 !important; font-size:11px !important; white-space:normal !important; line-height:1.4 !important; }
+        .bulk-cell-status { font-weight:700 !important; }
+        .bulk-cell-status-saved { background:#dcfce7 !important; color:#166534 !important; }
+        .bulk-cell-status-saving { background:#dbeafe !important; color:#1d4ed8 !important; }
+        .bulk-cell-status-error { background:#fee2e2 !important; color:#991b1b !important; }
         .bulk-paste-zone { background:#f0f9ff; border:2px dashed #bae6fd; border-radius:8px; padding:10px 14px; }
         .bulk-paste-label { font-size:12px;font-weight:600;color:#0369a1;margin-bottom:6px;display:flex;align-items:center;gap:6px; }
         .bulk-paste-area { width:100%;min-height:38px;max-height:80px;overflow-y:auto;border-radius:6px;background:#fff;border:1px solid #bae6fd;padding:8px 10px;font-size:12px;color:#374151;cursor:text;outline:none;box-sizing:border-box;font-family:inherit; }
@@ -35,9 +39,9 @@ const BulkView = (() => {
           <div class="bulk-meta" id="bulk-config-meta">Paste Excel rows, validate, then save in one batch.</div>
         </div>
         <div class="bulk-actions">
-          <button class="btn btn-outlined btn-sm" onclick="BulkView.clear()">${icon('trash-2', 14)} Clear</button>
-          <button class="btn btn-outlined btn-sm" onclick="BulkView.validate()">${icon('check-circle', 14)} Validate</button>
-          <button class="btn btn-primary btn-sm" onclick="BulkView.save()">${icon('save', 14)} Save</button>
+          <button class="btn btn-outlined btn-sm bulk-action" onclick="BulkView.clear()">${icon('trash-2', 14)} Clear</button>
+          <button class="btn btn-outlined btn-sm bulk-action" onclick="BulkView.validate()">${icon('check-circle', 14)} Validate</button>
+          <button class="btn btn-primary btn-sm bulk-action" onclick="BulkView.save()">${icon('save', 14)} Save</button>
           <button class="btn btn-outlined btn-sm" id="bulk-error-btn" onclick="BulkView.downloadErrors()" style="display:none">${icon('download', 14)} Error CSV</button>
         </div>
       </div>
@@ -62,20 +66,47 @@ const BulkView = (() => {
       }
       return { data: f.fieldName, title: f.fieldName + (f.required ? ' *' : ''), type: f.dataType === 'Number' ? 'numeric' : 'text' };
     });
-    return [...dataCols, { data: '__errors__', title: 'Errors', readOnly: true, width: 240 }];
+    return [
+      ...dataCols,
+      { data: '__status__', title: 'Status', readOnly: true, width: 110 },
+      { data: '__recordId__', title: 'Lead ID', readOnly: true, width: 160 },
+      { data: '__errors__', title: 'Errors', readOnly: true, width: 260 }
+    ];
   }
 
   function _emptyRows(count = 50) {
     return Array.from({ length: count }, () =>
-      config.reduce((row, f) => { row[f.fieldName] = ''; return row; }, { __errors__: '' })
+      config.reduce((row, f) => { row[f.fieldName] = ''; return row; }, { __status__: '', __recordId__: '', __errors__: '' })
     );
   }
 
-  function _rows() {
+  function _gridRows() {
     if (!hot) return [];
     return hot.getSourceData()
-      .map(({ __errors__, ...rest }) => ({ ...rest }))
-      .filter(row => Object.values(row).some(v => String(v ?? '').trim() !== ''));
+      .map((row, i) => ({
+        rowNumber: i + 1,
+        data: Object.keys(row || {}).reduce((m, key) => {
+          if (!String(key).startsWith('__')) m[key] = row[key];
+          return m;
+        }, {})
+      }))
+      .filter(item => Object.values(item.data).some(v => String(v ?? '').trim() !== ''));
+  }
+
+  function _rows() {
+    return _gridRows().map(item => ({ ...item.data, __rowNumber: item.rowNumber }));
+  }
+
+  function _setBusy(busy) {
+    document.querySelectorAll('.bulk-action').forEach(btn => { btn.disabled = !!busy; });
+  }
+
+  function _setRowMeta(rowNumber, patch) {
+    if (!hot || !rowNumber) return;
+    const row = hot.getSourceDataAtRow(rowNumber - 1);
+    if (!row) return;
+    Object.assign(row, patch || {});
+    hot.render();
   }
 
   function _setProgress(percent, label) {
@@ -109,10 +140,20 @@ const BulkView = (() => {
 
     hot.getSourceData().forEach((row, i) => {
       row.__errors__ = (errorMap[i + 1] || {}).msg || '';
+      if (errorMap[i + 1]) row.__status__ = 'Error';
+      else if (!['Saved', 'Saving'].includes(String(row.__status__ || ''))) row.__status__ = '';
     });
 
     hot.updateSettings({
       cells(row, col, prop) {
+        const rowData = hot.getSourceDataAtRow(row) || {};
+        if (prop === '__status__') {
+          const status = String(rowData.__status__ || '').toLowerCase();
+          if (status === 'saved') return { className: 'bulk-cell-status bulk-cell-status-saved' };
+          if (status === 'saving') return { className: 'bulk-cell-status bulk-cell-status-saving' };
+          if (status === 'error') return { className: 'bulk-cell-status bulk-cell-status-error' };
+          return { className: 'bulk-cell-status' };
+        }
         const err = errorMap[row + 1];
         if (!err) return {};
         if (prop === '__errors__') return { className: 'bulk-cell-errmsg' };
@@ -128,7 +169,10 @@ const BulkView = (() => {
     const zone = el('bulk-paste-area');
     if (zone) zone.innerHTML = '';
     if (!text.trim() || !hot) return;
-    const rows = text.trim().split(/\r?\n/).map(r => r.split('\t'));
+    const pasted = text.replace(/\r?\n$/, '');
+    const rows = typeof Papa !== 'undefined'
+      ? Papa.parse(pasted, { delimiter: '\t', skipEmptyLines: true }).data
+      : pasted.split(/\r?\n/).map(r => r.split('\t'));
     const selected = hot.getSelected();
     const startRow = selected ? selected[0][0] : 0;
     const startCol = selected ? selected[0][1] : 0;
@@ -145,7 +189,7 @@ const BulkView = (() => {
     }
     config = await api.getBulkConfig();
     const meta = el('bulk-config-meta');
-    if (meta) meta.textContent = `Required fields: ${config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None'}`;
+    if (meta) meta.textContent = `Required fields: ${config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None'} · Max 500 rows per import`;
 
     const pasteZone = el('bulk-paste-area');
     if (pasteZone) pasteZone.addEventListener('paste', handlePaste);
@@ -153,7 +197,7 @@ const BulkView = (() => {
     hot = new Handsontable(el('bulk-hot'), {
       data: _emptyRows(),
       columns: _columns(),
-      colHeaders: [...config.map(f => f.fieldName + (f.required ? ' *' : '')), 'Errors'],
+      colHeaders: [...config.map(f => f.fieldName + (f.required ? ' *' : '')), 'Status', 'Lead ID', 'Errors'],
       rowHeaders: true,
       stretchH: 'all',
       minSpareRows: 5,
@@ -169,6 +213,15 @@ const BulkView = (() => {
 
   async function validate() {
     const rows = _rows();
+    if (!rows.length) {
+      Swal.fire('No rows', 'Paste at least one row before validating.', 'info');
+      return { summary: { total: 0, valid: 0, errors: 0 }, errorRows: [] };
+    }
+    if (rows.length > 500) {
+      Swal.fire('Too many rows', 'Please import 500 rows or fewer at a time.', 'warning');
+      return { summary: { total: rows.length, valid: 0, errors: rows.length }, errorRows: [] };
+    }
+    _setBusy(true);
     _setProgress(20, 'Validating...');
     try {
       const result = await api.validateBulkRows(rows);
@@ -183,35 +236,74 @@ const BulkView = (() => {
       _setProgress(0, 'Validation failed');
       Swal.fire('Validation failed', err.message || String(err), 'error');
       throw err;
+    } finally {
+      _setBusy(false);
     }
   }
 
   async function save() {
-    const rows = _rows();
-    if (!rows.length) {
+    const gridRows = _gridRows();
+    if (!gridRows.length) {
       Swal.fire('No rows', 'Paste at least one row before saving.', 'info');
       return;
     }
-    _setProgress(25, 'Saving...');
+    if (gridRows.length > 500) {
+      Swal.fire('Too many rows', 'Please import 500 rows or fewer at a time.', 'warning');
+      return;
+    }
+    _setBusy(true);
+    _setProgress(5, 'Validating before save...');
     try {
-      const result = await api.saveBulkRows(rows);
-      lastBatchId = result.batchId || '';
-      _markErrors(result.errorRows || []);
-      _renderSummary(result.summary || {});
-      _setProgress(100, result.summary?.errors ? 'Saved with row errors' : 'Saved');
-      if (result.summary?.saved) await _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
-      Swal.fire(result.summary?.errors ? 'Saved with errors' : 'Bulk save complete',
-        `${result.summary?.saved || 0} row(s) saved. ${result.summary?.errors || 0} row(s) failed.`,
-        result.summary?.errors ? 'warning' : 'success');
+      const validation = await api.validateBulkRows(_rows());
+      _markErrors(validation.errorRows || []);
+      const invalidRows = new Set((validation.errorRows || []).map(r => Number(r.rowNumber)));
+      let saved = 0;
+      let failed = invalidRows.size;
+      lastBatchId = Date.now().toString();
+
+      for (let i = 0; i < gridRows.length; i++) {
+        const item = gridRows[i];
+        if (invalidRows.has(item.rowNumber)) continue;
+        _setRowMeta(item.rowNumber, { __status__: 'Saving', __errors__: '', __recordId__: '' });
+        _setProgress(Math.round((i / gridRows.length) * 100), `Saving row ${item.rowNumber}...`);
+        const result = await api.saveBulkRow(item.data, item.rowNumber);
+        if (result.saved) {
+          saved++;
+          _setRowMeta(item.rowNumber, { __status__: 'Saved', __recordId__: result.recordId || '', __errors__: '' });
+        } else {
+          failed++;
+          _setRowMeta(item.rowNumber, { __status__: 'Error', __errors__: result.errors || 'Save failed' });
+          errors.push({
+            rowNumber: item.rowNumber,
+            errors: result.errors || 'Save failed',
+            fieldErrors: result.fieldErrors || [],
+            ...item.data
+          });
+        }
+      }
+
+      _renderSummary({ total: gridRows.length, valid: saved, errors: failed });
+      _markErrors(errors);
+      _setProgress(100, failed ? 'Saved with row errors' : 'Saved');
+      if (saved) await _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
+      Swal.fire(failed ? 'Saved with errors' : 'Bulk save complete',
+        `${saved} row(s) saved. ${failed} row(s) failed.`,
+        failed ? 'warning' : 'success');
     } catch (err) {
       _setProgress(0, 'Save failed');
       Swal.fire('Save failed', err.message || String(err), 'error');
+    } finally {
+      _setBusy(false);
     }
   }
 
   async function downloadErrors() {
     if (!errors.length) return;
-    const csv = typeof Papa !== 'undefined' ? Papa.unparse(errors) : await api.createErrorCsv(errors);
+    const flatErrors = errors.map(({ fieldErrors, ...row }) => ({
+      ...row,
+      fieldErrors: Array.isArray(fieldErrors) ? fieldErrors.map(e => e.fieldName ? `${e.fieldName}: ${e.message}` : e.message).join('; ') : ''
+    }));
+    const csv = typeof Papa !== 'undefined' ? Papa.unparse(flatErrors) : await api.createErrorCsv(flatErrors);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

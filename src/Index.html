@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?= CLIENT_CONFIG.APP_TITLE ?></title>
+  <script>const APP_TITLE = '<?= CLIENT_CONFIG.APP_TITLE ?>';</script>
 
   <!-- Fonts + Icons -->
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -22,10 +23,12 @@
   <!-- SweetAlert2 -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-  <!-- Bulk Entry libraries -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <? if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().indexOf('lq') !== -1) { ?>
+    <!-- Bulk Entry libraries -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <? } ?>
 
   <!-- Toastify -->
   <link href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" rel="stylesheet">
@@ -181,14 +184,15 @@
   <?!= include('Today'); ?>
   <?!= include('Config'); ?>
   <?!= include('LeadForm'); ?>
-  <?!= include('BulkView'); ?>
+  <? if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().indexOf('lq') !== -1) { ?>
+    <?!= include('BulkView'); ?>
+  <? } ?>
   <?!= include('AppUI'); ?>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
     const GOOGLE_CLIENT_ID = '<?!= (function(){ try { return PropertiesService.getScriptProperties().getProperty("GOOGLE_CLIENT_ID") || ""; } catch(e) { return ""; } })() ?>';
     const INITIAL_PAGE = '<?!= typeof initialPage !== "undefined" ? initialPage : "" ?>';
   </script>
-  <script>const APP_TITLE = '<?= CLIENT_CONFIG.APP_TITLE ?>';</script>
   <?!= include('JS'); ?>
 </body>
 </html>

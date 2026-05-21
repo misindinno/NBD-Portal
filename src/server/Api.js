@@ -249,8 +249,16 @@ function apiValidateBulkRows(token, rows) {
 function apiSaveBulkRows(token, rows) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    _requireBulkEntry_();
-    return respond(saveBulkRows(rows || []));
+    const user = _requireBulkEntry_();
+    return respond(saveBulkRows(rows || [], user.email));
+  });
+}
+
+function apiSaveBulkRow(token, row, rowNumber) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireBulkEntry_();
+    return respond(saveBulkRow(row || {}, Number(rowNumber) || 1, user.email));
   });
 }
 
