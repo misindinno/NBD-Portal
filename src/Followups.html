@@ -453,16 +453,22 @@ function _followupHistoryTable(rows, emptyMsg, ctx) {
   return `<div class="table-wrap fu-table-wrap">
     <table class="fu-table history-table">
       <thead><tr>
-        <th>Planned Date</th><th>Done Date</th><th>Done By</th><th>Remark</th><th>Stage</th><th>Next Planned</th>
+        <th>Planned Date</th><th>Done Date</th><th>Done By</th><th>Contact Mode</th><th>Remark</th><th>Stage</th><th>Next Planned</th>
       </tr></thead>
       <tbody>${data.map(row => {
         const stageLabel = row['Updated Stage ID']
           ? (ctx?.stageMap?.[row['Updated Stage ID']]?.['Stage Name'] || row['Updated Stage ID'])
           : '-';
+        const contactMode = row['Contact Mode'] || '';
+        const contactModeColor = {'Call Connected':'#16a34a','Whatsapp Conversation':'#0284c7','Call not Picked':'#dc2626'}[contactMode] || '#6b7280';
+        const contactModeHTML = contactMode
+          ? `<span style="font-size:11px;font-weight:600;color:${contactModeColor};background:${contactModeColor}18;padding:2px 8px;border-radius:10px;white-space:nowrap">${escapeHtml(contactMode)}</span>`
+          : '-';
         return `<tr>
           <td>${formatDate(row['Planned Date']) || '-'}</td>
           <td>${formatDate(row['Done Date']) || '-'}</td>
           <td>${escapeHtml(ctx?.userMap?.[row['Done By']] || row['Done By'] || '-')}</td>
+          <td>${contactModeHTML}</td>
           <td><div class="fu-discussion">${escapeHtml(row['Remark'] || '-')}</div></td>
           <td>${stageLabel !== '-' ? `<span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(stageLabel)}</span>` : '-'}</td>
           <td>${formatDate(row['Next Planned Date']) || '-'}</td>
@@ -784,6 +790,18 @@ async function openMarkFollowupDoneForm(followupId) {
         </div>
       </div>
       <div class="form-group">
+        <label>Contact Mode *</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+          ${[['Call Connected','phone-call','#16a34a'],['Whatsapp Conversation','message-circle','#0284c7'],['Call not Picked','phone-missed','#dc2626']].map(([val, ic, col]) => `
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 14px;border:1.5px solid #e5e7eb;border-radius:8px;cursor:pointer;font-weight:400;font-size:13px;flex:1;min-width:130px;transition:border-color .15s,background .15s" class="fu-contact-mode-opt">
+            <input type="radio" name="Contact Mode" value="${val}" style="display:none">
+            <span style="color:${col}">${icon(ic, 15)}</span>
+            <span>${val}</span>
+          </label>`).join('')}
+        </div>
+        <span class="form-error-msg" id="fu-contact-mode-err" style="display:none">Please select a contact mode.</span>
+      </div>
+      <div class="form-group">
         <label>Done Remark *</label>
         <textarea class="form-control" name="Remark" rows="3" required placeholder="What happened in this follow-up?"></textarea>
       </div>
@@ -796,6 +814,21 @@ async function openMarkFollowupDoneForm(followupId) {
     </form>`);
 
   const form = overlay.querySelector('#fu-done-form');
+
+  // Contact mode radio visual selection
+  form.querySelectorAll('.fu-contact-mode-opt').forEach(lbl => {
+    lbl.addEventListener('click', () => {
+      form.querySelectorAll('.fu-contact-mode-opt').forEach(l => {
+        l.style.borderColor = '#e5e7eb';
+        l.style.background = '';
+      });
+      lbl.style.borderColor = 'var(--md-primary)';
+      lbl.style.background = 'var(--md-primary-light, #EDE7F6)';
+      const errEl = document.getElementById('fu-contact-mode-err');
+      if (errEl) errEl.style.display = 'none';
+    });
+  });
+
   const validator = _makeValidator(form);
   validator.addField(form.querySelector('[name="Done Date"]'),          [{ rule: 'required', errorMessage: 'Done date is required.' }]);
   validator.addField(form.querySelector('[name="Remark"]'),             [{ rule: 'required', errorMessage: 'Done remark is required.' }]);
@@ -810,6 +843,11 @@ async function openMarkFollowupDoneForm(followupId) {
   ]);
   _updateDoneNextDateRequirement(form);
   validator.onSuccess(async () => {
+    if (!form.querySelector('[name="Contact Mode"]:checked')) {
+      const errEl = document.getElementById('fu-contact-mode-err');
+      if (errEl) errEl.style.display = '';
+      return;
+    }
     if (!validateCfMultiselects(form)) return;
     const stageFieldsCont = document.getElementById('fu-done-stage-fields');
     if (stageFieldsCont) {

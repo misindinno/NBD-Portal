@@ -8,7 +8,7 @@ function ensureFollowupSheets_() {
   ]);
   safeInitHeaders(SHEET_NAMES.FOLLOWUP_HISTORY, [
     'History ID','Follow-up ID','Lead ID','Planned Date','Done Date','Done By',
-    'Follow-up Type','Remark','Outcome','Next Planned Date','Status After','Created At'
+    'Follow-up Type','Contact Mode','Remark','Outcome','Next Planned Date','Status After','Created At'
   ]);
   safeInitHeaders(SHEET_NAMES.LEAD_ACTIVITY_LOGS, [
     'Log ID','Lead ID','Action Type','Old Value','New Value','Remark','Created By','Created At'
@@ -156,6 +156,7 @@ function markFollowupDone(followupId, data, email) {
     'Done Date': doneDate,
     'Done By': user.id,
     'Follow-up Type': row['Follow-up Type'] || '',
+    'Contact Mode': String(data['Contact Mode'] || ''),
     'Remark': remark,
     'Outcome': data['Outcome'] || row['Outcome'] || '',
     'Next Planned Date': nextDate,
