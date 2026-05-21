@@ -532,7 +532,7 @@ function _dbRenderHealth(leads, fus) {
       ? top.map(l => `
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f5f5f5">
           <span style="font-size:10px;font-weight:700;color:${l._bc};background:${l._bc}18;padding:2px 6px;border-radius:8px;white-space:nowrap">${l._badge}</span>
-          <span style="font-size:12px;color:#333;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(l['Company Name'])}">${escapeHtml(l['Company Name'] || l['Remark'] || '')}</span>
+          <span style="font-size:12px;color:#333;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(l['Company Name'])}">${escapeHtml(l['Company Name'] || l['Client Description'] || '')}</span>
           <span style="font-size:11px;color:#aaa;white-space:nowrap">${l._score}pt</span>
         </div>`).join('')
       : '<p style="text-align:center;color:#ccc;font-size:12px;padding:16px 0">No active leads</p>';

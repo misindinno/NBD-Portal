@@ -75,7 +75,7 @@
           }
         },
         {
-          title: 'Remark', field: 'Remark', sorter: 'string', minWidth: 160,
+          title: 'Client Description', field: 'Client Description', sorter: 'string', minWidth: 160,
           formatter: function (cell) {
             const v = cell.getValue() || '';
             return '<div style="font-size:12px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px" title="' + escapeHtml(v) + '">' + escapeHtml(v) + '</div>';
@@ -176,7 +176,7 @@
     const status = el('lead-status-f')?.value;
     const priority = el('lead-priority-f')?.value;
     const stage = el('lead-stage-f')?.value;
-    if (q) filters.push([{ field: 'Company Name', type: 'like', value: q }, { field: 'Contact Person', type: 'like', value: q }, { field: 'Remark', type: 'like', value: q }]);
+    if (q) filters.push([{ field: 'Company Name', type: 'like', value: q }, { field: 'Contact Person', type: 'like', value: q }, { field: 'Client Description', type: 'like', value: q }]);
     if (status) filters.push({ field: 'Lead Status', type: '=', value: status });
     if (priority) filters.push({ field: 'Priority', type: '=', value: priority });
     if (stage) filters.push({ field: 'Stage ID', type: '=', value: stage });
@@ -221,13 +221,13 @@
     const _stageVal = '<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + _sc + ';flex-shrink:0;display:inline-block"></span>' + escapeHtml(stage?.['Stage Name'] || '—') + '</span>';
     const overlay = showModal(`
     <div class="modal-header">
-      <h2 style="font-size:18px;font-weight:700;color:#111827">${escapeHtml(lead['Company Name'] || lead['Remark'] || '—')}</h2>
+      <h2 style="font-size:18px;font-weight:700;color:#111827">${escapeHtml(lead['Company Name'] || lead['Client Description'] || '—')}</h2>
       <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-bottom:16px;font-size:13px">
-      ${lead['Remark'] ? `<div style="grid-column:1/-1;padding:9px 16px;border-bottom:1px solid #e5e7eb;background:#f9fafb">
-        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:3px">Remark</div>
-        <div style="font-size:12.5px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default" title="${escapeHtml(lead['Remark'])}">${escapeHtml(lead['Remark'])}</div>
+      ${lead['Client Description'] ? `<div style="grid-column:1/-1;padding:9px 16px;border-bottom:1px solid #e5e7eb;background:#f9fafb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:3px">Client Description</div>
+        <div style="font-size:12.5px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default" title="${escapeHtml(lead['Client Description'])}">${escapeHtml(lead['Client Description'])}</div>
       </div>` : ''}
       <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb">
         <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Company</div>
@@ -271,7 +271,7 @@
         <button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-primary btn-sm" onclick="openFollowupForm('${escapeHtml(String(lead['Lead ID'] || ''))}','${escapeHtml(String(lead['Remark'] || '').replace(/'/g, '&#39;'))}')">
+        <button class="btn btn-primary btn-sm" onclick="openFollowupForm('${escapeHtml(String(lead['Lead ID'] || ''))}','${escapeHtml(String(lead['Client Description'] || '').replace(/'/g, '&#39;'))}')">
           ${icon('plus', 14)} Add Follow-up
         </button>
         ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
@@ -439,7 +439,7 @@
     const v = _makeValidator(form);
     const f = name => form.querySelector(`[name="${name}"]`);
     v.addField(f('Company Name'), [{ rule: 'required', errorMessage: 'Company name is required.' }]);
-    v.addField(f('Remark'), [{ rule: 'required', errorMessage: 'Remark is required.' }]);
+    v.addField(f('Client Description'), [{ rule: 'required', errorMessage: 'Client description is required.' }]);
     if (f('Contact Person'))
       v.addField(f('Contact Person'), [{ rule: 'required', errorMessage: 'Contact person is required.' }]);
     if (f('Category'))
@@ -523,8 +523,8 @@
     </div>
     <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--md-primary);margin:12px 0 8px">Lead Information</div>
     <div class="form-row">
-      <div class="form-group"><label>Remark *</label>
-        <input class="form-control" name="Remark" value="${escapeHtml(d['Remark'] || '')}" required></div>
+      <div class="form-group"><label>Client Description *</label>
+        <input class="form-control" name="Client Description" value="${escapeHtml(d['Client Description'] || '')}" required></div>
       <div class="form-group"><label>Source *</label>
         <select class="form-control" name="Source" required>
           <option value="">Select</option>

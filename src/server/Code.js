@@ -197,7 +197,7 @@ function setupSheets() {
     safeInitHeaders(SHEET_NAMES.LEADS, [
       'Lead ID','Company Name','Contact Person','Phone','Alternate No','Email',
       'City','State','Address','GST No','Category',
-      'Remark','Source','Product Interest',
+      'Client Description','Source','Product Interest',
       'Stage ID','Priority','Assigned To','Lead Status',
       'Stage Updated At','Last Follow-up Date','Next Follow-up Date',
       'Source Portal','Source Lead ID','NBD Lead ID','Pushed To NBD At',

@@ -74,7 +74,7 @@ async function loadPipeline() {
     const assignedName = u ? (u.name || '') : '';
     const company      = escapeHtml(lead['Company Name'] || '');
     const contactPerson      = escapeHtml(lead['Contact Person'] || '');
-    const remark       = escapeHtml(lead['Remark'] || '');
+    const remark       = escapeHtml(lead['Client Description'] || '');
     const phone        = escapeHtml(lead['Phone'] || '');
     const altPhone     = escapeHtml(lead['Alternate No'] || '');
     const email        = escapeHtml(lead['Email'] || '');
@@ -88,7 +88,7 @@ async function loadPipeline() {
     const title        = company || remark;
     const priority     = lead['Priority'] || '';
     const dueDate      = lead['Next Follow-up Date'];
-    const tooltip      = [lead['Company Name'], lead['Contact Person'], lead['Phone'], lead['Email'], lead['City'], lead['State'], lead['Remark']].filter(Boolean).join(' · ');
+    const tooltip      = [lead['Company Name'], lead['Contact Person'], lead['Phone'], lead['Email'], lead['City'], lead['State'], lead['Client Description']].filter(Boolean).join(' · ');
     const overdueLabel = od.overdue ? `&#9888; ${od.daysOver}d over TAT` : '';
 
     return `<div class="pipeline-card" data-lead-id="${escapeHtml(lead['Lead ID'])}" title="${escapeHtml(tooltip)}">
@@ -325,7 +325,7 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
         <option value="${escapeHtml(stageId)}" selected>${escapeHtml(stage['Stage Name'])}</option>
       </select>
       <div style="font-size:13px;color:#666;margin-bottom:12px">
-        ${escapeHtml(lead['Company Name'] || lead['Remark'] || 'Lead')}
+        ${escapeHtml(lead['Company Name'] || lead['Client Description'] || 'Lead')}
         ${lead['Contact Person'] ? `<span style="color:#999;margin-left:6px">· ${escapeHtml(lead['Contact Person'])}</span>` : ''}
       </div>
       ${buildLeadCustomFieldsHTML(stageData, fields, configOptions)}

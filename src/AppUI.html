@@ -212,7 +212,7 @@ function _topbarSearchInput(input) {
   const matched = leads.filter(l =>
     String(l['Company Name']   || '').toLowerCase().includes(q) ||
     String(l['Contact Person'] || '').toLowerCase().includes(q) ||
-    String(l['Remark']         || '').toLowerCase().includes(q)
+    String(l['Client Description'] || '').toLowerCase().includes(q)
   );
   const results = matched.slice(0, 6);
 

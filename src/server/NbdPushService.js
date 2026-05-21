@@ -68,7 +68,7 @@ function _isLeadQualifiedForNbd_(lead) {
 
 function _nbdRemark_(lead) {
   const parts = [];
-  if (lead['Remark']) parts.push(String(lead['Remark']));
+  if (lead['Client Description']) parts.push(String(lead['Client Description']));
   parts.push('Pushed from ' + (CLIENT_CONFIG.APP_TITLE || 'LQ Portal') + ' lead ' + lead['Lead ID']);
   return parts.join('\n');
 }

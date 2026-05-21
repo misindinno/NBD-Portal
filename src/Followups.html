@@ -238,7 +238,7 @@ function _decorateFollowup(row, ctx) {
     ...row,
     _leadLabel: lead ? _fuLeadLabel(lead) : (row['Lead ID'] ? 'Linked lead unavailable' : ''),
     _clientLabel: lead ? _fuClientLabel(lead) : '',
-    _remarkLabel: ctx?.lastDiscussionMap?.[row['Lead ID']] || (lead ? (lead['Remark'] || '') : ''),
+    _remarkLabel: ctx?.lastDiscussionMap?.[row['Lead ID']] || (lead ? (lead['Client Description'] || '') : ''),
     _createdByLabel: ctx?.userMap?.[row['Created By']] || '',
     _assignedToLabel: lead ? (ctx?.userMap?.[lead['Assigned To']] || '') : '',
     _updatedStageLabel: stage ? stage['Stage Name'] : '',
@@ -496,7 +496,7 @@ function _activityValueLabel(value, ctx) {
 }
 
 function _fuLeadLabel(l) {
-  return [l['Remark'], l['Source']].filter(Boolean).join(' - ');
+  return [l['Client Description'], l['Source']].filter(Boolean).join(' - ');
 }
 
 function _followupCustomFieldMeta(row) {
@@ -877,7 +877,7 @@ async function _fuPickLead() {
         <div class="fu-card lead-picker-item" style="cursor:pointer;border-left-color:#1565C0"
           data-lead-id="${escapeHtml(l['Lead ID']||'')}"
           data-lead-name="${escapeHtml(_fuLeadLabel(l))}">
-          <div class="fu-card-title">${escapeHtml(l['Remark']||'')}</div>
+          <div class="fu-card-title">${escapeHtml(l['Client Description']||'')}</div>
           <div class="fu-card-meta">
             ${l['Company Name'] ? `<span>${icon('building-2', 12)} ${escapeHtml(l['Company Name'])}</span>` : ''}
             <span>${escapeHtml(l['Source']||'')}</span>

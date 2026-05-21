@@ -102,8 +102,8 @@ async function loadLeadForm() {
 
           <div class="form-row">
             <div class="form-group">
-              <label>Remark</label>
-              <input class="form-control" name="Remark" placeholder="Brief description of the lead">
+              <label>Client Description *</label>
+              <input class="form-control" name="Client Description" placeholder="Brief description of the lead" required>
             </div>
             <div class="form-group">
               <label>Source *</label>
@@ -177,6 +177,8 @@ function _lfInitValidator() {
   const v = _makeValidator(form);
   const f = name => form.querySelector(`[name="${name}"]`);
   v.addField(f('Company Name'),   [{ rule: 'required', errorMessage: 'Company name is required.' }]);
+  if (f('Client Description'))
+    v.addField(f('Client Description'), [{ rule: 'required', errorMessage: 'Client description is required.' }]);
   if (f('Contact Person'))
     v.addField(f('Contact Person'),[{ rule: 'required', errorMessage: 'Contact person is required.' }]);
   if (f('Phone'))
@@ -218,7 +220,7 @@ function _lfInitValidator() {
           toast('Lead save failed: ' + (j.error || 'Error'), 'error');
         }
       });
-      _lfShowSuccess(payload['Company Name'] || payload['Remark']);
+      _lfShowSuccess(payload['Company Name'] || payload['Client Description']);
     } catch (err) {
       toast(err, 'error');
       resetButtonLoading(btn);
