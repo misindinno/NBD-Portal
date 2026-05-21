@@ -75,9 +75,11 @@ const BulkView = (() => {
   }
 
   function _emptyRows(count = 50) {
-    return Array.from({ length: count }, () =>
-      config.reduce((row, f) => { row[f.fieldName] = ''; return row; }, { __status__: '', __recordId__: '', __errors__: '' })
-    );
+    return Array.from({ length: count }, _blankRow);
+  }
+
+  function _blankRow() {
+    return config.reduce((row, f) => { row[f.fieldName] = ''; return row; }, { __status__: '', __recordId__: '', __errors__: '' });
   }
 
   function _gridRows() {
@@ -163,21 +165,41 @@ const BulkView = (() => {
     });
   }
 
+  function _pasteIntoGrid(text) {
+    const pasted = String(text || '').replace(/\r?\n$/, '');
+    const rows = typeof Papa !== 'undefined'
+      ? Papa.parse(pasted, { delimiter: '\t', skipEmptyLines: true }).data
+      : pasted.split(/\r?\n/).map(r => r.split('\t'));
+    if (!rows.length) return 0;
+    const selected = hot.getSelectedLast && hot.getSelectedLast();
+    const startRow = selected ? Math.max(0, selected[0]) : 0;
+    const selectedCol = selected ? Math.max(0, selected[1]) : 0;
+    const startCol = Math.min(selectedCol, Math.max(0, config.length - 1));
+    const safeRows = rows.map(row => row.slice(0, Math.max(0, config.length - startCol)));
+    const data = hot.getSourceData().map(row => ({ ...row }));
+    while (data.length < startRow + safeRows.length + 5) data.push(_blankRow());
+    hot.loadData(data);
+    hot.populateFromArray(startRow, startCol, safeRows, undefined, undefined, 'BulkPaste');
+    const endRow = startRow + safeRows.length - 1;
+    const endCol = Math.min(config.length - 1, startCol + Math.max(...safeRows.map(r => r.length), 1) - 1);
+    hot.selectCell(startRow, startCol, endRow, endCol);
+    hot.render();
+    return safeRows.filter(r => r.some(c => String(c ?? '').trim())).length;
+  }
+
   function handlePaste(e) {
+    const target = e.target;
+    const inBulkPasteZone = target && target.closest && target.closest('#bulk-paste-area');
+    const inBulkGrid = target && target.closest && target.closest('.bulk-grid-wrap');
+    if (!inBulkPasteZone && !inBulkGrid) return;
     e.preventDefault();
+    e.stopPropagation();
     const text = (e.clipboardData || window.clipboardData || {}).getData('text/plain') || '';
     const zone = el('bulk-paste-area');
     if (zone) zone.innerHTML = '';
     if (!text.trim() || !hot) return;
-    const pasted = text.replace(/\r?\n$/, '');
-    const rows = typeof Papa !== 'undefined'
-      ? Papa.parse(pasted, { delimiter: '\t', skipEmptyLines: true }).data
-      : pasted.split(/\r?\n/).map(r => r.split('\t'));
-    const selected = hot.getSelected();
-    const startRow = selected ? selected[0][0] : 0;
-    const startCol = selected ? selected[0][1] : 0;
-    hot.populateFromArray(startRow, startCol, rows);
-    _setProgress(0, `Pasted ${rows.filter(r => r.some(c => c.trim())).length} row(s) — click Validate to check`);
+    const count = _pasteIntoGrid(text);
+    if (count) _setProgress(0, `Pasted ${count} row(s) - click Validate to check`);
   }
 
   async function load() {
@@ -191,8 +213,12 @@ const BulkView = (() => {
     const meta = el('bulk-config-meta');
     if (meta) meta.textContent = `Required fields: ${config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None'} · Max 500 rows per import`;
 
+    const content = el('content');
+    if (content) content.addEventListener('paste', handlePaste);
     const pasteZone = el('bulk-paste-area');
     if (pasteZone) pasteZone.addEventListener('paste', handlePaste);
+    const gridWrap = el('bulk-hot')?.closest('.bulk-grid-wrap');
+    if (gridWrap) gridWrap.addEventListener('paste', handlePaste);
 
     hot = new Handsontable(el('bulk-hot'), {
       data: _emptyRows(),
@@ -206,6 +232,10 @@ const BulkView = (() => {
       contextMenu: true,
       manualColumnResize: true,
       copyPaste: true,
+      afterPaste(data) {
+        const count = (data || []).filter(r => r.some(c => String(c ?? '').trim())).length;
+        if (count) _setProgress(0, `Pasted ${count} row(s) - click Validate to check`);
+      },
     });
     _renderSummary();
     _setProgress(0, 'Ready');
