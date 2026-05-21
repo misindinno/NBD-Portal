@@ -152,6 +152,54 @@ function saveBulkRow(row, rowNumber, userEmail) {
   }
 }
 
+function createBulkFollowupOnlyRow(row, rowNumber, userEmail) {
+  assertServerContext_();
+  const source = { ...(row || {}), __rowNumber: Number(rowNumber) || Number(row && row.__rowNumber) || 1 };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const config = getBulkConfig();
+    const normalized = normalizeBulkRow(source, source.__rowNumber, config);
+    const lead = _bulkFindLeadForRow_(normalized.row);
+    if (!lead) {
+      return {
+        rowNumber: source.__rowNumber,
+        saved: false,
+        status: 'Error',
+        errors: 'Existing lead not found for this row.',
+        fieldErrors: []
+      };
+    }
+    const result = withTrustedWriteUser_(userEmail, () => {
+      const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
+      if (!_canWriteLead(lead, user)) throw new Error('Permission denied for this lead.');
+      if (_bulkLeadHasOpenFollowup_(lead['Lead ID'])) {
+        return { status: 'Skipped', recordId: lead['Lead ID'], message: 'Open follow-up already exists.' };
+      }
+      _bulkCreateInitialFollowupForLead_(lead, user);
+      return { status: 'Follow-up Created', recordId: lead['Lead ID'], message: '' };
+    });
+    return {
+      rowNumber: source.__rowNumber,
+      saved: result.status === 'Follow-up Created',
+      skipped: result.status === 'Skipped',
+      status: result.status,
+      recordId: result.recordId || lead['Lead ID'] || '',
+      errors: result.message || ''
+    };
+  } catch (e) {
+    return {
+      rowNumber: source.__rowNumber,
+      saved: false,
+      status: 'Error',
+      errors: e.message || String(e),
+      fieldErrors: []
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function getBulkProgress(batchId) {
   assertServerContext_();
   const key = 'BULK_PROGRESS_' + String(batchId || '');
@@ -332,6 +380,50 @@ function _bulkExistingMap_() {
     if (company) m.company[company] = true;
     return m;
   }, { phone: {}, email: {}, company: {} });
+}
+
+function _bulkFindLeadForRow_(row) {
+  const leadId = String(row['Lead ID'] || row['Lead Id'] || row['ID'] || '').trim();
+  const phone = String(row['Phone'] || '').trim();
+  const email = String(row['Email'] || '').trim().toLowerCase();
+  const company = String(row['Company Name'] || '').trim().toLowerCase();
+  return getAllRows(SHEET_NAMES.LEADS).find(lead => {
+    if (leadId && String(lead['Lead ID'] || '').trim() === leadId) return true;
+    if (phone && String(lead['Phone'] || '').trim() === phone) return true;
+    if (email && String(lead['Email'] || '').trim().toLowerCase() === email) return true;
+    if (company && String(lead['Company Name'] || '').trim().toLowerCase() === company) return true;
+    return false;
+  }) || null;
+}
+
+function _bulkLeadHasOpenFollowup_(leadId) {
+  return getAllRows(SHEET_NAMES.FOLLOWUPS).some(row =>
+    row['Lead ID'] === leadId && String(row['Status'] || 'Open').toLowerCase() !== 'closed'
+  );
+}
+
+function _bulkCreateInitialFollowupForLead_(lead, user) {
+  ensureFollowupSheets_();
+  const followupDate = lead['Next Follow-up Date'] || today();
+  const fuTypes = getConfigByType('Follow-up Type');
+  insertRow(SHEET_NAMES.FOLLOWUPS, pickFollowupMasterFields_({
+    'Follow-up ID': generateUUID(),
+    'Lead ID': lead['Lead ID'],
+    'Planned Date': followupDate,
+    'Follow-up Date': followupDate,
+    'Follow-up Type': fuTypes[0] || 'Call',
+    'Discussion': 'New lead created',
+    'Next Follow-up Date': followupDate,
+    'Status': 'Open',
+    'Created By': user.id,
+    'Created At': now(),
+    'Updated At': now()
+  }));
+  const patch = { 'Next Follow-up Date': followupDate, 'Updated At': now() };
+  if (!lead['Last Follow-up Date']) patch['Last Follow-up Date'] = followupDate;
+  updateRow(SHEET_NAMES.LEADS, 'Lead ID', lead['Lead ID'], patch);
+  _bumpStamp('leads');
+  _bumpStamp('followups');
 }
 
 function _bulkInitialStageId_() {

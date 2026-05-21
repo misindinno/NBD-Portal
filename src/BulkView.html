@@ -42,6 +42,7 @@ const BulkView = (() => {
           <button class="btn btn-outlined btn-sm bulk-action" onclick="BulkView.clear()">${icon('trash-2', 14)} Clear</button>
           <button class="btn btn-outlined btn-sm bulk-action" onclick="BulkView.validate()">${icon('check-circle', 14)} Validate</button>
           <button class="btn btn-primary btn-sm bulk-action" onclick="BulkView.save()">${icon('save', 14)} Save</button>
+          <button class="btn btn-outlined btn-sm bulk-action" onclick="BulkView.createFollowupsOnly()">${icon('phone-plus', 14)} Follow-ups Only</button>
           <button class="btn btn-outlined btn-sm" id="bulk-error-btn" onclick="BulkView.downloadErrors()" style="display:none">${icon('download', 14)} Error CSV</button>
         </div>
       </div>
@@ -152,6 +153,7 @@ const BulkView = (() => {
         if (prop === '__status__') {
           const status = String(rowData.__status__ || '').toLowerCase();
           if (status === 'saved') return { className: 'bulk-cell-status bulk-cell-status-saved' };
+          if (status === 'follow-up created' || status === 'skipped') return { className: 'bulk-cell-status bulk-cell-status-saved' };
           if (status === 'saving') return { className: 'bulk-cell-status bulk-cell-status-saving' };
           if (status === 'error') return { className: 'bulk-cell-status bulk-cell-status-error' };
           return { className: 'bulk-cell-status' };
@@ -327,6 +329,65 @@ const BulkView = (() => {
     }
   }
 
+  async function createFollowupsOnly() {
+    const gridRows = _gridRows();
+    if (!gridRows.length) {
+      Swal.fire('No rows', 'Paste rows that identify existing leads first.', 'info');
+      return;
+    }
+    if (gridRows.length > 500) {
+      Swal.fire('Too many rows', 'Please process 500 rows or fewer at a time.', 'warning');
+      return;
+    }
+    _setBusy(true);
+    errors = [];
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+    lastBatchId = Date.now().toString();
+    try {
+      for (let i = 0; i < gridRows.length; i++) {
+        const item = gridRows[i];
+        _setRowMeta(item.rowNumber, { __status__: 'Saving', __errors__: '', __recordId__: '' });
+        _setProgress(Math.round((i / gridRows.length) * 100), `Creating follow-up for row ${item.rowNumber}...`);
+        const result = await api.createBulkFollowupOnlyRow(item.data, item.rowNumber);
+        if (result.saved) {
+          created++;
+          _setRowMeta(item.rowNumber, { __status__: result.status || 'Follow-up Created', __recordId__: result.recordId || '', __errors__: '' });
+        } else if (result.skipped) {
+          skipped++;
+          _setRowMeta(item.rowNumber, { __status__: 'Skipped', __recordId__: result.recordId || '', __errors__: result.errors || 'Open follow-up already exists.' });
+        } else {
+          failed++;
+          _setRowMeta(item.rowNumber, { __status__: 'Error', __errors__: result.errors || 'Follow-up creation failed' });
+          errors.push({
+            rowNumber: item.rowNumber,
+            errors: result.errors || 'Follow-up creation failed',
+            fieldErrors: result.fieldErrors || [],
+            ...item.data
+          });
+        }
+      }
+      _renderSummary({ total: gridRows.length, valid: created + skipped, errors: failed });
+      _markErrors(errors);
+      _setProgress(100, failed ? 'Follow-up repair completed with errors' : 'Follow-up repair completed');
+      if (created) {
+        await Promise.all([
+          _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e)),
+          api.getFollowups({}).then(rows => AppCache.setRows('followups', rows)).catch(e => console.warn('[BulkView] Follow-up refresh failed', e))
+        ]);
+      }
+      Swal.fire(failed ? 'Completed with errors' : 'Follow-ups repaired',
+        `${created} follow-up(s) created. ${skipped} row(s) already had open follow-up. ${failed} row(s) failed.`,
+        failed ? 'warning' : 'success');
+    } catch (err) {
+      _setProgress(0, 'Follow-up repair failed');
+      Swal.fire('Follow-up repair failed', err.message || String(err), 'error');
+    } finally {
+      _setBusy(false);
+    }
+  }
+
   async function downloadErrors() {
     if (!errors.length) return;
     const flatErrors = errors.map(({ fieldErrors, ...row }) => ({
@@ -352,7 +413,7 @@ const BulkView = (() => {
     _setProgress(0, 'Ready');
   }
 
-  return { load, validate, save, downloadErrors, clear, handlePaste };
+  return { load, validate, save, createFollowupsOnly, downloadErrors, clear, handlePaste };
 })();
 
 async function loadBulkView() {

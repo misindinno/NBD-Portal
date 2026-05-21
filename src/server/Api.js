@@ -262,6 +262,14 @@ function apiSaveBulkRow(token, row, rowNumber) {
   });
 }
 
+function apiCreateBulkFollowupOnlyRow(token, row, rowNumber) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireBulkEntry_();
+    return respond(createBulkFollowupOnlyRow(row || {}, Number(rowNumber) || 1, user.email));
+  });
+}
+
 function apiGetBulkProgress(token, batchId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

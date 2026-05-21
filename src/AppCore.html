@@ -95,6 +95,7 @@ const api = {
   validateBulkRows:    (rows)  => api._authedRead('apiValidateBulkRows', rows),
   saveBulkRows:        (rows)  => api._authedRead('apiSaveBulkRows', rows),
   saveBulkRow:         (row, rowNumber) => api._authedRead('apiSaveBulkRow', row, rowNumber),
+  createBulkFollowupOnlyRow: (row, rowNumber) => api._authedRead('apiCreateBulkFollowupOnlyRow', row, rowNumber),
   getBulkProgress:     (id)    => api._authedRead('apiGetBulkProgress', id),
   createErrorCsv:      (rows)  => api._authedRead('apiCreateErrorCsv', rows),
 
