@@ -167,7 +167,7 @@ function _lfCustomFieldsHTML(leadFields, configOptions) {
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--md-primary);margin:20px 0 14px;padding-bottom:6px;border-bottom:1px solid #E8EAF6">Additional Fields</div>
     <div class="custom-field-section" data-skippable="${isSkippable ? 'true' : 'false'}">
       ${skipToggle}
-      ${visibleFields.map(f => _customFieldControlHTML(f, {}, configOptions)).join('')}
+      ${visibleFields.map(f => _customFieldControlHTML(f, { 'Stage ID': initialStageId }, configOptions)).join('')}
     </div>`;
 }
 
