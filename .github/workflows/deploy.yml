@@ -45,7 +45,11 @@ jobs:
             echo "Run 'clasp login' locally, copy ~/.clasprc.json, and add it as a GitHub secret named CLASPRC_JSON."
             exit 1
           fi
-          echo "$CLASPRC_JSON" > ~/.clasprc.json
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          # Validate the credential file is parseable JSON before proceeding
+          node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.clasprc.json','utf8'))" \
+            && echo "Credentials JSON: OK" \
+            || { echo "ERROR: CLASPRC_JSON secret is not valid JSON. Re-run 'clasp login' and update the secret."; exit 1; }
 
       - name: Push code to all clients
         run: |
