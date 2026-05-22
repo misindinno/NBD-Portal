@@ -460,7 +460,7 @@ function _followupHistoryTable(rows, emptyMsg, ctx) {
           ? (ctx?.stageMap?.[row['Updated Stage ID']]?.['Stage Name'] || row['Updated Stage ID'])
           : '-';
         const contactMode = row['Contact Mode'] || '';
-        const contactModeColor = {'Call Connected':'#16a34a','Whatsapp Conversation':'#0284c7','Call not Picked':'#dc2626'}[contactMode] || '#6b7280';
+        const contactModeColor = {'Call Connected':'#16a34a','WhatsApp Chat':'#2563eb','Call Missed':'#dc2626'}[contactMode] || '#6b7280';
         const contactModeHTML = contactMode
           ? `<span style="font-size:11px;font-weight:600;color:${contactModeColor};background:${contactModeColor}18;padding:2px 8px;border-radius:10px;white-space:nowrap">${escapeHtml(contactMode)}</span>`
           : '-';
@@ -790,13 +790,19 @@ async function openMarkFollowupDoneForm(followupId) {
         </div>
       </div>
       <div class="form-group">
-        <label>Contact Mode *</label>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
-          ${[['Call Connected','phone-call','#16a34a'],['Whatsapp Conversation','message-circle','#0284c7'],['Call not Picked','phone-missed','#dc2626']].map(([val, ic, col]) => `
-          <label style="display:flex;align-items:center;gap:8px;padding:8px 14px;border:1.5px solid #e5e7eb;border-radius:8px;cursor:pointer;font-weight:400;font-size:13px;flex:1;min-width:130px;transition:border-color .15s,background .15s" class="fu-contact-mode-opt">
-            <input type="radio" name="Contact Mode" value="${val}" style="display:none">
-            <span style="color:${col}">${icon(ic, 15)}</span>
-            <span>${val}</span>
+        <label style="font-size:12.5px;font-weight:600;color:#1f2937;display:block;margin-bottom:8px">Contact Mode <span style="color:#ef4444">*</span></label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          ${[
+            { val:'Call Connected', ic:'phone-call',    col:'#16a34a', abg:'#f0fdf4', ab:'#22c55e', ibg:'#dcfce7' },
+            { val:'WhatsApp Chat',  ic:'message-circle',col:'#2563eb', abg:'#eff6ff', ab:'#3b82f6', ibg:'#dbeafe' },
+            { val:'Call Missed',    ic:'phone-missed',  col:'#dc2626', abg:'#fef2f2', ab:'#f87171', ibg:'#fee2e2' },
+          ].map(o => `
+          <label class="fu-contact-mode-opt"
+            data-col="${o.col}" data-abg="${o.abg}" data-ab="${o.ab}" data-ibg="${o.ibg}"
+            style="display:flex;align-items:center;gap:10px;padding:11px 14px;height:52px;border:1.5px solid #e5e7eb;border-radius:12px;cursor:pointer;background:#fafafa;transition:border-color .15s,background .15s,box-shadow .15s;box-shadow:0 1px 2px rgba(0,0,0,.04)">
+            <input type="radio" name="Contact Mode" value="${o.val}" style="position:absolute;opacity:0;width:0;height:0;pointer-events:none">
+            <span class="fcm-icon" style="flex-shrink:0;width:30px;height:30px;border-radius:8px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:${o.col};transition:background .15s">${icon(o.ic, 16)}</span>
+            <span style="font-size:12.5px;font-weight:500;color:#374151;white-space:nowrap;line-height:1">${o.val}</span>
           </label>`).join('')}
         </div>
         <span class="form-error-msg" id="fu-contact-mode-err" style="display:none">Please select a contact mode.</span>
@@ -817,13 +823,32 @@ async function openMarkFollowupDoneForm(followupId) {
 
   // Contact mode radio visual selection
   form.querySelectorAll('.fu-contact-mode-opt').forEach(lbl => {
+    lbl.addEventListener('mouseenter', () => {
+      if (lbl.querySelector('input[type="radio"]').checked) return;
+      lbl.style.borderColor = '#d1d5db';
+      lbl.style.background = '#f9fafb';
+      lbl.style.boxShadow = '0 2px 6px rgba(0,0,0,.07)';
+    });
+    lbl.addEventListener('mouseleave', () => {
+      if (lbl.querySelector('input[type="radio"]').checked) return;
+      lbl.style.borderColor = '#e5e7eb';
+      lbl.style.background = '#fafafa';
+      lbl.style.boxShadow = '0 1px 2px rgba(0,0,0,.04)';
+    });
     lbl.addEventListener('click', () => {
       form.querySelectorAll('.fu-contact-mode-opt').forEach(l => {
         l.style.borderColor = '#e5e7eb';
-        l.style.background = '';
+        l.style.background = '#fafafa';
+        l.style.boxShadow = '0 1px 2px rgba(0,0,0,.04)';
+        const ic = l.querySelector('.fcm-icon');
+        if (ic) ic.style.background = '#f3f4f6';
       });
-      lbl.style.borderColor = 'var(--md-primary)';
-      lbl.style.background = 'var(--md-primary-light, #EDE7F6)';
+      const { ab, abg, ibg } = lbl.dataset;
+      lbl.style.borderColor = ab;
+      lbl.style.background = abg;
+      lbl.style.boxShadow = `0 0 0 3px ${ab}33`;
+      const ic = lbl.querySelector('.fcm-icon');
+      if (ic) ic.style.background = ibg;
       const errEl = document.getElementById('fu-contact-mode-err');
       if (errEl) errEl.style.display = 'none';
     });
