@@ -197,6 +197,15 @@ function _lfInitValidator() {
     setButtonLoading(btn, 'Submitting...');
     try {
       const payload = await collectLeadFormPayload(form);
+
+      const duplicates = await _lfCheckDuplicates(payload['Phone'], payload['Email']);
+      if (duplicates.length) {
+        resetButtonLoading(btn);
+        const proceed = await _lfShowDuplicateWarning(duplicates);
+        if (!proceed) return;
+        setButtonLoading(btn, 'Submitting...');
+      }
+
       const tempId  = 'temp-' + Date.now();
       AppCache.addRow('leads', {
         ...payload, 'Lead ID': tempId, '_queueTemp': true,
@@ -245,5 +254,55 @@ function _lfResetForm() {
   const form = el('lf-form');
   if (form) form.reset();
 }
+
+function _lfCheckDuplicates(phone, email) {
+  return new Promise(resolve => {
+    google.script.run
+      .withSuccessHandler(r => resolve(r && r.success ? (r.data || []) : []))
+      .withFailureHandler(() => resolve([]))
+      .apiCheckLeadDuplicates(App.token, phone || '', email || '', '');
+  });
+}
+
+function _lfShowDuplicateWarning(duplicates) {
+  return new Promise(resolve => {
+    const rows = duplicates.map(d => `
+      <tr style="border-bottom:1px solid #f3f4f6">
+        <td style="padding:8px 10px;font-weight:600;color:#111827">${escapeHtml(d['Company Name'] || '—')}</td>
+        <td style="padding:8px 10px;color:#374151">${escapeHtml(d['Contact Person'] || '—')}</td>
+        <td style="padding:8px 10px;color:#374151">${escapeHtml(d['Phone'] || '—')}</td>
+        <td style="padding:8px 10px"><span style="padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:${d['Lead Status']==='Open'?'#dcfce7':'#f3f4f6'};color:${d['Lead Status']==='Open'?'#15803d':'#6b7280'}">${escapeHtml(d['Lead Status'] || 'Open')}</span></td>
+      </tr>`).join('');
+    const overlay = showModal(`
+      <div class="modal-header">
+        <h2 style="color:#b45309;display:flex;align-items:center;gap:8px">
+          <span style="width:28px;height:28px;border-radius:50%;background:#fef3c7;display:flex;align-items:center;justify-content:center;flex-shrink:0">${icon('alert-triangle',16)}</span>
+          Duplicate Lead Detected
+        </h2>
+      </div>
+      <div style="padding:4px 0 12px">
+        <p style="color:#6b7280;font-size:13.5px;margin-bottom:14px">A lead with the same phone or email already exists. Review before creating a new one.</p>
+        <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:10px">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="background:#f9fafb">
+              <th style="padding:8px 10px;text-align:left;color:#6b7280;font-weight:600">Company</th>
+              <th style="padding:8px 10px;text-align:left;color:#6b7280;font-weight:600">Contact</th>
+              <th style="padding:8px 10px;text-align:left;color:#6b7280;font-weight:600">Phone</th>
+              <th style="padding:8px 10px;text-align:left;color:#6b7280;font-weight:600">Status</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+          <button onclick="this.closest('.modal-overlay').remove()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#374151;font-size:13.5px;font-weight:500;cursor:pointer">Cancel</button>
+          <button id="lf-dup-proceed-btn" style="padding:9px 18px;border-radius:8px;border:none;background:#d97706;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">Create Anyway</button>
+        </div>
+      </div>`);
+    renderIcons(overlay);
+    overlay.querySelector('#lf-dup-proceed-btn').onclick = () => { overlay.remove(); resolve(true); };
+    overlay.querySelector('.modal-close').addEventListener('click', () => resolve(false), { once: true });
+  });
+}
+
 window.loadLeadForm = loadLeadForm;
 </script>

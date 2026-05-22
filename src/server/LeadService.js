@@ -77,6 +77,35 @@ function saveLead(data, email) {
   }
 }
 
+function checkLeadDuplicates(phone, email, excludeLeadId) {
+  const normPhone = phone ? String(phone).replace(/\D/g, '') : '';
+  const normEmail = email ? String(email).trim().toLowerCase() : '';
+  if (!normPhone && !normEmail) return [];
+  return getLeads()
+    .filter(lead => {
+      if (excludeLeadId && lead['Lead ID'] === excludeLeadId) return false;
+      if (normPhone) {
+        const lPhone = String(lead['Phone'] || '').replace(/\D/g, '');
+        const lAlt   = String(lead['Alternate No'] || '').replace(/\D/g, '');
+        if (lPhone && lPhone === normPhone) return true;
+        if (lAlt   && lAlt   === normPhone) return true;
+      }
+      if (normEmail) {
+        const lEmail = String(lead['Email'] || '').trim().toLowerCase();
+        if (lEmail && lEmail === normEmail) return true;
+      }
+      return false;
+    })
+    .map(lead => ({
+      'Lead ID':        lead['Lead ID'],
+      'Company Name':   lead['Company Name'] || '',
+      'Contact Person': lead['Contact Person'] || '',
+      'Phone':          lead['Phone'] || '',
+      'Email':          lead['Email'] || '',
+      'Lead Status':    lead['Lead Status'] || '',
+    }));
+}
+
 function _leadIdFromPayload(data) {
   return String(data['Lead ID'] || data['LeadID'] || data['Lead Id'] || data['ID'] || '').trim();
 }

@@ -158,6 +158,14 @@ function apiGetLeads(token) {
   });
 }
 
+function apiCheckLeadDuplicates(token, phone, email, excludeLeadId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireAnyModule(['Leads', 'LeadForm', 'BulkEntry']);
+    return respond(checkLeadDuplicates(phone, email, excludeLeadId));
+  });
+}
+
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
