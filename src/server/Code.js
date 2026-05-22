@@ -212,7 +212,7 @@ function setupSheets() {
       'Field ID','Sheet Name','Field Name','Column Key','Field Type',
       'Stage ID','Dropdown Source','Formula Logic',
       'Validation Min','Validation Max','Validation Regex','Validation Message',
-      'Help Text','File Types','Max File MB',
+      'Help Text','File Types','Max File MB','Allow Multiple',
       'Is Required','Is Visible','Display Order','Skip Visibility','Per Stage'
     ]);
     safeInitHeaders(SHEET_NAMES.CONFIG, [

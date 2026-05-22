@@ -682,10 +682,30 @@
     </label>`;
 
     } else if (type === 'File') {
-      const accept = field['File Types'] ? `accept="${escapeHtml(field['File Types'])}"` : '';
-      const existing = value ? `<a href="${escapeHtml(value)}" target="_blank" rel="noopener" style="font-size:12px;display:inline-flex;align-items:center;gap:4px;margin-bottom:6px">${icon('paperclip', 13)} View current file</a>` : '';
-      control = `${existing}<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}" data-custom-key="${escapeHtml(key)}" data-required="${required ? 'true' : 'false'}">
-      <input class="form-control" type="file" name="${escapeHtml(key)}__file" data-file-key="${escapeHtml(key)}" data-required="${required && !value ? 'true' : 'false'}" data-max-mb="${escapeHtml(field['Max File MB'] || '')}" ${accept}>`;
+      const isMulti = field['Allow Multiple'] === true || field['Allow Multiple'] === 'TRUE';
+      const accept  = field['File Types'] ? `accept="${escapeHtml(field['File Types'])}"` : '';
+      const maxMbAt = `data-max-mb="${escapeHtml(field['Max File MB'] || '')}"`;
+      if (isMulti) {
+        const urls  = value ? String(value).split('\n').filter(Boolean) : [];
+        const chips = urls.map(u => {
+          const raw  = u.split('/').pop().split('?')[0] || 'File';
+          const name = decodeURIComponent(raw).replace(/_/g, ' ').substring(0, 32);
+          return `<div class="cf-file-chip" data-url="${escapeHtml(u)}" style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 6px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;font-size:12px;margin:2px 2px 4px">
+            <a href="${escapeHtml(u)}" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:4px;color:#2563eb;text-decoration:none;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${icon('paperclip',12)} ${escapeHtml(name)}</a>
+            <button type="button" onclick="_cfRemoveFile(this)" title="Remove" style="background:none;border:none;cursor:pointer;color:#9ca3af;padding:0 0 0 2px;font-size:16px;line-height:1">&times;</button>
+          </div>`;
+        }).join('');
+        control = `<div class="cf-multi-file-wrap" data-required="${required ? 'true' : 'false'}">
+          <div class="cf-files-list" style="display:flex;flex-wrap:wrap;margin-bottom:${urls.length ? '6px' : '0'}">${chips}</div>
+          <input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}" data-custom-key="${escapeHtml(key)}" data-required="${required ? 'true' : 'false'}">
+          <input class="form-control" type="file" multiple name="${escapeHtml(key)}__file" data-file-key="${escapeHtml(key)}" data-multi="true" data-required="${required && !value ? 'true' : 'false'}" ${maxMbAt} ${accept}>
+          <div style="font-size:11px;color:#9ca3af;margin-top:4px">Select one or more files to add alongside existing ones</div>
+        </div>`;
+      } else {
+        const existing = value ? `<a href="${escapeHtml(value)}" target="_blank" rel="noopener" style="font-size:12px;display:inline-flex;align-items:center;gap:4px;margin-bottom:6px">${icon('paperclip', 13)} View current file</a>` : '';
+        control = `${existing}<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}" data-custom-key="${escapeHtml(key)}" data-required="${required ? 'true' : 'false'}">
+        <input class="form-control" type="file" name="${escapeHtml(key)}__file" data-file-key="${escapeHtml(key)}" data-required="${required && !value ? 'true' : 'false'}" ${maxMbAt} ${accept}>`;
+      }
 
     } else if (type === 'Formula') {
       control = `<input class="form-control" type="text" ${attrs} value="${escapeHtml(value)}" readonly>`;
@@ -895,11 +915,24 @@
     });
     for (const input of form.querySelectorAll('input[type="file"][data-file-key]')) {
       if (input.disabled || !input.files || !input.files.length) continue;
-      const file = input.files[0];
-      const maxMb = Number(input.dataset.maxMb || 10);
-      if (file.size > maxMb * 1024 * 1024) throw new Error(`${file.name} must be ${maxMb} MB or less.`);
-      const fileData = await _readFilePayload(file);
-      payload[input.dataset.fileKey] = await _uploadFileToServer(fileData, input.dataset.fileKey || '');
+      const isMulti = input.dataset.multi === 'true';
+      const maxMb   = Number(input.dataset.maxMb || 10);
+      const fkey    = input.dataset.fileKey || '';
+      if (isMulti) {
+        const existingUrls = (payload[fkey] || '').split('\n').filter(Boolean);
+        const newUrls = [];
+        for (const file of Array.from(input.files)) {
+          if (file.size > maxMb * 1024 * 1024) throw new Error(`${file.name} must be ${maxMb} MB or less.`);
+          const fileData = await _readFilePayload(file);
+          newUrls.push(await _uploadFileToServer(fileData, fkey));
+        }
+        payload[fkey] = [...existingUrls, ...newUrls].join('\n');
+      } else {
+        const file = input.files[0];
+        if (file.size > maxMb * 1024 * 1024) throw new Error(`${file.name} must be ${maxMb} MB or less.`);
+        const fileData = await _readFilePayload(file);
+        payload[fkey] = await _uploadFileToServer(fileData, fkey);
+      }
     }
 
     // Trim all string values
@@ -938,6 +971,24 @@
         .withFailureHandler(err => reject(new Error(err && err.message ? err.message : 'File upload failed.')))
         .apiUploadFile(App.token, fileData, fieldKey);
     });
+  }
+
+  function _cfRemoveFile(btn) {
+    const chip   = btn.closest('.cf-file-chip');
+    const wrap   = btn.closest('.cf-multi-file-wrap');
+    if (!chip || !wrap) return;
+    const url    = chip.dataset.url;
+    const hidden = wrap.querySelector('input[type="hidden"]');
+    if (hidden) {
+      hidden.value = hidden.value.split('\n').filter(u => u && u !== url).join('\n');
+      const fileInput = wrap.querySelector('input[type="file"]');
+      if (fileInput) {
+        const hasRemaining = !!hidden.value;
+        const required = wrap.dataset.required === 'true';
+        fileInput.dataset.required = (!hasRemaining && required) ? 'true' : 'false';
+      }
+    }
+    chip.remove();
   }
 
   function _checkLeadDuplicates(phone, email, excludeLeadId) {
@@ -1028,7 +1079,9 @@
 
   function _customFieldDisplayValue(value, field) {
     if (field['Field Type'] === 'File') {
-      return `<a href="${escapeHtml(value)}" target="_blank" rel="noopener">View file</a>`;
+      const urls = String(value).split('\n').filter(Boolean);
+      if (!urls.length) return '—';
+      return urls.map((u, i) => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:3px;margin-right:8px">${icon('paperclip', 12)} File ${i + 1}</a>`).join('');
     }
     if (field['Field Type'] === 'Checkbox') return value === true || value === 'TRUE' ? 'Yes' : 'No';
     if (field['Field Type'] === 'Multi Select' && value) {

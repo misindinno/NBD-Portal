@@ -487,6 +487,10 @@ function openFieldForm(data = {}) {
         <div class="form-group"><label>Max File MB</label>
           <input class="form-control" name="Max File MB" type="number" value="${escapeHtml(data['Max File MB']||10)}"></div>
       </div>
+      <div class="form-group field-option-file">
+        <label><input type="checkbox" name="Allow Multiple" ${data['Allow Multiple']===true||data['Allow Multiple']==='TRUE'?'checked':''}> Allow Multiple Files</label>
+        <div style="font-size:11px;color:#777;margin-top:3px">Users can upload and store several files for this field at once.</div>
+      </div>
       <div class="form-group"><label>Help Text</label>
         <input class="form-control" name="Help Text" value="${escapeHtml(data['Help Text']||'')}" placeholder="Optional hint below field"></div>
       <div class="form-row">
@@ -523,6 +527,7 @@ function openFieldForm(data = {}) {
     payload['Is Required'] = fd.has('Is Required');
     payload['Is Visible'] = fd.has('Is Visible');
     payload['Per Stage'] = fd.has('Per Stage');
+    payload['Allow Multiple'] = fd.has('Allow Multiple');
     payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
     if (isEdit) payload['Field ID'] = data['Field ID'];
     const btn = e.target.querySelector('[type=submit]');
