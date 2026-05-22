@@ -898,7 +898,8 @@
       const file = input.files[0];
       const maxMb = Number(input.dataset.maxMb || 10);
       if (file.size > maxMb * 1024 * 1024) throw new Error(`${file.name} must be ${maxMb} MB or less.`);
-      payload[input.dataset.fileKey] = await _readFilePayload(file);
+      const fileData = await _readFilePayload(file);
+      payload[input.dataset.fileKey] = await _uploadFileToServer(fileData, input.dataset.fileKey || '');
     }
 
     // Trim all string values
@@ -924,6 +925,18 @@
       reader.onload = () => resolve({ name: file.name, mimeType: file.type || 'application/octet-stream', data: reader.result });
       reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
       reader.readAsDataURL(file);
+    });
+  }
+
+  function _uploadFileToServer(fileData, fieldKey) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(r => {
+          if (r && r.success) resolve(r.data || '');
+          else reject(new Error(r && r.error ? r.error : 'File upload failed.'));
+        })
+        .withFailureHandler(err => reject(new Error(err && err.message ? err.message : 'File upload failed.')))
+        .apiUploadFile(App.token, fileData, fieldKey);
     });
   }
 

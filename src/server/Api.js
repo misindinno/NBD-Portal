@@ -158,6 +158,19 @@ function apiGetLeads(token) {
   });
 }
 
+function apiUploadFile(token, filePayload, fieldKey) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireAnyModule(['Leads', 'LeadForm', 'Pipeline', 'BulkEntry']);
+    if (!filePayload || !filePayload.data) return respond(null, 'No file data provided.');
+    const field = fieldKey
+      ? (queryRows(SHEET_NAMES.FIELD_CONFIG, r => r['Column Key'] === fieldKey)[0] || {})
+      : {};
+    const url = _uploadCustomFieldFile(filePayload, field);
+    return respond(url);
+  });
+}
+
 function apiCheckLeadDuplicates(token, phone, email, excludeLeadId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
