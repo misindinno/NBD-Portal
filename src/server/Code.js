@@ -73,6 +73,7 @@ function onOpen() {
   const menu = SpreadsheetApp.getUi()
     .createMenu(CLIENT_CONFIG.APP_TITLE)
     .addItem('⚙️ Run Setup', 'setupSheets')
+    .addItem('🔐 Update Permissions', 'updatePermissions')
     .addSeparator()
     .addItem('🔄 Push Update to All Clients', 'pushUpdate')
     .addSeparator()
@@ -86,6 +87,58 @@ function onOpen() {
     menu.addItem('Bulk Entry', 'openBulkEntry');
   }
   menu.addToUi();
+}
+
+// Forces GAS to exercise every OAuth scope declared in appsscript.json.
+// Run this from the menu after adding or changing oauthScopes so Google
+// presents the authorization dialog for any newly-added permissions.
+function updatePermissions() {
+  const ui = SpreadsheetApp.getUi();
+  const results = [];
+  const errors  = [];
+
+  function probe(label, fn) {
+    try { fn(); results.push('✅ ' + label); }
+    catch (e) { errors.push('❌ ' + label + ': ' + e.message); }
+  }
+
+  // Spreadsheets scope
+  probe('Spreadsheets', () => SpreadsheetApp.getActiveSpreadsheet().getId());
+
+  // Drive scope — indirect reference so GAS static scope detection doesn't
+  // require it when the scope isn't yet authorized
+  probe('Drive', () => {
+    const Drive = this['DriveApp'];
+    if (!Drive) throw new Error('DriveApp not available');
+    Drive.getRootFolder().getId();
+  });
+
+  // External requests scope
+  probe('External Requests', () => {
+    const resp = UrlFetchApp.fetch('https://www.google.com', { muteHttpExceptions: true });
+    if (resp.getResponseCode() < 200) throw new Error('HTTP ' + resp.getResponseCode());
+  });
+
+  // User info scope
+  probe('User Info', () => {
+    const email = Session.getEffectiveUser().getEmail();
+    if (!email) throw new Error('No email returned');
+  });
+
+  // Script app scope
+  probe('Script App', () => ScriptApp.getService().getUrl());
+
+  // Container UI scope (this function itself runs in container, so if we got here it's authorized)
+  probe('Container UI', () => SpreadsheetApp.getUi());
+
+  const allOk = errors.length === 0;
+  const body  = [...results, ...(errors.length ? ['', ...errors] : [])].join('\n');
+  const title = allOk ? '✅ All Permissions Granted' : '⚠️ Permission Issues Found';
+  const note  = allOk
+    ? '\n\nAll scopes are authorized. You can now redeploy the web app.'
+    : '\n\nFailed scopes need attention. Check oauthScopes in appsscript.json.';
+
+  ui.alert(title, body + note, ui.ButtonSet.OK);
 }
 
 function _showQueueStatus() {

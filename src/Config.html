@@ -88,6 +88,52 @@ async function loadPortalSettings() {
     });
     toast('Saving settings…', 'info');
   });
+
+  // ── Update Permissions card ──────────────────────────────────────────────
+  const permCard = document.createElement('div');
+  permCard.className = 'card';
+  permCard.style.cssText = 'padding:18px;max-width:760px;margin-top:18px';
+  permCard.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+      <div>
+        <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">OAuth Permissions</h3>
+        <p style="color:#666;font-size:13px">Probes every OAuth scope declared in appsscript.json. Run this after adding new scopes or if pages fail to load with a permissions error.</p>
+        <p style="color:#999;font-size:12px;margin-top:4px">Note: Drive scope can only be fully probed from the Google Sheets menu (⚙ Update Permissions), not the web app.</p>
+      </div>
+      <button id="btn-update-perms" class="btn btn-outlined" style="white-space:nowrap">${icon('shield',14)} Update Permissions</button>
+    </div>
+    <div id="perm-results" style="display:none;font-size:13px;margin-top:6px"></div>`;
+  el('cfg-settings').appendChild(permCard);
+  renderIcons(permCard);
+
+  el('btn-update-perms').addEventListener('click', async () => {
+    const btn = el('btn-update-perms');
+    const resultBox = el('perm-results');
+    setButtonLoading(btn);
+    resultBox.style.display = 'none';
+    try {
+      const { results, allGranted } = await api.updatePermissions();
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = results.map(r =>
+        `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f0f0">
+          <span style="font-size:15px">${r.ok ? '✅' : '❌'}</span>
+          <span style="font-weight:500;flex:1">${escapeHtml(r.label)}</span>
+          ${!r.ok ? `<span style="color:#c00;font-size:12px">${escapeHtml(r.error || '')}</span>` : ''}
+        </div>`
+      ).join('') +
+      `<div style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:13px;
+          background:${allGranted ? '#f0fdf4' : '#fff7ed'};color:${allGranted ? '#166534' : '#92400e'}">
+        ${allGranted
+          ? '✅ All scopes authorized. You can redeploy the web app now.'
+          : '⚠️ Some scopes failed. Open the Google Sheets menu → ' + escapeHtml(App.config?.settings?.appTitle || 'NBD Portal') + ' → Update Permissions to complete authorization.'}
+      </div>`;
+      if (allGranted) toast('All permissions granted!', 'success');
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    } finally {
+      resetButtonLoading(btn);
+    }
+  });
 }
 
 // ── Pipeline Stages ──────────────────────────────────────────────────────────

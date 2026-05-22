@@ -87,6 +87,39 @@ function apiBootstrap() {
   });
 }
 
+// ── Permission probe (admin only) ─────────────────────────────────────────────
+function apiUpdatePermissions(token) {
+  return apiGuard_(() => {
+    _currentApiToken_ = token;
+    requireAdmin();
+    const results = [];
+    const errors  = [];
+
+    function probe(label, fn) {
+      try { fn(); results.push({ label, ok: true }); }
+      catch (e) { results.push({ label, ok: false, error: e.message }); errors.push(label); }
+    }
+
+    probe('Spreadsheets', () => SpreadsheetApp.getActiveSpreadsheet().getId());
+    probe('Drive', () => {
+      const Drive = this['DriveApp'];
+      if (!Drive) throw new Error('DriveApp not available in web app context — run "Update Permissions" from the sheet menu');
+      Drive.getRootFolder().getId();
+    });
+    probe('External Requests', () => {
+      const resp = UrlFetchApp.fetch('https://www.google.com', { muteHttpExceptions: true });
+      if (resp.getResponseCode() < 200) throw new Error('HTTP ' + resp.getResponseCode());
+    });
+    probe('User Info', () => {
+      const email = Session.getEffectiveUser().getEmail();
+      if (!email) throw new Error('No email returned');
+    });
+    probe('Script App', () => ScriptApp.getService().getUrl());
+
+    return respond({ results, failedScopes: errors, allGranted: errors.length === 0 });
+  });
+}
+
 // ── Read endpoints ────────────────────────────────────────────────────────────
 // All accept token as first arg; _currentApiToken_ is set so _apiUser() can
 // resolve identity without needing Session.getActiveUser().
