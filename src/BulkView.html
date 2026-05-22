@@ -9,11 +9,11 @@ const BulkView = (() => {
     return `
     <div class="bulk-page">
       <style>
-        .bulk-page { display:flex; flex-direction:column; gap:12px; }
+        .bulk-page { display:flex; flex-direction:column; gap:12px; height:calc(100vh - 150px); min-height:520px; }
         .bulk-toolbar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
         .bulk-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
         .bulk-meta { font-size:12px; color:#6b7280; }
-        .bulk-grid-wrap { border:1px solid #e5e7eb; border-radius:10px; background:#fff; min-height:420px; position:relative; }
+        .bulk-grid-wrap { border:1px solid #e5e7eb; border-radius:10px; background:#fff; min-height:0; flex:1; position:relative; overflow:hidden; }
         .bulk-progress { height:8px; background:#f3f4f6; border-radius:999px; overflow:hidden; min-width:180px; }
         .bulk-progress span { display:block; height:100%; width:0%; background:var(--md-primary); transition:width .2s ease; }
         .bulk-summary { display:flex; gap:8px; flex-wrap:wrap; }
@@ -27,11 +27,6 @@ const BulkView = (() => {
         .bulk-cell-status-saved { background:#dcfce7 !important; color:#166534 !important; }
         .bulk-cell-status-saving { background:#dbeafe !important; color:#1d4ed8 !important; }
         .bulk-cell-status-error { background:#fee2e2 !important; color:#991b1b !important; }
-        .bulk-paste-zone { background:#f0f9ff; border:2px dashed #bae6fd; border-radius:8px; padding:10px 14px; }
-        .bulk-paste-label { font-size:12px;font-weight:600;color:#0369a1;margin-bottom:6px;display:flex;align-items:center;gap:6px; }
-        .bulk-paste-area { width:100%;min-height:38px;max-height:80px;overflow-y:auto;border-radius:6px;background:#fff;border:1px solid #bae6fd;padding:8px 10px;font-size:12px;color:#374151;cursor:text;outline:none;box-sizing:border-box;font-family:inherit; }
-        .bulk-paste-area:focus { border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.15); }
-        .bulk-paste-area:empty:before { content:attr(data-placeholder);color:#94a3b8;pointer-events:none; }
       </style>
       <div class="bulk-toolbar">
         <div>
@@ -47,11 +42,6 @@ const BulkView = (() => {
         </div>
       </div>
       <div class="bulk-summary" id="bulk-summary"></div>
-      <div class="bulk-paste-zone">
-        <div class="bulk-paste-label">${icon('clipboard', 14)} Paste zone — click here, then Ctrl+V to paste from Excel / Google Sheets</div>
-        <div id="bulk-paste-area" class="bulk-paste-area" contenteditable="true" tabindex="0"
-          data-placeholder="Click and press Ctrl+V — data will load into the grid automatically"></div>
-      </div>
       <div style="display:flex;align-items:center;gap:10px">
         <div class="bulk-progress"><span id="bulk-progress-bar"></span></div>
         <span class="bulk-meta" id="bulk-progress-label">Ready</span>
@@ -191,14 +181,11 @@ const BulkView = (() => {
 
   function handlePaste(e) {
     const target = e.target;
-    const inBulkPasteZone = target && target.closest && target.closest('#bulk-paste-area');
     const inBulkGrid = target && target.closest && target.closest('.bulk-grid-wrap');
-    if (!inBulkPasteZone && !inBulkGrid) return;
+    if (!inBulkGrid) return;
     e.preventDefault();
     e.stopPropagation();
     const text = (e.clipboardData || window.clipboardData || {}).getData('text/plain') || '';
-    const zone = el('bulk-paste-area');
-    if (zone) zone.innerHTML = '';
     if (!text.trim() || !hot) return;
     const count = _pasteIntoGrid(text);
     if (count) _setProgress(0, `Pasted ${count} row(s) - click Validate to check`);
@@ -217,8 +204,6 @@ const BulkView = (() => {
 
     const content = el('content');
     if (content) content.addEventListener('paste', handlePaste);
-    const pasteZone = el('bulk-paste-area');
-    if (pasteZone) pasteZone.addEventListener('paste', handlePaste);
     const gridWrap = el('bulk-hot')?.closest('.bulk-grid-wrap');
     if (gridWrap) gridWrap.addEventListener('paste', handlePaste);
 
@@ -229,11 +214,11 @@ const BulkView = (() => {
       rowHeaders: true,
       stretchH: 'all',
       minSpareRows: 5,
-      height: 430,
       licenseKey: 'non-commercial-and-evaluation',
       contextMenu: true,
       manualColumnResize: true,
       copyPaste: true,
+      height: '100%',
       afterPaste(data) {
         const count = (data || []).filter(r => r.some(c => String(c ?? '').trim())).length;
         if (count) _setProgress(0, `Pasted ${count} row(s) - click Validate to check`);
