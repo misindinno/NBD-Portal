@@ -211,8 +211,11 @@ function _uploadCustomFieldFile(file, field) {
   const bytes = Utilities.base64Decode(base64);
   const maxMb = Number(field['Max File MB']) || 10;
   if (bytes.length > maxMb * 1024 * 1024) throw new Error(`${field['Field Name']} file must be ${maxMb} MB or less.`);
+  const Drive = this['DriveApp'];
   const folder = _getUploadFolder();
-  return folder.createFile(Utilities.newBlob(bytes, mimeType, name)).getUrl();
+  const created = folder.createFile(Utilities.newBlob(bytes, mimeType, name));
+  if (Drive) created.setSharing(Drive.Access.ANYONE_WITH_LINK, Drive.Permission.VIEW);
+  return created.getUrl();
 }
 
 function _validateCustomFileType(mimeType, field) {
