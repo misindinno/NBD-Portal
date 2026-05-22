@@ -428,18 +428,19 @@ function apiGetAllQueueHistory(token, filterEmail, limit) {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 function _apiUser() {
-  // Try token-based identity first (works with "Execute as: Me" deployment)
   if (_currentApiToken_) {
     const session = readAuthSession_(_currentApiToken_);
-    if (session) {
-      const result = getCurrentUserByEmail_(session.email);
-      if (result.success) { refreshAuthSession_(_currentApiToken_); return result.data; }
-    }
+    // Token present but not in cache = session expired; tell the client to re-login.
+    if (!session) throw new Error('SESSION_EXPIRED');
+    const result = getCurrentUserByEmail_(session.email);
+    if (!result.success) throw new Error(result.error || 'ACCESS_DENIED');
+    refreshAuthSession_(_currentApiToken_);
+    return result.data;
   }
-  // Fallback: GAS session (only works on "Execute as: User accessing" deployment)
-  const result = getCurrentUser('', false);
-  if (!result.success) throw new Error(result.error);
-  return result.data;
+  // No token — only works on "Execute as: User accessing" deployments.
+  // This portal uses "Execute as: USER_DEPLOYING" + anonymous access, so
+  // Session.getActiveUser() always returns empty string here.
+  throw new Error('SESSION_EXPIRED');
 }
 
 function _requireModule(moduleName) {

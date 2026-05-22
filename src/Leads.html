@@ -966,8 +966,14 @@
     return new Promise((resolve, reject) => {
       google.script.run
         .withSuccessHandler(r => {
-          if (r && r.success) resolve(r.data || '');
-          else reject(new Error(r && r.error ? r.error : 'File upload failed.'));
+          if (r && r.success) return resolve(r.data || '');
+          const msg = (r && r.error) ? r.error : 'File upload failed.';
+          if (/SESSION_EXPIRED/i.test(msg)) {
+            localStorage.removeItem('nbd_token');
+            showLoginOverlay('Your session expired. Please sign in again.');
+            return reject(new Error('Session expired — please sign in again.'));
+          }
+          reject(new Error(msg));
         })
         .withFailureHandler(err => reject(new Error(err && err.message ? err.message : 'File upload failed.')))
         .apiUploadFile(App.token, fileData, fieldKey);
