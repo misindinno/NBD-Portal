@@ -130,6 +130,26 @@ function claimJobs_(workerOwner, batchSize) {
     const leaseUntilStr = _msToDateStr_(nowMs + Q_LEASE_MS);
 
     const updates = []; // { rowIndex, newValues }
+    const payloadCol = colIdx('Payload JSON');
+
+    // Track one-at-a-time per record: if a job for a leadId is already claimed
+    // or still in-flight (PROCESSING with active lease), block later jobs for
+    // the same lead so they run in strict FIFO order — like a yield/generator.
+    const blockedLeadIds = new Set();
+
+    // First pass: collect leadIds that are currently PROCESSING with a live lease
+    // so we don't claim their next job in this same batch run.
+    for (let i = 1; i < data.length; i++) {
+      const row    = data[i];
+      const status = String(row[statusCol] || '');
+      if (status !== Q_STATUS.PROCESSING) continue;
+      const leaseUntil = row[leaseUntilCol] ? new Date(row[leaseUntilCol]).getTime() : 0;
+      if (leaseUntil <= nowMs) continue; // stale — will be reclaimed
+      try {
+        const p = JSON.parse(String(row[payloadCol] || '{}'));
+        if (p.leadId) blockedLeadIds.add(String(p.leadId));
+      } catch (_) {}
+    }
 
     for (let i = 1; i < data.length && claimed.length < batchSize; i++) {
       const row    = data[i];
@@ -154,6 +174,15 @@ function claimJobs_(workerOwner, batchSize) {
         continue;
       }
 
+      // Serial-per-lead guard: skip if another job for this lead is already
+      // claimed in this batch or actively processing in a concurrent worker.
+      let jobLeadId = '';
+      try {
+        const p = JSON.parse(String(row[payloadCol] || '{}'));
+        jobLeadId = String(p.leadId || '');
+      } catch (_) {}
+      if (jobLeadId && blockedLeadIds.has(jobLeadId)) continue;
+
       // Claim: set PROCESSING + lease
       const claimedRow = row.slice();
       claimedRow[statusCol]     = Q_STATUS.PROCESSING;
@@ -161,6 +190,9 @@ function claimJobs_(workerOwner, batchSize) {
       claimedRow[lockOwnerCol]  = workerOwner;
       claimedRow[updatedAtCol]  = nowStr;
       updates.push({ rowIndex: i + 1, values: claimedRow });
+
+      // Block any further jobs for this lead in this batch
+      if (jobLeadId) blockedLeadIds.add(jobLeadId);
 
       // Build job object from row data
       const job = {};
