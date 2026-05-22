@@ -235,7 +235,7 @@ async function loadPipeline() {
         _updatePipelineEmptyStates();
         QueueManager.enqueue({
           module: 'leads', actionType: 'updateLeadStage',
-          payload: { leadId, stageId: newStageId, note: '' },
+          payload: { leadId, stageId: newStageId, fromStageId: oldStageId, note: '' },
           onDone: () => toast('Stage updated!'),
           onFail: j => {
             toast('Stage update failed: ' + (j.error || 'Error'), 'error');
@@ -363,7 +363,7 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
       loadPipeline();
       QueueManager.enqueue({
         module: 'leads', actionType: 'moveLeadStageWithFields',
-        payload: { leadId, stageId, fields: { ...(fieldPayload || {}), __stage_skipped: skipped ? 'true' : '' }, note: '' },
+        payload: { leadId, stageId, fromStageId: lead?.['Stage ID'] || '', fields: { ...(fieldPayload || {}), __stage_skipped: skipped ? 'true' : '' }, note: '' },
         onDone: () => {
           toast('Stage updated!');
           if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});

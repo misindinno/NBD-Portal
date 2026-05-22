@@ -254,11 +254,15 @@ function _getUploadFolder() {
   return folder;
 }
 
-function updateLeadStage(leadId, newStageId, note, email) {
+function updateLeadStage(leadId, newStageId, note, email, fromStageId) {
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
+  // Stale-job guard: if the lead has already been moved by a newer update, skip silently.
+  if (fromStageId && lead['Stage ID'] !== fromStageId) {
+    return respond({ leadId, stageId: lead['Stage ID'], skipped: true });
+  }
   const stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === newStageId)[0];
   if (!stage) return respond(null, 'Stage not found.');
   const stageName = stage['Stage Name'] || 'selected stage';
@@ -288,11 +292,15 @@ function updateLeadStage(leadId, newStageId, note, email) {
   return respond({ leadId, stageId: newStageId, leadStatus: leadPatch['Lead Status'] || lead['Lead Status'] || 'Open' });
 }
 
-function moveLeadStageWithFields(leadId, newStageId, fields, note, email) {
+function moveLeadStageWithFields(leadId, newStageId, fields, note, email, fromStageId) {
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
+  // Stale-job guard: if the lead has already been moved by a newer update, skip silently.
+  if (fromStageId && lead['Stage ID'] !== fromStageId) {
+    return respond({ leadId, stageId: lead['Stage ID'], skipped: true });
+  }
 
   const stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === newStageId)[0];
   if (!stage) return respond(null, 'Stage not found.');

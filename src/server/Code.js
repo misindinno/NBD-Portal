@@ -177,9 +177,9 @@ function _dispatchWrite(fn, email, payload) {
     // ── Leads
     case 'saveLead':          return saveLead(payload, email);
     case 'deleteLead':        return deleteLead(payload.id, email);
-    case 'updateLeadStage':   return updateLeadStage(payload.leadId, payload.stageId, payload.note, email);
+    case 'updateLeadStage':   return updateLeadStage(payload.leadId, payload.stageId, payload.note, email, payload.fromStageId || '');
     case 'moveLeadStageWithFields':
-      return moveLeadStageWithFields(payload.leadId, payload.stageId, payload.fields || {}, payload.note, email);
+      return moveLeadStageWithFields(payload.leadId, payload.stageId, payload.fields || {}, payload.note, email, payload.fromStageId || '');
     // ── Follow-ups
     case 'saveFollowup':      return saveFollowup(payload, email);
     case 'markFollowupDone':  return markFollowupDone(payload.id, payload.data || {}, email);
