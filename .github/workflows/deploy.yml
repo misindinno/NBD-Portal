@@ -63,25 +63,28 @@ jobs:
           } catch (e) {}
 
           let parsed = null;
-          let lastError = null;
+          const errors = [];
           for (const candidate of candidates) {
             try {
               parsed = JSON.parse(candidate);
               if (typeof parsed === 'string') parsed = JSON.parse(parsed);
               break;
             } catch (e) {
-              lastError = e;
+              errors.push(e.message);
             }
           }
 
           if (!parsed || typeof parsed !== 'object') {
             console.error('ERROR: CLASPRC_JSON could not be parsed as clasp credentials JSON.');
-            if (lastError) console.error(lastError.message);
+            if (errors.length) console.error(errors[0]);
             process.exit(1);
           }
 
-          if (!parsed.token || !parsed.token.refresh_token) {
+          const hasLegacyToken = !!(parsed.token && parsed.token.refresh_token);
+          const hasDefaultToken = !!(parsed.tokens && parsed.tokens.default && parsed.tokens.default.refresh_token);
+          if (!hasLegacyToken && !hasDefaultToken) {
             console.error('ERROR: CLASPRC_JSON parsed, but refresh_token is missing.');
+            console.error('Expected either token.refresh_token or tokens.default.refresh_token.');
             process.exit(1);
           }
 
