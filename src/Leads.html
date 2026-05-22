@@ -967,12 +967,17 @@
   function _isFileTypeAllowed(file, acceptAttr) {
     if (!acceptAttr) return true;
     const allowed = acceptAttr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (!allowed.length) return true;
     const type = (file.type || '').toLowerCase();
-    const ext  = file.name.split('.').pop().toLowerCase();
+    const ext  = (file.name.split('.').pop() || '').toLowerCase();
     return allowed.some(rule => {
-      if (rule.endsWith('/*')) return type.startsWith(rule.slice(0, -1));
+      if (rule.endsWith('/*')) {
+        const prefix = rule.slice(0, rule.length - 1); // e.g. 'image/'
+        return type.startsWith(prefix);
+      }
+      if (rule.startsWith('.')) return ext === rule.slice(1);
       if (rule.includes('/')) return type === rule;
-      return rule.replace(/^\./, '') === ext;
+      return ext === rule;
     });
   }
 
