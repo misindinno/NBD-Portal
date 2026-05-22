@@ -25,6 +25,43 @@ const Q_HEADERS = [
   'Lease Until', 'Lock Owner', 'Last Error', 'Processed At', 'Final Record ID'
 ];
 
+// ── Record key — one job at a time per record ─────────────────────────────────
+// Returns a stable "<type>:<id>" string for any action type so the claim loop
+// can block duplicate-record jobs across ALL modules, not just leads.
+// Returns '' for actions that have no specific record (bulk config ops, etc.).
+function _qRecordKey_(actionType, payload) {
+  if (!payload) return '';
+  const p = payload;
+  switch (actionType) {
+    // Leads
+    case 'saveLead':
+      return p['Lead ID'] ? 'lead:' + p['Lead ID'] : (p.leadId ? 'lead:' + p.leadId : '');
+    case 'deleteLead':
+      return p.id ? 'lead:' + p.id : '';
+    case 'updateLeadStage':
+    case 'moveLeadStageWithFields':
+      return p.leadId ? 'lead:' + p.leadId : '';
+    // Follow-ups (key on the followup id; fallback to lead so saves/done for same followup serialize)
+    case 'saveFollowup':
+      return p.id ? 'followup:' + p.id : (p.leadId ? 'lead:' + p.leadId : '');
+    case 'markFollowupDone':
+    case 'deleteFollowup':
+      return p.id ? 'followup:' + p.id : '';
+    // Config
+    case 'updateConfigStatus':
+      return p.id ? 'config:' + p.id : '';
+    case 'saveStage':
+      return (p['Stage ID'] || p.stageId) ? 'stage:' + (p['Stage ID'] || p.stageId) : '';
+    case 'saveFieldConfig':
+      return (p['Field ID'] || p.fieldId) ? 'field:' + (p['Field ID'] || p.fieldId) : '';
+    case 'saveUser':
+      return (p['ID'] || p['User ID'] || p.userId) ? 'user:' + (p['ID'] || p['User ID'] || p.userId) : '';
+    // Bulk / no specific record — no blocking needed
+    default:
+      return '';
+  }
+}
+
 // ── Enqueue ───────────────────────────────────────────────────────────────────
 // Writes ONE row to JOB_QUEUE. Returns immediately — no heavy operations here.
 // Idempotent: if requestId already exists, returns existing status (no duplicate).
@@ -130,15 +167,16 @@ function claimJobs_(workerOwner, batchSize) {
     const leaseUntilStr = _msToDateStr_(nowMs + Q_LEASE_MS);
 
     const updates = []; // { rowIndex, newValues }
-    const payloadCol = colIdx('Payload JSON');
+    const payloadCol   = colIdx('Payload JSON');
+    const actionCol    = colIdx('Action Type');
 
-    // Track one-at-a-time per record: if a job for a leadId is already claimed
-    // or still in-flight (PROCESSING with active lease), block later jobs for
-    // the same lead so they run in strict FIFO order — like a yield/generator.
-    const blockedLeadIds = new Set();
+    // One-at-a-time per record across ALL action types.
+    // Each job is keyed by "<type>:<id>" so saves/deletes/stage-moves for the
+    // same record block each other, but unrelated records run in parallel.
+    const blockedKeys = new Set();
 
-    // First pass: collect leadIds that are currently PROCESSING with a live lease
-    // so we don't claim their next job in this same batch run.
+    // First pass: mark keys of jobs that are actively PROCESSING (live lease)
+    // so we don't start their successor in the same batch run.
     for (let i = 1; i < data.length; i++) {
       const row    = data[i];
       const status = String(row[statusCol] || '');
@@ -146,8 +184,8 @@ function claimJobs_(workerOwner, batchSize) {
       const leaseUntil = row[leaseUntilCol] ? new Date(row[leaseUntilCol]).getTime() : 0;
       if (leaseUntil <= nowMs) continue; // stale — will be reclaimed
       try {
-        const p = JSON.parse(String(row[payloadCol] || '{}'));
-        if (p.leadId) blockedLeadIds.add(String(p.leadId));
+        const key = _qRecordKey_(String(row[actionCol] || ''), JSON.parse(String(row[payloadCol] || '{}')));
+        if (key) blockedKeys.add(key);
       } catch (_) {}
     }
 
@@ -174,14 +212,13 @@ function claimJobs_(workerOwner, batchSize) {
         continue;
       }
 
-      // Serial-per-lead guard: skip if another job for this lead is already
-      // claimed in this batch or actively processing in a concurrent worker.
-      let jobLeadId = '';
+      // Serial-per-record guard: skip if another job for the same record is
+      // already claimed in this batch or running in a concurrent worker.
+      let recordKey = '';
       try {
-        const p = JSON.parse(String(row[payloadCol] || '{}'));
-        jobLeadId = String(p.leadId || '');
+        recordKey = _qRecordKey_(String(row[actionCol] || ''), JSON.parse(String(row[payloadCol] || '{}')));
       } catch (_) {}
-      if (jobLeadId && blockedLeadIds.has(jobLeadId)) continue;
+      if (recordKey && blockedKeys.has(recordKey)) continue;
 
       // Claim: set PROCESSING + lease
       const claimedRow = row.slice();
@@ -191,8 +228,8 @@ function claimJobs_(workerOwner, batchSize) {
       claimedRow[updatedAtCol]  = nowStr;
       updates.push({ rowIndex: i + 1, values: claimedRow });
 
-      // Block any further jobs for this lead in this batch
-      if (jobLeadId) blockedLeadIds.add(jobLeadId);
+      // Block any further jobs for this record in this batch
+      if (recordKey) blockedKeys.add(recordKey);
 
       // Build job object from row data
       const job = {};
