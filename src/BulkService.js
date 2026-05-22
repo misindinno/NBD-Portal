@@ -166,15 +166,15 @@ function createBulkFollowupOnlyRow(row, rowNumber, userEmail) {
         rowNumber: source.__rowNumber,
         saved: false,
         status: 'Error',
-        errors: 'Existing lead not found for this row.',
+        errors: 'Create lead first.',
         fieldErrors: []
       };
     }
     const result = withTrustedWriteUser_(userEmail, () => {
       const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
       if (!_canWriteLead(lead, user)) throw new Error('Permission denied for this lead.');
-      if (_bulkLeadHasOpenFollowup_(lead['Lead ID'])) {
-        return { status: 'Skipped', recordId: lead['Lead ID'], message: 'Open follow-up already exists.' };
+      if (_bulkLeadHasAnyFollowup_(lead['Lead ID'])) {
+        throw new Error('Follow-up already exists for this lead.');
       }
       _bulkCreateInitialFollowupForLead_(lead, user);
       return { status: 'Follow-up Created', recordId: lead['Lead ID'], message: '' };
@@ -182,7 +182,7 @@ function createBulkFollowupOnlyRow(row, rowNumber, userEmail) {
     return {
       rowNumber: source.__rowNumber,
       saved: result.status === 'Follow-up Created',
-      skipped: result.status === 'Skipped',
+      skipped: false,
       status: result.status,
       recordId: result.recordId || lead['Lead ID'] || '',
       errors: result.message || ''
@@ -396,9 +396,9 @@ function _bulkFindLeadForRow_(row) {
   }) || null;
 }
 
-function _bulkLeadHasOpenFollowup_(leadId) {
+function _bulkLeadHasAnyFollowup_(leadId) {
   return getAllRows(SHEET_NAMES.FOLLOWUPS).some(row =>
-    row['Lead ID'] === leadId && String(row['Status'] || 'Open').toLowerCase() !== 'closed'
+    row['Lead ID'] === leadId
   );
 }
 
