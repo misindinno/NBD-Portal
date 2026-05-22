@@ -332,7 +332,7 @@ function _fuTable(rows, emptyMsg, ctx) {
 }
 
 function _canDeleteFollowup() {
-  return String(App.user.department || '').trim().toUpperCase() === 'MIS';
+  return String(App.user.department || '').trim().toUpperCase() === 'MIS' || App.user.role === 'ADMIN';
 }
 
 function _fuTableRow(r) {

@@ -131,7 +131,7 @@
         //   },
         //   cellClick: function(e, cell) { openLeadDetail(_leadRowId(cell.getRow().getData())); }
         // }
-        ...(String(App.user.department || '').trim().toUpperCase() === 'MIS' ? [{
+        ...(String(App.user.department || '').trim().toUpperCase() === 'MIS' || App.user.role === 'ADMIN' ? [{
           title: '', width: 80, hozAlign: 'center', headerSort: false,
           formatter: function() {
             return '<button class="btn btn-sm" style="color:#D32F2F;border-color:#D32F2F;padding:2px 10px;font-size:11px;font-weight:600">Delete</button>';
@@ -217,6 +217,7 @@
     const stageMap = App.config.stages.reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
     const stage = stageMap[lead['Stage ID']];
     const showNbdPush = _canPushLeadToNbd(lead);
+    const canDeleteLead = String(App.user.department || '').trim().toUpperCase() === 'MIS' || App.user.role === 'ADMIN';
     const _sc = safeColor(stage?.Color) || '#6366f1';
     const _stageVal = '<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + _sc + ';flex-shrink:0;display:inline-block"></span>' + escapeHtml(stage?.['Stage Name'] || '—') + '</span>';
     const overlay = showModal(`
@@ -277,13 +278,16 @@
         ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
           ${icon('send', 14)} Push to NBD
         </button>` : ''}
+        ${canDeleteLead ? `<button class="btn btn-outlined btn-sm" style="color:#D32F2F;border-color:#D32F2F" onclick="deleteLeadConfirm('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'))">
+          ${icon('trash-2', 14)} Delete
+        </button>` : ''}
       </div>
     </div>
-    <div id="tab-log" class="tab-pane">
-      ${_activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
-    </div>
-    <div id="tab-history" class="tab-pane" style="display:none">
+    <div id="tab-history" class="tab-pane">
       ${_followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
+    </div>
+    <div id="tab-log" class="tab-pane" style="display:none">
+      ${_activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
     </div>
     <div id="tab-edit" class="tab-pane" style="display:none">
       ${buildLeadFormHTML(lead, leadFields, configOptions)}

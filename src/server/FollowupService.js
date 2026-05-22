@@ -286,7 +286,7 @@ function deleteFollowup(followupId, email) {
   if (!result.success) throw new Error(result.error);
   const user = result.data;
   const isMIS = String(user.department || '').trim().toUpperCase() === 'MIS';
-  if (!isMIS) throw new Error('Permission denied. Only MIS department users can delete follow-ups.');
+  if (!isMIS && user.role !== 'ADMIN') throw new Error('Permission denied. Only MIS or Admin users can delete follow-ups.');
   deleteRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
   _bumpStamp('followups');
   return respond(true);

@@ -414,7 +414,7 @@ function _assertCanEnqueueJob_(user, moduleName, actionType) {
   const misDepartment = String(user.department || '').trim().toUpperCase() === 'MIS';
 
   if (actionType === 'deleteLead') {
-    if (!misDepartment || !has('Leads')) throw new Error('Permission denied. Only MIS lead users can delete leads.');
+    if ((!misDepartment && user.role !== 'ADMIN') || !has('Leads')) throw new Error('Permission denied. Only MIS or Admin users can delete leads.');
     return;
   }
   if (['saveLead', 'updateLeadStage', 'moveLeadStageWithFields', 'pushLeadToNbd'].includes(actionType)) {
