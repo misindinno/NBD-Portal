@@ -211,10 +211,11 @@ function _uploadCustomFieldFile(file, field) {
   const bytes = Utilities.base64Decode(base64);
   const maxMb = Number(field['Max File MB']) || 10;
   if (bytes.length > maxMb * 1024 * 1024) throw new Error(`${field['Field Name']} file must be ${maxMb} MB or less.`);
-  const Drive = this['DriveApp'];
   const folder = _getUploadFolder();
   const created = folder.createFile(Utilities.newBlob(bytes, mimeType, name));
-  if (Drive) created.setSharing(Drive.Access.ANYONE_WITH_LINK, Drive.Permission.VIEW);
+  try {
+    created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (_) {}
   return created.getUrl();
 }
 
@@ -238,17 +239,13 @@ function _getUploadFolder() {
   }
   const props = PropertiesService.getScriptProperties();
   const existingId = props.getProperty('CUSTOM_FIELD_UPLOAD_FOLDER_ID');
-  // Use indirect reference to prevent Apps Script scope auto-detection.
-  // DriveApp is only needed on the owner deployment (Deployment 2) for file uploads.
-  const Drive = this['DriveApp'];
-  if (!Drive) throw new Error('DriveApp is not available in this deployment context.');
   if (existingId) {
     try {
-      CUSTOM_FIELD_UPLOAD_FOLDER_CACHE = Drive.getFolderById(existingId);
+      CUSTOM_FIELD_UPLOAD_FOLDER_CACHE = DriveApp.getFolderById(existingId);
       return CUSTOM_FIELD_UPLOAD_FOLDER_CACHE;
     } catch (e) {}
   }
-  const folder = Drive.createFolder(CLIENT_CONFIG.UPLOAD_FOLDER_NAME);
+  const folder = DriveApp.createFolder(CLIENT_CONFIG.UPLOAD_FOLDER_NAME);
   props.setProperty('CUSTOM_FIELD_UPLOAD_FOLDER_ID', folder.getId());
   CUSTOM_FIELD_UPLOAD_FOLDER_CACHE = folder;
   return folder;

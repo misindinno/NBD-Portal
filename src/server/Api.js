@@ -199,8 +199,16 @@ function apiUploadFile(token, filePayload, fieldKey) {
     const field = fieldKey
       ? (queryRows(SHEET_NAMES.FIELD_CONFIG, r => r['Column Key'] === fieldKey)[0] || {})
       : {};
-    const url = _uploadCustomFieldFile(filePayload, field);
-    return respond(url);
+    try {
+      const url = _uploadCustomFieldFile(filePayload, field);
+      return respond(url);
+    } catch (e) {
+      const msg = e.message || String(e);
+      if (msg.includes('DriveApp') || msg.includes('permissions') || msg.includes('drive')) {
+        return respond(null, 'File upload failed: the script owner must run "Update Permissions" from the Google Sheets menu to authorize Drive access.');
+      }
+      return respond(null, 'File upload failed: ' + msg);
+    }
   });
 }
 
