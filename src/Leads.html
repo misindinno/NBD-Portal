@@ -918,12 +918,10 @@
       const isMulti = input.dataset.multi === 'true';
       const maxMb   = Number(input.dataset.maxMb || 10);
       const fkey    = input.dataset.fileKey || '';
-      const accept = input.accept || '';
       if (isMulti) {
         const existingUrls = (payload[fkey] || '').split('\n').filter(Boolean);
         const newUrls = [];
         for (const file of Array.from(input.files)) {
-          if (!_isFileTypeAllowed(file, accept)) throw new Error(`${file.name}: file type not allowed.`);
           if (file.size > maxMb * 1024 * 1024) throw new Error(`${file.name} must be ${maxMb} MB or less.`);
           const fileData = await _readFilePayload(file);
           newUrls.push(await _uploadFileToServer(fileData, fkey));
@@ -931,7 +929,6 @@
         payload[fkey] = [...existingUrls, ...newUrls].join('\n');
       } else {
         const file = input.files[0];
-        if (!_isFileTypeAllowed(file, accept)) throw new Error(`${file.name}: file type not allowed.`);
         if (file.size > maxMb * 1024 * 1024) throw new Error(`${file.name} must be ${maxMb} MB or less.`);
         const fileData = await _readFilePayload(file);
         payload[fkey] = await _uploadFileToServer(fileData, fkey);
@@ -964,22 +961,6 @@
     });
   }
 
-  function _isFileTypeAllowed(file, acceptAttr) {
-    if (!acceptAttr) return true;
-    const allowed = acceptAttr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    if (!allowed.length) return true;
-    const type = (file.type || '').toLowerCase();
-    const ext  = (file.name.split('.').pop() || '').toLowerCase();
-    return allowed.some(rule => {
-      if (rule.endsWith('/*')) {
-        const prefix = rule.slice(0, rule.length - 1); // e.g. 'image/'
-        return type.startsWith(prefix);
-      }
-      if (rule.startsWith('.')) return ext === rule.slice(1);
-      if (rule.includes('/')) return type === rule;
-      return ext === rule;
-    });
-  }
 
   function _uploadFileToServer(fileData, fieldKey) {
     return new Promise((resolve, reject) => {
