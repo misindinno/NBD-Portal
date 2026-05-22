@@ -191,12 +191,21 @@ function openStageForm(data = {}) {
           </select>
         </div>
       </div>
-      <div class="form-row">
-        <div class="form-group" style="display:flex;flex-direction:column;justify-content:flex-end;gap:8px">
-          <label><input type="checkbox" name="Is Active" ${data['Is Active']!==false&&data['Is Active']!=='FALSE'?'checked':''}> Is Active</label>
-          <label><input type="checkbox" name="Is Final Stage" ${data['Is Final Stage']?'checked':''}> Is Final Stage</label>
-          <label><input type="checkbox" name="Is Initial Stage" ${data['Is Initial Stage']===true||data['Is Initial Stage']==='TRUE'?'checked':''}> Is Initial Stage</label>
-          <label><input type="checkbox" name="Is Skippable" ${data['Is Skippable']===true||data['Is Skippable']==='TRUE'?'checked':''}> Allow Skip</label>
+      <div class="form-group" style="margin-top:4px">
+        <label style="font-size:12.5px;font-weight:600;color:#1f2937;display:block;margin-bottom:8px">Stage Options</label>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+          ${[
+            { name:'Is Active',       label:'Is Active',       ic:'check-circle',  checked: data['Is Active']!==false&&data['Is Active']!=='FALSE',                         col:'#16a34a', abg:'#f0fdf4', ab:'#22c55e', ibg:'#dcfce7' },
+            { name:'Is Final Stage',  label:'Is Final Stage',  ic:'flag',          checked: !!(data['Is Final Stage']),                                                     col:'#7c3aed', abg:'#f5f3ff', ab:'#8b5cf6', ibg:'#ede9fe' },
+            { name:'Is Initial Stage',label:'Is Initial Stage',ic:'play',          checked: data['Is Initial Stage']===true||data['Is Initial Stage']==='TRUE',             col:'#2563eb', abg:'#eff6ff', ab:'#3b82f6', ibg:'#dbeafe' },
+            { name:'Is Skippable',    label:'Allow Skip',      ic:'skip-forward',  checked: data['Is Skippable']===true||data['Is Skippable']==='TRUE',                     col:'#d97706', abg:'#fffbeb', ab:'#f59e0b', ibg:'#fef3c7' },
+          ].map(o => `
+          <label class="cfg-stg-toggle" data-col="${o.col}" data-abg="${o.abg}" data-ab="${o.ab}" data-ibg="${o.ibg}"
+            style="display:flex;align-items:center;gap:10px;padding:11px 14px;border:1.5px solid ${o.checked?o.ab:'#e5e7eb'};border-radius:12px;cursor:pointer;background:${o.checked?o.abg:'#fafafa'};transition:border-color .15s,background .15s,box-shadow .15s;box-shadow:0 1px 2px rgba(0,0,0,.04)">
+            <input type="checkbox" name="${o.name}" ${o.checked?'checked':''} style="position:absolute;opacity:0;width:0;height:0;pointer-events:none">
+            <span class="cst-icon" style="flex-shrink:0;width:30px;height:30px;border-radius:8px;background:${o.checked?o.ibg:'#f3f4f6'};display:flex;align-items:center;justify-content:center;color:${o.checked?o.col:'#9ca3af'};transition:background .15s,color .15s">${icon(o.ic,16)}</span>
+            <span class="cst-label" style="font-size:12.5px;font-weight:500;color:${o.checked?o.col:'#374151'};white-space:nowrap;line-height:1;transition:color .15s">${o.label}</span>
+          </label>`).join('')}
         </div>
       </div>
       ${stageFieldsHTML}
@@ -205,6 +214,24 @@ function openStageForm(data = {}) {
         <button type="submit" class="btn btn-primary">Save</button>
       </div>
     </form>`);
+
+  overlay.querySelectorAll('.cfg-stg-toggle').forEach(lbl => {
+    const cb  = lbl.querySelector('input[type="checkbox"]');
+    const ic  = lbl.querySelector('.cst-icon');
+    const txt = lbl.querySelector('.cst-label');
+    const col = lbl.dataset.col, abg = lbl.dataset.abg, ab = lbl.dataset.ab, ibg = lbl.dataset.ibg;
+    const applyState = checked => {
+      lbl.style.borderColor = checked ? ab   : '#e5e7eb';
+      lbl.style.background  = checked ? abg  : '#fafafa';
+      lbl.style.boxShadow   = checked ? `0 0 0 3px ${ab}33` : '0 1px 2px rgba(0,0,0,.04)';
+      ic.style.background   = checked ? ibg  : '#f3f4f6';
+      ic.style.color        = checked ? col  : '#9ca3af';
+      txt.style.color       = checked ? col  : '#374151';
+    };
+    cb.addEventListener('change', () => applyState(cb.checked));
+    lbl.addEventListener('mouseenter', () => { if (!cb.checked) lbl.style.borderColor = '#d1d5db'; });
+    lbl.addEventListener('mouseleave', () => { if (!cb.checked) lbl.style.borderColor = '#e5e7eb'; });
+  });
 
   overlay.querySelector('#stage-form').addEventListener('submit', async e => {
     e.preventDefault();
