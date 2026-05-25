@@ -107,7 +107,7 @@ function _dispatchQueuedJob_(actionType, userEmail, payload) {
     case 'updateLeadStage':       return updateLeadStage(payload.leadId, payload.stageId, payload.note, userEmail);
     case 'moveLeadStageWithFields':
       return moveLeadStageWithFields(payload.leadId, payload.stageId, payload.fields || {}, payload.note, userEmail);
-    case 'pushLeadToNbd':         return pushLeadToNbd(payload.leadId, userEmail, payload.nbdAssignedTo);
+    case 'pushLeadToNbd':         return pushLeadToNbd(payload.leadId, userEmail, payload.nbdAssignedTo, payload.mapToNbdLeadId || '');
     // ── Follow-ups
     case 'saveFollowup':          return saveFollowup(payload, userEmail);
     case 'markFollowupDone':      return markFollowupDone(payload.id, payload.data || {}, userEmail);

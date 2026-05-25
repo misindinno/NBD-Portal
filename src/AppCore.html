@@ -92,6 +92,7 @@ const api = {
   getFollowupFormData: ()      => api._authedRead('apiGetFollowupFormData'),
   getUsers:            ()      => api._authedRead('apiGetUsers'),
   getNbdAssignableUsers: ()    => api._authedRead('apiGetNbdAssignableUsers'),
+  checkNbdDuplicate:   (id)   => api._authedRead('apiCheckNbdDuplicate', id),
   getBulkConfig:       ()      => api._authedRead('apiGetBulkConfig'),
   validateBulkRows:    (rows)  => api._authedRead('apiValidateBulkRows', rows),
   saveBulkRows:        (rows)  => api._authedRead('apiSaveBulkRows', rows),

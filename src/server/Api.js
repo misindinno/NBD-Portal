@@ -301,6 +301,16 @@ function apiGetNbdAssignableUsers(token) {
   });
 }
 
+function apiCheckNbdDuplicate(token, leadId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    const hasLeadAccess = user.role === 'ADMIN' || userHasModule(user, 'Leads') || userHasModule(user, 'LeadForm');
+    if (!['ADMIN', 'MANAGER', 'SALES'].includes(user.role) || !hasLeadAccess) throw new Error('Permission denied.');
+    return respond(checkNbdDuplicates(leadId));
+  });
+}
+
 // Bulk Entry
 function apiGetBulkConfig(token) {
   _currentApiToken_ = token || '';

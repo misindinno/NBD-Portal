@@ -388,6 +388,49 @@
     }
     if (btn) resetButtonLoading(btn);
 
+    // Check for existing NBD leads matching phone / email / company
+    if (btn) setButtonLoading(btn, 'Checking NBD...');
+    let duplicates = [];
+    try { duplicates = await api.checkNbdDuplicate(leadId); } catch (_) {}
+    if (btn) resetButtonLoading(btn);
+
+    // If duplicates found — ask user to map or push anyway (or cancel)
+    if (duplicates.length) {
+      const choice = await _showNbdDuplicateDialog(companyName, duplicates);
+      if (!choice) return; // cancelled
+
+      if (choice.mapToNbdLeadId) {
+        // Map mode: link to existing NBD lead without creating a new one
+        if (btn) setButtonLoading(btn, 'Mapping...');
+        _showNbdPushStatus('queued');
+        QueueManager.enqueue({
+          module: 'leads',
+          actionType: 'pushLeadToNbd',
+          payload: { leadId, mapToNbdLeadId: choice.mapToNbdLeadId },
+          onDone: j => {
+            _showNbdPushStatus('done');
+            AppCache.patchRow('leads', 'Lead ID', leadId, {
+              'NBD Lead ID': choice.mapToNbdLeadId,
+              'Pushed To NBD At': _nowStr(),
+              'Updated At': _nowStr()
+            });
+            setTimeout(() => {
+              document.querySelector('.modal-overlay')?.remove();
+              _refreshLeadViewsAfterLocalChange();
+            }, 1200);
+            toast('Lead mapped to existing NBD lead!', 'success');
+          },
+          onFail: j => {
+            _showNbdPushStatus('failed', j.error || 'Unknown error');
+            if (btn) resetButtonLoading(btn);
+            toast('Mapping failed: ' + (j.error || 'Unknown error'), 'error');
+          }
+        });
+        return;
+      }
+      // else: pushAnyway — fall through to normal push flow
+    }
+
     const assignOptions = nbdUsers.reduce((m, user) => {
       const label = [user.name, user.department].filter(Boolean).join(' - ');
       m[user.id] = label || user.id;
@@ -437,6 +480,57 @@
         if (btn) resetButtonLoading(btn);
         toast('Push to NBD failed: ' + (j.error || 'Unknown error'), 'error');
       }
+    });
+  }
+
+  function _showNbdDuplicateDialog(companyName, duplicates) {
+    return new Promise(resolve => {
+      const rows = duplicates.map((d, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;background:#f9fafb">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px;color:#111">${escapeHtml(d.company || '—')}</div>
+            ${d.contact ? `<div style="font-size:12px;color:#555;margin-top:2px">${escapeHtml(d.contact)}</div>` : ''}
+            <div style="font-size:11px;color:#9ca3af;margin-top:3px">
+              ${d.phone ? escapeHtml(d.phone) + ' &nbsp;·&nbsp; ' : ''}
+              ${d.email ? escapeHtml(d.email) + ' &nbsp;·&nbsp; ' : ''}
+              Matched on: <strong>${escapeHtml(d.matchOn)}</strong>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-outlined" style="white-space:nowrap;flex-shrink:0" onclick="_nbdDupResolve(${i},'map')">
+            Map to this
+          </button>
+        </div>`).join('');
+
+      // Store duplicates and resolver on window so button handlers can access them
+      window._nbdDupList     = duplicates;
+      window._nbdDupResolve  = (idx, action) => {
+        Swal.close();
+        if (action === 'map') resolve({ mapToNbdLeadId: duplicates[idx].nbdLeadId });
+        else if (action === 'push') resolve({ pushAnyway: true });
+        else resolve(null);
+        delete window._nbdDupList;
+        delete window._nbdDupResolve;
+      };
+
+      Swal.fire({
+        title: `⚠️ Existing NBD Lead Found`,
+        html: `
+          <div style="font-size:13px;color:#374151;margin-bottom:12px;text-align:left">
+            <strong>${escapeHtml(companyName)}</strong> may already exist in NBD. Map to an existing lead or push as new.
+          </div>
+          <div style="max-height:260px;overflow-y:auto;text-align:left">${rows}</div>`,
+        showCancelButton: true,
+        showConfirmButton: true,
+        confirmButtonText: 'Push as New Lead',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#6366f1',
+        width: 520,
+      }).then(result => {
+        if (window._nbdDupResolve) {
+          if (result.isConfirmed) window._nbdDupResolve(null, 'push');
+          else window._nbdDupResolve(null, 'cancel');
+        }
+      });
     });
   }
 

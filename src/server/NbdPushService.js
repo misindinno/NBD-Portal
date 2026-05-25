@@ -1,17 +1,30 @@
 // Pushes qualified LQ leads into the NBD portal spreadsheet.
 
-function pushLeadToNbd(leadId, email, nbdAssignedTo) {
+function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId) {
   assertServerContext_();
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
   if (!_isLqPortalForNbdPush_()) return respond(null, 'Push to NBD is available only in the LQ portal.');
   const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
   if (!targetSpreadsheetId) return respond(null, 'NBD target spreadsheet is not configured for this portal.');
-  const targetUser = _findNbdAssignableUser_(targetSpreadsheetId, nbdAssignedTo);
-  if (!targetUser) return respond(null, 'Please select a valid NBD user to assign this lead.');
 
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
+
+  // Map mode: link this LQ lead to an existing NBD lead instead of creating a new one.
+  if (mapToNbdLeadId) {
+    updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
+      'NBD Lead ID': mapToNbdLeadId,
+      'Pushed To NBD At': now(),
+      'Updated At': now()
+    });
+    _bumpStamp('leads');
+    insertLeadActivityLog_(leadId, 'Map To NBD', '', mapToNbdLeadId, 'LQ lead mapped to existing NBD lead ' + mapToNbdLeadId, user.id);
+    return respond({ leadId, nbdLeadId: mapToNbdLeadId, mapped: true });
+  }
+
+  const targetUser = _findNbdAssignableUser_(targetSpreadsheetId, nbdAssignedTo);
+  if (!targetUser) return respond(null, 'Please select a valid NBD user to assign this lead.');
   const sourceStage = _nbdSourceStage_(lead);
   if (!_isWonStageForNbd_(sourceStage, lead)) {
     return respond(null, 'Only LQ leads in a Won stage can be pushed to NBD.');
@@ -66,6 +79,78 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo) {
   _bumpStamp('leads');
   _bumpStamp('activity_logs');
   return respond({ leadId, nbdLeadId, nbdFollowupId, alreadyPushed: false });
+}
+
+function checkNbdDuplicates(leadId) {
+  assertServerContext_();
+  if (!_isLqPortalForNbdPush_()) return [];
+  const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
+  if (!targetSpreadsheetId) return [];
+  const lead = getLead(leadId)?.lead;
+  if (!lead) return [];
+
+  const targetSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
+  if (targetSheet.getLastRow() < 2) return [];
+  const data = targetSheet.getDataRange().getValues();
+  const headers = data[0].map(String);
+
+  const col = h => headers.indexOf(h);
+  const phoneCol   = col('Phone');
+  const altCol     = col('Alternate No');
+  const emailCol   = col('Email');
+  const companyCol = col('Company Name');
+  const leadIdCol  = col('Lead ID');
+  const contactCol = col('Contact Person');
+  const stageIdCol = col('Stage ID');
+  const srcLeadCol = col('Source Lead ID');
+
+  const lqPhone   = _normalizePhone_(lead['Phone']);
+  const lqAlt     = _normalizePhone_(lead['Alternate No']);
+  const lqEmail   = String(lead['Email']        || '').trim().toLowerCase();
+  const lqCompany = String(lead['Company Name'] || '').trim().toLowerCase();
+
+  const matches = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    // Skip if this NBD row is already the result of pushing this same LQ lead
+    if (srcLeadCol !== -1 && String(row[srcLeadCol]) === String(leadId)) continue;
+
+    const rPhone   = _normalizePhone_(String(row[phoneCol]   || ''));
+    const rAlt     = _normalizePhone_(String(row[altCol]     || ''));
+    const rEmail   = String(row[emailCol]   || '').trim().toLowerCase();
+    const rCompany = String(row[companyCol] || '').trim().toLowerCase();
+
+    const phoneMatch   = !!(lqPhone   && ((rPhone && lqPhone === rPhone) || (rAlt && lqPhone === rAlt)));
+    const altMatch     = !!(lqAlt     && ((rPhone && lqAlt   === rPhone) || (rAlt && lqAlt   === rAlt)));
+    const emailMatch   = !!(lqEmail   && rEmail   && lqEmail   === rEmail);
+    const companyMatch = !!(lqCompany && rCompany && lqCompany === rCompany && lqCompany.length > 3);
+
+    if (!phoneMatch && !altMatch && !emailMatch && !companyMatch) continue;
+
+    const reasons = [
+      (phoneMatch || altMatch) && 'Phone',
+      emailMatch               && 'Email',
+      companyMatch             && 'Company'
+    ].filter(Boolean);
+
+    // Look up stage name from NBD stages sheet
+    const nbdStageId = stageIdCol !== -1 ? String(row[stageIdCol] || '') : '';
+    matches.push({
+      nbdLeadId: leadIdCol !== -1 ? String(row[leadIdCol] || '') : '',
+      company:   companyCol !== -1 ? String(row[companyCol] || '') : '',
+      contact:   contactCol !== -1 ? String(row[contactCol] || '') : '',
+      phone:     phoneCol   !== -1 ? String(row[phoneCol]   || '') : '',
+      email:     emailCol   !== -1 ? String(row[emailCol]   || '') : '',
+      stageId:   nbdStageId,
+      matchOn:   reasons.join(', ')
+    });
+  }
+  return matches;
+}
+
+function _normalizePhone_(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : digits;
 }
 
 function getNbdAssignableUsers() {
