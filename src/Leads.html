@@ -352,15 +352,11 @@
   }
 
   function _leadStageIsWonForNbd(lead) {
-    const stages = (App.config && App.config.stages) || [];
+    const stages = (App.config && (App.config.allStages || App.config.stages)) || [];
     const stage = stages.find(s => String(s['Stage ID'] || '') === String(lead['Stage ID'] || ''));
     if (!stage) return false;
     const outcome = String(stage['Stage Outcome'] || '').trim().toLowerCase();
-    if (outcome === 'won') return true;
-    const status = String(lead['Lead Status'] || '').trim().toLowerCase();
-    if (status !== 'won') return false;
-    const name = String(stage['Stage Name'] || '').trim().toLowerCase();
-    return !/lost|disqualified|reject|dead/.test(name);
+    return outcome === 'won';
   }
 
   async function pushLeadToNbdFromDetail(leadId) {

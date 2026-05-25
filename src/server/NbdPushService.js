@@ -82,16 +82,14 @@ function _nbdSourceStage_(lead) {
 function _isWonStageForNbd_(stage, lead) {
   if (!stage) return false;
   const outcome = String(stage['Stage Outcome'] || '').trim().toLowerCase();
-  if (outcome === 'won') return true;
-  const effectiveStatus = String(_leadStatusForStage(stage) || lead && lead['Lead Status'] || '').trim().toLowerCase();
-  if (effectiveStatus !== 'won') return false;
-  const name = String(stage['Stage Name'] || '').trim().toLowerCase();
-  return !/lost|disqualified|reject|dead/.test(name);
+  return outcome === 'won';
 }
 
 function _nbdRemark_(lead, stage, user) {
   const parts = [];
+  const qualifiedRemark = _nbdQualifiedRemark_(lead);
   parts.push('Qualified/Won LQ lead pushed to NBD.');
+  if (qualifiedRemark) parts.push('Qualified remark: ' + qualifiedRemark);
   if (lead['Client Description']) parts.push('LQ remark: ' + String(lead['Client Description']));
   if (stage && stage['Stage Name']) parts.push('Won stage: ' + String(stage['Stage Name']));
   parts.push('Source lead ID: ' + lead['Lead ID']);
@@ -100,6 +98,20 @@ function _nbdRemark_(lead, stage, user) {
   if (lead['Phone']) parts.push('Phone: ' + lead['Phone']);
   if (user && (user.name || user.email)) parts.push('Pushed by: ' + (user.name || user.email));
   return parts.join('\n');
+}
+
+function _nbdQualifiedRemark_(lead) {
+  const keys = [
+    'Qualified Remark',
+    'Qualified Remarks',
+    'Qualification Remark',
+    'Qualification Remarks'
+  ];
+  for (let i = 0; i < keys.length; i++) {
+    const value = String(lead[keys[i]] || '').trim();
+    if (value) return value;
+  }
+  return '';
 }
 
 function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, sourceStage, user, followupDate, ts) {
