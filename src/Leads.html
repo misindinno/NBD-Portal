@@ -356,7 +356,12 @@
     const stage = stages.find(s => String(s['Stage ID'] || '') === String(lead['Stage ID'] || ''));
     if (!stage) return false;
     const outcome = String(stage['Stage Outcome'] || '').trim().toLowerCase();
-    return outcome === 'won';
+    if (outcome === 'won') return true;
+    const name = String(stage['Stage Name'] || '').trim().toLowerCase();
+    if (name === 'won' || name.includes('won')) return true;
+    const isFinal = stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE';
+    const status = String(lead['Lead Status'] || '').trim().toLowerCase();
+    return isFinal && status === 'won' && !/lost|disqualified|reject|dead/.test(name);
   }
 
   async function pushLeadToNbdFromDetail(leadId) {

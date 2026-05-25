@@ -93,7 +93,12 @@ function _nbdSourceStage_(lead) {
 function _isWonStageForNbd_(stage, lead) {
   if (!stage) return false;
   const outcome = String(stage['Stage Outcome'] || '').trim().toLowerCase();
-  return outcome === 'won';
+  if (outcome === 'won') return true;
+  const name = String(stage['Stage Name'] || '').trim().toLowerCase();
+  if (name === 'won' || name.includes('won')) return true;
+  const isFinal = stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE';
+  const status = String(lead && lead['Lead Status'] || '').trim().toLowerCase();
+  return isFinal && status === 'won' && !/lost|disqualified|reject|dead/.test(name);
 }
 
 function _nbdRemark_(lead, stage, user, targetUser) {
