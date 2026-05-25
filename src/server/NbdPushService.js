@@ -181,14 +181,18 @@ function _findNbdAssignableUser_(spreadsheetId, userId) {
 }
 
 function _nbdAssignableUsers_(spreadsheetId) {
-  const ss = SpreadsheetApp.openById(spreadsheetId);
-  const sheet = ss.getSheetByName(SHEET_NAMES.USERS);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0].map(String);
-  return data.slice(1)
-    .map(row => headers.reduce((obj, h, i) => { obj[h] = normalizeSheetValue(row[i]); return obj; }, {}))
+  const settings = getPortalSettings_();
+  const departments = _parseDepartmentList_(settings.nbdAssignableDepartments || []);
+  const departmentMap = departments.reduce((m, d) => {
+    m[String(d || '').trim().toLowerCase()] = true;
+    return m;
+  }, {});
+  return getAllRows(SHEET_NAMES.USERS)
     .filter(row => isActiveUserValue(row['Is Active']))
+    .filter(row => {
+      if (!departments.length) return true;
+      return !!departmentMap[String(row['Department'] || '').trim().toLowerCase()];
+    })
     .map(row => {
       const email = String(row['Email Address'] || '').trim().toLowerCase();
       const id = getStaffUserId(row, email);

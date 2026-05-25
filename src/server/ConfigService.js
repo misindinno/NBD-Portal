@@ -44,6 +44,10 @@ function savePortalSettings(settings, email) {
     "PORTAL_VISIBLE_DEPARTMENTS",
     _normalizeDepartmentList_(settings && settings.visibleDepartments),
   );
+  props.setProperty(
+    "NBD_ASSIGNABLE_DEPARTMENTS",
+    _normalizeDepartmentList_(settings && settings.nbdAssignableDepartments),
+  );
   invalidateAppConfigCache();
   _bumpStamp('config');
   return respond(true);
@@ -258,9 +262,10 @@ function getPortalSettings_() {
     const props = PropertiesService.getScriptProperties();
     return {
       visibleDepartments: _parseDepartmentList_(props.getProperty('PORTAL_VISIBLE_DEPARTMENTS')),
+      nbdAssignableDepartments: _parseDepartmentList_(props.getProperty('NBD_ASSIGNABLE_DEPARTMENTS')),
     };
   } catch (e) {
-    return { visibleDepartments: [] };
+    return { visibleDepartments: [], nbdAssignableDepartments: [] };
   }
 }
 

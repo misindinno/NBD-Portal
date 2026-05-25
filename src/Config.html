@@ -46,6 +46,7 @@ function switchConfigTab(btn, tabId) {
 async function loadPortalSettings() {
   const departments = App.config.departments || [];
   const selected = _parseDepartmentList(App.config.settings?.visibleDepartments || []);
+  const selectedNbd = _parseDepartmentList(App.config.settings?.nbdAssignableDepartments || []);
   el('cfg-settings').innerHTML = `
     <form id="portal-settings-form" class="card" style="padding:18px;max-width:760px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;flex-wrap:wrap">
@@ -64,6 +65,24 @@ async function loadPortalSettings() {
           ${escapeHtml(d)}
         </label>`).join('') || '<div style="font-size:13px;color:#888">No departments found. Add departments on user profiles first.</div>'}
       </div>
+      <div style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:4px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;flex-wrap:wrap">
+          <div>
+            <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">NBD Assignment Departments</h3>
+            <p style="color:#666;font-size:13px">Selected departments control which active users appear when pushing a Won LQ lead to NBD. Leave all unchecked to show all active NBD users.</p>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="btn btn-sm btn-outlined" onclick="_setAllSettingDepartments(this.closest('form'), true, 'nbdAssignableDepartments')">All</button>
+            <button type="button" class="btn btn-sm btn-outlined" onclick="_setAllSettingDepartments(this.closest('form'), false, 'nbdAssignableDepartments')">None</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-bottom:18px">
+          ${departments.map(d => `<label style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <input type="checkbox" name="nbdAssignableDepartments" value="${escapeHtml(d)}" ${selectedNbd.includes(d)?'checked':''}>
+            ${escapeHtml(d)}
+          </label>`).join('') || '<div style="font-size:13px;color:#888">No departments found. Add departments on user profiles first.</div>'}
+        </div>
+      </div>
       <div class="modal-footer" style="padding:0;border-top:none">
         <button type="submit" class="btn btn-primary">${icon('save', 14)} Save Settings</button>
       </div>
@@ -77,7 +96,10 @@ async function loadPortalSettings() {
     resetButtonLoading(btn);
     QueueManager.enqueue({
       module: 'config', actionType: 'savePortalSettings',
-      payload: { visibleDepartments: fd.getAll('visibleDepartments') },
+      payload: {
+        visibleDepartments: fd.getAll('visibleDepartments'),
+        nbdAssignableDepartments: fd.getAll('nbdAssignableDepartments')
+      },
       onDone: async () => {
         await _refreshAppConfig().catch(() => {});
         api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
@@ -873,8 +895,8 @@ function _parseDepartmentList(value) {
     .filter((v, i, arr) => arr.indexOf(v) === i);
 }
 
-function _setAllSettingDepartments(form, checked) {
-  form?.querySelectorAll('[name="visibleDepartments"]').forEach(input => { input.checked = checked; });
+function _setAllSettingDepartments(form, checked, name = 'visibleDepartments') {
+  form?.querySelectorAll(`[name="${name}"]`).forEach(input => { input.checked = checked; });
 }
 
 function _userCanEditConfig(user) {
