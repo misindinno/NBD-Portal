@@ -36,7 +36,7 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo) {
   const targetStageId = _nbdInitialStageId_(targetSpreadsheetId);
   const ts = now();
   const followupDate = today();
-  const leadRemark = _nbdRemark_(lead, sourceStage, user, targetUser);
+  const leadRemark = _nbdClientDescription_(lead, sourceStage);
   const row = {
     ...pickLeadMasterFields_(lead),
     'Lead ID': nbdLeadId,
@@ -101,34 +101,40 @@ function _isWonStageForNbd_(stage, lead) {
   return isFinal && status === 'won' && !/lost|disqualified|reject|dead/.test(name);
 }
 
-function _nbdRemark_(lead, stage, user, targetUser) {
-  const parts = [];
-  const qualifiedRemark = _nbdQualifiedRemark_(lead);
-  parts.push('Qualified/Won LQ lead pushed to NBD.');
-  if (qualifiedRemark) parts.push('Qualified remark: ' + qualifiedRemark);
-  if (lead['Client Description']) parts.push('LQ remark: ' + String(lead['Client Description']));
-  if (stage && stage['Stage Name']) parts.push('Won stage: ' + String(stage['Stage Name']));
-  parts.push('Source lead ID: ' + lead['Lead ID']);
-  if (lead['Company Name']) parts.push('Company: ' + lead['Company Name']);
-  if (lead['Contact Person']) parts.push('Contact: ' + lead['Contact Person']);
-  if (lead['Phone']) parts.push('Phone: ' + lead['Phone']);
-  if (targetUser && targetUser.name) parts.push('Assigned in NBD to: ' + targetUser.name);
-  if (user && (user.name || user.email)) parts.push('Pushed by: ' + (user.name || user.email));
-  return parts.join('\n');
+function _nbdClientDescription_(lead, stage) {
+  return _nbdQualifiedRemark_(lead, stage) || String(lead['Client Description'] || '').trim();
 }
 
-function _nbdQualifiedRemark_(lead) {
-  const keys = [
-    'Qualified Remark',
+function _nbdQualifiedRemark_(lead, stage) {
+  const stageId = stage && stage['Stage ID'] || lead && lead['Stage ID'] || '';
+  const fields = getLeadCustomFieldsForStage(stageId);
+  const field = fields.find(f => _nbdFieldNameKey_(f['Field Name']) === 'qualifiedremarks');
+  const keys = [];
+  if (field && field['Column Key']) {
+    keys.push(_leadEffectiveFieldKey_(field, stageId));
+    keys.push(field['Column Key']);
+  }
+  keys.push(
+    stageId ? 'CF_Qualified_Remarks__' + stageId : '',
+    'CF_Qualified_Remarks',
     'Qualified Remarks',
+    'Qualified Remark',
+    'Qualification Remarks',
     'Qualification Remark',
-    'Qualification Remarks'
-  ];
+    'Qualified_Remarks',
+    'Qualified_Remark',
+    'Qualification_Remarks',
+    'Qualification_Remark'
+  );
   for (let i = 0; i < keys.length; i++) {
     const value = String(lead[keys[i]] || '').trim();
     if (value) return value;
   }
   return '';
+}
+
+function _nbdFieldNameKey_(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, sourceStage, user, targetUser, followupDate, ts) {
@@ -159,6 +165,7 @@ function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, source
 }
 
 function _nbdFollowupRemark_(lead, stage, user, targetUser) {
+  const qualifiedRemark = _nbdQualifiedRemark_(lead, stage);
   const lines = [
     'Initial NBD follow-up created from LQ won lead.',
     'Source Lead ID: ' + (lead['Lead ID'] || ''),
@@ -167,6 +174,7 @@ function _nbdFollowupRemark_(lead, stage, user, targetUser) {
     'Contact: ' + (lead['Contact Person'] || ''),
     'Phone: ' + (lead['Phone'] || ''),
     'Product Interest: ' + (lead['Product Interest'] || ''),
+    'Qualified Remarks: ' + qualifiedRemark,
     'LQ Remark: ' + (lead['Client Description'] || ''),
     'Assigned In NBD To: ' + (targetUser && targetUser.name || ''),
     'Pushed By: ' + (user && (user.name || user.email) || '')

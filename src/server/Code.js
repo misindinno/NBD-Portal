@@ -283,6 +283,7 @@ function setupSheets() {
     if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq') && typeof _ensureBulkSheets_ === 'function') {
       _ensureBulkSheets_();
     }
+    _ensureQualifiedRemarksField_();
     _migrateLegacyFollowupData_();
     migrateLegacyCustomFieldValues_();
     _seedDefaultData();
@@ -330,4 +331,35 @@ function _seedDefaultData() {
       })
     );
   }
+}
+
+function _ensureQualifiedRemarksField_() {
+  const existing = queryRows(SHEET_NAMES.FIELD_CONFIG, r =>
+    String(r['Sheet Name'] || 'Leads') === 'Leads' &&
+    String(r['Column Key'] || '') === 'CF_Qualified_Remarks'
+  );
+  if (existing.length) return;
+  insertRow(SHEET_NAMES.FIELD_CONFIG, {
+    'Field ID': generateUUID(),
+    'Sheet Name': 'Leads',
+    'Field Name': 'Qualified Remarks',
+    'Column Key': 'CF_Qualified_Remarks',
+    'Field Type': 'Textarea',
+    'Stage ID': '',
+    'Dropdown Source': '',
+    'Formula Logic': '',
+    'Validation Min': '',
+    'Validation Max': '',
+    'Validation Regex': '',
+    'Validation Message': '',
+    'Help Text': 'Won stage remark sent to NBD Client Description.',
+    'File Types': '',
+    'Max File MB': '',
+    'Allow Multiple': '',
+    'Is Required': false,
+    'Is Visible': true,
+    'Display Order': 100,
+    'Skip Visibility': 'normal',
+    'Per Stage': true
+  });
 }
