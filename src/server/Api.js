@@ -291,6 +291,16 @@ function apiGetUsers(token) {
   });
 }
 
+function apiGetNbdAssignableUsers(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    const hasLeadAccess = user.role === 'ADMIN' || userHasModule(user, 'Leads') || userHasModule(user, 'LeadForm');
+    if (!['ADMIN', 'MANAGER', 'SALES'].includes(user.role) || !hasLeadAccess) throw new Error('Permission denied.');
+    return respond(getNbdAssignableUsers());
+  });
+}
+
 // Bulk Entry
 function apiGetBulkConfig(token) {
   _currentApiToken_ = token || '';

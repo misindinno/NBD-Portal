@@ -1,11 +1,13 @@
 // Pushes qualified LQ leads into the NBD portal spreadsheet.
 
-function pushLeadToNbd(leadId, email) {
+function pushLeadToNbd(leadId, email, nbdAssignedTo) {
   assertServerContext_();
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
   if (!_isLqPortalForNbdPush_()) return respond(null, 'Push to NBD is available only in the LQ portal.');
   const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
   if (!targetSpreadsheetId) return respond(null, 'NBD target spreadsheet is not configured for this portal.');
+  const targetUser = _findNbdAssignableUser_(targetSpreadsheetId, nbdAssignedTo);
+  if (!targetUser) return respond(null, 'Please select a valid NBD user to assign this lead.');
 
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
@@ -34,12 +36,13 @@ function pushLeadToNbd(leadId, email) {
   const targetStageId = _nbdInitialStageId_(targetSpreadsheetId);
   const ts = now();
   const followupDate = today();
-  const leadRemark = _nbdRemark_(lead, sourceStage, user);
+  const leadRemark = _nbdRemark_(lead, sourceStage, user, targetUser);
   const row = {
     ...pickLeadMasterFields_(lead),
     'Lead ID': nbdLeadId,
     'Stage ID': targetStageId || '',
     'Lead Status': 'Open',
+    'Assigned To': targetUser.id,
     'Source Portal': CLIENT_CONFIG.APP_TITLE || 'LQ Portal',
     'Source Lead ID': leadId,
     'Client Description': leadRemark,
@@ -52,7 +55,7 @@ function pushLeadToNbd(leadId, email) {
     'Updated At': ts
   };
   _appendExternalRow_(targetSheet, targetHeaders, row);
-  const nbdFollowupId = _createNbdInitialFollowup_(targetSpreadsheetId, nbdLeadId, lead, sourceStage, user, followupDate, ts);
+  const nbdFollowupId = _createNbdInitialFollowup_(targetSpreadsheetId, nbdLeadId, lead, sourceStage, user, targetUser, followupDate, ts);
 
   updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
     'NBD Lead ID': nbdLeadId,
@@ -63,6 +66,14 @@ function pushLeadToNbd(leadId, email) {
   _bumpStamp('leads');
   _bumpStamp('activity_logs');
   return respond({ leadId, nbdLeadId, nbdFollowupId, alreadyPushed: false });
+}
+
+function getNbdAssignableUsers() {
+  assertServerContext_();
+  if (!_isLqPortalForNbdPush_()) return [];
+  const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
+  if (!targetSpreadsheetId) return [];
+  return _nbdAssignableUsers_(targetSpreadsheetId);
 }
 
 function _isLeadQualifiedForNbd_(lead) {
@@ -85,7 +96,7 @@ function _isWonStageForNbd_(stage, lead) {
   return outcome === 'won';
 }
 
-function _nbdRemark_(lead, stage, user) {
+function _nbdRemark_(lead, stage, user, targetUser) {
   const parts = [];
   const qualifiedRemark = _nbdQualifiedRemark_(lead);
   parts.push('Qualified/Won LQ lead pushed to NBD.');
@@ -96,6 +107,7 @@ function _nbdRemark_(lead, stage, user) {
   if (lead['Company Name']) parts.push('Company: ' + lead['Company Name']);
   if (lead['Contact Person']) parts.push('Contact: ' + lead['Contact Person']);
   if (lead['Phone']) parts.push('Phone: ' + lead['Phone']);
+  if (targetUser && targetUser.name) parts.push('Assigned in NBD to: ' + targetUser.name);
   if (user && (user.name || user.email)) parts.push('Pushed by: ' + (user.name || user.email));
   return parts.join('\n');
 }
@@ -114,7 +126,7 @@ function _nbdQualifiedRemark_(lead) {
   return '';
 }
 
-function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, sourceStage, user, followupDate, ts) {
+function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, sourceStage, user, targetUser, followupDate, ts) {
   const followupSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.FOLLOWUPS);
   _ensureExternalHeaders_(followupSheet, FOLLOWUP_MASTER_FIELDS);
   const headers = followupSheet.getRange(1, 1, 1, followupSheet.getLastColumn()).getValues()[0].map(String);
@@ -125,7 +137,7 @@ function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, source
     'Planned Date': followupDate,
     'Follow-up Date': followupDate,
     'Follow-up Type': 'LQ Qualified Transfer',
-    'Discussion': _nbdFollowupRemark_(sourceLead, sourceStage, user),
+    'Discussion': _nbdFollowupRemark_(sourceLead, sourceStage, user, targetUser),
     'Outcome': 'Open',
     'Next Follow-up Date': followupDate,
     'Next Action': 'Review qualified LQ lead',
@@ -133,7 +145,7 @@ function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, source
     'Done Date': '',
     'Done By': '',
     'Updated Stage ID': '',
-    'Created By': user && (user.id || user.email) || '',
+    'Created By': targetUser && targetUser.id || '',
     'Created At': ts,
     'Updated At': ts
   };
@@ -141,7 +153,7 @@ function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, source
   return followupId;
 }
 
-function _nbdFollowupRemark_(lead, stage, user) {
+function _nbdFollowupRemark_(lead, stage, user, targetUser) {
   const lines = [
     'Initial NBD follow-up created from LQ won lead.',
     'Source Lead ID: ' + (lead['Lead ID'] || ''),
@@ -151,9 +163,39 @@ function _nbdFollowupRemark_(lead, stage, user) {
     'Phone: ' + (lead['Phone'] || ''),
     'Product Interest: ' + (lead['Product Interest'] || ''),
     'LQ Remark: ' + (lead['Client Description'] || ''),
+    'Assigned In NBD To: ' + (targetUser && targetUser.name || ''),
     'Pushed By: ' + (user && (user.name || user.email) || '')
   ];
   return lines.filter(line => !/: $/.test(line)).join('\n');
+}
+
+function _findNbdAssignableUser_(spreadsheetId, userId) {
+  const id = String(userId || '').trim();
+  if (!id) return null;
+  return _nbdAssignableUsers_(spreadsheetId).find(u => String(u.id) === id) || null;
+}
+
+function _nbdAssignableUsers_(spreadsheetId) {
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheetByName(SHEET_NAMES.USERS);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0].map(String);
+  return data.slice(1)
+    .map(row => headers.reduce((obj, h, i) => { obj[h] = normalizeSheetValue(row[i]); return obj; }, {}))
+    .filter(row => isActiveUserValue(row['Is Active']))
+    .map(row => {
+      const email = String(row['Email Address'] || '').trim().toLowerCase();
+      const id = getStaffUserId(row, email);
+      return {
+        id,
+        name: row['Name'] || email || id,
+        email,
+        department: row['Department'] || '',
+        role: normalizeStaffPermission(row['Permission'] || row['Role'])
+      };
+    })
+    .filter(user => user.id);
 }
 
 function _nbdTargetSheet_(spreadsheetId, sheetName) {

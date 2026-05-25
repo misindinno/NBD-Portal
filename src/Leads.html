@@ -363,10 +363,31 @@
     if (!leadId) return;
     const lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
     const companyName = lead ? (lead['Company Name'] || leadId) : leadId;
+    let nbdUsers = [];
+    try {
+      nbdUsers = await api.getNbdAssignableUsers();
+    } catch (err) {
+      toast('Could not load NBD users: ' + (err.message || err), 'error');
+      return;
+    }
+    if (!nbdUsers.length) {
+      toast('No active NBD users found for assignment.', 'error');
+      return;
+    }
+    const assignOptions = nbdUsers.reduce((m, user) => {
+      const label = [user.name, user.department].filter(Boolean).join(' - ');
+      m[user.id] = label || user.id;
+      return m;
+    }, {});
 
     const confirm = await Swal.fire({
       title: 'Push to NBD?',
-      html: `<div style="font-size:14px;color:#374151">Push <strong>${escapeHtml(companyName)}</strong> to the NBD portal?<br><span style="font-size:12px;color:#9ca3af;margin-top:6px;display:block">This creates a new NBD lead and an initial follow-up with LQ source remarks.</span></div>`,
+      html: `<div style="font-size:14px;color:#374151;margin-bottom:8px">Push <strong>${escapeHtml(companyName)}</strong> to the NBD portal?<br><span style="font-size:12px;color:#9ca3af;margin-top:6px;display:block">This creates a new NBD lead and an initial follow-up with LQ source remarks.</span></div>`,
+      input: 'select',
+      inputLabel: 'Assign NBD lead to',
+      inputOptions: assignOptions,
+      inputPlaceholder: 'Select NBD user',
+      inputValidator: value => value ? undefined : 'Please select an NBD user.',
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'Yes, Push',
@@ -380,7 +401,7 @@
     QueueManager.enqueue({
       module: 'leads',
       actionType: 'pushLeadToNbd',
-      payload: { leadId },
+      payload: { leadId, nbdAssignedTo: confirm.value },
       onDone: j => {
         const nbdLeadId = j.finalRecordId || '';
         AppCache.patchRow('leads', 'Lead ID', leadId, {
