@@ -1,0 +1,92 @@
+﻿<script>
+const BASE_QUERY_FIELDS = [
+  { field: 'Follow-up Type', label: 'Type' },
+  { field: 'Outcome', label: 'Outcome' },
+  { field: '_leadLabel', label: 'Lead' },
+  { field: '_clientLabel', label: 'Client' },
+  { field: 'Planned Date', label: 'Planned Date' },
+  { field: 'Status', label: 'Status' },
+  { field: '_createdByLabel', label: 'Created By' },
+  { field: '_updatedStageLabel', label: 'Updated Stage' }
+];
+const QUERY_OPS = ['=','!=','contains','starts with','is empty','is not empty','before','after'];
+
+function _followupQueryFields() {
+  const custom = (App.config.followupFields || []).map(f => ({
+    field: f['Column Key'],
+    label: f['Field Name']
+  }));
+  return BASE_QUERY_FIELDS.concat(custom);
+}
+
+function _addQueryRow() {
+  const container = el('query-rows');
+  const idx = container.children.length;
+  const div = document.createElement('div');
+  div.className = 'query-row';
+  div.dataset.idx = idx;
+  div.innerHTML = `
+    <select class="form-control" name="field">
+      ${_followupQueryFields().map(f => `<option value="${escapeHtml(f.field)}">${escapeHtml(f.label)}</option>`).join('')}
+    </select>
+    <select class="form-control" name="op" style="max-width:140px">
+      ${QUERY_OPS.map(o => `<option>${o}</option>`).join('')}
+    </select>
+    <input class="form-control" name="val" placeholder="Value">
+    <button onclick="this.parentElement.remove()" title="Remove filter" style="background:none;border:none;color:#D32F2F;cursor:pointer;padding:3px 4px">${icon('x', 16)}</button>`;
+  container.appendChild(div);
+  renderIcons(div);
+}
+
+function _clearQuery() {
+  el('query-rows').innerHTML = '';
+  el('query-results').innerHTML = '';
+  _addQueryRow();
+}
+
+async function _runCustomQuery() {
+  const rows = el('query-rows').querySelectorAll('.query-row');
+  const filters = Array.from(rows).map(row => ({
+    field: row.querySelector('[name=field]').value,
+    op:    row.querySelector('[name=op]').value,
+    val:   row.querySelector('[name=val]').value.trim()
+  })).filter(f => f.val || f.op === 'is empty' || f.op === 'is not empty');
+
+  el('query-results').innerHTML = skeletonPage('table');
+  try {
+    await Promise.all([
+      _ensureCached('followups', () => api.getFollowups({})),
+      _ensureCached('leads',     () => api.getFollowupLeads())
+    ]);
+    const ctx = _buildFollowupContext(AppCache.getRows('leads'));
+    let data = AppCache.getRows('followups')
+      .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+      .filter(_isOpenFollowupRow)
+      .map(r => _decorateFollowup(r, ctx))
+      .filter(r => filters.every(f => _applyFilter(r, f)));
+    el('query-results').innerHTML = `
+      <div style="font-size:13px;color:#666;margin-bottom:8px">${data.length} result(s)</div>
+      ${_fuTable(data, 'No results match your query.')}`;
+    renderIcons(el('query-results'));
+  } catch(e) { el('query-results').innerHTML = `<p style="color:red">${e}</p>`; }
+}
+
+function _applyFilter(row, { field, op, val }) {
+  const cell = String(row[field] || '').toLowerCase();
+  const v    = val.toLowerCase();
+  switch (op) {
+    case '=':            return cell === v;
+    case '!=':           return cell !== v;
+    case 'contains':     return cell.includes(v);
+    case 'starts with':  return cell.startsWith(v);
+    case 'is empty':     return !cell;
+    case 'is not empty': return !!cell;
+    case 'before':       return val && new Date(row[field]) < new Date(val);
+    case 'after':        return val && new Date(row[field]) > new Date(val);
+    default:             return true;
+  }
+}
+
+// ── Follow-up Form ────────────────────────────────────────────────────────────
+// leadId/clientId optional — supports standalone follow-ups with no lead
+</script>

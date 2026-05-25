@@ -1,0 +1,167 @@
+﻿<style>
+  /* Follow-up query builder */
+  .query-builder { background: #F8F9FA; border: 1px solid var(--md-border); border-radius: 6px; padding: 14px; margin-bottom: 16px; }
+  .query-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .query-row .form-control { width: auto; flex: 1; min-width: 120px; }
+  .query-add-btn { background: none; border: 1px dashed var(--md-primary); color: var(--md-primary); border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
+  .fu-card {
+    background: #fff; border-radius: 6px; padding: 12px 14px; margin-bottom: 8px;
+    border-left: 3px solid var(--md-primary); box-shadow: 0 1px 3px rgba(0,0,0,.07);
+    font-size: 13px;
+  }
+  .activity-log-card { background: #FAFBFC; }
+  .fu-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .fu-card-title { font-weight: 600; }
+  .fu-card-meta { color: var(--md-text-secondary); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .fu-card-meta span { display: inline-flex; align-items: center; gap: 4px; }
+  .fu-table-summary {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .fu-summary-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: #F5F5F5;
+    color: var(--md-text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .fu-summary-pill.danger { background: #FFEBEE; color: #B71C1C; }
+  .fu-summary-pill.success { background: #E8F5E9; color: #1B5E20; }
+  .fu-table-wrap {
+    background: #fff;
+    border: 1px solid var(--md-border);
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  }
+  .fu-table { min-width: 980px; }
+  .fu-table th {
+    background: #FAFAFA;
+    color: var(--md-text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0;
+  }
+  .fu-table td {
+    vertical-align: top;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .fu-row:hover td { background: #FCFCFC; }
+  .fu-due-cell {
+    width: 130px;
+    border-left: 4px solid transparent;
+    white-space: nowrap;
+  }
+  .fu-due-overdue {
+    background: #FFEBEE;
+    border-left-color: #D32F2F;
+    color: #B71C1C;
+  }
+  .fu-due-today {
+    background: #E8F5E9;
+    border-left-color: #388E3C;
+    color: #1B5E20;
+  }
+  .fu-due-future {
+    background: #fff;
+    color: var(--md-text);
+  }
+  .fu-row-overdue td {
+    background: #FFEBEE;
+  }
+  .fu-row-overdue:hover td {
+    background: #FFE1E5;
+  }
+  .fu-row-today td {
+    background: #E8F5E9;
+  }
+  .fu-row-today:hover td {
+    background: #DFF0E2;
+  }
+  .fu-due-label { font-weight: 700; margin-bottom: 3px; }
+  .fu-due-date { font-size: 12px; color: inherit; opacity: .8; }
+  .fu-lead-title {
+    max-width: 260px;
+    font-weight: 700;
+    color: var(--md-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fu-lead-sub, .fu-date-sub {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--md-text-secondary);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fu-stage-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: #455A64;
+    background: #ECEFF1;
+    border-radius: 4px;
+    padding: 3px 6px;
+  }
+  .fu-type-line {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .fu-discussion, .fu-next-action {
+    max-width: 360px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .fu-table-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--md-text-secondary);
+  }
+  .fu-table-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #F5F7FA;
+    border-radius: 4px;
+    padding: 3px 6px;
+  }
+  .fu-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .fu-action-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .done-followup-summary {
+    background: #F8FAFC;
+    border: 1px solid var(--md-border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+  .history-table { min-width: 760px; }
+  .muted-text { color: var(--md-text-secondary); font-size: 12px; }
+  .empty-table-cell { color: #999; text-align: center; padding: 24px; }
+
+</style>

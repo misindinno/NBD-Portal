@@ -1,0 +1,142 @@
+﻿<script>
+const _CONFIG_IS_LQ_PORTAL = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
+const USER_MODULES = ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users','LeadForm']
+  .concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []);
+const USER_ROLE_MODULES = {
+  ADMIN:   ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users'].concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []),
+  MANAGER: ['Dashboard','Leads','Pipeline','Followups','Reports'],
+  SALES:   ['Dashboard','Leads','Pipeline','Followups'],
+  USER:    ['Dashboard','Followups'],
+  VIEWER:  ['Dashboard','Leads','Pipeline','Followups','Reports']
+};
+
+function _userPermission(user = {}) {
+  const text = String(user['Permission'] || user['Role'] || 'USER').trim().toUpperCase();
+  if (USER_ROLE_MODULES[text]) return text;
+  if (text.includes('ADMIN')) return 'ADMIN';
+  if (text.includes('MANAGER')) return 'MANAGER';
+  if (text.includes('SALES')) return 'SALES';
+  if (text.includes('VIEWER')) return 'VIEWER';
+  return 'USER';
+}
+
+function _effectiveUserModules(user = {}) {
+  const role = _userPermission(user);
+  if (String(user['Allowed Modules'] || '').trim().toUpperCase() === 'NONE') return [];
+  const modules = _parseUserModules(user['Allowed Modules']);
+  return modules.length ? modules : (USER_ROLE_MODULES[role] || USER_ROLE_MODULES.USER).slice();
+}
+
+function _parseUserModules(value) {
+  return String(value || '')
+    .split(',')
+    .map(v => _canonicalUserModule(v))
+    .filter(Boolean)
+    .filter((m, i, arr) => arr.indexOf(m) === i);
+}
+
+function _canonicalUserModule(value) {
+  const target = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return USER_MODULES.find(m => m.toLowerCase().replace(/[^a-z0-9]/g, '') === target) || '';
+}
+
+function _moduleLabel(moduleName) {
+  if (moduleName === 'Followups') return 'Follow-ups';
+  if (moduleName === 'LeadForm') return 'Lead Form';
+  if (moduleName === 'BulkEntry') return 'Bulk Entry';
+  return moduleName;
+}
+
+function _userModuleBadges(user) {
+  return `<div style="display:flex;flex-wrap:wrap;gap:4px">
+    ${_effectiveUserModules(user).map(m => `<span class="badge" style="background:#F5F5F5;color:#555">${escapeHtml(_moduleLabel(m))}</span>`).join('')}
+  </div>`;
+}
+
+function _parseDepartmentList(value) {
+  const list = Array.isArray(value) ? value : String(value || '').split(',');
+  return list
+    .map(v => v.trim())
+    .filter(Boolean)
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+}
+
+function _setAllSettingDepartments(form, checked) {
+  form?.querySelectorAll('[name="visibleDepartments"]').forEach(input => { input.checked = checked; });
+}
+
+function _userCanEditConfig(user) {
+  const role = _userPermission(user);
+  return role === 'ADMIN' || _sheetTruthy(user['Can Edit Config'], false) || _effectiveUserModules(user).includes('Config');
+}
+
+function _userCanManageUsers(user) {
+  const role = _userPermission(user);
+  return role === 'ADMIN' || _effectiveUserModules(user).includes('Users');
+}
+
+function _sheetTruthy(value, defaultValue = false) {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  if (value === true) return true;
+  const text = String(value).trim().toUpperCase();
+  return ['TRUE','YES','1'].includes(text);
+}
+
+function _applyRoleModuleDefaults(form) {
+  const role = form?.querySelector('[name="Permission"]')?.value || 'USER';
+  const defaults = USER_ROLE_MODULES[role] || USER_ROLE_MODULES.USER;
+  form?.querySelectorAll('[name="Allowed Modules"]').forEach(input => {
+    input.checked = defaults.includes(input.value);
+  });
+  const config = form?.querySelector('[name="Can Edit Config"]');
+  if (config) config.checked = defaults.includes('Config') || role === 'ADMIN';
+  _syncConfigPermission(form);
+}
+
+function _setAllUserModules(form, checked) {
+  form?.querySelectorAll('[name="Allowed Modules"]').forEach(input => { input.checked = checked; });
+  const config = form?.querySelector('[name="Can Edit Config"]');
+  if (config) config.checked = checked;
+  _syncConfigPermission(form);
+}
+
+function _syncConfigPermission(form, sourceIsConfigCheckbox = false) {
+  if (!form) return;
+  const configModule = Array.from(form.querySelectorAll('[name="Allowed Modules"]')).find(input => input.value === 'Config');
+  const configPermission = form.querySelector('[name="Can Edit Config"]');
+  if (!configModule || !configPermission) return;
+  if (sourceIsConfigCheckbox) configModule.checked = configPermission.checked;
+  if (configModule.checked) configPermission.checked = true;
+}
+
+function _togglePwVisibility(btn) {
+  const input = btn.parentElement.querySelector('input');
+  if (!input) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.querySelector('.pw-eye-on').style.display = show ? 'none' : '';
+  btn.querySelector('.pw-eye-off').style.display = show ? '' : 'none';
+}
+
+function _goToFieldsTab() {
+  const btn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.textContent.trim() === 'Custom Fields');
+  if (btn) switchConfigTab(btn, 'cfg-fields');
+}
+
+function _togglePasswordSection(btn) {
+  const section = btn.closest('.card').querySelector('#pw-section');
+  if (!section) return;
+  const visible = section.style.display !== 'none';
+  section.style.display = visible ? 'none' : '';
+  btn.textContent = visible ? 'Set New Password' : 'Cancel';
+  if (visible) {
+    const form = btn.closest('form');
+    const pw = form.querySelector('[name="Password"]');
+    const pc = form.querySelector('[name="Password Confirm"]');
+    const err = form.querySelector('#pw-match-err');
+    if (pw) pw.value = '';
+    if (pc) pc.value = '';
+    if (err) err.style.display = 'none';
+  }
+}
+</script>

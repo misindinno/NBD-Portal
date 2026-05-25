@@ -1,0 +1,385 @@
+﻿<script>
+function _dbRenderHealth(leads, fus) {
+  const todayStr = localDateInputValue();
+  const fusByLead = {};
+  fus.forEach(f => {
+    const lid = f['Lead ID'];
+    if (!fusByLead[lid]) fusByLead[lid] = [];
+    fusByLead[lid].push(f);
+  });
+
+  const scored = leads.filter(l => l['Lead Status'] === 'Open').map(l => {
+    let score = 10;
+    const lFus = fusByLead[l['Lead ID']] || [];
+
+    // Priority weight — most significant input
+    const prio = String(l['Priority'] || '').toUpperCase();
+    if      (prio === 'HOT')  score += 40;
+    else if (prio === 'WARM') score += 20;
+
+    if (lFus.length > 0) score += 20;
+    const done  = lFus.filter(f => !_isOpenFollowupRow(f)).length;
+    score += done * 10;
+
+    const overdue = lFus.filter(f => {
+      const d = _fmtDate(_fuPlannedDate(f));
+      return _isOpenFollowupRow(f) && d && d < todayStr;
+    }).length;
+    score -= overdue * 30;
+
+    const lastAct = _fmtDate(l['Updated At'] || l['Created At']);
+    if (lastAct) {
+      const days = Math.floor((new Date(todayStr) - new Date(lastAct)) / 86400000);
+      if (days >= 7)      score -= 50;
+      else if (days >= 3) score -= 20;
+    }
+
+    let heat, badge, bc;
+    if      (score >= 60) { heat = 'Hot';  badge = 'Hot';  bc = '#E64A19'; }
+    else if (score >= 30) { heat = 'Warm'; badge = 'Warm'; bc = '#F9A825'; }
+    else if (score >= 0)  { heat = 'Cold'; badge = 'Cold'; bc = '#1976D2'; }
+    else                  { heat = 'Dead'; badge = 'Dead'; bc = '#9E9E9E'; }
+
+    return { ...l, _score: score, _heat: heat, _badge: badge, _bc: bc };
+  });
+
+  const counts = { Hot: 0, Warm: 0, Cold: 0, Dead: 0 };
+  scored.forEach(l => { if (counts[l._heat] !== undefined) counts[l._heat]++; });
+
+  const hEl = el('db-health-grid');
+  if (hEl) {
+    hEl.innerHTML = [
+      ['Hot',  '#FF5722', '#FFF3E0', '🔥'],
+      ['Warm', '#F9A825', '#FFFDE7', '☀️'],
+      ['Cold', '#1976D2', '#E3F2FD', '❄️'],
+      ['Dead', '#9E9E9E', '#F5F5F5', '💀']
+    ].map(([h, c, bg, e]) =>
+      `<div style="background:${bg};border-radius:8px;padding:10px;text-align:center;border:1px solid ${c}33">
+        <div style="font-size:18px;margin-bottom:2px">${e}</div>
+        <div style="font-size:22px;font-weight:700;color:${c};line-height:1">${counts[h]}</div>
+        <div style="font-size:10px;color:#777;margin-top:2px;font-weight:600;text-transform:uppercase">${h}</div>
+      </div>`
+    ).join('');
+  }
+
+  const listEl = el('db-health-list');
+  if (listEl) {
+    const top = scored.filter(l => l._heat !== 'Dead').sort((a, b) => b._score - a._score).slice(0, 10);
+    listEl.innerHTML = top.length
+      ? top.map(l => `
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f5f5f5">
+          <span style="font-size:10px;font-weight:700;color:${l._bc};background:${l._bc}18;padding:2px 6px;border-radius:8px;white-space:nowrap">${l._badge}</span>
+          <span style="font-size:12px;color:#333;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(l['Company Name'])}">${escapeHtml(l['Company Name'] || l['Client Description'] || '')}</span>
+          <span style="font-size:11px;color:#aaa;white-space:nowrap">${l._score}pt</span>
+        </div>`).join('')
+      : '<p style="text-align:center;color:#ccc;font-size:12px;padding:16px 0">No active leads</p>';
+  }
+}
+
+// ─── Overdue Follow-ups Table ─────────────────────────────────────────────────
+function _dbRenderOverdueTable(overdueFus, leads) {
+  const wrap = el('db-overdue-table');
+  if (!wrap) return;
+
+  if (!overdueFus.length) {
+    wrap.innerHTML = `<div style="text-align:center;padding:28px;color:#388E3C;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px">${icon('check-circle',18)} No overdue follow-ups</div>`;
+    renderIcons(wrap);
+    return;
+  }
+
+  const todayStr = localDateInputValue();
+  const leadMap  = _mapRowsBy(leads, 'Lead ID');
+
+  const rows = overdueFus.slice(0, 25).map(f => {
+    const lead     = leadMap[f['Lead ID']] || {};
+    const planned  = _fmtDate(_fuPlannedDate(f));
+    const daysOver = planned ? Math.floor((new Date(todayStr) - new Date(planned)) / 86400000) : 0;
+    const prio     = lead['Priority'] || '';
+    const prioCol  = prio === 'High' ? '#D32F2F' : prio === 'Medium' ? '#F57C00' : '#9E9E9E';
+    const urgBg    = daysOver >= 7 ? '#FFEBEE' : daysOver >= 3 ? '#FFF8E1' : '#fff';
+    return `<tr style="background:${urgBg}">
+      <td style="padding:7px 10px;font-size:12px;font-weight:500;white-space:nowrap">${escapeHtml(lead['Company Name'] || f['Lead ID'] || '')}</td>
+      <td style="padding:7px 10px;font-size:12px;color:#555;white-space:nowrap">${escapeHtml(AppLookup.userName(lead['Assigned To']))}</td>
+      <td style="padding:7px 10px;font-size:12px;color:#555;white-space:nowrap">${planned ? formatDate(planned) : '—'}</td>
+      <td style="padding:7px 10px;font-size:12px;text-align:center"><span style="color:#D32F2F;font-weight:700">${daysOver}d</span></td>
+      <td style="padding:7px 10px;font-size:12px"><span style="color:${prioCol};font-weight:600">${escapeHtml(prio || '—')}</span></td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead>
+      <tr style="background:#FFF5F5;position:sticky;top:0">
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:left;color:#C62828;border-bottom:2px solid #FFCDD2;text-transform:uppercase;letter-spacing:.4px">Company</th>
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:left;color:#C62828;border-bottom:2px solid #FFCDD2;text-transform:uppercase;letter-spacing:.4px">Assigned To</th>
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:left;color:#C62828;border-bottom:2px solid #FFCDD2;text-transform:uppercase;letter-spacing:.4px">Due Date</th>
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:center;color:#C62828;border-bottom:2px solid #FFCDD2;text-transform:uppercase;letter-spacing:.4px">Overdue</th>
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:left;color:#C62828;border-bottom:2px solid #FFCDD2;text-transform:uppercase;letter-spacing:.4px">Priority</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ─── Leads Without Follow-up ──────────────────────────────────────────────────
+function _dbRenderNoFollowupTable(leads, fus) {
+  const wrap = el('db-nofollowup-table');
+  if (!wrap) return;
+
+  const todayStr = localDateInputValue();
+  const withFuUpcoming = new Set(
+    fus.filter(f => _isOpenFollowupRow(f) && (_fmtDate(_fuPlannedDate(f)) || '') >= todayStr)
+       .map(f => f['Lead ID'])
+  );
+
+  const atRisk = leads
+    .filter(l => l['Lead Status'] === 'Open' && !withFuUpcoming.has(l['Lead ID']))
+    .sort((a, b) => (_fmtDate(a['Created At']) || '').localeCompare(_fmtDate(b['Created At']) || ''))
+    .slice(0, 25);
+
+  if (!atRisk.length) {
+    wrap.innerHTML = `<div style="text-align:center;padding:28px;color:#388E3C;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px">${icon('check-circle',18)} All leads have upcoming follow-ups</div>`;
+    renderIcons(wrap);
+    return;
+  }
+
+  const rows = atRisk.map(l => {
+    const d   = _fmtDate(l['Created At']) || '';
+    const age = d ? Math.floor((new Date(todayStr) - new Date(d)) / 86400000) : 0;
+    const col = age >= 7 ? '#D32F2F' : age >= 3 ? '#F57C00' : '#388E3C';
+    return `<tr style="border-bottom:1px solid #fafafa">
+      <td style="padding:7px 10px;font-size:12px;font-weight:500;white-space:nowrap">${escapeHtml(l['Company Name'] || '')}</td>
+      <td style="padding:7px 10px;font-size:12px;color:#555;white-space:nowrap">${escapeHtml(AppLookup.stageName(l['Stage ID']))}</td>
+      <td style="padding:7px 10px;font-size:12px;color:#555;white-space:nowrap">${escapeHtml(AppLookup.userName(l['Assigned To']))}</td>
+      <td style="padding:7px 10px;font-size:12px;text-align:center"><span style="color:${col};font-weight:700">${age}d</span></td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead>
+      <tr style="background:#FFF8F0;position:sticky;top:0">
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:left;color:#E65100;border-bottom:2px solid #FFE0B2;text-transform:uppercase;letter-spacing:.4px">Company</th>
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:left;color:#E65100;border-bottom:2px solid #FFE0B2;text-transform:uppercase;letter-spacing:.4px">Stage</th>
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:left;color:#E65100;border-bottom:2px solid #FFE0B2;text-transform:uppercase;letter-spacing:.4px">Assigned To</th>
+        <th style="padding:7px 10px;font-size:10px;font-weight:700;text-align:center;color:#E65100;border-bottom:2px solid #FFE0B2;text-transform:uppercase;letter-spacing:.4px">No FU Since</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ─── Source Conversion Table ──────────────────────────────────────────────────
+function _dbRenderSourceTable(leads) {
+  const wrap = el('db-source-table');
+  if (!wrap) return;
+
+  const map = {};
+  leads.forEach(l => {
+    const src = l['Source'] || 'Unknown';
+    if (!map[src]) map[src] = { total: 0, won: 0, lost: 0 };
+    map[src].total++;
+    if (l['Lead Status'] === 'Won')  map[src].won++;
+    if (l['Lead Status'] === 'Lost') map[src].lost++;
+  });
+
+  const sorted = Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+
+  if (!sorted.length) {
+    wrap.innerHTML = '<p style="text-align:center;color:#ccc;padding:20px;font-size:13px">No data</p>';
+    return;
+  }
+
+  const rows = sorted.map(([src, d]) => {
+    const closed = d.won + d.lost;
+    const conv   = closed > 0 ? Math.round(d.won / closed * 100) : 0;
+    const cCol   = conv >= 50 ? '#388E3C' : conv >= 25 ? '#F57C00' : '#D32F2F';
+    return `<tr style="border-bottom:1px solid #f5f5f5">
+      <td style="padding:8px 12px;font-size:12px;font-weight:500">${escapeHtml(src)}</td>
+      <td style="padding:8px 12px;font-size:12px;text-align:center;font-weight:600">${d.total}</td>
+      <td style="padding:8px 12px;font-size:12px;text-align:center;color:#388E3C;font-weight:600">${d.won}</td>
+      <td style="padding:8px 12px;font-size:12px;text-align:center;color:#D32F2F">${d.lost}</td>
+      <td style="padding:8px 12px;font-size:12px;text-align:center"><span style="color:${cCol};font-weight:700">${conv}%</span></td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead>
+      <tr style="background:#F8F8F8">
+        ${['Source','Total Leads','Converted','Lost','Conv %']
+          .map(h => `<th style="padding:8px 12px;font-size:10px;font-weight:700;border-bottom:2px solid #E0E0E0;color:#555;text-transform:uppercase;letter-spacing:.4px;text-align:${h==='Source'?'left':'center'}">${h}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ─── Team Leaderboard ─────────────────────────────────────────────────────────
+function _dbRenderLeaderboard(leads, fus) {
+  const wrap = el('db-leaderboard');
+  if (!wrap) return;
+
+  const todayStr = localDateInputValue();
+  const team = {};
+
+  leads.forEach(l => {
+    const uid = l['Assigned To'];
+    if (!uid) return;
+    if (!team[uid]) team[uid] = { name: AppLookup.userName(uid), leads: 0, won: 0, fuDone: 0, fuMissed: 0 };
+    team[uid].leads++;
+    if (l['Lead Status'] === 'Won') team[uid].won++;
+  });
+
+  const leadMap = _mapRowsBy(leads, 'Lead ID');
+  fus.forEach(f => {
+    const lead = f['Lead ID'] ? leadMap[f['Lead ID']] : null;
+    // Skip followups whose lead is not in the current filter scope (deleted or not visible)
+    if (f['Lead ID'] && !lead) return;
+    const uid  = lead?.['Assigned To'] || f['Created By'];
+    if (!uid || !team[uid]) return;
+    if (!_isOpenFollowupRow(f)) {
+      team[uid].fuDone++;
+    } else {
+      const d = _fmtDate(_fuPlannedDate(f));
+      if (d && d < todayStr) team[uid].fuMissed++;
+    }
+  });
+
+  const ranked = Object.values(team).map(t => {
+    const fuTotal = t.fuDone + t.fuMissed;
+    const fuPct   = fuTotal > 0 ? Math.round(t.fuDone / fuTotal * 100) : 0;
+    const convPct = t.leads > 0 ? Math.round(t.won / t.leads * 100) : 0;
+    const score   = t.won * 50 + t.fuDone * 10 - t.fuMissed * 15 + convPct;
+    return { ...t, fuPct, convPct, score };
+  }).sort((a, b) => b.score - a.score);
+
+  if (!ranked.length) {
+    wrap.innerHTML = '<p style="text-align:center;color:#ccc;padding:20px;font-size:13px">No team data</p>';
+    return;
+  }
+
+  const medals = ['🥇','🥈','🥉'];
+  const rows = ranked.map((t, i) => {
+    const fpCol = t.fuPct >= 80 ? '#388E3C' : t.fuPct >= 50 ? '#F57C00' : '#D32F2F';
+    return `<tr style="border-bottom:1px solid #f5f5f5${i < 3 ? ';background:#FFFEF5' : ''}">
+      <td style="padding:10px 12px;font-size:15px;text-align:center">${medals[i] || `<span style="color:#aaa;font-size:12px">#${i + 1}</span>`}</td>
+      <td style="padding:10px 12px;font-size:13px;font-weight:600">${escapeHtml(t.name)}</td>
+      <td style="padding:10px 12px;font-size:13px;text-align:center">${t.leads}</td>
+      <td style="padding:10px 12px;font-size:13px;text-align:center;color:#388E3C;font-weight:700">${t.won}</td>
+      <td style="padding:10px 12px;font-size:13px;text-align:center">${t.convPct}%</td>
+      <td style="padding:10px 12px;font-size:13px;text-align:center;color:#0277BD;font-weight:600">${t.fuDone}</td>
+      <td style="padding:10px 12px;font-size:13px;text-align:center"><span style="color:${fpCol};font-weight:700">${t.fuPct}%</span></td>
+      <td style="padding:10px 12px;font-size:13px;text-align:center;font-weight:700;color:#6A1B9A">${t.score}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead>
+      <tr style="background:#F8F8F8">
+        ${['Rank','Name','Leads','Won','Conv %','FU Done','FU Done %','Score']
+          .map(h => `<th style="padding:9px 12px;font-size:10px;font-weight:700;border-bottom:2px solid #E0E0E0;color:#555;text-transform:uppercase;letter-spacing:.4px;text-align:${h==='Name'?'left':'center'}">${h}</th>`).join('')}
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ─── Activity Timeline ────────────────────────────────────────────────────────
+const _dbActivityPage = { current: 0 };
+const _DB_ACT_PAGE_SIZE = 50;
+
+function _dbRenderActivity(leads, page) {
+  const wrap = el('db-activity');
+  if (!wrap) return;
+
+  if (!AppCache.isLoaded('activityLogs')) {
+    wrap.innerHTML = '<p style="text-align:center;color:#ccc;font-size:13px;padding:16px">Activity data loading…</p>';
+    return;
+  }
+
+  if (page !== undefined) _dbActivityPage.current = page;
+  const pg = _dbActivityPage.current;
+
+  const sorted = AppCache.getRows('activityLogs')
+    .slice()
+    .sort((a, b) => String(b['Created At'] || '').localeCompare(String(a['Created At'] || '')));
+
+  const total     = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(total / _DB_ACT_PAGE_SIZE));
+  const pageLogs  = sorted.slice(pg * _DB_ACT_PAGE_SIZE, (pg + 1) * _DB_ACT_PAGE_SIZE);
+
+  if (!pageLogs.length) {
+    wrap.innerHTML = '<p style="text-align:center;color:#ccc;font-size:13px;padding:16px">No activity recorded.</p>';
+    return;
+  }
+
+  const leadMap = _mapRowsBy(AppCache.getRows('leads'), 'Lead ID');
+
+  const actIcon = {
+    'Stage Changed':  { i: 'git-branch',     c: '#6A1B9A' },
+    'Lead Created':   { i: 'user-plus',       c: '#1565C0' },
+    'Followup Added': { i: 'phone',           c: '#388E3C' },
+    'Lead Won':       { i: 'trophy',          c: '#F9A825' },
+    'Lead Lost':      { i: 'x-circle',        c: '#D32F2F' },
+    'Lead Updated':   { i: 'pencil',          c: '#0277BD' },
+    'Remark Updated': { i: 'message-square',  c: '#00838F' },
+    'Assigned':       { i: 'user-check',      c: '#558B2F' }
+  };
+
+  const _resolve = v => {
+    if (!v) return '';
+    const s = String(v);
+    const stage = AppLookup.stageObj(s);
+    if (stage) return stage.name;
+    const uname = AppLookup.userName(s);
+    return uname !== '—' ? uname : s;
+  };
+
+  const itemsHtml = pageLogs.map(log => {
+    const type    = log['Action Type'] || log['Activity Type'] || 'Lead Updated';
+    const info    = actIcon[type] || { i: 'activity', c: '#9E9E9E' };
+    const user    = AppLookup.userName(log['Created By']);
+    const lead    = leadMap[log['Lead ID']] || {};
+    const company = lead['Company Name'] || log['Company Name'] || '';
+    const ts      = log['Created At'] || '';
+    const oldVal  = _resolve(log['Old Value']);
+    const newVal  = _resolve(log['New Value']);
+    return `
+      <div style="position:relative;margin-bottom:14px;padding-left:14px">
+        <div style="position:absolute;left:-20px;top:3px;width:16px;height:16px;background:${info.c};border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i data-lucide="${info.i}" style="width:8px;height:8px;color:#fff;stroke-width:3"></i>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:#2d2d2d;line-height:1.4">
+          ${escapeHtml(type)}${company ? ` <span style="font-weight:400;color:#666">— ${escapeHtml(company)}</span>` : ''}
+        </div>
+        ${(oldVal || newVal) ? `
+          <div style="font-size:11px;color:#888;margin-top:2px">
+            ${oldVal ? `<span style="color:#D32F2F;text-decoration:line-through">${escapeHtml(oldVal)}</span> → ` : ''}
+            ${newVal ? `<span style="color:#388E3C;font-weight:500">${escapeHtml(newVal)}</span>` : ''}
+          </div>` : ''}
+        ${log['Remark'] ? `<div style="font-size:11px;color:#888;margin-top:2px;font-style:italic">"${escapeHtml(String(log['Remark']).slice(0, 80))}"</div>` : ''}
+        <div style="font-size:10px;color:#bbb;margin-top:3px">${escapeHtml(user)}${ts ? ' · ' + formatDate(ts) : ''}</div>
+      </div>`;
+  }).join('');
+
+  const start = pg * _DB_ACT_PAGE_SIZE + 1;
+  const end   = Math.min((pg + 1) * _DB_ACT_PAGE_SIZE, total);
+
+  wrap.innerHTML = `
+    <div style="position:relative;padding-left:30px">
+      <div style="position:absolute;left:10px;top:4px;bottom:4px;width:2px;background:#EEEEEE;border-radius:1px"></div>
+      ${itemsHtml}
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid #f0f0f0;flex-wrap:wrap;gap:8px">
+      <span style="font-size:12px;color:#aaa">Showing ${start}–${end} of ${total} activities</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${pg > 0
+          ? `<button class="btn btn-outlined" onclick="_dbRenderActivity(undefined,${pg - 1})" style="padding:5px 14px;font-size:12px;display:flex;align-items:center;gap:5px">${icon('chevron-left',13)} Newer</button>`
+          : `<button class="btn btn-outlined" disabled style="padding:5px 14px;font-size:12px;opacity:.35;display:flex;align-items:center;gap:5px">${icon('chevron-left',13)} Newer</button>`}
+        <span style="font-size:12px;color:#888;font-weight:600">Page ${pg + 1} / ${totalPages}</span>
+        ${pg < totalPages - 1
+          ? `<button class="btn btn-outlined" onclick="_dbRenderActivity(undefined,${pg + 1})" style="padding:5px 14px;font-size:12px;display:flex;align-items:center;gap:5px">Older ${icon('chevron-right',13)}</button>`
+          : `<button class="btn btn-outlined" disabled style="padding:5px 14px;font-size:12px;opacity:.35;display:flex;align-items:center;gap:5px">Older ${icon('chevron-right',13)}</button>`}
+      </div>
+    </div>`;
+  renderIcons(wrap);
+}
+</script>

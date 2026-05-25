@@ -1,0 +1,403 @@
+﻿<script>
+async function openLeadDetail(leadId) {
+    // Serve from cache; fall back to API if not loaded (e.g. direct deep link).
+    let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
+    if (lead && !AppCache.isLoaded('followups')) {
+      await _ensureCached('followups', () => api.getFollowups({}));
+    }
+    if (lead && !AppCache.isLoaded('followupHistory')) {
+      await _ensureCached('followupHistory', () => api.getFollowupHistory({})).catch(() => { });
+    }
+    if (lead && !AppCache.isLoaded('activityLogs')) {
+      await _ensureCached('activityLogs', () => api.getLeadActivityLogs({})).catch(() => { });
+    }
+    let followups = AppCache.getRows('followups')
+      .filter(f => f['Lead ID'] === leadId)
+      .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
+    let followupHistory = AppCache.getRows('followupHistory')
+      .filter(f => f['Lead ID'] === leadId);
+    let activityLogs = AppCache.getRows('activityLogs')
+      .filter(f => f['Lead ID'] === leadId);
+    if (!lead) {
+      const data = await api.getLead(leadId);
+      lead = data.lead;
+      followups = data.followups || [];
+      followupHistory = data.followupHistory || [];
+      activityLogs = data.activityLogs || [];
+    }
+    const leadFields = App.config.leadFields || [];
+    const configOptions = _configOptionsMap(App.config._allConfigs || []);
+    const fuContext = _buildFollowupContext([lead]);
+    const visibleFollowups = followups.filter(f => !_isActivityLog(f) && _isOpenFollowupRow(f));
+    const stageMap = App.config.stages.reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
+    const stage = stageMap[lead['Stage ID']];
+    const showNbdPush = _canPushLeadToNbd(lead);
+    const isNbdLocked = _isLeadPushedToNbd(lead);
+    const canDeleteLead = String(App.user.department || '').trim().toUpperCase() === 'MIS' || App.user.role === 'ADMIN';
+    const _sc = safeColor(stage?.Color) || '#6366f1';
+    const _stageVal = '<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + _sc + ';flex-shrink:0;display:inline-block"></span>' + escapeHtml(stage?.['Stage Name'] || '—') + '</span>';
+    const overlay = showModal(`
+    <div class="modal-header">
+      <h2 style="font-size:18px;font-weight:700;color:#111827">${escapeHtml(lead['Company Name'] || lead['Client Description'] || '—')}</h2>
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-bottom:16px;font-size:13px">
+      ${lead['Client Description'] ? `<div style="grid-column:1/-1;padding:9px 16px;border-bottom:1px solid #e5e7eb;background:#f9fafb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:3px">Client Description</div>
+        <div style="font-size:12.5px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default" title="${escapeHtml(lead['Client Description'])}">${escapeHtml(lead['Client Description'])}</div>
+      </div>` : ''}
+      <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Company</div>
+        <div style="font-weight:600;color:#111827">${escapeHtml(lead['Company Name'] || '—')}</div>
+      </div>
+      <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb;border-left:1px solid #e5e7eb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Contact Person</div>
+        <div style="font-weight:600;color:#111827">${escapeHtml(lead['Contact Person'] || '—')}</div>
+      </div>
+      <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Stage</div>
+        <div style="font-weight:600;color:#111827">${_stageVal}</div>
+      </div>
+      <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb;border-left:1px solid #e5e7eb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Phone</div>
+        <div style="font-weight:600;color:#111827">${escapeHtml(lead['Phone'] || '—')}</div>
+      </div>
+      <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Priority</div>
+        <div style="font-weight:600;color:#111827">${escapeHtml(lead['Priority'] || '—')}</div>
+      </div>
+      <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb;border-left:1px solid #e5e7eb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">City</div>
+        <div style="font-weight:600;color:#111827">${escapeHtml(lead['City'] || '—')}</div>
+      </div>
+      <div style="padding:10px 16px">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Source</div>
+        <div style="font-weight:600;color:#111827">${escapeHtml(lead['Source'] || '—')}</div>
+      </div>
+      <div style="padding:10px 16px;border-left:1px solid #e5e7eb">
+        <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">State</div>
+        <div style="font-weight:600;color:#111827">${escapeHtml(lead['State'] || '—')}</div>
+      </div>
+      ${lead['Next Follow-up Date'] ? '<div style="padding:10px 16px;border-top:1px solid #e5e7eb;grid-column:1/-1;background:#f9fafb"><div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Next Follow-up</div><div style="font-weight:700;color:#111827;font-size:14px">' + formatDate(lead['Next Follow-up Date']) + '</div></div>' : ''}
+    </div>
+    ${buildLeadCustomFieldSummary(lead, leadFields, configOptions)}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div class="tabs" style="margin-bottom:0;border:none">
+        <button class="tab-btn active" onclick="switchTab(this,'tab-history')">Follow-up History</button>
+        <button class="tab-btn" onclick="switchTab(this,'tab-log')">Activity Logs</button>
+        ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead</button>`}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : `<button class="btn btn-primary btn-sm" onclick="openFollowupForm('${escapeHtml(String(lead['Lead ID'] || ''))}','${escapeHtml(String(lead['Client Description'] || '').replace(/'/g, '&#39;'))}')">
+          ${icon('plus', 14)} Add Follow-up
+        </button>`}
+        ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
+          ${icon('send', 14)} Push to NBD
+        </button>` : ''}
+        ${canDeleteLead ? `<button class="btn btn-outlined btn-sm" style="color:#D32F2F;border-color:#D32F2F" onclick="deleteLeadConfirm('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'))">
+          ${icon('trash-2', 14)} Delete
+        </button>` : ''}
+      </div>
+    </div>
+    <div id="tab-history" class="tab-pane">
+      ${_followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
+    </div>
+    <div id="tab-log" class="tab-pane" style="display:none">
+      ${_activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
+    </div>
+    ${isNbdLocked ? `<div class="locked-panel">
+      ${icon('lock', 18)}
+      <div>
+        <div class="locked-title">Moved to NBD</div>
+        <div class="locked-text">This lead is locked in LQ because it was pushed to NBD${lead['NBD Lead ID'] ? ' as ' + escapeHtml(lead['NBD Lead ID']) : ''}.</div>
+      </div>
+    </div>` : `<div id="tab-edit" class="tab-pane" style="display:none">
+      ${buildLeadFormHTML(lead, leadFields, configOptions)}
+    </div>`}`);
+    overlay.querySelector('.modal')?.classList.add('modal-wide');
+
+    const editForm = overlay.querySelector('#lead-form');
+    if (editForm) {
+      _initLeadValidator(editForm).onSuccess(async () => {
+        if (!validateCfMultiselects(editForm)) return;
+        const btn = editForm.querySelector('[type=submit]');
+        setButtonLoading(btn);
+        try {
+          const payload = await collectLeadFormPayload(editForm);
+          payload['Lead ID'] = lead['Lead ID'];
+          AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
+          overlay.remove();
+          _refreshLeadViewsAfterLocalChange();
+          QueueManager.enqueue({
+            module: 'leads', actionType: 'saveLead', payload,
+            onDone: () => toast('Lead saved!'),
+            onFail: j  => {
+              _refreshLeadsCache().catch(() => {});
+              toast('Save failed: ' + (j.error || 'Error'), 'error');
+            }
+          });
+          toast('Saving…', 'info');
+        } catch (err) {
+          toast(err, 'error');
+          resetButtonLoading(btn);
+        }
+      });
+    }
+    initLeadCustomFields(overlay);
+    _initStateCityDropdowns(overlay, lead['State'] || '', lead['City'] || '');
+  }
+
+  function switchTab(btn, tabId) {
+    btn.closest('.modal').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    btn.closest('.modal').querySelectorAll('.tab-pane').forEach(pane => {
+      pane.style.display = pane.id === tabId ? '' : 'none';
+    });
+  }
+
+  function _canPushLeadToNbd(lead) {
+    if (!lead) return false;
+    if (_isLeadPushedToNbd(lead)) return false;
+    const appTitle = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase();
+    return appTitle.includes('lq') && _leadStageIsWonForNbd(lead);
+  }
+
+  function _isLeadPushedToNbd(lead) {
+    return !!(lead && (lead['NBD Lead ID'] || lead['Pushed To NBD At']));
+  }
+
+  function _leadStageIsWonForNbd(lead) {
+    const stages = (App.config && (App.config.allStages || App.config.stages)) || [];
+    const stage = stages.find(s => String(s['Stage ID'] || '') === String(lead['Stage ID'] || ''));
+    if (!stage) return false;
+    const outcome = String(stage['Stage Outcome'] || '').trim().toLowerCase();
+    if (outcome === 'won') return true;
+    const name = String(stage['Stage Name'] || '').trim().toLowerCase();
+    if (name === 'won' || name.includes('won')) return true;
+    const isFinal = stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE';
+    const status = String(lead['Lead Status'] || '').trim().toLowerCase();
+    return isFinal && status === 'won' && !/lost|disqualified|reject|dead/.test(name);
+  }
+
+  async function pushLeadToNbdFromDetail(leadId) {
+    if (!leadId) return;
+    const btn = el('push-nbd-btn');
+
+    // Disable immediately so user can't double-click while dialog loads
+    if (btn) setButtonLoading(btn, 'Loading...');
+
+    const lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
+    const companyName = lead ? (lead['Company Name'] || leadId) : leadId;
+    let nbdUsers = [];
+    try {
+      nbdUsers = await api.getNbdAssignableUsers();
+    } catch (err) {
+      if (btn) resetButtonLoading(btn);
+      toast('Could not load NBD users: ' + (err.message || err), 'error');
+      return;
+    }
+    if (!nbdUsers.length) {
+      if (btn) resetButtonLoading(btn);
+      toast('No active NBD users found for assignment.', 'error');
+      return;
+    }
+    if (btn) resetButtonLoading(btn);
+
+    // Check for existing NBD leads matching phone / email / company
+    if (btn) setButtonLoading(btn, 'Checking NBD...');
+    let duplicates = [];
+    try { duplicates = await api.checkNbdDuplicate(leadId); } catch (_) {}
+    if (btn) resetButtonLoading(btn);
+
+    // If duplicates found — ask user to map or push anyway (or cancel)
+    if (duplicates.length) {
+      const choice = await _showNbdDuplicateDialog(companyName, duplicates);
+      if (!choice) return; // cancelled
+
+      if (choice.mapToNbdLeadId) {
+        // Map mode: link to existing NBD lead without creating a new one
+        if (btn) setButtonLoading(btn, 'Mapping...');
+        _showNbdPushStatus('queued');
+        QueueManager.enqueue({
+          module: 'leads',
+          actionType: 'pushLeadToNbd',
+          payload: { leadId, mapToNbdLeadId: choice.mapToNbdLeadId },
+          onDone: j => {
+            _showNbdPushStatus('done');
+            AppCache.patchRow('leads', 'Lead ID', leadId, {
+              'NBD Lead ID': choice.mapToNbdLeadId,
+              'Pushed To NBD At': _nowStr(),
+              'Updated At': _nowStr()
+            });
+            setTimeout(() => {
+              document.querySelector('.modal-overlay')?.remove();
+              _refreshLeadViewsAfterLocalChange();
+            }, 1200);
+            toast('Lead mapped to existing NBD lead!', 'success');
+          },
+          onFail: j => {
+            _showNbdPushStatus('failed', j.error || 'Unknown error');
+            if (btn) resetButtonLoading(btn);
+            toast('Mapping failed: ' + (j.error || 'Unknown error'), 'error');
+          }
+        });
+        return;
+      }
+      // else: pushAnyway — fall through to normal push flow
+    }
+
+    const assignOptions = nbdUsers.reduce((m, user) => {
+      const label = [user.name, user.department].filter(Boolean).join(' - ');
+      m[user.id] = label || user.id;
+      return m;
+    }, {});
+
+    const confirmed = await Swal.fire({
+      title: 'Push to NBD?',
+      html: `<div style="font-size:14px;color:#374151;margin-bottom:8px">Push <strong>${escapeHtml(companyName)}</strong> to the NBD portal?<br><span style="font-size:12px;color:#9ca3af;margin-top:6px;display:block">This creates a new NBD lead and an initial follow-up with LQ source remarks.</span></div>`,
+      input: 'select',
+      inputLabel: 'Assign NBD lead to',
+      inputOptions: assignOptions,
+      inputPlaceholder: 'Select NBD user',
+      inputValidator: value => value ? undefined : 'Please select an NBD user.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Push',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#6366f1',
+    });
+    if (!confirmed.isConfirmed) return;
+
+    // Lock button and show inline status bar in the lead detail modal
+    if (btn) setButtonLoading(btn, 'Pushing...');
+    _showNbdPushStatus('queued');
+
+    QueueManager.enqueue({
+      module: 'leads',
+      actionType: 'pushLeadToNbd',
+      payload: { leadId, nbdAssignedTo: confirmed.value },
+      onDone: j => {
+        _showNbdPushStatus('done');
+        const nbdLeadId = j.finalRecordId || '';
+        AppCache.patchRow('leads', 'Lead ID', leadId, {
+          'NBD Lead ID': nbdLeadId,
+          'Pushed To NBD At': _nowStr(),
+          'Updated At': _nowStr()
+        });
+        setTimeout(() => {
+          document.querySelector('.modal-overlay')?.remove();
+          _refreshLeadViewsAfterLocalChange();
+        }, 1200);
+        toast('Lead pushed to NBD successfully!', 'success');
+      },
+      onFail: j => {
+        _showNbdPushStatus('failed', j.error || 'Unknown error');
+        if (btn) resetButtonLoading(btn);
+        toast('Push to NBD failed: ' + (j.error || 'Unknown error'), 'error');
+      }
+    });
+  }
+
+  function _showNbdDuplicateDialog(companyName, duplicates) {
+    return new Promise(resolve => {
+      const rows = duplicates.map((d, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;background:#f9fafb">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px;color:#111">${escapeHtml(d.company || '—')}</div>
+            ${d.contact ? `<div style="font-size:12px;color:#555;margin-top:2px">${escapeHtml(d.contact)}</div>` : ''}
+            <div style="font-size:11px;color:#9ca3af;margin-top:3px">
+              ${d.phone ? escapeHtml(d.phone) + ' &nbsp;·&nbsp; ' : ''}
+              ${d.email ? escapeHtml(d.email) + ' &nbsp;·&nbsp; ' : ''}
+              Matched on: <strong>${escapeHtml(d.matchOn)}</strong>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-outlined" style="white-space:nowrap;flex-shrink:0" onclick="_nbdDupResolve(${i},'map')">
+            Map to this
+          </button>
+        </div>`).join('');
+
+      // Store duplicates and resolver on window so button handlers can access them
+      window._nbdDupList     = duplicates;
+      window._nbdDupResolve  = (idx, action) => {
+        Swal.close();
+        if (action === 'map') resolve({ mapToNbdLeadId: duplicates[idx].nbdLeadId });
+        else if (action === 'push') resolve({ pushAnyway: true });
+        else resolve(null);
+        delete window._nbdDupList;
+        delete window._nbdDupResolve;
+      };
+
+      Swal.fire({
+        title: `⚠️ Existing NBD Lead Found`,
+        html: `
+          <div style="font-size:13px;color:#374151;margin-bottom:12px;text-align:left">
+            <strong>${escapeHtml(companyName)}</strong> may already exist in NBD. Map to an existing lead or push as new.
+          </div>
+          <div style="max-height:260px;overflow-y:auto;text-align:left">${rows}</div>`,
+        showCancelButton: true,
+        showConfirmButton: true,
+        confirmButtonText: 'Push as New Lead',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#6366f1',
+        width: 520,
+      }).then(result => {
+        if (window._nbdDupResolve) {
+          if (result.isConfirmed) window._nbdDupResolve(null, 'push');
+          else window._nbdDupResolve(null, 'cancel');
+        }
+      });
+    });
+  }
+
+  function _showNbdPushStatus(state, errorMsg) {
+    // Find or create the status bar inside the open lead detail modal
+    const modal = document.querySelector('.modal-overlay');
+    if (!modal) return;
+    let bar = modal.querySelector('#nbd-push-status-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'nbd-push-status-bar';
+      bar.style.cssText = 'margin:10px 20px 0;padding:10px 14px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;transition:all .3s';
+      // Insert above the modal footer
+      const footer = modal.querySelector('.modal-footer');
+      if (footer) footer.before(bar);
+      else modal.querySelector('.modal-content')?.appendChild(bar);
+    }
+    const cfg = {
+      queued:     { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Queued — processing in background…' },
+      processing: { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Processing — almost there…' },
+      done:       { bg:'#f0fdf4', color:'#15803d', border:'#bbf7d0', icon:'check-circle',  iconCls:'',          text:'Successfully pushed to NBD!' },
+      failed:     { bg:'#fef2f2', color:'#b91c1c', border:'#fecaca', icon:'alert-circle',  iconCls:'',          text:'Push failed: ' + (errorMsg || 'Unknown error') },
+    }[state] || {};
+    bar.style.background = cfg.bg;
+    bar.style.color      = cfg.color;
+    bar.style.border     = '1px solid ' + cfg.border;
+    const checkBtn = (state === 'queued' || state === 'processing')
+      ? `<button onclick="_checkNbdPushStatus(this)" style="margin-left:auto;padding:3px 10px;border:1px solid currentColor;border-radius:5px;background:none;color:inherit;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0">${icon('refresh-cw',12)} Check Now</button>`
+      : '';
+    bar.innerHTML = `<span style="flex-shrink:0">${icon(cfg.icon, 15, cfg.iconCls)}</span><span style="flex:1">${cfg.text}</span>${checkBtn}`;
+    renderIcons(bar);
+  }
+
+  async function _checkNbdPushStatus(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+      // Find the most recent pushLeadToNbd job in the local queue
+      const jobs = Object.values(QueueManager.jobs()).filter(j => j.actionType === 'pushLeadToNbd');
+      if (!jobs.length) { _showNbdPushStatus('queued'); return; }
+      const job = jobs.sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0))[0];
+      // Force-poll the server for latest status
+      await QueueManager.pollNow([job.requestId]);
+      const fresh = QueueManager.jobs()[job.requestId];
+      if (!fresh) return;
+      if (fresh.status === 'DONE')    _showNbdPushStatus('done');
+      else if (fresh.status === 'DEAD') _showNbdPushStatus('failed', fresh.error);
+      else if (fresh.status === 'PROCESSING') _showNbdPushStatus('processing');
+      else _showNbdPushStatus('queued');
+    } catch (e) {
+      toast('Status check failed: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; renderIcons(btn.closest('#nbd-push-status-bar')); }
+    }
+  }
+</script>

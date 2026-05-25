@@ -1,0 +1,120 @@
+﻿<script>
+function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
+    const cfg = App.config;
+    const canAssign = ['ADMIN', 'MANAGER'].includes(App.user.role);
+    const productInterests = cfg.productInterests || [];
+    const leadId = _leadRowId(d);
+    const initialStage = cfg.stages.find(s => s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE') || cfg.stages[0];
+    return `<form id="lead-form">
+    ${leadId ? `<input type="hidden" name="Lead ID" value="${escapeHtml(leadId)}">` : ''}
+    <input type="hidden" name="Stage ID" value="${escapeHtml(d['Stage ID'] || (initialStage ? initialStage['Stage ID'] : ''))}">
+    <div class="form-row">
+      <div class="form-group"><label>Company Name *</label>
+        <input class="form-control input-capitalize" name="Company Name" autocapitalize="words" value="${escapeHtml(d['Company Name'] || '')}" required></div>
+      <div class="form-group"><label>Contact Person *</label>
+        <input class="form-control input-capitalize" name="Contact Person" autocapitalize="words" value="${escapeHtml(d['Contact Person'] || '')}" required></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Phone *</label>
+        <input class="form-control" name="Phone" type="tel" value="${escapeHtml(d['Phone'] || '')}" required></div>
+      <div class="form-group"><label>Alternate No</label>
+        <input class="form-control" name="Alternate No" type="tel" value="${escapeHtml(d['Alternate No'] || '')}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Email</label>
+        <input class="form-control input-lowercase" name="Email" type="email" autocapitalize="none" autocorrect="off" spellcheck="false" value="${escapeHtml(d['Email'] || '')}"></div>
+      <div class="form-group"><label>GST No</label>
+        <input class="form-control input-uppercase" name="GST No" oninput="this.value=this.value.toUpperCase()" title="Enter a valid 15-character GST number (e.g. 22AAAAA0000A1Z5)" value="${escapeHtml(d['GST No'] || '')}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>State *</label>
+        <select class="form-control" name="State" required>
+          <option value="">Select State</option>
+          ${cfg.states.map(s => `<option ${d['State'] === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label>City *</label>
+        <select class="form-control" name="City" required>
+          <option value="">Select City</option>
+          ${d['City'] ? `<option value="${escapeHtml(d['City'])}" selected>${escapeHtml(d['City'])}</option>` : ''}
+        </select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Category *</label>
+        <select class="form-control" name="Category" required>
+          <option value="">Select</option>
+          ${cfg.categories.map(c => `<option ${d['Category'] === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label>Address</label>
+        <input class="form-control" name="Address" value="${escapeHtml(d['Address'] || '')}"></div>
+    </div>
+    <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--md-primary);margin:12px 0 8px">Lead Information</div>
+    <div class="form-row">
+      <div class="form-group"><label>Client Description *</label>
+        <input class="form-control" name="Client Description" value="${escapeHtml(d['Client Description'] || '')}" required></div>
+      <div class="form-group"><label>Source *</label>
+        <select class="form-control" name="Source" required>
+          <option value="">Select</option>
+          ${cfg.sources.map(s => `<option ${d['Source'] === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Priority</label>
+        <select class="form-control" name="Priority">
+          ${cfg.priorities.map(p => `<option ${d['Priority'] === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+        </select></div>
+        ${canAssign ? `<div class="form-group"><label>Assigned To</label>
+          <select class="form-control" name="Assigned To">
+            ${cfg.users.map(u => `<option value="${escapeHtml(u.id)}" ${d['Assigned To'] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
+          </select></div>` : ''}
+      </div>
+    ${buildLeadCustomFieldsHTML(d, customFields, configOptions)}
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>`;
+  }
+
+
+  function _leadRowId(row = {}) {
+    return String(row['Lead ID'] || row['LeadID'] || row['Lead Id'] || row['ID'] || '').trim();
+  }
+
+  function _refreshLeadViewsAfterLocalChange() {
+    const page = App.currentPage;
+    if (page === 'leads') {
+      if (leadTable) {
+        const stageMap_ = App.config.stages.reduce(function (m, s) { m[s['Stage ID']] = s; return m; }, {});
+        const sorted_ = AppCache.getRows('leads')
+          .map(l => ({ ...l, _sortKey: _leadSortKey(l, stageMap_) }))
+          .sort((a, b) => a._sortKey < b._sortKey ? -1 : a._sortKey > b._sortKey ? 1 : 0);
+        leadTable.replaceData(sorted_);
+        applyLeadFilters();
+      } else {
+        loadLeads();
+      }
+    } else if (page === 'pipeline') {
+      loadPipeline();
+    } else if (page === 'dashboard') {
+      loadDashboard();
+    }
+  }
+
+  function deleteLeadConfirm(leadId, overlay) {
+    if (!leadId) return;
+    if (!confirm('Delete this lead? This cannot be undone.')) return;
+    AppCache.removeRow('leads', 'Lead ID', leadId);
+    if (overlay) overlay.remove();
+    _refreshLeadViewsAfterLocalChange();
+    QueueManager.enqueue({
+      module: 'leads', actionType: 'deleteLead',
+      payload: { id: leadId },
+      onDone: () => toast('Lead deleted!'),
+      onFail: j => {
+        toast('Delete failed: ' + (j.error || 'Error'), 'error');
+        _refreshLeadsCache().catch(() => {});
+      }
+    });
+    toast('Deleting…', 'info');
+  }
+</script>

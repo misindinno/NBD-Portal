@@ -35,6 +35,9 @@
   <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
 
   <?!= include('CSS'); ?>
+  <?!= include('CSSPipeline'); ?>
+  <?!= include('CSSFollowupQuery'); ?>
+  <?!= include('CSSLogin'); ?>
   <style>
     :root {
       --md-primary:       <?= CLIENT_CONFIG.THEME.PRIMARY ?>;
@@ -178,11 +181,23 @@
   <?!= include('QueuePage'); ?>
   <?!= include('AppAuth'); ?>
   <?!= include('Dashboard'); ?>
+  <?!= include('DashboardHelpers'); ?>
+  <?!= include('DashboardTables'); ?>
   <?!= include('Leads'); ?>
+  <?!= include('LeadDetail'); ?>
+  <?!= include('LeadFormShared'); ?>
+  <?!= include('LeadCustomFields'); ?>
   <?!= include('Pipeline'); ?>
   <?!= include('Followups'); ?>
+  <?!= include('FollowupQuery'); ?>
+  <?!= include('FollowupForms'); ?>
   <?!= include('Today'); ?>
   <?!= include('Config'); ?>
+  <?!= include('ConfigStages'); ?>
+  <?!= include('ConfigDropdowns'); ?>
+  <?!= include('ConfigFields'); ?>
+  <?!= include('ConfigUsers'); ?>
+  <?!= include('ConfigUserHelpers'); ?>
   <?!= include('LeadForm'); ?>
   <? if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().indexOf('lq') !== -1) { ?>
     <?!= include('BulkView'); ?>

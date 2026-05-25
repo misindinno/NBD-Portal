@@ -1,0 +1,106 @@
+﻿<script>
+async function loadDropdownsConfig() {
+  el('cfg-dropdowns').innerHTML = skeletonPage('cards');
+  const configs = await api.getAllConfigs();
+  const types = [...new Set(configs.map(c => c['Config Type']))];
+  
+  el('cfg-dropdowns').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <select id="cfg-type-filter" class="form-control" style="width:200px">
+        <option value="">All Types</option>
+        ${types.map(t => `<option>${escapeHtml(t)}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="openConfigForm()">${icon('plus', 14)} Add Config</button>
+    </div>
+    <div id="config-list"></div>`;
+  renderIcons(el('cfg-dropdowns'));
+
+  renderConfigList(configs);
+  el('cfg-type-filter').addEventListener('change', e => {
+    const filtered = e.target.value ? configs.filter(c => c['Config Type'] === e.target.value) : configs;
+    renderConfigList(filtered);
+  });
+}
+
+function renderConfigList(configs) {
+  const grouped = configs.reduce((acc, c) => {
+    const type = c['Config Type'];
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(c);
+    return acc;
+  }, {});
+
+  el('config-list').innerHTML = Object.keys(grouped).map(type => `
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:var(--md-primary)">${escapeHtml(type)}</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${grouped[type].map(c => `
+          <span class="badge" style="background:${c['Status']==='Active'?'#E8F5E9':'#FFEBEE'};color:${c['Status']==='Active'?'#2E7D32':'#C62828'};padding:4px 10px;cursor:pointer"
+            onclick="toggleConfigStatus('${c['Config ID']}','${c['Status']==='Active'?'Inactive':'Active'}')">
+            ${escapeHtml(c['Value'])} ${c['Status']==='Active'?'✓':'✕'}
+          </span>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+function openConfigForm() {
+  const overlay = showModal(`
+    <div class="modal-header">
+      <h2>Add Config Value</h2>
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    </div>
+    <form id="config-form">
+      <div class="form-group"><label>Config Type *</label>
+        <select class="form-control" name="type" required>
+          <option value="">Select Type</option>
+          <option>Lead Source</option><option>Priority</option><option>Follow-up Type</option>
+          <option>Outcome</option><option>Product Interest</option>
+          <option>Category</option><option>Lead Status</option><option>State</option>
+        </select></div>
+      <div class="form-group"><label>Value *</label>
+        <input class="form-control" name="value" required></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add</button>
+      </div>
+    </form>`);
+
+  overlay.querySelector('#config-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const btn = e.target.querySelector('[type=submit]');
+    setButtonLoading(btn, 'Adding...');
+    overlay.remove();
+    QueueManager.enqueue({
+      module: 'config', actionType: 'addConfig',
+      payload: { type: fd.get('type'), value: fd.get('value') },
+      onDone: () => {
+        toast('Config added!');
+        _refreshAppConfig().catch(() => {});
+        if (App.currentPage === 'config') loadDropdownsConfig();
+      },
+      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+    });
+    toast('Adding…', 'info');
+  });
+}
+
+function toggleConfigStatus(id, newStatus) {
+  QueueManager.enqueue({
+    module: 'config', actionType: 'updateConfigStatus',
+    payload: { id, status: newStatus },
+    onDone: () => {
+      toast('Status updated!');
+      _refreshAppConfig().catch(() => {});
+      if (App.currentPage === 'config') loadDropdownsConfig();
+    },
+    onFail: j => {
+      toast('Update failed: ' + (j.error || 'Error'), 'error');
+      if (App.currentPage === 'config') loadDropdownsConfig();
+    }
+  });
+  toast('Updating…', 'info');
+}
+
+// ── Users Config ─────────────────────────────────────────────────────────────
+</script>
