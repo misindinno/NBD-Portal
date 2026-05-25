@@ -59,6 +59,8 @@ function saveFollowup(data, email) {
   if (lead && payload['Updated Stage ID'] && payload['Updated Stage ID'] !== lead['Stage ID']) {
     stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === payload['Updated Stage ID'])[0];
     if (!stage) return respond(null, 'Selected stage not found.');
+    const moveCheck = _validateLeadStageMove_(lead['Stage ID'], payload['Updated Stage ID']);
+    if (!moveCheck.ok) return respond(null, moveCheck.message);
     preparedLeadForStage = _prepareLeadPayload(payload, payload['Updated Stage ID'], lead, skipped);
   }
   const plannedDate = _plannedDate(payload) || today();
@@ -146,6 +148,8 @@ function markFollowupDone(followupId, data, email) {
   if (lead && data['Updated Stage ID'] && data['Updated Stage ID'] !== lead['Stage ID']) {
     stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === data['Updated Stage ID'])[0];
     if (!stage) return respond(null, 'Selected stage not found.');
+    const moveCheck = _validateLeadStageMove_(lead['Stage ID'], data['Updated Stage ID']);
+    if (!moveCheck.ok) return respond(null, moveCheck.message);
     preparedLeadForStage = _prepareLeadPayload(data, data['Updated Stage ID'], lead, skipped);
   }
 

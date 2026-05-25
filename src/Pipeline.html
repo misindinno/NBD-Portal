@@ -231,7 +231,7 @@ async function loadPipeline() {
           _restorePipelineDrag(evt);
           _updatePipelineCounts();
           _updatePipelineEmptyStates();
-          toast('Leads can only move to the next stage, or to a final stage from the last step.', 'error');
+          toast('Move forward step by step. Lost or Disqualified can be selected from any stage; Qualified/Won requires completing all steps.', 'error');
           return;
         }
         const targetFields = _pipelineStageFields(newStageId);
@@ -283,7 +283,16 @@ function _isFinalStage(stage) {
 
 function _isValidPipelineMove(fromIdx, toIdx, lastRegularIdx, stages) {
   if (toIdx === fromIdx + 1) return true;
-  return _isFinalStage(stages[toIdx]) && fromIdx === lastRegularIdx;
+  const targetStage = stages[toIdx];
+  if (!_isFinalStage(targetStage)) return false;
+  if (_isLostOrDisqualifiedStage(targetStage)) return true;
+  return fromIdx === lastRegularIdx;
+}
+
+function _isLostOrDisqualifiedStage(stage) {
+  const outcome = String(stage?.['Stage Outcome'] || '').trim().toLowerCase();
+  const name = String(stage?.['Stage Name'] || '').trim().toLowerCase();
+  return outcome === 'lost' || /lost|disqualif/.test(name);
 }
 
 function _pipelineStageFields(stageId) {

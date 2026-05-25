@@ -264,6 +264,8 @@ function updateLeadStage(leadId, newStageId, note, email, fromStageId) {
   }
   const stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === newStageId)[0];
   if (!stage) return respond(null, 'Stage not found.');
+  const moveCheck = _validateLeadStageMove_(lead['Stage ID'], newStageId);
+  if (!moveCheck.ok) return respond(null, moveCheck.message);
   const stageName = stage['Stage Name'] || 'selected stage';
   const missing = getLeadCustomFieldsForStage(newStageId)
     .filter(f => f['Is Required'] === true || f['Is Required'] === 'TRUE')
@@ -304,6 +306,8 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email, fromSt
 
   const stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === newStageId)[0];
   if (!stage) return respond(null, 'Stage not found.');
+  const moveCheck = _validateLeadStageMove_(lead['Stage ID'], newStageId);
+  if (!moveCheck.ok) return respond(null, moveCheck.message);
   const skipped = !!(fields && (fields['__stage_skipped'] === 'true' || fields['__stage_skipped'] === true));
   const stageFields = getLeadCustomFieldsForStage(newStageId)
     .filter(f => f['Field Type'] !== 'Formula');
@@ -366,6 +370,39 @@ function _canWriteLead(lead, user) {
 
 function _isLeadPushedToNbd_(lead) {
   return !!(lead && (lead['NBD Lead ID'] || lead['Pushed To NBD At']));
+}
+
+function _validateLeadStageMove_(fromStageId, toStageId) {
+  if (!fromStageId || !toStageId || String(fromStageId) === String(toStageId)) return { ok: true };
+  const stages = getAllStages();
+  const fromIdx = stages.findIndex(s => String(s['Stage ID']) === String(fromStageId));
+  const toIdx = stages.findIndex(s => String(s['Stage ID']) === String(toStageId));
+  if (fromIdx === -1 || toIdx === -1) return { ok: true };
+  if (toIdx === fromIdx + 1) return { ok: true };
+
+  const targetStage = stages[toIdx];
+  if (!_leadStageIsFinal_(targetStage)) {
+    return { ok: false, message: 'Leads can only move to the next stage.' };
+  }
+  if (_leadStageIsLostOrDisqualified_(targetStage)) return { ok: true };
+
+  const regularStages = stages.filter(s => !_leadStageIsFinal_(s));
+  const lastRegular = regularStages[regularStages.length - 1];
+  if (lastRegular && String(lastRegular['Stage ID']) === String(fromStageId)) return { ok: true };
+  return {
+    ok: false,
+    message: 'Qualified/Won stage requires completing all pipeline steps first. Lost or Disqualified can be selected from any stage.'
+  };
+}
+
+function _leadStageIsFinal_(stage) {
+  return stage && (stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE');
+}
+
+function _leadStageIsLostOrDisqualified_(stage) {
+  const outcome = String(stage && stage['Stage Outcome'] || '').trim().toLowerCase();
+  const name = String(stage && stage['Stage Name'] || '').trim().toLowerCase();
+  return outcome === 'lost' || /lost|disqualif/.test(name);
 }
 
 function _leadStatusForStage(stage) {

@@ -977,7 +977,11 @@ function _selectLead(leadId, leadName) {
 function _fuNextStageOptionsHTML(leadId, leads = []) {
   if (!leadId) return '<option value="">No Change</option>';
   const lead = leads.find(l => l['Lead ID'] === leadId);
-  const stages = App.config.stages;
+  const activeStageIds = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = true; return m; }, {});
+  const stages = [
+    ...(App.config.stages || []),
+    ...((App.config.allStages || []).filter(s => _fuIsFinalStage(s) && !activeStageIds[s['Stage ID']]))
+  ];
   const idx = lead ? stages.findIndex(s => s['Stage ID'] === lead['Stage ID']) : -1;
   const next = idx >= 0 && idx < stages.length - 1 ? stages[idx + 1] : null;
   const currentLabel = idx >= 0 ? ` (currently: ${escapeHtml(stages[idx]['Stage Name'])})` : '';
@@ -987,10 +991,9 @@ function _fuNextStageOptionsHTML(leadId, leads = []) {
   const lastRegularId = regularStages[regularStages.length - 1]?.['Stage ID'];
   const candidates = [];
   if (next && !_fuIsFinalStage(next)) candidates.push(next);
+  stages.filter(s => _fuIsFinalStage(s) && _fuIsLostOrDisqualifiedStage(s)).forEach(s => candidates.push(s));
   if (lead['Stage ID'] === lastRegularId) {
-    stages.filter(_fuIsFinalStage).forEach(s => candidates.push(s));
-  } else if (next && _fuIsFinalStage(next)) {
-    candidates.push(next);
+    stages.filter(s => _fuIsFinalStage(s) && !_fuIsLostOrDisqualifiedStage(s)).forEach(s => candidates.push(s));
   }
   const seen = {};
   const options = candidates.filter(s => {
@@ -1004,6 +1007,12 @@ function _fuNextStageOptionsHTML(leadId, leads = []) {
   }
   if (!next) return `<option value="">No Change — already at final stage</option>`;
   return `<option value="">No Change${currentLabel}</option><option value="${escapeHtml(next['Stage ID'])}">${escapeHtml(next['Stage Name'])}</option>`;
+}
+
+function _fuIsLostOrDisqualifiedStage(stage) {
+  const outcome = String(stage?.['Stage Outcome'] || '').trim().toLowerCase();
+  const name = String(stage?.['Stage Name'] || '').trim().toLowerCase();
+  return outcome === 'lost' || /lost|disqualif/.test(name);
 }
 
 function _clearSelectedLead() {
