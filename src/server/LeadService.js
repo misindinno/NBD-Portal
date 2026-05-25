@@ -25,6 +25,7 @@ function saveLead(data, email) {
     const existing = getLead(leadId);
     if (!existing || !existing.lead) return respond(null, 'Lead not found.');
     if (!_canWriteLead(existing.lead, user)) return respond(null, 'Permission denied.');
+    if (_isLeadPushedToNbd_(existing.lead)) return respond(null, 'Lead is already pushed to NBD and cannot be edited in LQ.');
     if (user.role === 'SALES') data['Assigned To'] = user.id;
     const prepared = _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped);
     _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']);
@@ -256,6 +257,7 @@ function updateLeadStage(leadId, newStageId, note, email, fromStageId) {
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
+  if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and cannot be moved in LQ.');
   // Stale-job guard: if the lead has already been moved by a newer update, skip silently.
   if (fromStageId && lead['Stage ID'] !== fromStageId) {
     return respond({ leadId, stageId: lead['Stage ID'], skipped: true });
@@ -294,6 +296,7 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email, fromSt
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
+  if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and cannot be moved in LQ.');
   // Stale-job guard: if the lead has already been moved by a newer update, skip silently.
   if (fromStageId && lead['Stage ID'] !== fromStageId) {
     return respond({ leadId, stageId: lead['Stage ID'], skipped: true });
@@ -359,6 +362,10 @@ function deleteLead(leadId, email) {
 
 function _canWriteLead(lead, user) {
   return ['ADMIN', 'MANAGER'].includes(user.role) || lead['Assigned To'] === user.id;
+}
+
+function _isLeadPushedToNbd_(lead) {
+  return !!(lead && (lead['NBD Lead ID'] || lead['Pushed To NBD At']));
 }
 
 function _leadStatusForStage(stage) {

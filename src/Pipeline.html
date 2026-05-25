@@ -88,13 +88,15 @@ async function loadPipeline() {
     const title        = company || remark;
     const priority     = lead['Priority'] || '';
     const dueDate      = lead['Next Follow-up Date'];
+    const nbdLocked    = !!(lead['NBD Lead ID'] || lead['Pushed To NBD At']);
     const tooltip      = [lead['Company Name'], lead['Contact Person'], lead['Phone'], lead['Email'], lead['City'], lead['State'], lead['Client Description']].filter(Boolean).join(' · ');
     const overdueLabel = od.overdue ? `&#9888; ${od.daysOver}d over TAT` : '';
 
-    return `<div class="pipeline-card" data-lead-id="${escapeHtml(lead['Lead ID'])}" title="${escapeHtml(tooltip)}">
+    return `<div class="pipeline-card ${nbdLocked ? 'pipeline-card-nbd-locked' : ''}" data-lead-id="${escapeHtml(lead['Lead ID'])}" title="${escapeHtml(tooltip)}">
       <div class="pc-edge ${edgeCls}"></div>
       <div class="pc-body">
         <div class="pc-title">${title}</div>
+        ${nbdLocked ? `<div class="pc-nbd-lock">${icon('lock', 11)} Moved to NBD</div>` : ''}
         ${contactPerson   ? `<div class="pc-contact">${contactPerson}</div>` : ''}
         <div class="pc-fields">
           ${assignedName ? `<div class="pc-field">${icon('user', 10)} ${escapeHtml(assignedName)}</div>` : ''}
@@ -185,11 +187,12 @@ async function loadPipeline() {
       ghostClass: 'sortable-ghost',
       chosenClass: 'sortable-chosen',
       dragClass: 'sortable-drag',
-      filter: '.pipeline-empty',
+      filter: '.pipeline-empty, .pipeline-card-nbd-locked',
       preventOnFilter: true,
       onStart: () => { _pipelineDragHappened = false; },
       onMove: (evt) => {
         if (window.pipelineUpdateInFlight) return false;
+        if (evt.dragged && evt.dragged.classList.contains('pipeline-card-nbd-locked')) return false;
         const fromId = evt.from.dataset.stageId;
         const toId   = evt.to.dataset.stageId;
         if (fromId === toId) return true;
@@ -201,6 +204,11 @@ async function loadPipeline() {
         _pipelineDragHappened = true;
         setTimeout(() => { _pipelineDragHappened = false; }, 200);
         const leadId     = evt.item.dataset.leadId;
+        if (evt.item.classList.contains('pipeline-card-nbd-locked')) {
+          _restorePipelineDrag(evt);
+          toast('Lead is already moved to NBD and cannot be moved in LQ.', 'info');
+          return;
+        }
         const newStageId = evt.to.dataset.stageId;
         const oldStageId = evt.from.dataset.stageId;
         _updatePipelineCounts();
@@ -312,6 +320,10 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
   const allStages = (App.config.allStages || App.config.stages || []);
   const stage = allStages.find(s => s['Stage ID'] === stageId);
   if (!lead || !stage || !fields.length) return;
+  if (lead['NBD Lead ID'] || lead['Pushed To NBD At']) {
+    toast('Lead is already moved to NBD and cannot be moved in LQ.', 'info');
+    return;
+  }
   const configOptions = _configOptionsMap(App.config._allConfigs || []);
   const stageData = { ...lead, 'Stage ID': stageId };
   const overlay = showModal(`

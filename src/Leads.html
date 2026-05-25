@@ -217,6 +217,7 @@
     const stageMap = App.config.stages.reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
     const stage = stageMap[lead['Stage ID']];
     const showNbdPush = _canPushLeadToNbd(lead);
+    const isNbdLocked = _isLeadPushedToNbd(lead);
     const canDeleteLead = String(App.user.department || '').trim().toUpperCase() === 'MIS' || App.user.role === 'ADMIN';
     const _sc = safeColor(stage?.Color) || '#6366f1';
     const _stageVal = '<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + _sc + ';flex-shrink:0;display:inline-block"></span>' + escapeHtml(stage?.['Stage Name'] || '—') + '</span>';
@@ -269,12 +270,12 @@
       <div class="tabs" style="margin-bottom:0;border:none">
         <button class="tab-btn active" onclick="switchTab(this,'tab-history')">Follow-up History</button>
         <button class="tab-btn" onclick="switchTab(this,'tab-log')">Activity Logs</button>
-        <button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead</button>
+        ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead</button>`}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-primary btn-sm" onclick="openFollowupForm('${escapeHtml(String(lead['Lead ID'] || ''))}','${escapeHtml(String(lead['Client Description'] || '').replace(/'/g, '&#39;'))}')">
+        ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : `<button class="btn btn-primary btn-sm" onclick="openFollowupForm('${escapeHtml(String(lead['Lead ID'] || ''))}','${escapeHtml(String(lead['Client Description'] || '').replace(/'/g, '&#39;'))}')">
           ${icon('plus', 14)} Add Follow-up
-        </button>
+        </button>`}
         ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
           ${icon('send', 14)} Push to NBD
         </button>` : ''}
@@ -289,9 +290,15 @@
     <div id="tab-log" class="tab-pane" style="display:none">
       ${_activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
     </div>
-    <div id="tab-edit" class="tab-pane" style="display:none">
+    ${isNbdLocked ? `<div class="locked-panel">
+      ${icon('lock', 18)}
+      <div>
+        <div class="locked-title">Moved to NBD</div>
+        <div class="locked-text">This lead is locked in LQ because it was pushed to NBD${lead['NBD Lead ID'] ? ' as ' + escapeHtml(lead['NBD Lead ID']) : ''}.</div>
+      </div>
+    </div>` : `<div id="tab-edit" class="tab-pane" style="display:none">
       ${buildLeadFormHTML(lead, leadFields, configOptions)}
-    </div>`);
+    </div>`}`);
     overlay.querySelector('.modal')?.classList.add('modal-wide');
 
     const editForm = overlay.querySelector('#lead-form');
@@ -335,9 +342,25 @@
 
   function _canPushLeadToNbd(lead) {
     if (!lead) return false;
-    if (lead['NBD Lead ID'] || lead['Pushed To NBD At']) return false;
+    if (_isLeadPushedToNbd(lead)) return false;
     const appTitle = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase();
-    return appTitle.includes('lq');
+    return appTitle.includes('lq') && _leadStageIsWonForNbd(lead);
+  }
+
+  function _isLeadPushedToNbd(lead) {
+    return !!(lead && (lead['NBD Lead ID'] || lead['Pushed To NBD At']));
+  }
+
+  function _leadStageIsWonForNbd(lead) {
+    const stages = (App.config && App.config.stages) || [];
+    const stage = stages.find(s => String(s['Stage ID'] || '') === String(lead['Stage ID'] || ''));
+    if (!stage) return false;
+    const outcome = String(stage['Stage Outcome'] || '').trim().toLowerCase();
+    if (outcome === 'won') return true;
+    const status = String(lead['Lead Status'] || '').trim().toLowerCase();
+    if (status !== 'won') return false;
+    const name = String(stage['Stage Name'] || '').trim().toLowerCase();
+    return !/lost|disqualified|reject|dead/.test(name);
   }
 
   async function pushLeadToNbdFromDetail(leadId) {
@@ -347,7 +370,7 @@
 
     const confirm = await Swal.fire({
       title: 'Push to NBD?',
-      html: `<div style="font-size:14px;color:#374151">Push <strong>${escapeHtml(companyName)}</strong> to the NBD portal?<br><span style="font-size:12px;color:#9ca3af;margin-top:6px;display:block">This creates a new lead in NBD. The action cannot be undone.</span></div>`,
+      html: `<div style="font-size:14px;color:#374151">Push <strong>${escapeHtml(companyName)}</strong> to the NBD portal?<br><span style="font-size:12px;color:#9ca3af;margin-top:6px;display:block">This creates a new NBD lead and an initial follow-up with LQ source remarks.</span></div>`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'Yes, Push',
@@ -382,6 +405,10 @@
   }
 
   async function openLeadForm(data = {}) {
+    if (_isLeadPushedToNbd(data)) {
+      toast('Lead is already moved to NBD and cannot be edited in LQ.', 'info');
+      return;
+    }
     const leadFields = App.config.leadFields || [];
     const configOptions = _configOptionsMap(App.config._allConfigs || []);
     const leadId = _leadRowId(data);

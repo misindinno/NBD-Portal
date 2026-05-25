@@ -40,6 +40,7 @@ function _qRecordKey_(actionType, payload) {
       return p.id ? 'lead:' + p.id : '';
     case 'updateLeadStage':
     case 'moveLeadStageWithFields':
+    case 'pushLeadToNbd':
       return p.leadId ? 'lead:' + p.leadId : '';
     // Follow-ups (key on the followup id; fallback to lead so saves/done for same followup serialize)
     case 'saveFollowup':

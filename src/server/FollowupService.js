@@ -51,6 +51,7 @@ function saveFollowup(data, email) {
     lead = queryRows(SHEET_NAMES.LEADS, r => r['Lead ID'] === data['Lead ID'])[0];
     if (!lead) return respond(null, 'Lead not found.');
     if (!_canWriteFollowupForLead(lead, user)) return respond(null, 'Permission denied.');
+    if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and follow-ups are locked in LQ.');
   }
   const id = generateUUID();
   const payload = _prepareFollowupPayload(data);
@@ -131,6 +132,7 @@ function markFollowupDone(followupId, data, email) {
     : null;
   if (row['Lead ID'] && !lead) return respond(null, 'Linked lead not found.');
   if (!_canWriteFollowupRow(row, lead, user)) return respond(null, 'Permission denied.');
+  if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and follow-ups are locked in LQ.');
 
   const doneDate = formatDate(data['Done Date'] || today());
   const nextDate = formatDate(data['Next Follow-up Date'] || data['Next Planned Date'] || '');
@@ -287,6 +289,11 @@ function deleteFollowup(followupId, email) {
   const user = result.data;
   const isMIS = String(user.department || '').trim().toUpperCase() === 'MIS';
   if (!isMIS && user.role !== 'ADMIN') throw new Error('Permission denied. Only MIS or Admin users can delete follow-ups.');
+  const row = _followupRows().filter(r => r['Follow-up ID'] === followupId)[0];
+  const lead = row && row['Lead ID']
+    ? queryRows(SHEET_NAMES.LEADS, r => r['Lead ID'] === row['Lead ID'])[0]
+    : null;
+  if (_isLeadPushedToNbd_(lead)) throw new Error('Lead is already pushed to NBD and follow-ups are locked in LQ.');
   deleteRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
   _bumpStamp('followups');
   return respond(true);
