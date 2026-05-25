@@ -222,8 +222,7 @@ function _dbStats(leads, fus) {
   const upcomingFus = openFus.filter(f => _fmtDate(_fuPlannedDate(f)) > todayStr);
   const doneFus     = fus.filter(f => !_isOpenFollowupRow(f));
 
-  const totalClosed = won.length + lost.length;
-  const convPct     = totalClosed > 0 ? Math.round(won.length / totalClosed * 100) : 0;
+  const convPct     = leads.length > 0 ? Math.round(won.length / leads.length * 100) : 0;
 
   return {
     total: leads.length, open: open.length, won: won.length, lost: lost.length,
@@ -288,9 +287,9 @@ function _dbRenderKPIs(s) {
     _dbKpiCard('Total Leads',      s.total,            'users',         '#1565C0'),
     _dbKpiCard('New Today',        s.todayLeads,        'user-plus',     '#0277BD', todaySub),
     _dbKpiCard('Active Leads',     s.open,              'list-todo',     '#2E7D32',  `${openPct}% of total`),
-    _dbKpiCard('Converted (Won)',  s.won,               'circle-check',  '#388E3C',  `${s.convPct}% win rate`),
+    _dbKpiCard('Converted (Won)',  s.won,               'circle-check',  '#388E3C',  `${s.convPct}% of all leads`),
     _dbKpiCard('Lost',             s.lost,              'circle-x',      '#D32F2F',  `${lostPct}% of total`),
-    _dbKpiCard('Conversion %',     s.convPct + '%',     'trending-up',   '#6A1B9A',  `${s.won} won / ${s.won + s.lost} closed`)
+    _dbKpiCard('Conversion %',     s.convPct + '%',     'trending-up',   '#6A1B9A',  `${s.won} won / ${s.total} total`)
   ];
 
   const kpi2 = [
@@ -318,7 +317,7 @@ function _dbRenderFunnel(leads) {
   const stages = App.config.stages || [];
 
   const stageData = stages.map((s, i) => {
-    const count = leads.filter(l => l['Stage ID'] === s['Stage ID'] && l['Lead Status'] === 'Open').length;
+    const count = leads.filter(l => l['Stage ID'] === s['Stage ID']).length;
     return { name: s['Stage Name'], color: safeColor(s['Color'], '#1565C0'), count };
   });
 
