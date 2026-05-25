@@ -13,12 +13,26 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId) {
 
   // Map mode: link this LQ lead to an existing NBD lead instead of creating a new one.
   if (mapToNbdLeadId) {
+    const ts = now();
+    // Patch the LQ lead
     updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
       'NBD Lead ID': mapToNbdLeadId,
-      'Pushed To NBD At': now(),
-      'Updated At': now()
+      'Pushed To NBD At': ts,
+      'Updated At': ts
     });
     _bumpStamp('leads');
+    // Patch the NBD lead so it knows its LQ source
+    try {
+      const targetSheet  = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
+      const targetHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0].map(String);
+      _updateExternalRow_(targetSheet, targetHeaders, 'Lead ID', mapToNbdLeadId, {
+        'Source Lead ID': leadId,
+        'Source Portal':  CLIENT_CONFIG.APP_TITLE || 'LQ Portal',
+        'Updated At':     ts
+      });
+    } catch (e) {
+      Logger.log('Map: could not patch NBD lead: ' + e.message);
+    }
     insertLeadActivityLog_(leadId, 'Map To NBD', '', mapToNbdLeadId, 'LQ lead mapped to existing NBD lead ' + mapToNbdLeadId, user.id);
     return respond({ leadId, nbdLeadId: mapToNbdLeadId, mapped: true });
   }
@@ -311,6 +325,22 @@ function _ensureExternalHeaders_(sheet, requiredHeaders) {
 function _appendExternalRow_(sheet, headers, rowObj) {
   const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
   sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+}
+
+// Patches specific columns of a single row in an external sheet identified by keyCol=keyVal.
+function _updateExternalRow_(sheet, headers, keyCol, keyVal, patch) {
+  const keyIdx = headers.indexOf(keyCol);
+  if (keyIdx === -1 || sheet.getLastRow() < 2) return false;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][keyIdx]) !== String(keyVal)) continue;
+    Object.keys(patch).forEach(h => {
+      const colIdx = headers.indexOf(h);
+      if (colIdx !== -1) sheet.getRange(i + 1, colIdx + 1).setValue(patch[h]);
+    });
+    return true;
+  }
+  return false;
 }
 
 function _findExternalLeadBySource_(sheet, headers, sourceLeadId) {
