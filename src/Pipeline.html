@@ -141,7 +141,18 @@ async function loadPipeline() {
       </div>
       <div class="pipeline-cards" data-stage-id="${col.stage['Stage ID']}">
         ${col.leads.length
-          ? col.leads.map(renderCard).join('')
+          ? col.leads.slice().sort((a, b) => {
+              const priRank = { hot: 0, warm: 1, cold: 2 };
+              const nbdA = !!(a['NBD Lead ID'] || a['Pushed To NBD At']) ? 1 : 0;
+              const nbdB = !!(b['NBD Lead ID'] || b['Pushed To NBD At']) ? 1 : 0;
+              if (nbdA !== nbdB) return nbdA - nbdB;
+              const pA = priRank[String(a['Priority'] || '').toLowerCase()] ?? 3;
+              const pB = priRank[String(b['Priority'] || '').toLowerCase()] ?? 3;
+              if (pA !== pB) return pA - pB;
+              const dA = a['Next Follow-up Date'] ? new Date(a['Next Follow-up Date']).getTime() : 9e15;
+              const dB = b['Next Follow-up Date'] ? new Date(b['Next Follow-up Date']).getTime() : 9e15;
+              return dA - dB;
+            }).map(renderCard).join('')
           : `<div class="pipeline-empty">
                <div class="pipeline-empty-icon">${icon('inbox', 16)}</div>
                <div class="pipeline-empty-text">No leads</div>

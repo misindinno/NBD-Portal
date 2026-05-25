@@ -14,9 +14,28 @@
     _renderLeadsTable(AppCache.getRows('leads'));
   }
 
+  function _leadSortKey(lead, stageMap) {
+    const isNbd   = !!(lead['NBD Lead ID'] || lead['Pushed To NBD At']);
+    const stage   = stageMap[lead['Stage ID']] || {};
+    const isFinal = stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE';
+    // Bucket: 0 = active, 1 = final (won/lost), 2 = NBD-pushed
+    const bucket  = isNbd ? 2 : isFinal ? 1 : 0;
+    // Within active: priority rank (Hot=0, Warm=1, Cold=2, other=3)
+    const priRank = { hot: 0, warm: 1, cold: 2 }[String(lead['Priority'] || '').toLowerCase()] ?? 3;
+    // Within active: next follow-up date (overdue = earlier timestamp = sorts first)
+    const due = lead['Next Follow-up Date'] ? new Date(lead['Next Follow-up Date']).getTime() : 9e15;
+    // Encode as a sortable string: "bucket|priRank|due"
+    return bucket + '|' + priRank + '|' + String(due).padStart(16, '0');
+  }
+
   function _renderLeadsTable(leads) {
     const stageMap = App.config.stages.reduce(function (m, s) { m[s['Stage ID']] = s; return m; }, {});
     const userMap = App.config.users.reduce(function (m, u) { m[u.id] = u.name; return m; }, {});
+
+    // Attach sort key and pre-sort so default table order is meaningful
+    const sorted = leads
+      .map(l => ({ ...l, _sortKey: _leadSortKey(l, stageMap) }))
+      .sort((a, b) => a._sortKey < b._sortKey ? -1 : a._sortKey > b._sortKey ? 1 : 0);
     const statusOpts = App.config.statuses.map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
     const priorityOpts = App.config.priorities.map(function (p) { return '<option>' + escapeHtml(p) + '</option>'; }).join('');
     const stageOpts = App.config.stages.map(function (s) { return '<option value="' + escapeHtml(s['Stage ID']) + '">' + escapeHtml(s['Stage Name']) + '</option>'; }).join('');
@@ -57,7 +76,7 @@
 
     if (leadTable) { try { leadTable.destroy(); } catch(e) {} leadTable = null; }
     leadTable = new Tabulator('#lead-table', {
-      data: leads,
+      data: sorted,
       layout: 'fitColumns',
       pagination: 'local',
       paginationSize: 25,
@@ -780,7 +799,11 @@
     const page = App.currentPage;
     if (page === 'leads') {
       if (leadTable) {
-        leadTable.replaceData(AppCache.getRows('leads'));
+        const stageMap_ = App.config.stages.reduce(function (m, s) { m[s['Stage ID']] = s; return m; }, {});
+        const sorted_ = AppCache.getRows('leads')
+          .map(l => ({ ...l, _sortKey: _leadSortKey(l, stageMap_) }))
+          .sort((a, b) => a._sortKey < b._sortKey ? -1 : a._sortKey > b._sortKey ? 1 : 0);
+        leadTable.replaceData(sorted_);
         applyLeadFilters();
       } else {
         loadLeads();
