@@ -366,26 +366,35 @@
 
   async function pushLeadToNbdFromDetail(leadId) {
     if (!leadId) return;
+    const btn = el('push-nbd-btn');
+
+    // Disable immediately so user can't double-click while dialog loads
+    if (btn) setButtonLoading(btn, 'Loading...');
+
     const lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
     const companyName = lead ? (lead['Company Name'] || leadId) : leadId;
     let nbdUsers = [];
     try {
       nbdUsers = await api.getNbdAssignableUsers();
     } catch (err) {
+      if (btn) resetButtonLoading(btn);
       toast('Could not load NBD users: ' + (err.message || err), 'error');
       return;
     }
     if (!nbdUsers.length) {
+      if (btn) resetButtonLoading(btn);
       toast('No active NBD users found for assignment.', 'error');
       return;
     }
+    if (btn) resetButtonLoading(btn);
+
     const assignOptions = nbdUsers.reduce((m, user) => {
       const label = [user.name, user.department].filter(Boolean).join(' - ');
       m[user.id] = label || user.id;
       return m;
     }, {});
 
-    const confirm = await Swal.fire({
+    const confirmed = await Swal.fire({
       title: 'Push to NBD?',
       html: `<div style="font-size:14px;color:#374151;margin-bottom:8px">Push <strong>${escapeHtml(companyName)}</strong> to the NBD portal?<br><span style="font-size:12px;color:#9ca3af;margin-top:6px;display:block">This creates a new NBD lead and an initial follow-up with LQ source remarks.</span></div>`,
       input: 'select',
@@ -399,31 +408,88 @@
       cancelButtonText: 'Cancel',
       confirmButtonColor: '#6366f1',
     });
-    if (!confirm.isConfirmed) return;
+    if (!confirmed.isConfirmed) return;
 
-    const btn = el('push-nbd-btn');
+    // Lock button and show inline status bar in the lead detail modal
     if (btn) setButtonLoading(btn, 'Pushing...');
+    _showNbdPushStatus('queued');
+
     QueueManager.enqueue({
       module: 'leads',
       actionType: 'pushLeadToNbd',
-      payload: { leadId, nbdAssignedTo: confirm.value },
+      payload: { leadId, nbdAssignedTo: confirmed.value },
       onDone: j => {
+        _showNbdPushStatus('done');
         const nbdLeadId = j.finalRecordId || '';
         AppCache.patchRow('leads', 'Lead ID', leadId, {
           'NBD Lead ID': nbdLeadId,
           'Pushed To NBD At': _nowStr(),
           'Updated At': _nowStr()
         });
-        document.querySelector('.modal-overlay')?.remove();
-        _refreshLeadViewsAfterLocalChange();
+        setTimeout(() => {
+          document.querySelector('.modal-overlay')?.remove();
+          _refreshLeadViewsAfterLocalChange();
+        }, 1200);
         toast('Lead pushed to NBD successfully!', 'success');
       },
       onFail: j => {
+        _showNbdPushStatus('failed', j.error || 'Unknown error');
         if (btn) resetButtonLoading(btn);
         toast('Push to NBD failed: ' + (j.error || 'Unknown error'), 'error');
       }
     });
-    toast('Queued: pushing lead to NBD...', 'info');
+  }
+
+  function _showNbdPushStatus(state, errorMsg) {
+    // Find or create the status bar inside the open lead detail modal
+    const modal = document.querySelector('.modal-overlay');
+    if (!modal) return;
+    let bar = modal.querySelector('#nbd-push-status-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'nbd-push-status-bar';
+      bar.style.cssText = 'margin:10px 20px 0;padding:10px 14px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;transition:all .3s';
+      // Insert above the modal footer
+      const footer = modal.querySelector('.modal-footer');
+      if (footer) footer.before(bar);
+      else modal.querySelector('.modal-content')?.appendChild(bar);
+    }
+    const cfg = {
+      queued:     { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Queued — processing in background…' },
+      processing: { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Processing — almost there…' },
+      done:       { bg:'#f0fdf4', color:'#15803d', border:'#bbf7d0', icon:'check-circle',  iconCls:'',          text:'Successfully pushed to NBD!' },
+      failed:     { bg:'#fef2f2', color:'#b91c1c', border:'#fecaca', icon:'alert-circle',  iconCls:'',          text:'Push failed: ' + (errorMsg || 'Unknown error') },
+    }[state] || {};
+    bar.style.background = cfg.bg;
+    bar.style.color      = cfg.color;
+    bar.style.border     = '1px solid ' + cfg.border;
+    const checkBtn = (state === 'queued' || state === 'processing')
+      ? `<button onclick="_checkNbdPushStatus(this)" style="margin-left:auto;padding:3px 10px;border:1px solid currentColor;border-radius:5px;background:none;color:inherit;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0">${icon('refresh-cw',12)} Check Now</button>`
+      : '';
+    bar.innerHTML = `<span style="flex-shrink:0">${icon(cfg.icon, 15, cfg.iconCls)}</span><span style="flex:1">${cfg.text}</span>${checkBtn}`;
+    renderIcons(bar);
+  }
+
+  async function _checkNbdPushStatus(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+      // Find the most recent pushLeadToNbd job in the local queue
+      const jobs = Object.values(QueueManager.jobs()).filter(j => j.actionType === 'pushLeadToNbd');
+      if (!jobs.length) { _showNbdPushStatus('queued'); return; }
+      const job = jobs.sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0))[0];
+      // Force-poll the server for latest status
+      await QueueManager.pollNow([job.requestId]);
+      const fresh = QueueManager.jobs()[job.requestId];
+      if (!fresh) return;
+      if (fresh.status === 'DONE')    _showNbdPushStatus('done');
+      else if (fresh.status === 'DEAD') _showNbdPushStatus('failed', fresh.error);
+      else if (fresh.status === 'PROCESSING') _showNbdPushStatus('processing');
+      else _showNbdPushStatus('queued');
+    } catch (e) {
+      toast('Status check failed: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; renderIcons(btn.closest('#nbd-push-status-bar')); }
+    }
   }
 
   async function openLeadForm(data = {}) {

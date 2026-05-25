@@ -288,7 +288,13 @@ const QueueManager = (() => {
     // All local jobs (including completed) sorted newest-first — for history page.
     getAllJobs() {
       return Object.values(_jobs).sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0));
-    }
+    },
+
+    // Raw jobs map — for on-demand status checks.
+    jobs() { return _jobs; },
+
+    // Force-poll a specific set of request IDs immediately.
+    async pollNow(ids) { return await _refreshJobStatuses(ids); }
   };
 })();
 </script>
