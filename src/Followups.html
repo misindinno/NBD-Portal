@@ -460,7 +460,7 @@ function _followupHistoryTable(rows, emptyMsg, ctx) {
           ? (ctx?.stageMap?.[row['Updated Stage ID']]?.['Stage Name'] || row['Updated Stage ID'])
           : '-';
         const contactMode = row['Contact Mode'] || '';
-        const contactModeColor = {'Call Connected':'#16a34a','WhatsApp Chat':'#2563eb','Call Missed':'#dc2626'}[contactMode] || '#6b7280';
+        const contactModeColor = {'Call Connected':'#16a34a','WhatsApp Chat':'#2563eb','Not Picked':'#dc2626'}[contactMode] || '#6b7280';
         const contactModeHTML = contactMode
           ? `<span style="font-size:11px;font-weight:600;color:${contactModeColor};background:${contactModeColor}18;padding:2px 8px;border-radius:10px;white-space:nowrap">${escapeHtml(contactMode)}</span>`
           : '-';
