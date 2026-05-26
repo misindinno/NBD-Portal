@@ -6,11 +6,11 @@ function _dbHtml() {
   const monthAgo  = localDateInputValue(new Date(Date.now() - 30 * 86400000));
 
   return `
-  <div id="db-wrap" style="padding-bottom:40px">
+  <div id="db-wrap" style="padding-bottom:40px;max-width:100%;overflow-x:hidden">
 
     <!-- Filter Bar -->
-    <div class="card" style="padding:12px 18px;margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div class="card" style="padding:12px 18px;margin-bottom:16px;overflow-x:auto">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:min-content">
         <span style="font-size:12px;font-weight:600;color:var(--md-primary);display:flex;align-items:center;gap:5px;white-space:nowrap">${icon('sliders-horizontal',14)} Filters</span>
         <div style="display:flex;align-items:center;gap:4px">
           <span style="font-size:11px;color:#888">From</span>
@@ -55,12 +55,12 @@ function _dbHtml() {
     </div>
 
     <!-- KPI Row 1 -->
-    <div id="db-kpi1" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:12px;margin-bottom:12px"></div>
+    <div id="db-kpi1" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;margin-bottom:12px"></div>
     <!-- KPI Row 2 -->
-    <div id="db-kpi2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:12px;margin-bottom:16px"></div>
+    <div id="db-kpi2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;margin-bottom:16px"></div>
 
     <!-- Pipeline Funnel + Follow-up Donut -->
-    <div style="display:grid;grid-template-columns:3fr 2fr;gap:16px;margin-bottom:16px;min-width:0">
+    <div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;margin-bottom:16px;min-width:0">
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('git-branch-plus',15)} Lead Pipeline Funnel</div>
         <div id="db-funnel"></div>
@@ -82,14 +82,14 @@ function _dbHtml() {
       <div id="db-india-map"></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('map',15)} State Wise Lead Count</div>
-        <canvas id="db-state-chart"></canvas>
+        <canvas id="db-state-chart" style="max-width:100%"></canvas>
       </div>
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('building-2',15)} Top Cities by Lead Count</div>
-        <canvas id="db-city-chart"></canvas>
+        <canvas id="db-city-chart" style="max-width:100%"></canvas>
       </div>
     </div>
 
@@ -98,7 +98,7 @@ function _dbHtml() {
       <canvas id="db-stage-state-chart" style="max-height:340px"></canvas>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('table-2',15)} State Summary</div>
         <div id="db-state-summary" style="overflow-x:auto;max-height:320px"></div>
@@ -109,7 +109,7 @@ function _dbHtml() {
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('grid-3x3',15)} Stage x State Matrix</div>
         <div id="db-stage-state-matrix" style="overflow:auto;max-height:360px"></div>
@@ -120,7 +120,7 @@ function _dbHtml() {
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#2E7D32">${icon('flame',15)} Hot Cities</div>
         <div id="db-hot-cities" style="overflow-x:auto;max-height:300px"></div>
@@ -132,28 +132,28 @@ function _dbHtml() {
     </div>
 
     <!-- Source Chart + Team Chart -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('bar-chart-2',15)} Lead Source Analytics</div>
-        <canvas id="db-source-chart"></canvas>
+        <canvas id="db-source-chart" style="max-width:100%"></canvas>
       </div>
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('users',15)} Team Performance</div>
-        <canvas id="db-team-chart"></canvas>
+        <canvas id="db-team-chart" style="max-width:100%"></canvas>
       </div>
     </div>
 
     <!-- Lead Health Score -->
     <div class="card" style="padding:22px;margin-bottom:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('heart-pulse',15)} Lead Health Score</div>
-      <div style="display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:start">
-        <div id="db-health-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;min-width:340px"></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px;align-items:start">
+        <div id="db-health-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;min-width:0"></div>
         <div id="db-health-list" style="max-height:150px;overflow-y:auto;border-left:1px solid #f0f0f0;padding-left:18px"></div>
       </div>
     </div>
 
     <!-- Overdue Follow-ups + Leads Without Follow-up -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
       <div class="card" style="padding:22px">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#C62828">${icon('triangle-alert',15)} Overdue Follow-ups</div>
         <div id="db-overdue-table" style="max-height:300px;overflow-y:auto;overflow-x:auto"></div>
@@ -306,7 +306,7 @@ function _dbKpiCard(label, value, iconName, color, sub, subColor) {
   return `<div class="card" style="padding:14px 16px;border-left:4px solid ${color}">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
       <div style="min-width:0;flex:1">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:#999;margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#999;margin-bottom:5px;line-height:1.3">${label}</div>
         <div style="font-size:24px;font-weight:700;color:${color};line-height:1.1">${escapeHtml(String(value))}</div>
         ${sub ? `<div style="font-size:11px;color:${subColor};margin-top:4px">${sub}</div>` : ''}
       </div>
