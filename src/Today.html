@@ -83,7 +83,7 @@ function _renderToday() {
     <div class="td-table-wrap">
       <table class="td-table">
         <thead><tr>
-          <th>Done At</th><th>Agent</th><th>Company</th><th>Type</th>
+          <th>Done At</th><th>Agent</th><th>Company</th><th>Planned Date</th>
           <th>Contact Mode</th><th>Remark</th><th>Next Follow-up</th>
         </tr></thead>
         <tbody id="td-tbody"></tbody>
@@ -229,37 +229,35 @@ function _todayApply() {
     tbody.innerHTML = `<tr><td colspan="7" class="td-empty">No activity found for the selected period.</td></tr>`;
   } else {
     const sorted = [...allRows].sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0));
-    const typeColors = { Call:'#1565C0', WhatsApp:'#2E7D32', Visit:'#6A1B9A', Email:'#E65100', Payment:'#B71C1C', Log:'#64748b', 'Stage Change':'#64748b' };
     const contactModeStyle = {
       'Call Connected': { bg:'#dcfce7', color:'#16a34a' },
       'WhatsApp Chat':  { bg:'#dbeafe', color:'#2563eb' },
+      'Stage Change':   { bg:'#f1f5f9', color:'#64748b' },
+      'Log':            { bg:'#f1f5f9', color:'#64748b' },
     };
     tbody.innerHTML = sorted.map(r => {
       const lead    = leadMap[r['Lead ID']] || {};
       const company = escapeHtml(lead['Company Name'] || r['Lead ID'] || '—');
       const createdBy = r['Created By'] || r['Done By'] || '';
       const agent   = escapeHtml(userMap[createdBy] || createdBy || '—');
-      const type    = r['Follow-up Type'] || '';
-      const tc = typeColors[type] || '#6b7280';
-      const isLog = !!r._isLog;
-      const typeBadge = type
-        ? `<span style="background:${isLog ? '#f1f5f9' : tc+'20'};color:${isLog ? '#64748b' : tc};font-size:11px;font-weight:${isLog ? 500 : 700};padding:2px 8px;border-radius:999px">${escapeHtml(type)}</span>`
+      const isLog   = !!r._isLog;
+      const cm      = isLog ? (r['Follow-up Type'] || 'Log') : (r['Contact Mode'] || '');
+      const cms     = contactModeStyle[cm];
+      const contactBadge = cm
+        ? `<span style="background:${cms ? cms.bg : '#f3f4f6'};color:${cms ? cms.color : '#6b7280'};font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px">${escapeHtml(cm)}</span>`
         : `<span style="color:#9ca3af;font-size:12px">—</span>`;
-      const cm = r['Contact Mode'] || '';
-      const cms = contactModeStyle[cm];
-      const contactBadge = cm && cms
-        ? `<span style="background:${cms.bg};color:${cms.color};font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px">${escapeHtml(cm)}</span>`
-        : `<span style="color:#9ca3af;font-size:12px">—</span>`;
-      const remark  = escapeHtml(r['Remark'] || r['Discussion'] || '—');
-      const next    = r['Next Follow-up Date'] ? formatDate(r['Next Follow-up Date']) : '—';
-      const doneAt  = formatDate(r['Created At'] || r['Follow-up Date'] || '');
-      const leadId  = r['Lead ID'] || '';
+      const remark   = escapeHtml(r['Remark'] || r['Discussion'] || '—');
+      const next     = r['Next Follow-up Date'] ? formatDate(r['Next Follow-up Date']) : '—';
+      const doneAt   = formatDate(r['Created At'] || r['Done Date'] || '');
+      const planned  = r['Follow-up Date'] || r['Planned Date'] || '';
+      const plannedFmt = planned ? formatDate(planned) : `<span style="color:#9ca3af">—</span>`;
+      const leadId   = r['Lead ID'] || '';
       const rowStyle = isLog ? 'opacity:.75' : '';
       return `<tr style="${rowStyle}" onclick="${leadId ? `_todayOpenLead('${escapeHtml(leadId)}')` : ''}">
         <td style="white-space:nowrap;font-size:12px;color:#6b7280">${doneAt}</td>
         <td style="font-size:12px">${agent}</td>
         <td><div style="font-weight:600;font-size:13px">${company}</div></td>
-        <td>${typeBadge}</td>
+        <td style="white-space:nowrap;font-size:12px;color:#6b7280">${plannedFmt}</td>
         <td>${contactBadge}</td>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${remark}">${remark}</td>
         <td style="font-size:12px;white-space:nowrap">${next}</td>
