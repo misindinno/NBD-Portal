@@ -1,5 +1,16 @@
 <script>
+window.__CONFIG_FIELDS_INCLUDED = true;
+
+function _ensureConfigFieldHelpers() {
+  if (!window._sheetTruthy) window._sheetTruthy = (value, defaultValue = false) => {
+    if (value === undefined || value === null || value === '') return defaultValue;
+    if (value === true) return true;
+    return ['TRUE','YES','1'].includes(String(value).trim().toUpperCase());
+  };
+}
+
 async function loadFieldConfig() {
+  _ensureConfigFieldHelpers();
   if (!el('cfg-fields')) return;
   el('cfg-fields').innerHTML = skeletonPage('table');
   const [fields, stages, configs] = await Promise.all([
@@ -57,6 +68,7 @@ function renderFieldConfigList() {
 }
 
 function openFieldForm(data = {}) {
+  _ensureConfigFieldHelpers();
   if (typeof data === 'string') {
     const _ctx = window._cfgFieldContext || { fields: [] };
     data = (_ctx.fields || []).find(f => f['Field ID'] === data) || {};
@@ -129,7 +141,7 @@ function openFieldForm(data = {}) {
         <input class="form-control" name="Help Text" value="${escapeHtml(data['Help Text'] || '')}" placeholder="Optional hint below field"></div>
       <div class="form-row">
         <div class="form-group"><label><input type="checkbox" name="Is Required" ${data['Is Required'] === true || data['Is Required'] === 'TRUE' ? 'checked' : ''}> Required</label></div>
-        <div class="form-group"><label><input type="checkbox" name="Is Visible" ${_sheetTruthy(data['Is Visible'], true) ? 'checked' : ''}> Visible</label></div>
+        <div class="form-group"><label><input type="checkbox" name="Is Visible" ${window._sheetTruthy(data['Is Visible'], true) ? 'checked' : ''}> Visible</label></div>
       </div>
       <div class="form-group field-option-stage" id="fc-per-stage-row" style="${data['Stage ID'] ? 'display:none' : ''}">
         <label><input type="checkbox" name="Per Stage" ${data['Per Stage'] === true || data['Per Stage'] === 'TRUE' ? 'checked' : ''}> Per Stage — store separate data for each stage</label>

@@ -1,9 +1,111 @@
 <script>
+function _ensureConfigUserHelpers() {
+  if (!window.USER_MODULES) {
+    const isLq = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
+    window.USER_MODULES = ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users','LeadForm'].concat(isLq ? ['BulkEntry'] : []);
+  }
+  if (!window.USER_ROLE_MODULES) {
+    const lqExtra = window.USER_MODULES.includes('BulkEntry') ? ['BulkEntry'] : [];
+    window.USER_ROLE_MODULES = {
+      ADMIN:   ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users'].concat(lqExtra),
+      MANAGER: ['Dashboard','Leads','Pipeline','Followups','Reports'],
+      SALES:   ['Dashboard','Leads','Pipeline','Followups'],
+      USER:    ['Dashboard','Followups'],
+      VIEWER:  ['Dashboard','Leads','Pipeline','Followups','Reports']
+    };
+  }
+  if (!window._parseDepartmentList) window._parseDepartmentList = value => {
+    const list = Array.isArray(value) ? value : String(value || '').split(',');
+    return list.map(v => String(v || '').trim()).filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
+  };
+  if (!window._sheetTruthy) window._sheetTruthy = (value, defaultValue = false) => {
+    if (value === undefined || value === null || value === '') return defaultValue;
+    if (value === true) return true;
+    return ['TRUE','YES','1'].includes(String(value).trim().toUpperCase());
+  };
+  if (!window._userPermission) window._userPermission = user => {
+    const text = String((user || {})['Permission'] || (user || {})['Role'] || 'USER').trim().toUpperCase();
+    if (window.USER_ROLE_MODULES[text]) return text;
+    if (text.includes('ADMIN')) return 'ADMIN';
+    if (text.includes('MANAGER')) return 'MANAGER';
+    if (text.includes('SALES')) return 'SALES';
+    if (text.includes('VIEWER')) return 'VIEWER';
+    return 'USER';
+  };
+  if (!window._canonicalUserModule) window._canonicalUserModule = value => {
+    const target = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return window.USER_MODULES.find(m => m.toLowerCase().replace(/[^a-z0-9]/g, '') === target) || '';
+  };
+  if (!window._parseUserModules) window._parseUserModules = value =>
+    String(value || '').split(',').map(v => window._canonicalUserModule(v)).filter(Boolean).filter((m, i, arr) => arr.indexOf(m) === i);
+  if (!window._effectiveUserModules) window._effectiveUserModules = user => {
+    const role = window._userPermission(user || {});
+    if (String((user || {})['Allowed Modules'] || '').trim().toUpperCase() === 'NONE') return [];
+    const modules = window._parseUserModules((user || {})['Allowed Modules']);
+    return modules.length ? modules : (window.USER_ROLE_MODULES[role] || window.USER_ROLE_MODULES.USER).slice();
+  };
+  if (!window._moduleLabel) window._moduleLabel = moduleName => {
+    if (moduleName === 'Followups') return 'Follow-ups';
+    if (moduleName === 'LeadForm') return 'Lead Form';
+    if (moduleName === 'BulkEntry') return 'Bulk Entry';
+    return moduleName;
+  };
+  if (!window._userModuleBadges) window._userModuleBadges = user => `<div style="display:flex;flex-wrap:wrap;gap:4px">
+    ${window._effectiveUserModules(user).map(m => `<span class="badge" style="background:#F5F5F5;color:#555">${escapeHtml(window._moduleLabel(m))}</span>`).join('')}
+  </div>`;
+  if (!window._userCanEditConfig) window._userCanEditConfig = user => {
+    const role = window._userPermission(user || {});
+    return role === 'ADMIN' || window._sheetTruthy((user || {})['Can Edit Config'], false) || window._effectiveUserModules(user || {}).includes('Config');
+  };
+  if (!window._userCanManageUsers) window._userCanManageUsers = user => {
+    const role = window._userPermission(user || {});
+    return role === 'ADMIN' || window._effectiveUserModules(user || {}).includes('Users');
+  };
+  if (!window._syncConfigPermission) window._syncConfigPermission = (form, sourceIsConfigCheckbox = false) => {
+    if (!form) return;
+    const configModule = Array.from(form.querySelectorAll('[name="Allowed Modules"]')).find(input => input.value === 'Config');
+    const configPermission = form.querySelector('[name="Can Edit Config"]');
+    if (!configModule || !configPermission) return;
+    if (sourceIsConfigCheckbox) configModule.checked = configPermission.checked;
+    if (configModule.checked) configPermission.checked = true;
+  };
+  if (!window._applyRoleModuleDefaults) window._applyRoleModuleDefaults = form => {
+    const role = form?.querySelector('[name="Permission"]')?.value || 'USER';
+    const defaults = window.USER_ROLE_MODULES[role] || window.USER_ROLE_MODULES.USER;
+    form?.querySelectorAll('[name="Allowed Modules"]').forEach(input => { input.checked = defaults.includes(input.value); });
+    const config = form?.querySelector('[name="Can Edit Config"]');
+    if (config) config.checked = defaults.includes('Config') || role === 'ADMIN';
+    window._syncConfigPermission(form);
+  };
+  if (!window._setAllUserModules) window._setAllUserModules = (form, checked) => {
+    form?.querySelectorAll('[name="Allowed Modules"]').forEach(input => { input.checked = checked; });
+    const config = form?.querySelector('[name="Can Edit Config"]');
+    if (config) config.checked = checked;
+    window._syncConfigPermission(form);
+  };
+  if (!window._togglePwVisibility) window._togglePwVisibility = btn => {
+    const input = btn.parentElement.querySelector('input');
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.querySelector('.pw-eye-on').style.display = show ? 'none' : '';
+    btn.querySelector('.pw-eye-off').style.display = show ? '' : 'none';
+  };
+  if (!window._togglePasswordSection) window._togglePasswordSection = btn => {
+    const section = btn.closest('.card').querySelector('#pw-section');
+    if (!section) return;
+    const visible = section.style.display !== 'none';
+    section.style.display = visible ? 'none' : '';
+    btn.textContent = visible ? 'Set New Password' : 'Cancel';
+  };
+}
+
 async function loadUsersConfig() {
+  _ensureConfigUserHelpers();
   if (!el('cfg-users')) return;
   el('cfg-users').innerHTML = skeletonPage('table');
   const allUsers = await api.getUsers();
-  const selectedDepartments = _parseDepartmentList(App.config.settings?.visibleDepartments || []);
+  const selectedDepartments = window._parseDepartmentList(App.config.settings?.visibleDepartments || []);
   const selectedMap = selectedDepartments.reduce((m, d) => {
     m[String(d || '').trim().toLowerCase()] = true;
     return m;
@@ -21,11 +123,11 @@ async function loadUsersConfig() {
       <tbody>${users.map(u => `<tr>
         <td><b>${escapeHtml(u['Name']||'')}</b><div style="font-size:11px;color:#888">${escapeHtml(u['Job Title']||u['Department']||'')}</div></td>
         <td>${escapeHtml(u['Email Address']||'')}</td>
-        <td><span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(_userPermission(u))}</span></td>
-        <td>${_userModuleBadges(u)}</td>
-        <td>${_userCanEditConfig(u) ? 'Yes' : 'No'}</td>
-        <td>${_userCanManageUsers(u) ? 'Yes' : 'No'}</td>
-        <td>${_sheetTruthy(u['Is Active'], true) ? 'Yes' : 'No'}</td>
+        <td><span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(window._userPermission(u))}</span></td>
+        <td>${window._userModuleBadges(u)}</td>
+        <td>${window._userCanEditConfig(u) ? 'Yes' : 'No'}</td>
+        <td>${window._userCanManageUsers(u) ? 'Yes' : 'No'}</td>
+        <td>${window._sheetTruthy(u['Is Active'], true) ? 'Yes' : 'No'}</td>
         <td><button class="btn btn-sm btn-outlined" onclick="openUserForm(${JSON.stringify(u).replace(/"/g,'&quot;')})">Edit</button></td>
       </tr>`).join('')}</tbody>
     </table></div>`;
@@ -33,10 +135,11 @@ async function loadUsersConfig() {
 }
 
 function openUserForm(data = {}) {
+  _ensureConfigUserHelpers();
   const isEdit = !!(data['ID'] || data['User ID'] || data['Email Address']);
-  const permission = _userPermission(data);
-  const selectedModules = _effectiveUserModules(data);
-  const canEditConfig = _userCanEditConfig(data);
+  const permission = window._userPermission(data);
+  const selectedModules = window._effectiveUserModules(data);
+  const canEditConfig = window._userCanEditConfig(data);
   const overlay = showModal(`
     <div class="modal-header">
       <h2>${isEdit ? 'Edit' : 'Add'} User</h2>
@@ -60,7 +163,7 @@ function openUserForm(data = {}) {
           <input class="form-control" name="Company Phone" value="${escapeHtml(data['Company Phone']||'')}"></div>
         <div class="form-group"><label>Permission *</label>
           <select class="form-control" name="Permission" required onchange="_applyRoleModuleDefaults(this.closest('form'))">
-            ${Object.keys(USER_ROLE_MODULES).map(r => `<option ${permission===r?'selected':''}>${r}</option>`).join('')}
+            ${Object.keys(window.USER_ROLE_MODULES || {}).map(r => `<option ${permission===r?'selected':''}>${r}</option>`).join('')}
           </select></div>
       </div>
       <div class="form-group"><label>Title (Display Name)</label>
@@ -109,9 +212,9 @@ function openUserForm(data = {}) {
           </div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px">
-          ${USER_MODULES.map(m => `<label style="display:flex;align-items:center;gap:8px;font-size:13px">
+          ${(window.USER_MODULES || []).map(m => `<label style="display:flex;align-items:center;gap:8px;font-size:13px">
             <input type="checkbox" name="Allowed Modules" value="${escapeHtml(m)}" ${selectedModules.includes(m)?'checked':''} onchange="_syncConfigPermission(this.closest('form'))">
-            ${escapeHtml(_moduleLabel(m))}
+            ${escapeHtml(window._moduleLabel(m))}
           </label>`).join('')}
         </div>
       </div>
@@ -121,7 +224,7 @@ function openUserForm(data = {}) {
           <div style="font-size:11px;color:#777;margin-top:3px">Allows stages, dropdowns, and custom-field setup.</div>
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="Is Active" ${_sheetTruthy(data['Is Active'], true)?'checked':''}> Is Active</label>
+          <label><input type="checkbox" name="Is Active" ${window._sheetTruthy(data['Is Active'], true)?'checked':''}> Is Active</label>
         </div>
       </div>
       <div class="modal-footer">
@@ -129,7 +232,7 @@ function openUserForm(data = {}) {
         <button type="submit" class="btn btn-primary">Save</button>
       </div>
     </form>`);
-  _syncConfigPermission(overlay.querySelector('#user-form'), true);
+  window._syncConfigPermission(overlay.querySelector('#user-form'), true);
   overlay.querySelector('#user-form').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);

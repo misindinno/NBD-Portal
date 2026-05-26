@@ -1,5 +1,12 @@
 ﻿<script>
+function _ensureConfigBaseHelpers() {
+  if (!window._parseDepartmentList) window._parseDepartmentList = value => {
+    const list = Array.isArray(value) ? value : String(value || '').split(',');
+    return list.map(v => String(v || '').trim()).filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
+  };
+}
 async function loadConfig() {
+  _ensureConfigBaseHelpers();
   el('page-title').textContent = 'Configuration';
   const canEditConfig = !!App.user?.canEditConfig;
   const canManageUsers = !!App.user?.canManageUsers;
@@ -30,6 +37,7 @@ async function loadConfig() {
 }
 
 function switchConfigTab(btn, tabId) {
+  _ensureConfigBaseHelpers();
   btn.closest('#content').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   ['cfg-settings','cfg-stages','cfg-dropdowns','cfg-fields','cfg-users'].forEach(id => {
@@ -50,9 +58,10 @@ function switchConfigTab(btn, tabId) {
 }
 
 async function loadPortalSettings() {
+  _ensureConfigBaseHelpers();
   if (!el('cfg-settings')) return;
   const departments = App.config.departments || [];
-  const selected = _parseDepartmentList(App.config.settings?.visibleDepartments || []);
+  const selected = window._parseDepartmentList(App.config.settings?.visibleDepartments || []);
   el('cfg-settings').innerHTML = `
     <form id="portal-settings-form" class="card" style="padding:18px;max-width:760px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;flex-wrap:wrap">
