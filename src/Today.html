@@ -84,28 +84,10 @@ function _renderToday() {
       <table class="td-table">
         <thead><tr>
           <th>Done At</th><th>Agent</th><th>Company</th><th>Planned Date</th>
-          <th>Contact Mode</th><th>Remark</th><th>Next Follow-up</th>
+          <th>Contact Mode</th><th>Remark</th><th>Next Planned Date</th>
         </tr></thead>
         <tbody id="td-tbody"></tbody>
       </table>
-    </div>
-
-    <div id="td-missed-section" style="margin-top:20px;display:none">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#dc2626">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.42 19.42 0 0 1 4.43 9.88a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.34 1h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.32 8.9"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
-          Missed Calls
-        </span>
-        <span id="td-missed-count" style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px"></span>
-      </div>
-      <div class="td-table-wrap" style="border-left:3px solid #dc2626">
-        <table class="td-table">
-          <thead><tr>
-            <th>Planned Date</th><th>Agent</th><th>Company</th><th>Type</th><th>Discussion</th><th>City</th><th>Remark</th>
-          </tr></thead>
-          <tbody id="td-missed-tbody"></tbody>
-        </table>
-      </div>
     </div>`;
 
   _todayApply();
@@ -222,9 +204,9 @@ function _todayApply() {
     };
   });
 
-  // ── Main table: connected + activity logs ──
+  // ── Single combined table: all history + activity logs ──
   const tbody = el('td-tbody');
-  const allRows = [...activeHistory, ...logRows];
+  const allRows = [...history, ...logRows];
   if (!allRows.length) {
     tbody.innerHTML = `<tr><td colspan="7" class="td-empty">No activity found for the selected period.</td></tr>`;
   } else {
@@ -232,28 +214,32 @@ function _todayApply() {
     const contactModeStyle = {
       'Call Connected': { bg:'#dcfce7', color:'#16a34a' },
       'WhatsApp Chat':  { bg:'#dbeafe', color:'#2563eb' },
+      'Call Missed':    { bg:'#fee2e2', color:'#dc2626' },
+      'Not Picked':     { bg:'#fee2e2', color:'#dc2626' },
       'Stage Change':   { bg:'#f1f5f9', color:'#64748b' },
       'Log':            { bg:'#f1f5f9', color:'#64748b' },
     };
     tbody.innerHTML = sorted.map(r => {
-      const lead    = leadMap[r['Lead ID']] || {};
-      const company = escapeHtml(lead['Company Name'] || r['Lead ID'] || '—');
+      const lead      = leadMap[r['Lead ID']] || {};
+      const company   = escapeHtml(lead['Company Name'] || r['Lead ID'] || '—');
       const createdBy = r['Created By'] || r['Done By'] || '';
-      const agent   = escapeHtml(userMap[createdBy] || createdBy || '—');
-      const isLog   = !!r._isLog;
-      const cm      = isLog ? (r['Follow-up Type'] || 'Log') : (r['Contact Mode'] || '');
-      const cms     = contactModeStyle[cm];
+      const agent     = escapeHtml(userMap[createdBy] || createdBy || '—');
+      const isLog     = !!r._isLog;
+      const isMissed  = MISSED_MODES.has(r['Contact Mode'] || '');
+      const cm        = isLog ? (r['Follow-up Type'] || 'Log') : (r['Contact Mode'] || '');
+      const cms       = contactModeStyle[cm];
       const contactBadge = cm
         ? `<span style="background:${cms ? cms.bg : '#f3f4f6'};color:${cms ? cms.color : '#6b7280'};font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px">${escapeHtml(cm)}</span>`
         : `<span style="color:#9ca3af;font-size:12px">—</span>`;
-      const remark   = escapeHtml(r['Remark'] || r['Discussion'] || '—');
-      const next     = r['Next Follow-up Date'] ? formatDate(r['Next Follow-up Date']) : '—';
-      const doneAt   = formatDate(r['Created At'] || r['Done Date'] || '');
-      const planned  = r['Follow-up Date'] || r['Planned Date'] || '';
+      const remark    = escapeHtml(r['Remark'] || r['Discussion'] || '—');
+      const nextDate  = r['Next Follow-up Date'] || r['Next Planned Date'] || r['Next Date'] || '';
+      const next      = nextDate ? formatDate(nextDate) : `<span style="color:#9ca3af">—</span>`;
+      const doneAt    = formatDate(r['Done Date'] || r['Created At'] || '');
+      const planned   = r['Follow-up Date'] || r['Planned Date'] || '';
       const plannedFmt = planned ? formatDate(planned) : `<span style="color:#9ca3af">—</span>`;
-      const leadId   = r['Lead ID'] || '';
-      const rowStyle = isLog ? 'opacity:.75' : '';
-      return `<tr style="${rowStyle}" onclick="${leadId ? `_todayOpenLead('${escapeHtml(leadId)}')` : ''}">
+      const leadId    = r['Lead ID'] || '';
+      const rowBg     = isMissed ? 'background:#fff8f8' : isLog ? 'opacity:.75' : '';
+      return `<tr style="${rowBg}" onclick="${leadId ? `_todayOpenLead('${escapeHtml(leadId)}')` : ''}">
         <td style="white-space:nowrap;font-size:12px;color:#6b7280">${doneAt}</td>
         <td style="font-size:12px">${agent}</td>
         <td><div style="font-weight:600;font-size:13px">${company}</div></td>
@@ -261,37 +247,6 @@ function _todayApply() {
         <td>${contactBadge}</td>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${remark}">${remark}</td>
         <td style="font-size:12px;white-space:nowrap">${next}</td>
-      </tr>`;
-    }).join('');
-  }
-
-  // ── Missed calls section ──
-  const missedSection = el('td-missed-section');
-  const missedTbody   = el('td-missed-tbody');
-  const missedCount   = el('td-missed-count');
-  if (missedSection && missedTbody) {
-    missedSection.style.display = missedHistory.length ? '' : 'none';
-    if (missedCount) missedCount.textContent = missedHistory.length + ' missed';
-    const sortedMissed = [...missedHistory].sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0));
-    missedTbody.innerHTML = sortedMissed.map(r => {
-      const lead     = leadMap[r['Lead ID']] || {};
-      const company  = escapeHtml(lead['Company Name'] || r['Lead ID'] || '—');
-      const createdBy = r['Created By'] || r['Done By'] || '';
-      const agent    = escapeHtml(userMap[createdBy] || createdBy || '—');
-      const type     = escapeHtml(r['Follow-up Type'] || '—');
-      const planned  = r['Follow-up Date'] || r['Planned Date'] || r['Created At'] || '';
-      const remark   = escapeHtml(r['Remark'] || '—');
-      const disc     = escapeHtml(r['Discussion'] || '—');
-      const city     = escapeHtml(r['City'] || lead['City'] || '—');
-      const leadId   = r['Lead ID'] || '';
-      return `<tr onclick="${leadId ? `_todayOpenLead('${escapeHtml(leadId)}')` : ''}" style="background:#fff8f8">
-        <td style="white-space:nowrap;font-size:12px;color:#6b7280">${formatDate(planned)}</td>
-        <td style="font-size:12px">${agent}</td>
-        <td><div style="font-weight:600;font-size:13px">${company}</div></td>
-        <td><span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px">${type}</span></td>
-        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${disc}">${disc}</td>
-        <td style="font-size:12px;color:#6b7280">${city}</td>
-        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#6b7280" title="${remark}">${remark}</td>
       </tr>`;
     }).join('');
   }
