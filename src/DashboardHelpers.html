@@ -42,6 +42,13 @@ function _dbHtml() {
           <option value="Won">Won</option>
           <option value="Lost">Lost</option>
         </select>
+        <select id="db-f-state" class="form-control" style="width:135px;padding:4px 7px;font-size:12px">
+          <option value="">All States</option>
+          ${(cfg.states||[]).map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
+        </select>
+        <select id="db-f-city" class="form-control" style="width:145px;padding:4px 7px;font-size:12px">
+          <option value="">All Cities</option>
+        </select>
         <button class="btn btn-outlined" onclick="_dbClearFilters()" style="padding:4px 10px;font-size:12px;white-space:nowrap">${icon('x',12)} Clear</button>
         <button class="btn btn-primary" onclick="_dbRenderAll()" style="padding:4px 10px;font-size:12px;white-space:nowrap;margin-left:auto">${icon('refresh-cw',12)} Refresh</button>
       </div>
@@ -65,6 +72,62 @@ function _dbHtml() {
           <div id="db-fu-center" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none"></div>
         </div>
         <div id="db-fu-legend" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+      </div>
+    </div>
+
+    <!-- Geography Analytics -->
+    <div class="card" style="padding:22px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:7px;color:#333">${icon('map-pinned',15)} India State Lead Heat Map</div>
+      <div style="font-size:11px;color:#777;margin-bottom:14px">States are colored by lead count from the current dashboard filters.</div>
+      <div id="db-india-map"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('map',15)} State Wise Lead Count</div>
+        <canvas id="db-state-chart"></canvas>
+      </div>
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('building-2',15)} Top Cities by Lead Count</div>
+        <canvas id="db-city-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="card" style="padding:22px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('layers-3',15)} Stage by State</div>
+      <canvas id="db-stage-state-chart" style="max-height:340px"></canvas>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('table-2',15)} State Summary</div>
+        <div id="db-state-summary" style="overflow-x:auto;max-height:320px"></div>
+      </div>
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('table-2',15)} City Summary</div>
+        <div id="db-city-summary" style="overflow-x:auto;max-height:320px"></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('grid-3x3',15)} Stage x State Matrix</div>
+        <div id="db-stage-state-matrix" style="overflow:auto;max-height:360px"></div>
+      </div>
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('grid-3x3',15)} Stage x City Matrix</div>
+        <div id="db-stage-city-matrix" style="overflow:auto;max-height:360px"></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;min-width:0">
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#2E7D32">${icon('flame',15)} Hot Cities</div>
+        <div id="db-hot-cities" style="overflow-x:auto;max-height:300px"></div>
+      </div>
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#C62828">${icon('triangle-alert',15)} Problem Cities</div>
+        <div id="db-problem-cities" style="overflow-x:auto;max-height:300px"></div>
       </div>
     </div>
 
@@ -124,7 +187,10 @@ function _dbHtml() {
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 function _dbInitFilters() {
-  ['db-f-from','db-f-to','db-f-user','db-f-stage','db-f-source','db-f-priority','db-f-status']
+  _dbRefreshCityFilterOptions();
+  const stateEl = el('db-f-state');
+  if (stateEl) stateEl.addEventListener('change', () => { _dbRefreshCityFilterOptions(); _dbRenderAll(); });
+  ['db-f-from','db-f-to','db-f-user','db-f-stage','db-f-source','db-f-priority','db-f-status','db-f-city']
     .forEach(id => { const e = el(id); if (e) e.addEventListener('change', _dbRenderAll); });
 }
 
@@ -136,15 +202,18 @@ function _dbGetFilters() {
     stageId:  el('db-f-stage')?.value    || '',
     source:   el('db-f-source')?.value   || '',
     priority: el('db-f-priority')?.value || '',
-    status:   el('db-f-status')?.value   || ''
+    status:   el('db-f-status')?.value   || '',
+    state:    el('db-f-state')?.value    || '',
+    city:     el('db-f-city')?.value     || ''
   };
 }
 
 function _dbClearFilters() {
   if (el('db-f-from')) el('db-f-from').value = localDateInputValue(new Date(Date.now() - 30 * 86400000));
   if (el('db-f-to'))   el('db-f-to').value   = localDateInputValue();
-  ['db-f-user','db-f-stage','db-f-source','db-f-priority','db-f-status']
+  ['db-f-user','db-f-stage','db-f-source','db-f-priority','db-f-status','db-f-state','db-f-city']
     .forEach(id => { if (el(id)) el(id).value = ''; });
+  _dbRefreshCityFilterOptions();
   _dbRenderAll();
 }
 
@@ -169,6 +238,8 @@ function _dbFilteredData() {
   if (f.source)   leads = leads.filter(l => l['Source']      === f.source);
   if (f.priority) leads = leads.filter(l => l['Priority']    === f.priority);
   if (f.status)   leads = leads.filter(l => l['Lead Status'] === f.status);
+  if (f.state)    leads = leads.filter(l => String(l['State'] || '') === f.state);
+  if (f.city)     leads = leads.filter(l => String(l['City'] || '') === f.city);
 
   const leadIds = new Set(leads.map(l => l['Lead ID']));
   fus = fus.filter(fu => leadIds.has(fu['Lead ID']));
@@ -220,6 +291,7 @@ function _dbRenderAll() {
   _dbRenderFollowupDonut(s);
   _dbRenderSourceChart(leads);
   _dbRenderTeamChart(leads, fus);
+  _dbRenderGeoAnalytics(leads, fus);
   _dbRenderHealth(leads, fus);
   _dbRenderOverdueTable(s.overdueFusList, leads);
   _dbRenderNoFollowupTable(leads, fus);

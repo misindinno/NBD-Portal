@@ -1,0 +1,318 @@
+<script>
+function _dbRefreshCityFilterOptions() {
+  const cityEl = el('db-f-city');
+  if (!cityEl) return;
+  const current = cityEl.value || '';
+  const state = el('db-f-state')?.value || '';
+  const cities = AppCache.getRows('leads')
+    .filter(l => !state || String(l['State'] || '') === state)
+    .map(l => String(l['City'] || '').trim())
+    .filter(Boolean)
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .sort((a, b) => a.localeCompare(b));
+  cityEl.innerHTML = '<option value="">All Cities</option>' +
+    cities.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  cityEl.value = cities.includes(current) ? current : '';
+}
+
+function _dbRenderGeoAnalytics(leads, fus) {
+  _dbRenderIndiaLeadMap(leads);
+  _dbRenderStateChart(leads);
+  _dbRenderCityChart(leads);
+  _dbRenderStageByStateChart(leads);
+  _dbRenderGeoSummaryTable('db-state-summary', _dbGeoSummary(leads, fus, 'State'), 'State');
+  _dbRenderGeoSummaryTable('db-city-summary', _dbGeoSummary(leads, fus, 'City'), 'City');
+  _dbRenderGeoMatrix('db-stage-state-matrix', leads, 'State');
+  _dbRenderGeoMatrix('db-stage-city-matrix', leads, 'City', 10);
+  _dbRenderCityList('db-hot-cities', _dbGeoSummary(leads, fus, 'City').filter(r => r.open > 0).sort((a,b) => b.open - a.open).slice(0, 12), 'open');
+  _dbRenderCityList('db-problem-cities', _dbGeoSummary(leads, fus, 'City').filter(r => r.total >= 2).sort((a,b) => b.problemPct - a.problemPct || b.overdue - a.overdue).slice(0, 12), 'problemPct');
+}
+
+function _dbRenderIndiaLeadMap(leads) {
+  const wrap = el('db-india-map');
+  if (!wrap) return;
+
+  const stateCounts = {};
+  leads.forEach(l => {
+    const state = _dbNormalizeIndianState(l['State']);
+    if (!state) return;
+    stateCounts[state] = (stateCounts[state] || 0) + 1;
+  });
+
+  const maxCount = Math.max(...Object.values(stateCounts), 0);
+  const totalMapped = Object.values(stateCounts).reduce((sum, n) => sum + n, 0);
+  const layout = _dbIndiaStateGrid();
+
+  if (!totalMapped) {
+    wrap.innerHTML = '<p style="text-align:center;color:#bbb;padding:24px;font-size:13px">No state data available for the selected filters</p>';
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(82px,1fr));gap:8px;align-items:stretch">
+      ${layout.flat().map(state => {
+        if (!state) return '<div></div>';
+        const count = stateCounts[state] || 0;
+        const color = _dbLeadHeatColor(count, maxCount);
+        const textColor = count && count / maxCount > 0.55 ? '#fff' : '#1f2937';
+        const abbr = _dbStateAbbr(state);
+        return `<div title="${escapeHtml(state)}: ${count} leads" style="min-height:58px;border:1px solid ${count ? color : '#e5e7eb'};background:${color};border-radius:6px;padding:8px;display:flex;flex-direction:column;justify-content:space-between;box-sizing:border-box">
+          <div style="font-size:10px;font-weight:700;color:${textColor};line-height:1.15;overflow:hidden;text-overflow:ellipsis">${escapeHtml(abbr)}</div>
+          <div style="font-size:18px;font-weight:800;color:${textColor};line-height:1">${count || ''}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#666">
+        <span>Low</span>
+        ${[0.15,0.35,0.55,0.75,1].map(p => `<span style="width:34px;height:10px;border-radius:2px;background:${_dbLeadHeatColor(Math.ceil(maxCount * p), maxCount)}"></span>`).join('')}
+        <span>High</span>
+      </div>
+      <div style="font-size:11px;color:#666">Mapped leads: <b>${totalMapped}</b> · Top state: <b>${escapeHtml(_dbTopStateLabel(stateCounts))}</b></div>
+    </div>`;
+}
+
+function _dbIndiaStateGrid() {
+  return [
+    ['Jammu and Kashmir', 'Ladakh', '', 'Himachal Pradesh', 'Punjab', 'Chandigarh', 'Uttarakhand'],
+    ['Rajasthan', '', 'Haryana', 'Delhi', 'Uttar Pradesh', 'Bihar', 'Sikkim'],
+    ['Gujarat', 'Madhya Pradesh', '', 'Jharkhand', 'West Bengal', 'Assam', 'Arunachal Pradesh'],
+    ['Dadra and Nagar Haveli and Daman and Diu', 'Maharashtra', 'Chhattisgarh', 'Odisha', 'Meghalaya', 'Nagaland', 'Manipur'],
+    ['Goa', 'Karnataka', 'Telangana', 'Andhra Pradesh', 'Tripura', 'Mizoram', ''],
+    ['Lakshadweep', 'Kerala', 'Tamil Nadu', 'Puducherry', 'Andaman and Nicobar Islands', '', '']
+  ];
+}
+
+function _dbNormalizeIndianState(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const key = raw.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const aliases = {
+    andamanandnicobarislands: 'Andaman and Nicobar Islands',
+    andaman: 'Andaman and Nicobar Islands',
+    andhrapradesh: 'Andhra Pradesh',
+    arunachalpradesh: 'Arunachal Pradesh',
+    assam: 'Assam',
+    bihar: 'Bihar',
+    chandigarh: 'Chandigarh',
+    chhattisgarh: 'Chhattisgarh',
+    dadraandnagarhavelianddamananddiu: 'Dadra and Nagar Haveli and Daman and Diu',
+    damananddiu: 'Dadra and Nagar Haveli and Daman and Diu',
+    delhi: 'Delhi',
+    nctdelhi: 'Delhi',
+    goa: 'Goa',
+    gujarat: 'Gujarat',
+    haryana: 'Haryana',
+    himachalpradesh: 'Himachal Pradesh',
+    jammuandkashmir: 'Jammu and Kashmir',
+    jandk: 'Jammu and Kashmir',
+    jk: 'Jammu and Kashmir',
+    jharkhand: 'Jharkhand',
+    karnataka: 'Karnataka',
+    kerala: 'Kerala',
+    ladakh: 'Ladakh',
+    lakshadweep: 'Lakshadweep',
+    madhyapradesh: 'Madhya Pradesh',
+    maharashtra: 'Maharashtra',
+    manipur: 'Manipur',
+    meghalaya: 'Meghalaya',
+    mizoram: 'Mizoram',
+    nagaland: 'Nagaland',
+    odisha: 'Odisha',
+    orissa: 'Odisha',
+    puducherry: 'Puducherry',
+    pondicherry: 'Puducherry',
+    punjab: 'Punjab',
+    rajasthan: 'Rajasthan',
+    sikkim: 'Sikkim',
+    tamilnadu: 'Tamil Nadu',
+    telangana: 'Telangana',
+    tripura: 'Tripura',
+    uttarpradesh: 'Uttar Pradesh',
+    up: 'Uttar Pradesh',
+    uttarakhand: 'Uttarakhand',
+    westbengal: 'West Bengal'
+  };
+  return aliases[key] || raw;
+}
+
+function _dbStateAbbr(state) {
+  const map = {
+    'Andaman and Nicobar Islands': 'AN', 'Andhra Pradesh': 'AP', 'Arunachal Pradesh': 'AR',
+    'Assam': 'AS', 'Bihar': 'BR', 'Chandigarh': 'CH', 'Chhattisgarh': 'CG',
+    'Dadra and Nagar Haveli and Daman and Diu': 'DN/DD', 'Delhi': 'DL', 'Goa': 'GA',
+    'Gujarat': 'GJ', 'Haryana': 'HR', 'Himachal Pradesh': 'HP', 'Jammu and Kashmir': 'JK',
+    'Jharkhand': 'JH', 'Karnataka': 'KA', 'Kerala': 'KL', 'Ladakh': 'LA',
+    'Lakshadweep': 'LD', 'Madhya Pradesh': 'MP', 'Maharashtra': 'MH', 'Manipur': 'MN',
+    'Meghalaya': 'ML', 'Mizoram': 'MZ', 'Nagaland': 'NL', 'Odisha': 'OD',
+    'Puducherry': 'PY', 'Punjab': 'PB', 'Rajasthan': 'RJ', 'Sikkim': 'SK',
+    'Tamil Nadu': 'TN', 'Telangana': 'TS', 'Tripura': 'TR', 'Uttar Pradesh': 'UP',
+    'Uttarakhand': 'UK', 'West Bengal': 'WB'
+  };
+  return map[state] || state;
+}
+
+function _dbLeadHeatColor(count, maxCount) {
+  if (!count || !maxCount) return '#f8fafc';
+  const pct = count / maxCount;
+  if (pct >= 0.85) return '#0f766e';
+  if (pct >= 0.65) return '#0d9488';
+  if (pct >= 0.45) return '#14b8a6';
+  if (pct >= 0.25) return '#5eead4';
+  return '#ccfbf1';
+}
+
+function _dbTopStateLabel(stateCounts) {
+  const top = Object.entries(stateCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  return top ? `${top[0]} (${top[1]})` : '-';
+}
+
+function _dbRenderStateChart(leads) {
+  const ctx = el('db-state-chart');
+  if (!ctx) return;
+  const rows = _dbGroupCount(leads, 'State').slice(0, 12);
+  _dbCharts.state = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: rows.map(r => r.key), datasets: [{ label: 'Leads', data: rows.map(r => r.count), backgroundColor: '#1565C0', borderRadius: 4 }] },
+    options: _dbChartOptions(false)
+  });
+}
+
+function _dbRenderCityChart(leads) {
+  const ctx = el('db-city-chart');
+  if (!ctx) return;
+  const rows = _dbGroupCount(leads, 'City').slice(0, 15).reverse();
+  _dbCharts.city = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: rows.map(r => r.key), datasets: [{ label: 'Leads', data: rows.map(r => r.count), backgroundColor: '#2E7D32', borderRadius: 4 }] },
+    options: _dbChartOptions(true)
+  });
+}
+
+function _dbRenderStageByStateChart(leads) {
+  const ctx = el('db-stage-state-chart');
+  if (!ctx) return;
+  const states = _dbGroupCount(leads, 'State').slice(0, 10).map(r => r.key);
+  const stages = App.config.allStages || App.config.stages || [];
+  const colors = ['#1565C0','#2E7D32','#F57C00','#6A1B9A','#00838F','#C62828','#455A64','#AD1457','#7B1FA2','#5D4037'];
+  const datasets = stages.map((s, i) => ({
+    label: s['Stage Name'] || 'Stage',
+    data: states.map(st => leads.filter(l => String(l['State'] || 'Unknown') === st && l['Stage ID'] === s['Stage ID']).length),
+    backgroundColor: safeColor(s['Color'], colors[i % colors.length]),
+    borderWidth: 0
+  })).filter(ds => ds.data.some(Boolean));
+  _dbCharts.stageState = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: states, datasets },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10 } } },
+      scales: { x: { stacked: true, ticks: { font: { size: 10 } } }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } } } }
+    }
+  });
+}
+
+function _dbGeoSummary(leads, fus, field) {
+  const today = localDateInputValue();
+  const leadIdsWithOpenFu = new Set(fus.filter(_isOpenFollowupRow).map(f => f['Lead ID']));
+  const overdueByLead = fus.filter(f => _isOpenFollowupRow(f) && (_fmtDate(_fuPlannedDate(f)) || '') < today)
+    .reduce((m, f) => { m[f['Lead ID']] = (m[f['Lead ID']] || 0) + 1; return m; }, {});
+  const map = {};
+  leads.forEach(l => {
+    const key = String(l[field] || 'Unknown').trim() || 'Unknown';
+    if (!map[key]) map[key] = { key, total: 0, open: 0, won: 0, lost: 0, disqualified: 0, pending: 0, overdue: 0, stages: {} };
+    const r = map[key];
+    r.total++;
+    const status = String(l['Lead Status'] || 'Open');
+    if (status === 'Won') r.won++;
+    else if (status === 'Lost') r.lost++;
+    else r.open++;
+    const stageName = AppLookup.stageName(l['Stage ID']);
+    if (/disqualif/i.test(stageName)) r.disqualified++;
+    if (leadIdsWithOpenFu.has(l['Lead ID'])) r.pending++;
+    r.overdue += overdueByLead[l['Lead ID']] || 0;
+    r.stages[stageName] = (r.stages[stageName] || 0) + 1;
+  });
+  return Object.values(map).map(r => {
+    r.conversion = r.total ? Math.round(r.won / r.total * 100) : 0;
+    r.problemPct = r.total ? Math.round((r.lost + r.disqualified) / r.total * 100) : 0;
+    r.topStage = Object.entries(r.stages).sort((a,b) => b[1] - a[1])[0]?.join(' - ') || '-';
+    return r;
+  }).sort((a,b) => b.total - a.total || a.key.localeCompare(b.key));
+}
+
+function _dbRenderGeoSummaryTable(id, rows, label) {
+  const wrap = el(id);
+  if (!wrap) return;
+  if (!rows.length) { wrap.innerHTML = '<p style="text-align:center;color:#bbb;padding:20px;font-size:13px">No data</p>'; return; }
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#f8f8f8">${[label,'Total','Open','Won','Lost','Disq.','Conv %','Pending FU','Overdue FU'].map((h,i) =>
+      `<th style="padding:8px 10px;border-bottom:2px solid #e5e7eb;text-align:${i?'center':'left'};font-size:10px;text-transform:uppercase;color:#555">${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.slice(0, 40).map(r => `<tr style="border-bottom:1px solid #f3f4f6">
+      <td style="padding:8px 10px;font-weight:600;white-space:nowrap">${escapeHtml(r.key)}</td>
+      <td style="padding:8px 10px;text-align:center">${r.total}</td>
+      <td style="padding:8px 10px;text-align:center;color:#1565C0;font-weight:600">${r.open}</td>
+      <td style="padding:8px 10px;text-align:center;color:#2E7D32;font-weight:600">${r.won}</td>
+      <td style="padding:8px 10px;text-align:center;color:#C62828">${r.lost}</td>
+      <td style="padding:8px 10px;text-align:center;color:#6b7280">${r.disqualified}</td>
+      <td style="padding:8px 10px;text-align:center;font-weight:700;color:${r.conversion >= 40 ? '#2E7D32' : r.conversion >= 20 ? '#F57C00' : '#C62828'}">${r.conversion}%</td>
+      <td style="padding:8px 10px;text-align:center">${r.pending}</td>
+      <td style="padding:8px 10px;text-align:center;color:${r.overdue ? '#C62828' : '#6b7280'};font-weight:${r.overdue ? '700' : '400'}">${r.overdue}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function _dbRenderGeoMatrix(id, leads, field, limit) {
+  const wrap = el(id);
+  if (!wrap) return;
+  const keys = _dbGroupCount(leads, field).slice(0, limit || 12).map(r => r.key);
+  const stages = (App.config.allStages || App.config.stages || []).filter(s => leads.some(l => l['Stage ID'] === s['Stage ID']));
+  if (!keys.length || !stages.length) { wrap.innerHTML = '<p style="text-align:center;color:#bbb;padding:20px;font-size:13px">No data</p>'; return; }
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#f8f8f8"><th style="padding:8px 10px;text-align:left;position:sticky;left:0;background:#f8f8f8">Stage</th>${keys.map(k => `<th style="padding:8px 10px;text-align:center;white-space:nowrap">${escapeHtml(k)}</th>`).join('')}</tr></thead>
+    <tbody>${stages.map(s => `<tr style="border-bottom:1px solid #f3f4f6">
+      <td style="padding:8px 10px;font-weight:600;white-space:nowrap;position:sticky;left:0;background:#fff">${escapeHtml(s['Stage Name'] || '')}</td>
+      ${keys.map(k => `<td style="padding:8px 10px;text-align:center">${leads.filter(l => String(l[field] || 'Unknown') === k && l['Stage ID'] === s['Stage ID']).length || ''}</td>`).join('')}
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function _dbRenderCityList(id, rows, sortField) {
+  const wrap = el(id);
+  if (!wrap) return;
+  if (!rows.length) { wrap.innerHTML = '<p style="text-align:center;color:#bbb;padding:20px;font-size:13px">No data</p>'; return; }
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#f8f8f8">${['City','Open','Conv %','Problem %','Overdue','Top Stage'].map((h,i) =>
+      `<th style="padding:8px 10px;border-bottom:2px solid #e5e7eb;text-align:${i===0||i===5?'left':'center'};font-size:10px;text-transform:uppercase;color:#555">${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr style="border-bottom:1px solid #f3f4f6">
+      <td style="padding:8px 10px;font-weight:600;white-space:nowrap">${escapeHtml(r.key)}</td>
+      <td style="padding:8px 10px;text-align:center;color:#1565C0;font-weight:700">${r.open}</td>
+      <td style="padding:8px 10px;text-align:center;color:#2E7D32;font-weight:700">${r.conversion}%</td>
+      <td style="padding:8px 10px;text-align:center;color:${r.problemPct ? '#C62828' : '#6b7280'};font-weight:700">${r.problemPct}%</td>
+      <td style="padding:8px 10px;text-align:center;color:${r.overdue ? '#C62828' : '#6b7280'};font-weight:700">${r.overdue}</td>
+      <td style="padding:8px 10px;white-space:nowrap">${escapeHtml(r.topStage)}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function _dbGroupCount(rows, field) {
+  const map = {};
+  rows.forEach(r => {
+    const key = String(r[field] || 'Unknown').trim() || 'Unknown';
+    map[key] = (map[key] || 0) + 1;
+  });
+  return Object.entries(map).map(([key, count]) => ({ key, count })).sort((a,b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+function _dbChartOptions(horizontal) {
+  return {
+    indexAxis: horizontal ? 'y' : 'x',
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } } },
+      y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } } }
+    }
+  };
+}
+</script>
