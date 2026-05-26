@@ -25,8 +25,8 @@ async function loadConfig() {
   if (activeTab === 'cfg-settings') loadPortalSettings();
   if (activeTab === 'cfg-stages') loadStagesConfig();
   if (activeTab === 'cfg-dropdowns') loadDropdownsConfig();
-  if (activeTab === 'cfg-fields') loadFieldConfig();
-  if (activeTab === 'cfg-users') loadUsersConfig();
+  if (activeTab === 'cfg-fields') { if (typeof loadFieldConfig === 'function') loadFieldConfig(); }
+  if (activeTab === 'cfg-users') { if (typeof loadUsersConfig === 'function') loadUsersConfig(); }
 }
 
 function switchConfigTab(btn, tabId) {
@@ -39,8 +39,14 @@ function switchConfigTab(btn, tabId) {
   if (tabId === 'cfg-settings' && (!el('cfg-settings').innerHTML || el('cfg-settings').innerHTML.includes('skeleton'))) loadPortalSettings();
   if (tabId === 'cfg-stages' && (!el('cfg-stages').innerHTML || el('cfg-stages').innerHTML.includes('skeleton'))) loadStagesConfig();
   if (tabId === 'cfg-dropdowns' && (!el('cfg-dropdowns').innerHTML || el('cfg-dropdowns').innerHTML.includes('skeleton'))) loadDropdownsConfig();
-  if (tabId === 'cfg-fields' && (!el('cfg-fields').innerHTML || el('cfg-fields').innerHTML.includes('skeleton'))) loadFieldConfig();
-  if (tabId === 'cfg-users' && (!el('cfg-users').innerHTML || el('cfg-users').innerHTML.includes('skeleton'))) loadUsersConfig();
+  if (tabId === 'cfg-fields' && (!el('cfg-fields').innerHTML || el('cfg-fields').innerHTML.includes('skeleton'))) {
+    if (typeof loadFieldConfig === 'function') loadFieldConfig();
+    else el('cfg-fields').innerHTML = '<div class="card" style="padding:24px;color:#c00;font-size:13px">⚠ loadFieldConfig is not available — the web app may need to be redeployed after the latest code update.</div>';
+  }
+  if (tabId === 'cfg-users' && (!el('cfg-users').innerHTML || el('cfg-users').innerHTML.includes('skeleton'))) {
+    if (typeof loadUsersConfig === 'function') loadUsersConfig();
+    else el('cfg-users').innerHTML = '<div class="card" style="padding:24px;color:#c00;font-size:13px">⚠ loadUsersConfig is not available — the web app may need to be redeployed after the latest code update.</div>';
+  }
 }
 
 async function loadPortalSettings() {
