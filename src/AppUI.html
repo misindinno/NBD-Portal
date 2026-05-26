@@ -1,4 +1,9 @@
 <script>
+function _isNBDPortal() {
+  return String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('nbd');
+}
+window._isNBDPortal = _isNBDPortal;
+
 // ─── Page meta ────────────────────────────────────────────────────────────────
 const _PAGE_META = {
   dashboard: { title: 'Dashboard',        crumb: 'Dashboard' },
@@ -120,6 +125,10 @@ function renderSidebar() {
   }
 
   nav.innerHTML = html;
+
+  // Hide topbar search for NBD portal — leads come in only via Lead Form
+  const searchWrap = qs('.tb-search-wrap');
+  if (searchWrap) searchWrap.style.display = _isNBDPortal() ? 'none' : '';
 
   const displayName = u.title || u.name || u.email || '';
   const role        = { ADMIN: 'Administrator', MANAGER: 'Manager', SALES: 'Sales', USER: 'User' }[u.role] || u.role || '';

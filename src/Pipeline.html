@@ -169,7 +169,7 @@ async function loadPipeline() {
         <span class="pipeline-topbar-hint">${icon('move', 13)} Move leads forward by dragging</span>
         <span class="pipeline-topbar-meta">${pipelineLeads.length} lead${pipelineLeads.length !== 1 ? 's' : ''}</span>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>
+      ${_isNBDPortal() ? '' : `<button class="btn btn-primary btn-sm" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>`}
     </div>
     <div id="pipeline-board" class="pipeline-content">
       ${pipeline.map(renderCol).join('')}
