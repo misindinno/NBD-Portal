@@ -41,6 +41,11 @@ async function openFollowupForm(leadId = '', leadName = '') {
         <textarea class="form-control" name="Discussion" rows="3" required></textarea>
       </div>
 
+      <div class="form-group">
+        <label>City</label>
+        <input class="form-control" name="City" placeholder="City">
+      </div>
+
       <div class="form-group" id="fu-stage-wrap" style="${leadId ? '' : 'display:none'}">
         <label>Move to Next Stage</label>
         <select class="form-control" name="Updated Stage ID" ${leadId ? '' : 'disabled'}>
@@ -176,7 +181,7 @@ async function openMarkFollowupDoneForm(followupId) {
           ${[
             { val:'Call Connected', ic:'phone-call',    col:'#16a34a', abg:'#f0fdf4', ab:'#22c55e', ibg:'#dcfce7' },
             { val:'WhatsApp Chat',  ic:'message-circle',col:'#2563eb', abg:'#eff6ff', ab:'#3b82f6', ibg:'#dbeafe' },
-            { val:'Not Picked',    ic:'phone-missed',  col:'#dc2626', abg:'#fef2f2', ab:'#f87171', ibg:'#fee2e2' },
+            { val:'Call Missed',    ic:'phone-missed',  col:'#dc2626', abg:'#fef2f2', ab:'#f87171', ibg:'#fee2e2' },
           ].map(o => `
           <label class="fu-contact-mode-opt"
             data-col="${o.col}" data-abg="${o.abg}" data-ab="${o.ab}" data-ibg="${o.ibg}"
