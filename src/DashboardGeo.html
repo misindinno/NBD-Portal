@@ -39,47 +39,190 @@ function _dbRenderIndiaLeadMap(leads) {
     stateCounts[state] = (stateCounts[state] || 0) + 1;
   });
 
-  const maxCount = Math.max(...Object.values(stateCounts), 0);
+  const maxCount = Math.max(...Object.values(stateCounts), 1);
   const totalMapped = Object.values(stateCounts).reduce((sum, n) => sum + n, 0);
-  const layout = _dbIndiaStateGrid();
 
   if (!totalMapped) {
     wrap.innerHTML = '<p style="text-align:center;color:#bbb;padding:24px;font-size:13px">No state data available for the selected filters</p>';
     return;
   }
 
+  const states = _dbIndiaSvgStates();
+
+  // Build SVG paths
+  const pathsHtml = states.map(s => {
+    const count = stateCounts[s.name] || 0;
+    const fill  = _dbLeadHeatColor(count, maxCount);
+    const abbr  = _dbStateAbbr(s.name);
+    return `<path class="imap-state" data-name="${escapeHtml(s.name)}" data-count="${count}" data-abbr="${escapeHtml(abbr)}"
+      d="${s.d}" fill="${fill}" stroke="#fff" stroke-width="0.7" stroke-linejoin="round"/>`;
+  }).join('');
+
+  // Build count labels for states that have a label position and leads
+  const labelsHtml = states.filter(s => s.lx && stateCounts[s.name]).map(s => {
+    const count = stateCounts[s.name];
+    const fill  = _dbLeadHeatColor(count, maxCount);
+    const dark  = count / maxCount > 0.5;
+    const abbr  = _dbStateAbbr(s.name);
+    return `<text x="${s.lx}" y="${s.ly}" text-anchor="middle" dominant-baseline="middle"
+      font-size="${s.fs || 7}" font-weight="700" fill="${dark ? '#fff' : '#1e4d47'}" pointer-events="none"
+      style="font-family:system-ui,sans-serif">${abbr}
+      </text>
+      <text x="${s.lx}" y="${s.ly + (s.fs || 7) + 1}" text-anchor="middle" dominant-baseline="middle"
+      font-size="${(s.fs || 7) - 1}" font-weight="600" fill="${dark ? '#fff' : '#1e4d47'}" pointer-events="none"
+      style="font-family:system-ui,sans-serif">${count}</text>`;
+  }).join('');
+
   wrap.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(7,minmax(82px,1fr));gap:8px;align-items:stretch">
-      ${layout.flat().map(state => {
-        if (!state) return '<div></div>';
-        const count = stateCounts[state] || 0;
-        const color = _dbLeadHeatColor(count, maxCount);
-        const textColor = count && count / maxCount > 0.55 ? '#fff' : '#1f2937';
-        const abbr = _dbStateAbbr(state);
-        return `<div title="${escapeHtml(state)}: ${count} leads" style="min-height:58px;border:1px solid ${count ? color : '#e5e7eb'};background:${color};border-radius:6px;padding:8px;display:flex;flex-direction:column;justify-content:space-between;box-sizing:border-box">
-          <div style="font-size:10px;font-weight:700;color:${textColor};line-height:1.15;overflow:hidden;text-overflow:ellipsis">${escapeHtml(abbr)}</div>
-          <div style="font-size:18px;font-weight:800;color:${textColor};line-height:1">${count || ''}</div>
-        </div>`;
-      }).join('')}
+    <div style="position:relative">
+      <svg viewBox="0 0 620 740" style="width:100%;max-width:700px;height:auto;display:block;margin:0 auto">
+        <style>
+          .imap-state { cursor:pointer; transition:opacity .12s; }
+          .imap-state:hover { opacity:.72; stroke:#333 !important; stroke-width:1.2 !important; }
+        </style>
+        ${pathsHtml}
+        ${labelsHtml}
+        <!-- Inset boxes for island UTs -->
+        <rect x="548" y="490" width="58" height="14" fill="#f8fafc" stroke="#e5e7eb" stroke-width="0.5" rx="2"/>
+        <text x="577" y="498" text-anchor="middle" dominant-baseline="middle" font-size="6" fill="#888" style="font-family:system-ui,sans-serif">A&amp;N Islands</text>
+        <rect x="8" y="620" width="52" height="14" fill="#f8fafc" stroke="#e5e7eb" stroke-width="0.5" rx="2"/>
+        <text x="34" y="628" text-anchor="middle" dominant-baseline="middle" font-size="6" fill="#888" style="font-family:system-ui,sans-serif">Lakshadweep</text>
+      </svg>
+      <div id="db-imap-tip" style="display:none;position:fixed;background:rgba(31,41,55,.92);color:#fff;padding:9px 13px;border-radius:8px;font-size:12px;pointer-events:none;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.2);min-width:145px"></div>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#666">
         <span>Low</span>
-        ${[0.15,0.35,0.55,0.75,1].map(p => `<span style="width:34px;height:10px;border-radius:2px;background:${_dbLeadHeatColor(Math.ceil(maxCount * p), maxCount)}"></span>`).join('')}
+        ${[0.15,0.35,0.55,0.75,1].map(p => `<span style="width:34px;height:10px;border-radius:2px;display:inline-block;background:${_dbLeadHeatColor(Math.ceil(maxCount * p), maxCount)}"></span>`).join('')}
         <span>High</span>
       </div>
       <div style="font-size:11px;color:#666">Mapped leads: <b>${totalMapped}</b> · Top state: <b>${escapeHtml(_dbTopStateLabel(stateCounts))}</b></div>
     </div>`;
+
+  // Hover tooltip
+  const tip = el('db-imap-tip');
+  wrap.querySelectorAll('.imap-state').forEach(path => {
+    path.addEventListener('mousemove', e => {
+      if (!tip) return;
+      const name  = path.dataset.name;
+      const count = parseInt(path.dataset.count, 10);
+      const abbr  = path.dataset.abbr;
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top  = (e.clientY - 48) + 'px';
+      tip.innerHTML = `<div style="font-weight:700;margin-bottom:3px">${escapeHtml(name)}</div>
+        <div style="color:#9ca3af;font-size:11px">${count} lead${count !== 1 ? 's' : ''}</div>`;
+    });
+    path.addEventListener('mouseleave', () => { if (tip) tip.style.display = 'none'; });
+  });
 }
 
-function _dbIndiaStateGrid() {
+// ── India SVG state paths ─────────────────────────────────────────────────────
+// viewBox 0 0 620 740
+// x = (lon - 68) * 20.5,  y = (37 - lat) * 24.8
+// lx/ly = label center, fs = font size for label
+function _dbIndiaSvgStates() {
   return [
-    ['Jammu and Kashmir', 'Ladakh', '', 'Himachal Pradesh', 'Punjab', 'Chandigarh', 'Uttarakhand'],
-    ['Rajasthan', '', 'Haryana', 'Delhi', 'Uttar Pradesh', 'Bihar', 'Sikkim'],
-    ['Gujarat', 'Madhya Pradesh', '', 'Jharkhand', 'West Bengal', 'Assam', 'Arunachal Pradesh'],
-    ['Dadra and Nagar Haveli and Daman and Diu', 'Maharashtra', 'Chhattisgarh', 'Odisha', 'Meghalaya', 'Nagaland', 'Manipur'],
-    ['Goa', 'Karnataka', 'Telangana', 'Andhra Pradesh', 'Tripura', 'Mizoram', ''],
-    ['Lakshadweep', 'Kerala', 'Tamil Nadu', 'Puducherry', 'Andaman and Nicobar Islands', '', '']
+    { name:'Jammu and Kashmir',
+      d:'M 108,2 172,2 170,52 150,80 138,112 118,110 100,70 104,30 Z',
+      lx:136, ly:58, fs:7 },
+    { name:'Ladakh',
+      d:'M 172,2 245,2 242,78 218,112 190,122 168,95 170,52 Z',
+      lx:205, ly:55, fs:7 },
+    { name:'Himachal Pradesh',
+      d:'M 154,100 225,96 228,145 205,160 180,158 162,140 158,118 Z',
+      lx:192, ly:130, fs:6 },
+    { name:'Punjab',
+      d:'M 110,112 160,108 165,145 158,172 138,178 112,168 105,145 Z',
+      lx:136, ly:143, fs:6 },
+    { name:'Chandigarh',
+      d:'M 168,145 178,142 179,155 169,156 Z' },
+    { name:'Haryana',
+      d:'M 160,138 215,132 218,172 200,205 180,218 162,215 150,192 150,162 Z',
+      lx:188, ly:175, fs:6 },
+    { name:'Delhi',
+      d:'M 180,198 194,195 196,212 182,215 Z' },
+    { name:'Uttarakhand',
+      d:'M 205,98 258,90 262,130 248,158 222,165 205,150 210,122 Z',
+      lx:235, ly:128, fs:6 },
+    { name:'Rajasthan',
+      d:'M 28,148 158,142 165,175 175,232 168,298 148,335 100,342 52,328 22,295 18,248 28,198 Z',
+      lx:102, ly:248, fs:9 },
+    { name:'Uttar Pradesh',
+      d:'M 175,138 258,128 345,135 348,188 338,248 320,295 292,322 252,330 210,322 188,295 180,252 178,200 Z',
+      lx:268, ly:235, fs:8 },
+    { name:'Bihar',
+      d:'M 320,148 418,138 422,188 408,230 382,258 348,268 320,255 312,215 Z',
+      lx:368, ly:205, fs:7 },
+    { name:'Jharkhand',
+      d:'M 312,252 382,242 400,282 388,325 365,348 335,345 308,322 305,282 Z',
+      lx:355, ly:295, fs:7 },
+    { name:'West Bengal',
+      d:'M 360,218 422,208 430,258 425,312 412,352 398,378 372,378 355,345 358,298 352,258 Z',
+      lx:392, ly:295, fs:7 },
+    { name:'Sikkim',
+      d:'M 408,205 425,200 426,222 410,224 Z' },
+    { name:'Assam',
+      d:'M 432,228 558,218 562,258 540,280 500,288 460,288 432,268 Z',
+      lx:498, ly:255, fs:7 },
+    { name:'Arunachal Pradesh',
+      d:'M 468,178 595,168 592,218 558,218 432,228 450,198 Z',
+      lx:528, ly:202, fs:6 },
+    { name:'Meghalaya',
+      d:'M 432,265 490,260 488,285 462,292 432,280 Z',
+      lx:462, ly:275, fs:5 },
+    { name:'Nagaland',
+      d:'M 522,225 560,220 558,252 540,270 520,260 Z',
+      lx:540, ly:247, fs:5 },
+    { name:'Manipur',
+      d:'M 520,258 545,252 542,288 528,308 512,300 508,275 Z',
+      lx:528, ly:280, fs:5 },
+    { name:'Mizoram',
+      d:'M 502,298 525,290 522,325 512,352 498,345 492,322 Z',
+      lx:510, ly:320, fs:5 },
+    { name:'Tripura',
+      d:'M 480,298 502,292 498,332 485,342 475,328 Z',
+      lx:488, ly:318, fs:5 },
+    { name:'Madhya Pradesh',
+      d:'M 118,255 305,245 318,288 308,338 285,365 250,382 198,382 152,362 125,328 115,288 Z',
+      lx:215, ly:318, fs:9 },
+    { name:'Chhattisgarh',
+      d:'M 258,290 338,282 342,335 328,375 312,412 295,445 272,442 252,408 248,362 Z',
+      lx:296, ly:365, fs:7 },
+    { name:'Odisha',
+      d:'M 272,348 385,338 382,385 365,422 342,452 305,455 272,425 262,388 Z',
+      lx:325, ly:398, fs:7 },
+    { name:'Gujarat',
+      d:'M 10,298 122,288 130,332 118,372 90,408 55,418 20,392 8,352 12,312 Z',
+      lx:72, ly:355, fs:8 },
+    { name:'Dadra and Nagar Haveli and Daman and Diu',
+      d:'M 98,405 112,402 110,420 98,418 Z' },
+    { name:'Maharashtra',
+      d:'M 86,345 260,340 270,385 260,428 240,465 218,500 185,518 150,508 115,475 86,442 80,402 Z',
+      lx:178, ly:435, fs:8 },
+    { name:'Goa',
+      d:'M 110,522 132,518 130,540 112,538 Z' },
+    { name:'Karnataka',
+      d:'M 112,490 218,485 222,528 208,565 188,598 165,612 140,605 118,572 108,535 Z',
+      lx:168, ly:548, fs:8 },
+    { name:'Telangana',
+      d:'M 182,420 270,412 275,455 260,492 235,512 208,518 190,498 182,462 Z',
+      lx:232, ly:465, fs:7 },
+    { name:'Andhra Pradesh',
+      d:'M 178,425 342,412 340,458 322,498 298,538 270,568 245,585 215,578 190,552 178,525 Z',
+      lx:272, ly:500, fs:7 },
+    { name:'Tamil Nadu',
+      d:'M 172,585 255,575 252,615 240,652 220,688 194,692 172,662 162,625 Z',
+      lx:210, ly:635, fs:7 },
+    { name:'Kerala',
+      d:'M 152,590 175,585 170,635 160,678 148,702 138,682 136,642 148,612 Z',
+      lx:155, ly:642, fs:6 },
+    { name:'Puducherry',
+      d:'M 240,615 250,612 248,628 240,626 Z' },
+    { name:'Andaman and Nicobar Islands',
+      d:'M 548,505 565,502 566,518 558,525 548,520 Z' },
+    { name:'Lakshadweep',
+      d:'M 10,635 22,632 22,648 10,645 Z' },
   ];
 }
 
