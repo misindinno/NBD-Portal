@@ -218,4 +218,11 @@ function _fieldValidationSummary(f) {
   if (f['Field Type'] === 'File') parts.push(`${escapeHtml(f['Max File MB'] || 10)} MB`);
   return parts.join(', ') || '-';
 }
+
+window.loadFieldConfig = loadFieldConfig;
+window.renderFieldConfigList = renderFieldConfigList;
+window.openFieldForm = openFieldForm;
+window._toggleFieldTargetOptions = _toggleFieldTargetOptions;
+window._toggleFieldTypeOptions = _toggleFieldTypeOptions;
+window._fieldValidationSummary = _fieldValidationSummary;
 </script>
