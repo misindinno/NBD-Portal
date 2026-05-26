@@ -1,5 +1,6 @@
 # ─── deploy.yml ──────────────────────────────────────────────────────────────
 # Automatically pushes code to all GAS clients when you push to main/master.
+# Updated: force re-parse after bad state
 #
 # ONE-TIME SETUP — add this GitHub secret before first run:
 #   1. On your machine, run:  clasp login
