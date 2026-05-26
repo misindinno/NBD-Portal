@@ -209,69 +209,175 @@ function toggleSidebar() {
   }
 }
 
-// ─── Topbar search ────────────────────────────────────────────────────────────
+// ─── Global Search ────────────────────────────────────────────────────────────
 let _searchFocusedIdx = -1;
+let _searchDebounce   = null;
 
 function _topbarSearchInput(input) {
-  const q = (input.value || '').trim().toLowerCase();
+  clearTimeout(_searchDebounce);
+  const q = (input.value || '').trim();
   const drop = el('tb-search-drop');
   if (!drop) return;
   if (!q) { _closeSearchDrop(); return; }
+  _searchDebounce = setTimeout(() => _runGlobalSearch(q), 200);
+}
 
-  const leads = AppCache.getRows('leads');
-  const matched = leads.filter(l =>
-    String(l['Company Name']   || '').toLowerCase().includes(q) ||
-    String(l['Contact Person'] || '').toLowerCase().includes(q) ||
-    String(l['Client Description'] || '').toLowerCase().includes(q)
+function _gsBadgeCls(s) {
+  const sl = String(s || '').toLowerCase();
+  if (sl === 'won')  return 'tb-sd-badge-won';
+  if (sl === 'lost') return 'tb-sd-badge-lost';
+  if (sl === 'hold') return 'tb-sd-badge-hold';
+  return 'tb-sd-badge-open';
+}
+
+function _runGlobalSearch(q) {
+  const drop = el('tb-search-drop');
+  if (!drop) return;
+  const ql = q.toLowerCase();
+
+  const leads     = AppCache.getRows('leads');
+  const followups = AppCache.getRows('followups');
+  const leadMap   = leads.reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
+
+  // Leads — match by Company, Description, City
+  const matchedLeads = leads.filter(l =>
+    String(l['Company Name']        || '').toLowerCase().includes(ql) ||
+    String(l['Client Description']  || '').toLowerCase().includes(ql) ||
+    String(l['City']                || '').toLowerCase().includes(ql)
   );
-  const results = matched.slice(0, 6);
 
-  if (!results.length) {
-    drop.innerHTML = `<div style="padding:12px 14px;text-align:center;color:#9CA3AF;font-size:13px">No results found</div>`;
+  // Contacts — match by Contact Person or Phone (skip leads already in Leads section)
+  const leadSection = new Set(matchedLeads.map(l => l['Lead ID']));
+  const matchedContacts = leads.filter(l =>
+    !leadSection.has(l['Lead ID']) && (
+      String(l['Contact Person'] || '').toLowerCase().includes(ql) ||
+      String(l['Phone']          || '').toLowerCase().includes(ql)
+    )
+  );
+
+  // Follow-ups — match by Discussion or Remark
+  const matchedFU = followups.filter(f =>
+    String(f['Discussion'] || '').toLowerCase().includes(ql) ||
+    String(f['Remark']     || '').toLowerCase().includes(ql)
+  );
+
+  const total = matchedLeads.length + matchedContacts.length + matchedFU.length;
+
+  if (!total) {
+    drop.innerHTML = `<div style="padding:18px 14px;text-align:center;color:#9CA3AF;font-size:13px">No results for "${escapeHtml(q)}"</div>`;
     drop.style.display = 'block';
     _searchFocusedIdx = -1;
     return;
   }
 
-  const _badgeCls = s => {
-    const sl = String(s || '').toLowerCase();
-    if (sl === 'won')  return 'tb-sd-badge-won';
-    if (sl === 'lost') return 'tb-sd-badge-lost';
-    if (sl === 'hold') return 'tb-sd-badge-hold';
-    return 'tb-sd-badge-open';
+  // Track all items for keyboard nav
+  const navItems = [];
+  let html = '';
+
+  const section = (label, items, renderRow) => {
+    if (!items.length) return '';
+    const shown = items.slice(0, 4);
+    let out = `<div class="tb-sd-section-head">${escapeHtml(label)}<span class="tb-sd-section-count">${items.length}</span></div>`;
+    shown.forEach(item => {
+      const idx = navItems.length;
+      navItems.push(item);
+      out += renderRow(item, idx);
+    });
+    return out;
   };
 
-  let html = results.map((l, i) => {
-    const name    = escapeHtml(l['Company Name']   || '—');
+  // ── Leads section ──
+  html += section('Leads', matchedLeads, (l, idx) => {
+    const name    = escapeHtml(l['Company Name'] || '—');
     const contact = escapeHtml(l['Contact Person'] || '');
     const status  = l['Lead Status'] || 'Open';
-    const stage   = escapeHtml(AppLookup.stageName(l['Stage ID']));
-    const leadId  = String(l['Lead ID'] || '');
-    const bcls    = _badgeCls(status);
-    return `<div class="tb-sd-item" data-idx="${i}" data-lead-id="${escapeHtml(leadId)}" onclick="_topbarSelectLead(${JSON.stringify(leadId)})">
+    const stage   = escapeHtml(AppLookup.stageName(l['Stage ID']) || '');
+    const leadId  = escapeHtml(String(l['Lead ID'] || ''));
+    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="lead" data-gs-id="${leadId}" onclick="_gsOpenLead('${leadId}')">
       <div class="tb-sd-icon">${icon('building-2', 15)}</div>
       <div style="flex:1;min-width:0">
         <div class="tb-sd-name">${name}</div>
         <div class="tb-sd-sub">${contact ? contact + ' · ' : ''}${stage}</div>
       </div>
-      <span class="tb-sd-badge ${bcls}">${escapeHtml(status)}</span>
+      <span class="tb-sd-badge ${_gsBadgeCls(status)}">${escapeHtml(status)}</span>
     </div>`;
-  }).join('');
+  });
 
-  if (matched.length > 6) {
-    html += `<div class="tb-sd-footer" onclick="_topbarSearch(${JSON.stringify(input.value.trim())})">View all ${matched.length} results →</div>`;
+  // ── Contacts section ──
+  html += section('Contacts', matchedContacts, (l, idx) => {
+    const contact = escapeHtml(l['Contact Person'] || '—');
+    const company = escapeHtml(l['Company Name'] || '');
+    const phone   = escapeHtml(l['Phone'] || '');
+    const leadId  = escapeHtml(String(l['Lead ID'] || ''));
+    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="lead" data-gs-id="${leadId}" onclick="_gsOpenLead('${leadId}')">
+      <div class="tb-sd-icon tb-sd-icon-contacts">${icon('user', 15)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="tb-sd-name">${contact}</div>
+        <div class="tb-sd-sub">${company}${phone ? ' · ' + phone : ''}</div>
+      </div>
+    </div>`;
+  });
+
+  // ── Follow-ups section ──
+  html += section('Follow-ups', matchedFU, (f, idx) => {
+    const lead    = leadMap[f['Lead ID']] || {};
+    const company = escapeHtml(lead['Company Name'] || '—');
+    const disc    = escapeHtml(f['Discussion'] || f['Remark'] || '');
+    const date    = f['Follow-up Date'] || f['Planned Date'] || '';
+    const leadId  = escapeHtml(String(f['Lead ID'] || ''));
+    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="followup" data-gs-id="${leadId}" onclick="_gsOpenFollowup('${leadId}')">
+      <div class="tb-sd-icon tb-sd-icon-followup">${icon('phone-call', 15)}</div>
+      <div style="flex:1;min-width:0">
+        <div class="tb-sd-name">${company}</div>
+        <div class="tb-sd-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${disc}">${disc}</div>
+      </div>
+      ${date ? `<span style="font-size:11px;color:#9ca3af;white-space:nowrap;flex-shrink:0">${formatDate(date)}</span>` : ''}
+    </div>`;
+  });
+
+  if (total > 12) {
+    html += `<div class="tb-sd-footer" onclick="_gsViewAll(${JSON.stringify(q)})">View all ${total} results for "${escapeHtml(q)}" →</div>`;
   }
 
   drop.innerHTML = html;
+  drop._navItems = navItems;
   drop.style.display = 'block';
   _searchFocusedIdx = -1;
   renderIcons(drop);
 }
 
+function _gsOpenLead(leadId) {
+  _closeSearchDrop();
+  if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
+  navigate('leads');
+  setTimeout(() => { if (typeof openLeadDetail === 'function') openLeadDetail(leadId); }, 500);
+}
+
+function _gsOpenFollowup(leadId) {
+  _closeSearchDrop();
+  if (leadId && canNavigate('leads')) {
+    navigate('leads');
+    setTimeout(() => { if (typeof openLeadDetail === 'function') openLeadDetail(leadId); }, 500);
+  } else if (canNavigate('followups')) {
+    navigate('followups');
+  }
+}
+
+function _gsViewAll(query) {
+  const q = String(query || '').trim();
+  _closeSearchDrop();
+  if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
+  navigate('leads');
+  setTimeout(() => {
+    const s = qs('#lead-search') || qs('input[placeholder*="Search"]');
+    if (s) { s.value = q; s.dispatchEvent(new Event('input')); }
+  }, 500);
+}
+
 function _topbarSearchKey(event) {
   const drop = el('tb-search-drop');
   if (!drop || drop.style.display === 'none') return;
-  const items = Array.from(drop.querySelectorAll('.tb-sd-item[data-lead-id]'));
+  const items = Array.from(drop.querySelectorAll('.tb-sd-item'));
   if (!items.length) return;
   if (event.key === 'ArrowDown') {
     event.preventDefault();
@@ -283,22 +389,19 @@ function _topbarSearchKey(event) {
     items.forEach((it, i) => it.classList.toggle('focused', i === _searchFocusedIdx));
   } else if (event.key === 'Enter') {
     event.preventDefault();
-    if (_searchFocusedIdx >= 0 && items[_searchFocusedIdx]) {
-      _topbarSelectLead(items[_searchFocusedIdx].dataset.leadId);
+    const focused = items[_searchFocusedIdx];
+    if (focused) {
+      const type = focused.dataset.gsType;
+      const id   = focused.dataset.gsId || '';
+      if (type === 'followup') _gsOpenFollowup(id);
+      else _gsOpenLead(id);
     } else {
       const inp = el('tb-search-input');
-      if (inp && inp.value.trim()) _topbarSearch(inp.value.trim());
+      if (inp && inp.value.trim()) _gsViewAll(inp.value.trim());
     }
   } else if (event.key === 'Escape') {
     _closeSearchDrop();
   }
-}
-
-function _topbarSelectLead(leadId) {
-  _closeSearchDrop();
-  if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
-  navigate('leads');
-  setTimeout(() => { if (typeof openLeadDetail === 'function') openLeadDetail(leadId); }, 500);
 }
 
 function _closeSearchDrop() {

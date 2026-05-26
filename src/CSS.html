@@ -214,11 +214,25 @@
     position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 500;
     background: #fff; border: 1px solid #E5E7EB; border-radius: 12px;
     box-shadow: 0 8px 28px rgba(0,0,0,.12); overflow: hidden;
+    max-height: 520px; overflow-y: auto;
   }
   .tb-sd-header {
     padding: 8px 14px 5px; font-size: 10.5px; font-weight: 700;
     letter-spacing: .06em; text-transform: uppercase; color: #9CA3AF;
   }
+  .tb-sd-section-head {
+    display: flex; align-items: center; gap: 7px;
+    padding: 10px 14px 5px; font-size: 10px; font-weight: 700;
+    letter-spacing: .07em; text-transform: uppercase; color: #9CA3AF;
+    border-top: 1px solid #F3F4F6;
+  }
+  .tb-sd-section-head:first-child { border-top: none; }
+  .tb-sd-section-count {
+    background: #F3F4F6; color: #6B7280; font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 20px;
+  }
+  .tb-sd-icon-contacts { background: #FFF7ED; color: #EA580C; }
+  .tb-sd-icon-followup { background: #F0FDF4; color: #16A34A; }
   .tb-sd-item {
     display: flex; align-items: center; gap: 10px;
     padding: 9px 14px; cursor: pointer; transition: background .12s;
