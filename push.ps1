@@ -1,10 +1,11 @@
-# push.ps1 — Manually deploy code to all GAS clients
+# push.ps1 - Manually deploy code to all GAS clients
 # Usage: .\push.ps1
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
-Write-Host "`n=== NBD Portal — Manual Deploy ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "=== NBD Portal - Manual Deploy ===" -ForegroundColor Cyan
 
 # Check clasp is installed
 if (-not (Get-Command clasp -ErrorAction SilentlyContinue)) {
@@ -20,13 +21,12 @@ if ($clients.Count -eq 0) {
 }
 
 foreach ($client in $clients) {
-    Write-Host "`n--> Pushing: $($client.Name)" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "--> Pushing: $($client.Name)" -ForegroundColor Yellow
 
-    # Copy client-specific config into src/server
     Copy-Item "$($client.FullName)\ClientConfig.js" "$root\src\server\ClientConfig.js" -Force
-    Copy-Item "$($client.FullName)\.clasp.json"     "$root\.clasp.json"              -Force
+    Copy-Item "$($client.FullName)\.clasp.json"     "$root\.clasp.json"                -Force
 
-    # Push to GAS
     clasp push --force
 
     if ($LASTEXITCODE -ne 0) {
@@ -37,4 +37,5 @@ foreach ($client in $clients) {
     Write-Host "Done: $($client.Name)" -ForegroundColor Green
 }
 
-Write-Host "`n=== All clients pushed successfully! ===" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "=== All clients pushed successfully ===" -ForegroundColor Cyan
