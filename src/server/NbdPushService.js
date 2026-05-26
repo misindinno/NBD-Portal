@@ -1,6 +1,6 @@
 // Pushes qualified LQ leads into the NBD portal spreadsheet.
 
-function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId) {
+function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRemark) {
   assertServerContext_();
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
   if (!_isLqPortalForNbdPush_()) return respond(null, 'Push to NBD is available only in the LQ portal.');
@@ -82,7 +82,7 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId) {
     'Updated At': ts
   };
   _appendExternalRow_(targetSheet, targetHeaders, row);
-  const nbdFollowupId = _createNbdInitialFollowup_(targetSpreadsheetId, nbdLeadId, lead, sourceStage, user, targetUser, followupDate, ts);
+  const nbdFollowupId = _createNbdInitialFollowup_(targetSpreadsheetId, nbdLeadId, lead, sourceStage, user, targetUser, followupDate, ts, qualifiedRemark);
 
   updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
     'NBD Lead ID': nbdLeadId,
@@ -236,7 +236,7 @@ function _nbdFieldNameKey_(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, sourceStage, user, targetUser, followupDate, ts) {
+function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, sourceStage, user, targetUser, followupDate, ts, qualifiedRemark) {
   const followupSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.FOLLOWUPS);
   _ensureExternalHeaders_(followupSheet, FOLLOWUP_MASTER_FIELDS);
   const headers = followupSheet.getRange(1, 1, 1, followupSheet.getLastColumn()).getValues()[0].map(String);
@@ -247,7 +247,7 @@ function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, source
     'Planned Date': followupDate,
     'Follow-up Date': followupDate,
     'Follow-up Type': 'LQ Qualified Transfer',
-    'Discussion': _nbdFollowupRemark_(sourceLead, sourceStage, user, targetUser),
+    'Discussion': _nbdFollowupRemark_(sourceLead, sourceStage, user, targetUser, qualifiedRemark),
     'Outcome': 'Open',
     'Next Follow-up Date': followupDate,
     'Next Action': 'Review qualified LQ lead',
@@ -263,22 +263,10 @@ function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, source
   return followupId;
 }
 
-function _nbdFollowupRemark_(lead, stage, user, targetUser) {
-  const qualifiedRemark = _nbdQualifiedRemark_(lead, stage);
-  const lines = [
-    'Initial NBD follow-up created from LQ won lead.',
-    'Source Lead ID: ' + (lead['Lead ID'] || ''),
-    'Won Stage: ' + (stage && stage['Stage Name'] || ''),
-    'Company: ' + (lead['Company Name'] || ''),
-    'Contact: ' + (lead['Contact Person'] || ''),
-    'Phone: ' + (lead['Phone'] || ''),
-    'Product Interest: ' + (lead['Product Interest'] || ''),
-    'Qualified Remarks: ' + qualifiedRemark,
-    'LQ Remark: ' + (lead['Client Description'] || ''),
-    'Assigned In NBD To: ' + (targetUser && targetUser.name || ''),
-    'Pushed By: ' + (user && (user.name || user.email) || '')
-  ];
-  return lines.filter(line => !/: $/.test(line)).join('\n');
+function _nbdFollowupRemark_(lead, stage, user, targetUser, qualifiedRemark) {
+  return String(qualifiedRemark || '').trim()
+    || _nbdQualifiedRemark_(lead, stage)
+    || String(lead['Client Description'] || '').trim();
 }
 
 function _findNbdAssignableUser_(spreadsheetId, userId) {
