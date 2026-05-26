@@ -289,7 +289,7 @@ function _runGlobalSearch(q) {
     const status  = l['Lead Status'] || 'Open';
     const stage   = escapeHtml(AppLookup.stageName(l['Stage ID']) || '');
     const leadId  = escapeHtml(String(l['Lead ID'] || ''));
-    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="lead" data-gs-id="${leadId}" onclick="_gsOpenLead('${leadId}')">
+    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="lead" data-gs-id="${leadId}" onmousedown="_gsOpenLead('${leadId}')">
       <div class="tb-sd-icon">${icon('building-2', 15)}</div>
       <div style="flex:1;min-width:0">
         <div class="tb-sd-name">${name}</div>
@@ -305,7 +305,7 @@ function _runGlobalSearch(q) {
     const company = escapeHtml(l['Company Name'] || '');
     const phone   = escapeHtml(l['Phone'] || '');
     const leadId  = escapeHtml(String(l['Lead ID'] || ''));
-    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="lead" data-gs-id="${leadId}" onclick="_gsOpenLead('${leadId}')">
+    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="lead" data-gs-id="${leadId}" onmousedown="_gsOpenLead('${leadId}')">
       <div class="tb-sd-icon tb-sd-icon-contacts">${icon('user', 15)}</div>
       <div style="flex:1;min-width:0">
         <div class="tb-sd-name">${contact}</div>
@@ -321,7 +321,7 @@ function _runGlobalSearch(q) {
     const disc    = escapeHtml(f['Discussion'] || f['Remark'] || '');
     const date    = f['Follow-up Date'] || f['Planned Date'] || '';
     const leadId  = escapeHtml(String(f['Lead ID'] || ''));
-    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="followup" data-gs-id="${leadId}" onclick="_gsOpenFollowup('${leadId}')">
+    return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="followup" data-gs-id="${leadId}" onmousedown="_gsOpenFollowup('${leadId}')">
       <div class="tb-sd-icon tb-sd-icon-followup">${icon('phone-call', 15)}</div>
       <div style="flex:1;min-width:0">
         <div class="tb-sd-name">${company}</div>
@@ -331,8 +331,9 @@ function _runGlobalSearch(q) {
     </div>`;
   });
 
-  if (total > 12) {
-    html += `<div class="tb-sd-footer" onclick="_gsViewAll(${JSON.stringify(q)})">View all ${total} results for "${escapeHtml(q)}" →</div>`;
+  const shownCount = Math.min(matchedLeads.length, 4) + Math.min(matchedContacts.length, 4) + Math.min(matchedFU.length, 4);
+  if (total > shownCount) {
+    html += `<div class="tb-sd-footer" onmousedown="_gsViewAll(${JSON.stringify(q)})">View all ${total} results for "${escapeHtml(q)}" →</div>`;
   }
 
   drop.innerHTML = html;
@@ -342,32 +343,30 @@ function _runGlobalSearch(q) {
   renderIcons(drop);
 }
 
-function _gsOpenLead(leadId) {
+async function _gsOpenLead(leadId) {
   _closeSearchDrop();
   if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
-  navigate('leads');
-  setTimeout(() => { if (typeof openLeadDetail === 'function') openLeadDetail(leadId); }, 500);
+  await navigate('leads');
+  if (typeof openLeadDetail === 'function') openLeadDetail(leadId);
 }
 
-function _gsOpenFollowup(leadId) {
+async function _gsOpenFollowup(leadId) {
   _closeSearchDrop();
   if (leadId && canNavigate('leads')) {
-    navigate('leads');
-    setTimeout(() => { if (typeof openLeadDetail === 'function') openLeadDetail(leadId); }, 500);
+    await navigate('leads');
+    if (typeof openLeadDetail === 'function') openLeadDetail(leadId);
   } else if (canNavigate('followups')) {
-    navigate('followups');
+    await navigate('followups');
   }
 }
 
-function _gsViewAll(query) {
+async function _gsViewAll(query) {
   const q = String(query || '').trim();
   _closeSearchDrop();
   if (!canNavigate('leads')) { toast('No access to Lead Master.', 'error'); return; }
-  navigate('leads');
-  setTimeout(() => {
-    const s = qs('#lead-search') || qs('input[placeholder*="Search"]');
-    if (s) { s.value = q; s.dispatchEvent(new Event('input')); }
-  }, 500);
+  await navigate('leads');
+  const s = qs('#lead-search') || qs('input[placeholder*="Search"]');
+  if (s) { s.value = q; s.dispatchEvent(new Event('input')); }
 }
 
 function _topbarSearchKey(event) {
