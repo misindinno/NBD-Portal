@@ -1,5 +1,7 @@
 ﻿<script>
+console.log('[ConfigUsers] script block executing');
 async function loadUsersConfig() {
+  console.log('[ConfigUsers] loadUsersConfig() called');
   el('cfg-users').innerHTML = skeletonPage('table');
   const allUsers = await api.getUsers();
   const selectedDepartments = _parseDepartmentList(App.config.settings?.visibleDepartments || []);
@@ -10,7 +12,7 @@ async function loadUsersConfig() {
   const users = selectedDepartments.length
     ? allUsers.filter(u => selectedMap[String(u['Department'] || '').trim().toLowerCase()])
     : allUsers;
-  
+  console.log('[ConfigUsers] API data loaded — users:', allUsers.length, 'filtered:', users.length);
   el('cfg-users').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <p style="color:#666;font-size:13px">Manage user roles and permissions</p>
@@ -30,6 +32,7 @@ async function loadUsersConfig() {
       </tr>`).join('')}</tbody>
     </table></div>`;
   renderIcons(el('cfg-users'));
+  console.log('[ConfigUsers] loadUsersConfig() complete');
 }
 
 function openUserForm(data = {}) {
@@ -179,4 +182,5 @@ function openUserForm(data = {}) {
 }
 
 window.loadConfig = loadConfig;
+console.log('[ConfigUsers] script block complete — loadUsersConfig defined:', typeof loadUsersConfig);
 </script>

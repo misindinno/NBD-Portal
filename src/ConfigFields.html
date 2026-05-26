@@ -1,11 +1,14 @@
 ﻿<script>
+console.log('[ConfigFields] script block executing');
   async function loadFieldConfig() {
+    console.log('[ConfigFields] loadFieldConfig() called');
     el('cfg-fields').innerHTML = skeletonPage('table');
     const [fields, stages, configs] = await Promise.all([
       api.getAllFieldConfigs(''),
       api.getAllStages(),
       api.getAllConfigs()
     ]);
+    console.log('[ConfigFields] API data loaded — fields:', fields.length, 'stages:', stages.length);
     window._cfgFieldContext = { fields, stages, configs };
     el('cfg-fields').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -23,6 +26,7 @@
     renderIcons(el('cfg-fields'));
     renderFieldConfigList();
     el('field-sheet-filter')?.addEventListener('change', renderFieldConfigList);
+    console.log('[ConfigFields] loadFieldConfig() complete');
   }
 
   function renderFieldConfigList() {
@@ -218,4 +222,5 @@
     if (f['Field Type'] === 'File') parts.push(`${escapeHtml(f['Max File MB'] || 10)} MB`);
     return parts.join(', ') || '-';
   }
+console.log('[ConfigFields] script block complete — loadFieldConfig defined:', typeof loadFieldConfig);
 </script>

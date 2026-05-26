@@ -40,10 +40,12 @@ function switchConfigTab(btn, tabId) {
   if (tabId === 'cfg-stages' && (!el('cfg-stages').innerHTML || el('cfg-stages').innerHTML.includes('skeleton'))) loadStagesConfig();
   if (tabId === 'cfg-dropdowns' && (!el('cfg-dropdowns').innerHTML || el('cfg-dropdowns').innerHTML.includes('skeleton'))) loadDropdownsConfig();
   if (tabId === 'cfg-fields' && (!el('cfg-fields').innerHTML || el('cfg-fields').innerHTML.includes('skeleton'))) {
+    console.log('[Config] switchConfigTab cfg-fields — typeof loadFieldConfig:', typeof loadFieldConfig, '| window.loadFieldConfig:', typeof window.loadFieldConfig);
     if (typeof loadFieldConfig === 'function') loadFieldConfig();
     else el('cfg-fields').innerHTML = '<div class="card" style="padding:24px;color:#c00;font-size:13px">⚠ loadFieldConfig is not available — the web app may need to be redeployed after the latest code update.</div>';
   }
   if (tabId === 'cfg-users' && (!el('cfg-users').innerHTML || el('cfg-users').innerHTML.includes('skeleton'))) {
+    console.log('[Config] switchConfigTab cfg-users — typeof loadUsersConfig:', typeof loadUsersConfig, '| window.loadUsersConfig:', typeof window.loadUsersConfig);
     if (typeof loadUsersConfig === 'function') loadUsersConfig();
     else el('cfg-users').innerHTML = '<div class="card" style="padding:24px;color:#c00;font-size:13px">⚠ loadUsersConfig is not available — the web app may need to be redeployed after the latest code update.</div>';
   }
