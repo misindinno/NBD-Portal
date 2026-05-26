@@ -1,0 +1,48 @@
+# deploy.yml
+# Pushes code to all GAS clients on every push to main/master.
+#
+# ONE-TIME SETUP:
+#   1. Run locally: clasp login
+#   2. Copy: cat ~/.clasprc.json
+#   3. GitHub repo -> Settings -> Secrets -> Actions -> New secret
+#        Name:  CLASPRC_JSON
+#        Value: (paste full JSON)
+
+name: Deploy to Google Apps Script
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Authenticate clasp
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: node .github/scripts/clasp-auth.js
+
+      - name: Push code to all clients
+        run: |
+          for client_dir in clients/*/; do
+            client_name=$(basename "$client_dir")
+            echo "==> Pushing: $client_name"
+            cp "${client_dir}ClientConfig.js" src/server/ClientConfig.js
+            cp "${client_dir}.clasp.json"     .clasp.json
+            clasp push --force
+            echo "==> Done: $client_name"
+          done
