@@ -1,5 +1,6 @@
 ﻿<script>
 async function loadDropdownsConfig() {
+  if (!el('cfg-dropdowns')) return;
   el('cfg-dropdowns').innerHTML = skeletonPage('cards');
   const configs = await api.getAllConfigs();
   const types = [...new Set(configs.map(c => c['Config Type']))];

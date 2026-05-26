@@ -50,6 +50,7 @@ function switchConfigTab(btn, tabId) {
 }
 
 async function loadPortalSettings() {
+  if (!el('cfg-settings')) return;
   const departments = App.config.departments || [];
   const selected = _parseDepartmentList(App.config.settings?.visibleDepartments || []);
   el('cfg-settings').innerHTML = `
@@ -262,6 +263,7 @@ function _togglePasswordSection(btn) {
 
 // ── Custom Fields (formerly ConfigFields) ────────────────────────────────────
 async function loadFieldConfig() {
+  if (!el('cfg-fields')) return;
   el('cfg-fields').innerHTML = skeletonPage('table');
   const [fields, stages, configs] = await Promise.all([
     api.getAllFieldConfigs(''),
@@ -477,6 +479,7 @@ function _fieldValidationSummary(f) {
 
 // ── Users (formerly ConfigUsers) ─────────────────────────────────────────────
 async function loadUsersConfig() {
+  if (!el('cfg-users')) return;
   el('cfg-users').innerHTML = skeletonPage('table');
   const allUsers = await api.getUsers();
   const selectedDepartments = _parseDepartmentList(App.config.settings?.visibleDepartments || []);
