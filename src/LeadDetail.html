@@ -246,25 +246,39 @@ async function openLeadDetail(leadId) {
       // else: pushAnyway — fall through to normal push flow
     }
 
-    const assignOptions = nbdUsers.reduce((m, user) => {
-      const label = [user.name, user.department].filter(Boolean).join(' - ');
-      m[user.id] = label || user.id;
-      return m;
-    }, {});
+    const userOptionHTML = nbdUsers.map(u => {
+      const label = [u.name, u.department].filter(Boolean).join(' - ');
+      return `<option value="${escapeHtml(u.id)}">${escapeHtml(label || u.id)}</option>`;
+    }).join('');
 
     const confirmed = await Swal.fire({
-      title: 'Push to NBD?',
-      html: `<div style="font-size:14px;color:#374151;margin-bottom:8px">Push <strong>${escapeHtml(companyName)}</strong> to the NBD portal?<br><span style="font-size:12px;color:#9ca3af;margin-top:6px;display:block">This creates a new NBD lead and an initial follow-up with LQ source remarks.</span></div>`,
-      input: 'select',
-      inputLabel: 'Assign NBD lead to',
-      inputOptions: assignOptions,
-      inputPlaceholder: 'Select NBD user',
-      inputValidator: value => value ? undefined : 'Please select an NBD user.',
-      icon: 'question',
+      title: 'Push to NBD',
+      html: `
+        <div style="font-size:13px;color:#374151;margin-bottom:14px;text-align:left">
+          Push <strong>${escapeHtml(companyName)}</strong> to the NBD portal as a new lead.
+        </div>
+        <div style="text-align:left;margin-bottom:10px">
+          <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px">Assign to *</label>
+          <select id="swal-nbd-user" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px">
+            <option value="">Select NBD user</option>
+            ${userOptionHTML}
+          </select>
+        </div>
+        <div style="text-align:left">
+          <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px">Qualified Remark *</label>
+          <textarea id="swal-nbd-remark" rows="3" placeholder="Enter qualification summary..." style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+        </div>`,
       showCancelButton: true,
       confirmButtonText: 'Yes, Push',
       cancelButtonText: 'Cancel',
       confirmButtonColor: '#6366f1',
+      preConfirm: () => {
+        const user   = document.getElementById('swal-nbd-user')?.value || '';
+        const remark = (document.getElementById('swal-nbd-remark')?.value || '').trim();
+        if (!user)   { Swal.showValidationMessage('Please select an NBD user.'); return false; }
+        if (!remark) { Swal.showValidationMessage('Please enter a qualified remark.'); return false; }
+        return { user, remark };
+      }
     });
     if (!confirmed.isConfirmed) return;
 
@@ -275,7 +289,7 @@ async function openLeadDetail(leadId) {
     QueueManager.enqueue({
       module: 'leads',
       actionType: 'pushLeadToNbd',
-      payload: { leadId, nbdAssignedTo: confirmed.value },
+      payload: { leadId, nbdAssignedTo: confirmed.value.user, qualifiedRemark: confirmed.value.remark },
       onDone: j => {
         _showNbdPushStatus('done');
         const nbdLeadId = j.finalRecordId || '';
