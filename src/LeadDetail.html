@@ -1,4 +1,4 @@
-﻿<script>
+<script>
 async function openLeadDetail(leadId) {
     // Serve from cache; fall back to API if not loaded (e.g. direct deep link).
     let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
