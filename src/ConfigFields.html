@@ -1,13 +1,13 @@
 ﻿<script>
-async function loadFieldConfig() {
-  el('cfg-fields').innerHTML = skeletonPage('table');
-  const [fields, stages, configs] = await Promise.all([
-    api.getAllFieldConfigs(''),
-    api.getAllStages(),
-    api.getAllConfigs()
-  ]);
-  window._cfgFieldContext = { fields, stages, configs };
-  el('cfg-fields').innerHTML = `
+  async function loadFieldConfig() {
+    el('cfg-fields').innerHTML = skeletonPage('table');
+    const [fields, stages, configs] = await Promise.all([
+      api.getAllFieldConfigs(''),
+      api.getAllStages(),
+      api.getAllConfigs()
+    ]);
+    window._cfgFieldContext = { fields, stages, configs };
+    el('cfg-fields').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <div>
         <p style="color:#666;font-size:13px;margin-bottom:8px">Create lead and follow-up fields with validation and file upload support</p>
@@ -20,49 +20,53 @@ async function loadFieldConfig() {
       <button class="btn btn-primary btn-sm" onclick="openFieldForm()">${icon('plus', 14)} Add Field</button>
     </div>
     <div id="field-config-list"></div>`;
-  renderIcons(el('cfg-fields'));
-  renderFieldConfigList();
-  el('field-sheet-filter')?.addEventListener('change', renderFieldConfigList);
-}
+    renderIcons(el('cfg-fields'));
+    renderFieldConfigList();
+    el('field-sheet-filter')?.addEventListener('change', renderFieldConfigList);
+  }
 
-function renderFieldConfigList() {
-  const ctx = window._cfgFieldContext || { fields: [], stages: [] };
-  const sheetFilter = el('field-sheet-filter')?.value || '';
-  const fields = sheetFilter
-    ? (ctx.fields || []).filter(f => (f['Sheet Name'] || 'Leads') === sheetFilter)
-    : (ctx.fields || []);
-  const stageMap = (ctx.stages || []).reduce((m, s) => { m[s['Stage ID']] = s['Stage Name']; return m; }, {});
-  const rows = fields.map(f => {
-    const sheetName = f['Sheet Name'] || 'Leads';
-    const stageLabel = sheetName === 'Leads' ? (stageMap[f['Stage ID']] || 'All stages') : '-';
-    return `<tr>
-      <td><b>${escapeHtml(f['Field Name']||'')}</b><div style="font-size:11px;color:#888">${escapeHtml(f['Column Key']||'')}</div></td>
+  function renderFieldConfigList() {
+    const ctx = window._cfgFieldContext || { fields: [], stages: [] };
+    const sheetFilter = el('field-sheet-filter')?.value || '';
+    const fields = sheetFilter
+      ? (ctx.fields || []).filter(f => (f['Sheet Name'] || 'Leads') === sheetFilter)
+      : (ctx.fields || []);
+    const stageMap = (ctx.stages || []).reduce((m, s) => { m[s['Stage ID']] = s['Stage Name']; return m; }, {});
+    const rows = fields.map(f => {
+      const sheetName = f['Sheet Name'] || 'Leads';
+      const stageLabel = sheetName === 'Leads' ? (stageMap[f['Stage ID']] || 'All stages') : '-';
+      return `<tr>
+      <td><b>${escapeHtml(f['Field Name'] || '')}</b><div style="font-size:11px;color:#888">${escapeHtml(f['Column Key'] || '')}</div></td>
       <td>${escapeHtml(sheetName === 'Followups' ? 'Follow-ups' : sheetName)}</td>
       <td>${escapeHtml(stageLabel)}</td>
-      <td>${escapeHtml(f['Field Type']||'Text')}</td>
-      <td>${f['Is Required']===true||f['Is Required']==='TRUE'?'Yes':'No'}</td>
+      <td>${escapeHtml(f['Field Type'] || 'Text')}</td>
+      <td>${f['Is Required'] === true || f['Is Required'] === 'TRUE' ? 'Yes' : 'No'}</td>
       <td>${_fieldValidationSummary(f)}</td>
-      <td>${f['Is Visible']===false||f['Is Visible']==='FALSE'?'No':'Yes'}</td>
-      <td>${f['Skip Visibility']==='skip_only'?'<span class="badge" style="background:#F3E5F5;color:#6A1B9A">Skip Only</span>':'Normal'}</td>
-      <td><button class="btn btn-sm btn-outlined" onclick='openFieldForm(${JSON.stringify(f).replace(/'/g,"&apos;")})'>Edit</button></td>
+      <td>${f['Is Visible'] === false || f['Is Visible'] === 'FALSE' ? 'No' : 'Yes'}</td>
+      <td>${f['Skip Visibility'] === 'skip_only' ? '<span class="badge" style="background:#F3E5F5;color:#6A1B9A">Skip Only</span>' : 'Normal'}</td>
+      <td><button class="btn btn-sm btn-outlined" onclick="openFieldForm('${escapeHtml(String(f['Field ID']||''))}')">Edit</button></td>
     </tr>`;
-  }).join('');
-  el('field-config-list').innerHTML = `
+    }).join('');
+    el('field-config-list').innerHTML = `
     <div class="table-wrap"><table>
       <thead><tr><th>Field</th><th>Target</th><th>Stage</th><th>Type</th><th>Required</th><th>Validation</th><th>Visible</th><th>Skip</th><th></th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="8" style="color:#888;text-align:center;padding:18px">No custom fields yet.</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="9" style="color:#888;text-align:center;padding:18px">No custom fields yet.</td></tr>'}</tbody>
     </table></div>`;
-  renderIcons(el('field-config-list'));
-}
+    renderIcons(el('field-config-list'));
+  }
 
-function openFieldForm(data = {}) {
-  const ctx = window._cfgFieldContext || { stages: App.config.stages || [], configs: [] };
-  const isEdit = !!data['Field ID'];
-  const filterTarget = el('field-sheet-filter')?.value || '';
-  const targetSheet = data['Sheet Name'] || filterTarget || 'Leads';
-  const configTypes = [...new Set((ctx.configs || []).map(c => c['Config Type']).filter(Boolean))].sort();
-  const fieldTypes = ['Text','Textarea','Number','Date','Date Time','Time','Select','Multi Select','Checkbox','Email','Phone','URL','File','Formula'];
-  const overlay = showModal(`
+  function openFieldForm(data = {}) {
+    if (typeof data === 'string') {
+      const _ctx = window._cfgFieldContext || { fields: [] };
+      data = (_ctx.fields || []).find(f => f['Field ID'] === data) || {};
+    }
+    const ctx = window._cfgFieldContext || { stages: App.config.stages || [], configs: [] };
+    const isEdit = !!data['Field ID'];
+    const filterTarget = el('field-sheet-filter')?.value || '';
+    const targetSheet = data['Sheet Name'] || filterTarget || 'Leads';
+    const configTypes = [...new Set((ctx.configs || []).map(c => c['Config Type']).filter(Boolean))].sort();
+    const fieldTypes = ['Text', 'Textarea', 'Number', 'Date', 'Date Time', 'Time', 'Select', 'Multi Select', 'Checkbox', 'Email', 'Phone', 'URL', 'File', 'Formula'];
+    const overlay = showModal(`
     <div class="modal-header">
       <h2>${isEdit ? 'Edit' : 'Add'} Custom Field</h2>
       <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&#x2715;</button>
@@ -70,70 +74,70 @@ function openFieldForm(data = {}) {
     <form id="field-form">
       <div class="form-row">
         <div class="form-group"><label>Field Name *</label>
-          <input class="form-control" name="Field Name" value="${escapeHtml(data['Field Name']||'')}" required></div>
+          <input class="form-control" name="Field Name" value="${escapeHtml(data['Field Name'] || '')}" required></div>
         <div class="form-group"><label>Column Key</label>
-          <input class="form-control" name="Column Key" value="${escapeHtml(data['Column Key']||'')}" placeholder="Auto if blank" ${isEdit ? 'readonly' : ''}>
+          <input class="form-control" name="Column Key" value="${escapeHtml(data['Column Key'] || '')}" placeholder="Auto if blank" ${isEdit ? 'readonly' : ''}>
           <div style="font-size:11px;color:#777;margin-top:3px">Stored as the target sheet column.</div></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Target *</label>
           <select class="form-control" name="Sheet Name" required ${isEdit ? 'disabled' : ''} onchange="_toggleFieldTargetOptions(this.closest('form'))">
-            <option value="Leads" ${targetSheet==='Leads'?'selected':''}>Leads</option>
-            <option value="Followups" ${targetSheet==='Followups'?'selected':''}>Follow-ups</option>
+            <option value="Leads" ${targetSheet === 'Leads' ? 'selected' : ''}>Leads</option>
+            <option value="Followups" ${targetSheet === 'Followups' ? 'selected' : ''}>Follow-ups</option>
           </select></div>
         <div class="form-group"><label>Field Type *</label>
           <select class="form-control" name="Field Type" id="field-type" required onchange="_toggleFieldTypeOptions(this.closest('form'))">
-            ${fieldTypes.map(t => `<option ${data['Field Type']===t?'selected':''}>${t}</option>`).join('')}
+            ${fieldTypes.map(t => `<option ${data['Field Type'] === t ? 'selected' : ''}>${t}</option>`).join('')}
           </select></div>
       </div>
       <div class="form-row">
         <div class="form-group field-option-stage"><label>Lead Stage</label>
           <select class="form-control" name="Stage ID">
             <option value="">All stages</option>
-            ${(ctx.stages || []).map(s => `<option value="${escapeHtml(s['Stage ID'])}" ${data['Stage ID']===s['Stage ID']?'selected':''}>${escapeHtml(s['Stage Name'])}</option>`).join('')}
+            ${(ctx.stages || []).map(s => `<option value="${escapeHtml(s['Stage ID'])}" ${data['Stage ID'] === s['Stage ID'] ? 'selected' : ''}>${escapeHtml(s['Stage Name'])}</option>`).join('')}
           </select></div>
         <div class="form-group field-option-select"><label>Dropdown Source</label>
-          <input class="form-control" name="Dropdown Source" list="field-config-types" value="${escapeHtml(data['Dropdown Source']||'')}" placeholder="Config type or comma values">
+          <input class="form-control" name="Dropdown Source" list="field-config-types" value="${escapeHtml(data['Dropdown Source'] || '')}" placeholder="Config type or comma values">
           <datalist id="field-config-types">${configTypes.map(t => `<option value="${escapeHtml(t)}"></option>`).join('')}</datalist></div>
       </div>
       <div class="form-group"><label>Display Order</label>
-        <input class="form-control" name="Display Order" type="number" value="${escapeHtml(data['Display Order']||100)}"></div>
+        <input class="form-control" name="Display Order" type="number" value="${escapeHtml(data['Display Order'] || 100)}"></div>
       <div class="form-row">
         <div class="form-group"><label>Validation Min</label>
-          <input class="form-control" name="Validation Min" value="${escapeHtml(data['Validation Min']||'')}" placeholder="Number/date min"></div>
+          <input class="form-control" name="Validation Min" value="${escapeHtml(data['Validation Min'] || '')}" placeholder="Number/date min"></div>
         <div class="form-group"><label>Validation Max</label>
-          <input class="form-control" name="Validation Max" value="${escapeHtml(data['Validation Max']||'')}" placeholder="Number/date max"></div>
+          <input class="form-control" name="Validation Max" value="${escapeHtml(data['Validation Max'] || '')}" placeholder="Number/date max"></div>
       </div>
       <div class="form-group"><label>Validation Regex</label>
-        <input class="form-control" name="Validation Regex" value="${escapeHtml(data['Validation Regex']||'')}" placeholder="Optional pattern"></div>
+        <input class="form-control" name="Validation Regex" value="${escapeHtml(data['Validation Regex'] || '')}" placeholder="Optional pattern"></div>
       <div class="form-group field-option-formula"><label>Formula Logic</label>
-        <input class="form-control" name="Formula Logic" value="${escapeHtml(data['Formula Logic']||'')}" placeholder="SUM({{Quantity}}, 100)"></div>
+        <input class="form-control" name="Formula Logic" value="${escapeHtml(data['Formula Logic'] || '')}" placeholder="SUM({{Quantity}}, 100)"></div>
       <div class="form-group"><label>Validation Message</label>
-        <input class="form-control" name="Validation Message" value="${escapeHtml(data['Validation Message']||'')}" placeholder="Shown when validation fails"></div>
+        <input class="form-control" name="Validation Message" value="${escapeHtml(data['Validation Message'] || '')}" placeholder="Shown when validation fails"></div>
       <div class="form-row field-option-file">
         <div class="form-group"><label>Allowed File Types</label>
-          <input class="form-control" name="File Types" value="${escapeHtml(data['File Types']||'')}" placeholder="application/pdf,image/*"></div>
+          <input class="form-control" name="File Types" value="${escapeHtml(data['File Types'] || '')}" placeholder="application/pdf,image/*"></div>
         <div class="form-group"><label>Max File MB</label>
-          <input class="form-control" name="Max File MB" type="number" value="${escapeHtml(data['Max File MB']||10)}"></div>
+          <input class="form-control" name="Max File MB" type="number" value="${escapeHtml(data['Max File MB'] || 10)}"></div>
       </div>
       <div class="form-group field-option-file">
-        <label><input type="checkbox" name="Allow Multiple" ${data['Allow Multiple']===true||data['Allow Multiple']==='TRUE'?'checked':''}> Allow Multiple Files</label>
+        <label><input type="checkbox" name="Allow Multiple" ${data['Allow Multiple'] === true || data['Allow Multiple'] === 'TRUE' ? 'checked' : ''}> Allow Multiple Files</label>
         <div style="font-size:11px;color:#777;margin-top:3px">Users can upload and store several files for this field at once.</div>
       </div>
       <div class="form-group"><label>Help Text</label>
-        <input class="form-control" name="Help Text" value="${escapeHtml(data['Help Text']||'')}" placeholder="Optional hint below field"></div>
+        <input class="form-control" name="Help Text" value="${escapeHtml(data['Help Text'] || '')}" placeholder="Optional hint below field"></div>
       <div class="form-row">
-        <div class="form-group"><label><input type="checkbox" name="Is Required" ${data['Is Required']===true||data['Is Required']==='TRUE'?'checked':''}> Required</label></div>
-        <div class="form-group"><label><input type="checkbox" name="Is Visible" ${data['Is Visible']!==false&&data['Is Visible']!=='FALSE'?'checked':''}> Visible</label></div>
+        <div class="form-group"><label><input type="checkbox" name="Is Required" ${data['Is Required'] === true || data['Is Required'] === 'TRUE' ? 'checked' : ''}> Required</label></div>
+        <div class="form-group"><label><input type="checkbox" name="Is Visible" ${_sheetTruthy(data['Is Visible'], true) ? 'checked' : ''}> Visible</label></div>
       </div>
       <div class="form-group field-option-stage" id="fc-per-stage-row" style="${data['Stage ID'] ? 'display:none' : ''}">
-        <label><input type="checkbox" name="Per Stage" ${data['Per Stage']===true||data['Per Stage']==='TRUE'?'checked':''}> Per Stage — store separate data for each stage</label>
+        <label><input type="checkbox" name="Per Stage" ${data['Per Stage'] === true || data['Per Stage'] === 'TRUE' ? 'checked' : ''}> Per Stage — store separate data for each stage</label>
         <div style="font-size:11px;color:#777;margin-top:3px">When enabled, this field saves independently for each stage the lead passes through.</div>
       </div>
       <div class="form-group field-option-stage field-skip-vis-row"><label>Skip Visibility</label>
         <select class="form-control" name="Skip Visibility">
-          <option value="normal" ${(data['Skip Visibility']||'normal')==='normal'?'selected':''}>Normal — always shown</option>
-          <option value="skip_only" ${data['Skip Visibility']==='skip_only'?'selected':''}>Skip Only — shown when user skips</option>
+          <option value="normal" ${(data['Skip Visibility'] || 'normal') === 'normal' ? 'selected' : ''}>Normal — always shown</option>
+          <option value="skip_only" ${data['Skip Visibility'] === 'skip_only' ? 'selected' : ''}>Skip Only — shown when user skips</option>
         </select>
         <div style="font-size:11px;color:#777;margin-top:3px">Only applies to Leads stage fields when the stage has Allow Skip enabled.</div>
       </div>
@@ -143,75 +147,75 @@ function openFieldForm(data = {}) {
       </div>
     </form>`);
 
-  const _ffForm = overlay.querySelector('#field-form');
-  _toggleFieldTargetOptions(_ffForm);
-  _ffForm.querySelector('[name="Stage ID"]')?.addEventListener('change', () => _toggleFieldTargetOptions(_ffForm));
-  _ffForm.querySelector('[name="Sheet Name"]')?.addEventListener('change', () => _toggleFieldTargetOptions(_ffForm));
-  _ffForm.addEventListener('submit', async e => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const payload = Object.fromEntries(fd.entries());
-    payload['Sheet Name'] = data['Sheet Name'] || fd.get('Sheet Name') || 'Leads';
-    if (payload['Sheet Name'] === 'Followups') payload['Stage ID'] = '';
-    payload['Is Required'] = fd.has('Is Required');
-    payload['Is Visible'] = fd.has('Is Visible');
-    payload['Per Stage'] = fd.has('Per Stage');
-    payload['Allow Multiple'] = fd.has('Allow Multiple');
-    payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
-    if (isEdit) payload['Field ID'] = data['Field ID'];
-    const btn = e.target.querySelector('[type=submit]');
-    setButtonLoading(btn);
-    overlay.remove();
-    QueueManager.enqueue({
-      module: 'fields', actionType: 'saveFieldConfig',
-      payload,
-      onDone: () => {
-        toast('Custom field saved!');
-        _refreshAppConfig().catch(() => {});
-        if (App.currentPage === 'config') loadFieldConfig();
-      },
-      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+    const _ffForm = overlay.querySelector('#field-form');
+    _toggleFieldTargetOptions(_ffForm, true);
+    _ffForm.querySelector('[name="Stage ID"]')?.addEventListener('change', () => _toggleFieldTargetOptions(_ffForm));
+    _ffForm.querySelector('[name="Sheet Name"]')?.addEventListener('change', () => _toggleFieldTargetOptions(_ffForm));
+    _ffForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = Object.fromEntries(fd.entries());
+      payload['Sheet Name'] = data['Sheet Name'] || fd.get('Sheet Name') || 'Leads';
+      if (payload['Sheet Name'] === 'Followups') payload['Stage ID'] = '';
+      payload['Is Required'] = fd.has('Is Required');
+      payload['Is Visible'] = fd.has('Is Visible');
+      payload['Per Stage'] = fd.has('Per Stage');
+      payload['Allow Multiple'] = fd.has('Allow Multiple');
+      payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
+      if (isEdit) payload['Field ID'] = data['Field ID'];
+      const btn = e.target.querySelector('[type=submit]');
+      setButtonLoading(btn);
+      overlay.remove();
+      QueueManager.enqueue({
+        module: 'fields', actionType: 'saveFieldConfig',
+        payload,
+        onDone: () => {
+          toast('Custom field saved!');
+          _refreshAppConfig().catch(() => { });
+          if (App.currentPage === 'config') loadFieldConfig();
+        },
+        onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+      });
+      toast('Saving field…', 'info');
     });
-    toast('Saving field…', 'info');
-  });
-}
-
-function _toggleFieldTargetOptions(form) {
-  const sheetName = form?.querySelector('[name="Sheet Name"]')?.value || 'Leads';
-  const isLead = sheetName === 'Leads';
-  form?.querySelectorAll('.field-option-stage').forEach(row => row.style.display = isLead ? '' : 'none');
-  if (!isLead) {
-    const stage = form?.querySelector('[name="Stage ID"]');
-    if (stage) stage.value = '';
   }
-  // Per Stage only makes sense for All-stages fields
-  const stageVal = form?.querySelector('[name="Stage ID"]')?.value || '';
-  const perStageRow = form?.querySelector('#fc-per-stage-row');
-  if (perStageRow) perStageRow.style.display = isLead && !stageVal ? '' : 'none';
-  _toggleFieldTypeOptions(form);
-}
 
-function _toggleFieldTypeOptions(form) {
-  const type = form?.querySelector('[name="Field Type"]')?.value;
-  const isSelect = ['Select', 'Multi Select'].includes(type);
-  const isFile = type === 'File';
-  const isFormula = type === 'Formula';
-  form?.querySelectorAll('.field-option-select').forEach(el => el.style.display = isSelect ? '' : 'none');
-  form?.querySelectorAll('.field-option-file').forEach(el => el.style.display = isFile ? '' : 'none');
-  form?.querySelectorAll('.field-option-formula').forEach(el => el.style.display = isFormula ? '' : 'none');
-  // Fix #19: clear stale values when switching away from their respective types
-  if (!isSelect) { const ds = form?.querySelector('[name="Dropdown Source"]'); if (ds) ds.value = ''; }
-  if (!isFile)   { const mf = form?.querySelector('[name="Max File MB"]');    if (mf) mf.value = ''; }
-  if (!isFile)   { const ft = form?.querySelector('[name="File Types"]');     if (ft) ft.value = ''; }
-  if (!isFormula){ const fl = form?.querySelector('[name="Formula Logic"]');  if (fl) fl.value = ''; }
-}
+  function _toggleFieldTargetOptions(form, preserveValues = false) {
+    const sheetName = form?.querySelector('[name="Sheet Name"]')?.value || 'Leads';
+    const isLead = sheetName === 'Leads';
+    form?.querySelectorAll('.field-option-stage').forEach(row => row.style.display = isLead ? '' : 'none');
+    if (!isLead && !preserveValues) {
+      const stage = form?.querySelector('[name="Stage ID"]');
+      if (stage) stage.value = '';
+    }
+    const stageVal = form?.querySelector('[name="Stage ID"]')?.value || '';
+    const perStageRow = form?.querySelector('#fc-per-stage-row');
+    if (perStageRow) perStageRow.style.display = isLead && !stageVal ? '' : 'none';
+    _toggleFieldTypeOptions(form, preserveValues);
+  }
 
-function _fieldValidationSummary(f) {
-  const parts = [];
-  if (f['Validation Min'] !== '') parts.push(`Min ${escapeHtml(f['Validation Min'])}`);
-  if (f['Validation Max'] !== '') parts.push(`Max ${escapeHtml(f['Validation Max'])}`);
-  if (f['Validation Regex']) parts.push('Regex');
-  if (f['Field Type'] === 'File') parts.push(`${escapeHtml(f['Max File MB']||10)} MB`);
-  return parts.join(', ') || '-';
-}
+  function _toggleFieldTypeOptions(form, preserveValues = false) {
+    const type = form?.querySelector('[name="Field Type"]')?.value;
+    const isSelect = ['Select', 'Multi Select'].includes(type);
+    const isFile = type === 'File';
+    const isFormula = type === 'Formula';
+    form?.querySelectorAll('.field-option-select').forEach(el => el.style.display = isSelect ? '' : 'none');
+    form?.querySelectorAll('.field-option-file').forEach(el => el.style.display = isFile ? '' : 'none');
+    form?.querySelectorAll('.field-option-formula').forEach(el => el.style.display = isFormula ? '' : 'none');
+    if (!preserveValues) {
+      if (!isSelect) { const ds = form?.querySelector('[name="Dropdown Source"]'); if (ds) ds.value = ''; }
+      if (!isFile) { const mf = form?.querySelector('[name="Max File MB"]'); if (mf) mf.value = ''; }
+      if (!isFile) { const ft = form?.querySelector('[name="File Types"]'); if (ft) ft.value = ''; }
+      if (!isFormula) { const fl = form?.querySelector('[name="Formula Logic"]'); if (fl) fl.value = ''; }
+    }
+  }
+
+  function _fieldValidationSummary(f) {
+    const parts = [];
+    if (f['Validation Min']) parts.push(`Min ${escapeHtml(f['Validation Min'])}`);
+    if (f['Validation Max']) parts.push(`Max ${escapeHtml(f['Validation Max'])}`);
+    if (f['Validation Regex']) parts.push('Regex');
+    if (f['Field Type'] === 'File') parts.push(`${escapeHtml(f['Max File MB'] || 10)} MB`);
+    return parts.join(', ') || '-';
+  }
 </script>
