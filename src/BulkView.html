@@ -26,6 +26,7 @@ const BulkView = (() => {
         .bulk-cell-status { font-weight:700 !important; }
         .bulk-cell-status-saved { background:#dcfce7 !important; color:#166534 !important; }
         .bulk-cell-status-saving { background:#dbeafe !important; color:#1d4ed8 !important; }
+        .bulk-cell-status-queued { background:#f3f4f6 !important; color:#4b5563 !important; }
         .bulk-cell-status-error { background:#fee2e2 !important; color:#991b1b !important; }
       </style>
       <div class="bulk-toolbar">
@@ -144,7 +145,8 @@ const BulkView = (() => {
           const status = String(rowData.__status__ || '').toLowerCase();
           if (status === 'saved') return { className: 'bulk-cell-status bulk-cell-status-saved' };
           if (status === 'follow-up created') return { className: 'bulk-cell-status bulk-cell-status-saved' };
-          if (status === 'saving') return { className: 'bulk-cell-status bulk-cell-status-saving' };
+          if (status === 'saving' || status === 'processing') return { className: 'bulk-cell-status bulk-cell-status-saving' };
+          if (status === 'queued') return { className: 'bulk-cell-status bulk-cell-status-queued' };
           if (status === 'error') return { className: 'bulk-cell-status bulk-cell-status-error' };
           return { className: 'bulk-cell-status' };
         }
@@ -274,43 +276,113 @@ const BulkView = (() => {
       const validation = await api.validateBulkRows(_rows());
       _markErrors(validation.errorRows || []);
       const invalidRows = new Set((validation.errorRows || []).map(r => Number(r.rowNumber)));
-      let saved = 0;
-      let failed = invalidRows.size;
+
+      if (invalidRows.size === gridRows.length) {
+        _setProgress(0, 'All rows have errors — fix before saving');
+        Swal.fire('Validation failed', `All ${gridRows.length} row(s) have errors.`, 'error');
+        return;
+      }
+
+      const initialStageId = _getBulkInitialStageId();
+      const jobMap = {}; // requestId → rowNumber
+      errors = [];
       lastBatchId = Date.now().toString();
+      let validIdx = 0;
 
       for (let i = 0; i < gridRows.length; i++) {
         const item = gridRows[i];
         if (invalidRows.has(item.rowNumber)) continue;
-        _setRowMeta(item.rowNumber, { __status__: 'Saving', __errors__: '', __recordId__: '' });
-        _setProgress(Math.round((i / gridRows.length) * 100), `Saving row ${item.rowNumber}...`);
-        const result = await api.saveBulkRow(item.data, item.rowNumber);
-        if (result.saved) {
-          saved++;
-          _setRowMeta(item.rowNumber, { __status__: 'Saved', __recordId__: result.recordId || '', __errors__: '' });
-        } else {
-          failed++;
-          _setRowMeta(item.rowNumber, { __status__: 'Error', __errors__: result.errors || 'Save failed' });
-          errors.push({
-            rowNumber: item.rowNumber,
-            errors: result.errors || 'Save failed',
-            fieldErrors: result.fieldErrors || [],
-            ...item.data
-          });
+        const normalizedRow = (validation.validRows || [])[validIdx++];
+        if (!normalizedRow) continue;
+
+        const payload = { ...normalizedRow };
+        if (!payload['Stage ID']) payload['Stage ID'] = initialStageId;
+
+        const requestId = 'blk-' + lastBatchId + '-r' + item.rowNumber;
+        _setRowMeta(item.rowNumber, { __status__: 'Queued', __errors__: '', __recordId__: '' });
+        _setProgress(Math.round((i / gridRows.length) * 60) + 5, `Queueing row ${item.rowNumber}...`);
+
+        try {
+          await api.enqueueJob('leads', 'saveLead', payload, requestId);
+          jobMap[requestId] = item.rowNumber;
+        } catch (e) {
+          _setRowMeta(item.rowNumber, { __status__: 'Error', __errors__: e.message || 'Queue failed' });
+          errors.push({ rowNumber: item.rowNumber, errors: e.message || 'Queue failed', fieldErrors: [], ...item.data });
         }
       }
 
+      const totalQueued = Object.keys(jobMap).length;
+      _setProgress(65, `${totalQueued} job(s) queued — waiting for processing...`);
+      _renderSummary({ total: gridRows.length, valid: 0, errors: invalidRows.size + (gridRows.length - invalidRows.size - totalQueued) });
+
+      if (totalQueued > 0) {
+        await _pollBulkJobs(jobMap);
+        await _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
+      }
+
+      const saved = Object.entries(jobMap).filter(([, rn]) => {
+        const row = hot?.getSourceDataAtRow(rn - 1);
+        return row && String(row.__status__ || '').toLowerCase() === 'saved';
+      }).length;
+      const failed = gridRows.length - saved;
+
       _renderSummary({ total: gridRows.length, valid: saved, errors: failed });
       _markErrors(errors);
-      _setProgress(100, failed ? 'Saved with row errors' : 'Saved');
-      if (saved) await _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
-      Swal.fire(failed ? 'Saved with errors' : 'Bulk save complete',
-        `${saved} row(s) saved. ${failed} row(s) failed.`,
+      _setProgress(100, failed ? `Done — ${failed} row(s) failed` : 'All leads saved');
+      Swal.fire(failed ? 'Completed with errors' : 'Bulk save complete',
+        `${saved} lead(s) saved. ${failed} failed.`,
         failed ? 'warning' : 'success');
     } catch (err) {
       _setProgress(0, 'Save failed');
       Swal.fire('Save failed', err.message || String(err), 'error');
     } finally {
       _setBusy(false);
+    }
+  }
+
+  function _getBulkInitialStageId() {
+    const stages = (App.config.stages || [])
+      .filter(s => s['Is Active'] !== false && s['Is Active'] !== 'FALSE')
+      .sort((a, b) => Number(a['Stage Order'] || 0) - Number(b['Stage Order'] || 0));
+    const initial = stages.find(s => s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE') || stages[0];
+    return initial ? (initial['Stage ID'] || '') : '';
+  }
+
+  async function _pollBulkJobs(jobMap) {
+    const allIds = Object.keys(jobMap);
+    const pending = new Set(allIds);
+    const maxWaitMs = 5 * 60 * 1000; // 5-minute ceiling
+
+    while (pending.size > 0 && Date.now() - (_pollBulkJobs._start || (_pollBulkJobs._start = Date.now())) < maxWaitMs) {
+      await new Promise(r => setTimeout(r, 4000));
+      try {
+        const statuses = await api.getJobStatuses([...pending]);
+        for (const [rid, info] of Object.entries(statuses || {})) {
+          const rowNumber = jobMap[rid];
+          if (!rowNumber) continue;
+          const st = String(info.status || '');
+          if (st === 'DONE') {
+            _setRowMeta(rowNumber, { __status__: 'Saved', __recordId__: info.finalRecordId || '', __errors__: '' });
+            pending.delete(rid);
+          } else if (st === 'DEAD') {
+            const errMsg = info.error || 'Job failed permanently';
+            _setRowMeta(rowNumber, { __status__: 'Error', __errors__: errMsg });
+            errors.push({ rowNumber, errors: errMsg, fieldErrors: [] });
+            pending.delete(rid);
+          } else if (st === 'PROCESSING' || st === 'FAILED') {
+            _setRowMeta(rowNumber, { __status__: 'Processing', __errors__: '' });
+          }
+        }
+        const done = allIds.length - pending.size;
+        _setProgress(65 + Math.round(done / allIds.length * 34), `${done}/${allIds.length} processed...`);
+      } catch (e) {
+        console.warn('[BulkView] Poll error:', e);
+      }
+    }
+    _pollBulkJobs._start = null;
+    // Anything still pending — leave as Queued, worker will pick it up
+    for (const rid of pending) {
+      _setRowMeta(jobMap[rid], { __status__: 'Queued', __errors__: 'Still processing — refresh to check' });
     }
   }
 
