@@ -100,5 +100,14 @@ jobs:
             cp "${client_dir}ClientConfig.js" src/server/ClientConfig.js
             cp "${client_dir}.clasp.json"     .clasp.json
             clasp push --force
+            deployment_id=$(node -e "console.log(require('./${client_dir}client.json').deploymentId || '')")
+            description=$(node -e "console.log(require('./${client_dir}client.json').description || 'Deploy from GitHub Actions')")
+            if [ -n "$deployment_id" ]; then
+              echo "==> Deploying existing web app deployment: $deployment_id"
+              clasp deploy --deploymentId "$deployment_id" --description "$description"
+            else
+              echo "==> Creating new web app deployment"
+              clasp deploy --description "$description"
+            fi
             echo "==> Done: $client_name"
           done
