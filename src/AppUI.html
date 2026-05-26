@@ -126,10 +126,6 @@ function renderSidebar() {
 
   nav.innerHTML = html;
 
-  // Hide topbar search for NBD portal — leads come in only via Lead Form
-  const searchWrap = qs('.tb-search-wrap');
-  if (searchWrap) searchWrap.style.display = _isNBDPortal() ? 'none' : '';
-
   const displayName = u.title || u.name || u.email || '';
   const role        = { ADMIN: 'Administrator', MANAGER: 'Manager', SALES: 'Sales', USER: 'User' }[u.role] || u.role || '';
   const initials    = displayName.trim().split(/\s+/).map(w => w[0]||'').join('').slice(0,2).toUpperCase() || '?';
