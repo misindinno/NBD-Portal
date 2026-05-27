@@ -256,7 +256,7 @@
           formatter: function (cell) {
             const d = cell.getRow().getData();
             const co = '<div class="lead-co-name" title="' + escapeHtml(d['Company Name'] || '') + '">' + escapeHtml(d['Company Name'] || '—') + '</div>';
-            const ct = d['Contact Person'] ? '<div class="lead-co-contact">' + iconSvg('user', 11) + ' ' + escapeHtml(d['Contact Person']) + '</div>' : '';
+            const ct = d['Contact Person'] ? '<div class="lead-co-contact">' + escapeHtml(d['Contact Person']) + '</div>' : '';
             return co + ct;
           }
         },
@@ -264,25 +264,23 @@
           title: 'Description', field: 'Client Description', sorter: 'string', minWidth: 200,
           formatter: function (cell) {
             const v = cell.getValue() || '';
-            if (!v) return '<span class="muted-text">—</span>';
+            if (!v) return '';
             return '<div class="lead-desc" title="' + escapeHtml(v) + '">' + escapeHtml(v) + '</div>';
           }
         },
         {
-          title: 'Phone', field: 'Phone', minWidth: 130,
+          title: 'Phone', field: 'Phone', minWidth: 120,
           formatter: function (cell) {
             const v = cell.getValue();
-            return v
-              ? '<span class="lead-phone">' + iconSvg('phone', 12) + ' ' + escapeHtml(v) + '</span>'
-              : '<span class="muted-text">—</span>';
+            return v ? '<span class="lead-phone">' + escapeHtml(v) + '</span>' : '';
           }
         },
         {
           title: 'Location', field: 'City', minWidth: 130,
           formatter: function (cell) {
             const d = cell.getRow().getData();
-            if (!d['City'] && !d['State']) return '<span class="muted-text">—</span>';
-            const city = d['City'] ? '<div class="lead-city">' + iconSvg('map-pin', 11) + ' ' + escapeHtml(d['City']) + '</div>' : '';
+            if (!d['City'] && !d['State']) return '';
+            const city = d['City'] ? '<div class="lead-city">' + escapeHtml(d['City']) + '</div>' : '';
             const state = d['State'] ? '<div class="lead-state">' + escapeHtml(d['State']) + '</div>' : '';
             return city + state;
           }

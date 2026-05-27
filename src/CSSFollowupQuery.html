@@ -551,48 +551,40 @@
 
   /* ── Lead Master — modern table cells ───────────────────────────────────── */
   .lead-co-name {
-    font-weight: 800; color: #0F172A; font-size: 12.5px;
+    font-weight: 700; color: #0F172A; font-size: 13px; line-height: 1.3;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px;
   }
   .lead-co-contact {
-    font-size: 11px; color: #64748B; margin-top: 2px;
-    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11.5px; color: #64748B; margin-top: 1px; font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px;
   }
-  .lead-co-contact svg { opacity: .7; }
   .lead-desc {
-    font-size: 12px; color: #374151; line-height: 1.4; max-width: 280px;
+    font-size: 12px; color: #4B5563; line-height: 1.4; max-width: 320px;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-    padding: 3px 8px; border-left: 2px solid #E5E7EB; background: #FAFBFC; border-radius: 0 5px 5px 0;
     cursor: help;
   }
-  .tabulator-row:hover .lead-desc { border-left-color: #6366F1; background: #F5F7FF; }
-  .lead-phone {
-    display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #1E293B; font-weight: 600;
-  }
-  .lead-phone svg { color: #6366F1; }
-  .lead-city {
-    display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #1E293B; font-weight: 600;
-  }
-  .lead-city svg { color: #EF4444; opacity: .8; }
-  .lead-state { font-size: 11px; color: #64748B; margin-top: 1px; }
+  .lead-phone { font-size: 12.5px; color: #1E293B; font-weight: 600; letter-spacing: .01em; }
+  .lead-city  { font-size: 12.5px; color: #1E293B; font-weight: 600; }
+  .lead-state { font-size: 11px; color: #94A3B8; margin-top: 1px; font-weight: 500; }
   .lead-stage-chip {
-    display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
-    font-size: 11px; font-weight: 700; border: 1px solid transparent;
-    max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; border: 1px solid transparent;
+    max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .lead-stage-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 2px rgba(255,255,255,.6); }
+  .lead-stage-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .lead-stage-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lead-pri-pill {
-    display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px;
-    font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+    display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
     border: 1px solid transparent;
   }
-  .lead-pri-hot  { background: linear-gradient(135deg, #FEE2E2, #FCA5A5); color: #B91C1C; border-color: rgba(185,28,28,.18); }
-  .lead-pri-warm { background: linear-gradient(135deg, #FEF3C7, #FCD34D); color: #92400E; border-color: rgba(146,64,14,.18); }
-  .lead-pri-cold { background: linear-gradient(135deg, #DBEAFE, #93C5FD); color: #1D4ED8; border-color: rgba(29,78,216,.18); }
+  .lead-pri-pill svg { width: 11px; height: 11px; }
+  .lead-pri-hot  { background: #FEE2E2; color: #B91C1C; border-color: rgba(185,28,28,.15); }
+  .lead-pri-warm { background: #FEF3C7; color: #92400E; border-color: rgba(146,64,14,.15); }
+  .lead-pri-cold { background: #DBEAFE; color: #1D4ED8; border-color: rgba(29,78,216,.15); }
   .lead-pri-other{ background: #F3F4F6; color: #475569; }
-  .lead-row-nbd .tabulator-cell { background: linear-gradient(90deg, rgba(167,139,250,.10), transparent 80%) !important; }
-  .lead-row-final .tabulator-cell { background: linear-gradient(90deg, rgba(100,116,139,.08), transparent 80%) !important; }
+  .lead-row-nbd .tabulator-cell { background: linear-gradient(90deg, rgba(167,139,250,.08), transparent 70%) !important; }
+  .lead-row-final .tabulator-cell { background: linear-gradient(90deg, rgba(100,116,139,.06), transparent 70%) !important; }
 
   /* ── Lead Master — Tabulator inside worklist card ───────────────────────── */
   #leads-worklist #lead-table { border: none; background: transparent; font-size: 12.5px; }
@@ -610,15 +602,24 @@
     font-size: 10px !important; font-weight: 850 !important;
     color: #475569 !important; text-transform: uppercase; letter-spacing: .04em;
   }
+  /* Hide bulky sort arrows by default; reveal only on hover or active sort */
+  #leads-worklist .tabulator-col .tabulator-col-sorter { opacity: 0; transition: opacity .15s; }
+  #leads-worklist .tabulator-col:hover .tabulator-col-sorter,
+  #leads-worklist .tabulator-col.tabulator-sortable[aria-sort="ascending"] .tabulator-col-sorter,
+  #leads-worklist .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-sorter { opacity: .8; }
+  #leads-worklist .tabulator-col.tabulator-sortable:hover { background: rgba(99,102,241,.04) !important; cursor: pointer; }
   #leads-worklist .tabulator-row {
     cursor: pointer; border-bottom: 1px solid #F1F5F9; background: #fff;
     transition: background .12s;
   }
+  #leads-worklist .tabulator-row.tabulator-row-even { background: #FAFBFD; }
   #leads-worklist .tabulator-cell {
-    border-right: none !important; padding: 8px 12px !important;
+    border-right: none !important; padding: 10px 12px !important;
     vertical-align: middle; font-size: 12.5px; color: #1E293B;
   }
-  #leads-worklist .tabulator-row:hover .tabulator-cell { background: #F5F7FB !important; box-shadow: inset 0 0 0 9999px rgba(99,102,241,.03); }
+  #leads-worklist .tabulator-row:hover .tabulator-cell { background: #EEF2FF !important; }
+  #leads-worklist .tabulator-row .tabulator-cell:first-child { box-shadow: inset 3px 0 0 transparent; transition: box-shadow .12s; }
+  #leads-worklist .tabulator-row:hover .tabulator-cell:first-child { box-shadow: inset 3px 0 0 #6366F1; }
   #leads-worklist .tabulator-footer {
     background: #FAFBFC; border-top: 1px solid #E5E7EB; padding: 6px 12px;
   }
