@@ -227,7 +227,9 @@
     const rowHeights = { comfortable: 52, compact: 42, ultra: 34 };
     document.documentElement.style.setProperty('--lead-row-h', rowHeights[_leadDensity] + 'px');
 
-    const priColors = { hot: 'background:#fee2e2;color:#dc2626', warm: 'background:#fff7ed;color:#ea580c', cold: 'background:#eff6ff;color:#2563eb' };
+    const priClass = { hot: 'lead-pri-hot', warm: 'lead-pri-warm', cold: 'lead-pri-cold' };
+    const priIcon  = { hot: 'flame', warm: 'thermometer', cold: 'snowflake' };
+    const iconSvg  = (name, size) => icon(name, size);
 
     const rowH = { comfortable: 52, compact: 42, ultra: 34 }[_leadDensity] || 42;
     if (leadTable) { try { leadTable.destroy(); } catch(e) {} leadTable = null; }
@@ -238,66 +240,83 @@
       paginationSize: 25,
       rowHeight: rowH,
       placeholder: '<div style="padding:48px;text-align:center;color:#9ca3af;font-size:13px">No leads found</div>',
-      rowFormatter: function (row) { row.getElement().title = ''; },
+      rowFormatter: function (row) {
+        const d = row.getData();
+        const el = row.getElement();
+        el.title = '';
+        const isNbd = !!(d['NBD Lead ID'] || d['Pushed To NBD At']);
+        const stg = stageMap[d['Stage ID']] || {};
+        const isFinal = stg['Is Final Stage'] === true || stg['Is Final Stage'] === 'TRUE';
+        el.classList.toggle('lead-row-nbd', isNbd);
+        el.classList.toggle('lead-row-final', isFinal && !isNbd);
+      },
       columns: [
         {
-          title: 'Company / Contact', field: 'Company Name', sorter: 'string', minWidth: 180,
+          title: 'Company / Contact', field: 'Company Name', sorter: 'string', minWidth: 200,
           formatter: function (cell) {
             const d = cell.getRow().getData();
-            const co = '<div style="font-weight:600;color:#111827;font-size:13px;line-height:1.3">' + escapeHtml(d['Company Name'] || '—') + '</div>';
-            const ct = d['Contact Person'] ? '<div style="font-size:11px;color:#6b7280;margin-top:1px">' + escapeHtml(d['Contact Person']) + '</div>' : '';
+            const co = '<div class="lead-co-name" title="' + escapeHtml(d['Company Name'] || '') + '">' + escapeHtml(d['Company Name'] || '—') + '</div>';
+            const ct = d['Contact Person'] ? '<div class="lead-co-contact">' + iconSvg('user', 11) + ' ' + escapeHtml(d['Contact Person']) + '</div>' : '';
             return co + ct;
           }
         },
         {
-          title: 'Client Description', field: 'Client Description', sorter: 'string', minWidth: 160,
+          title: 'Description', field: 'Client Description', sorter: 'string', minWidth: 200,
           formatter: function (cell) {
             const v = cell.getValue() || '';
-            return '<div style="font-size:12px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px" title="' + escapeHtml(v) + '">' + escapeHtml(v) + '</div>';
+            if (!v) return '<span class="muted-text">—</span>';
+            return '<div class="lead-desc" title="' + escapeHtml(v) + '">' + escapeHtml(v) + '</div>';
           }
         },
         {
-          title: 'Phone', field: 'Phone', minWidth: 115,
+          title: 'Phone', field: 'Phone', minWidth: 130,
           formatter: function (cell) {
-            return '<span style="font-size:12px;color:#374151">' + escapeHtml(cell.getValue() || '—') + '</span>';
+            const v = cell.getValue();
+            return v
+              ? '<span class="lead-phone">' + iconSvg('phone', 12) + ' ' + escapeHtml(v) + '</span>'
+              : '<span class="muted-text">—</span>';
           }
         },
         {
-          title: 'Location', field: 'City', minWidth: 100,
+          title: 'Location', field: 'City', minWidth: 130,
           formatter: function (cell) {
             const d = cell.getRow().getData();
-            const city = d['City'] ? '<div style="font-size:12px;color:#374151">' + escapeHtml(d['City']) + '</div>' : '';
-            const state = d['State'] ? '<div style="font-size:11px;color:#9ca3af">' + escapeHtml(d['State']) + '</div>' : '';
-            return city || state ? city + state : '<span style="color:#d1d5db">—</span>';
+            if (!d['City'] && !d['State']) return '<span class="muted-text">—</span>';
+            const city = d['City'] ? '<div class="lead-city">' + iconSvg('map-pin', 11) + ' ' + escapeHtml(d['City']) + '</div>' : '';
+            const state = d['State'] ? '<div class="lead-state">' + escapeHtml(d['State']) + '</div>' : '';
+            return city + state;
           }
         },
         {
-          title: 'Stage', field: 'Stage ID', minWidth: 130,
+          title: 'Stage', field: 'Stage ID', minWidth: 150,
           formatter: function (cell) {
             const s = stageMap[cell.getValue()];
-            if (!s) return '<span style="color:#d1d5db">—</span>';
+            if (!s) return '<span class="muted-text">—</span>';
             const c = safeColor(s.Color) || '#6366f1';
-            return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:#111827;max-width:120px" title="' + escapeHtml(s['Stage Name']) + '">'
-              + '<span style="width:7px;height:7px;border-radius:50%;background:' + c + ';flex-shrink:0;display:inline-block"></span>'
-              + '<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(s['Stage Name']) + '</span>'
+            return '<span class="lead-stage-chip" title="' + escapeHtml(s['Stage Name']) + '" style="background:' + c + '18;color:' + c + ';border-color:' + c + '30">'
+              + '<span class="lead-stage-dot" style="background:' + c + '"></span>'
+              + '<span class="lead-stage-name">' + escapeHtml(s['Stage Name']) + '</span>'
               + '</span>';
           }
         },
         {
-          title: 'Priority', field: 'Priority', minWidth: 85, hozAlign: 'center',
+          title: 'Priority', field: 'Priority', minWidth: 100, hozAlign: 'center',
           formatter: function (cell) {
-            const p = (cell.getValue() || '').toLowerCase();
-            const st = priColors[p] || 'background:#f3f4f6;color:#6b7280';
-            return cell.getValue()
-              ? '<span style="' + st + ';font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;letter-spacing:.3px;display:inline-block">' + escapeHtml(cell.getValue()) + '</span>'
-              : '<span style="color:#d1d5db">—</span>';
+            const raw = cell.getValue() || '';
+            const p = raw.toLowerCase();
+            if (!raw) return '<span class="muted-text">—</span>';
+            const cls = priClass[p] || 'lead-pri-other';
+            const ic = priIcon[p] || 'circle';
+            return '<span class="lead-pri-pill ' + cls + '">' + iconSvg(ic, 11) + ' ' + escapeHtml(raw) + '</span>';
           }
         },
         {
-          title: 'Assigned', field: 'Assigned To', minWidth: 100,
+          title: 'Assigned', field: 'Assigned To', minWidth: 140,
           formatter: function (cell) {
             const name = userMap[cell.getValue()] || cell.getValue() || '';
-            return name ? '<span style="font-size:12px;color:#374151">' + escapeHtml(name) + '</span>' : '<span style="color:#d1d5db">—</span>';
+            if (!name) return '<span class="muted-text">—</span>';
+            const initial = String(name).trim().charAt(0).toUpperCase() || '?';
+            return '<div class="fu-owner-cell"><span class="fu-owner-avatar">' + escapeHtml(initial) + '</span><span class="fu-owner-name">' + escapeHtml(name) + '</span></div>';
           }
         },
         // { title: '', width: 74, hozAlign: 'center', headerSort: false,
@@ -307,9 +326,9 @@
         //   cellClick: function(e, cell) { openLeadDetail(_leadRowId(cell.getRow().getData())); }
         // }
         ...(String(App.user.department || '').trim().toUpperCase() === 'MIS' || App.user.role === 'ADMIN' ? [{
-          title: '', width: 80, hozAlign: 'center', headerSort: false,
+          title: '', width: 64, hozAlign: 'center', headerSort: false,
           formatter: function() {
-            return '<button class="btn btn-sm" style="color:#D32F2F;border-color:#D32F2F;padding:2px 10px;font-size:11px;font-weight:600">Delete</button>';
+            return '<button class="fu-icon-action danger" title="Delete lead">' + iconSvg('trash-2', 14) + '</button>';
           },
           cellClick: function(e, cell) {
             e.stopPropagation();
@@ -342,6 +361,10 @@
     leadTable.on('dataFiltered', function (filters, rows) {
       const cnt = el('lead-row-count'); if (cnt) cnt.textContent = rows.length;
     });
+    const refreshIcons = () => { const t = el('lead-table'); if (t) renderIcons(t); };
+    leadTable.on('renderComplete', refreshIcons);
+    leadTable.on('pageLoaded', refreshIcons);
+    leadTable.on('dataSorted', refreshIcons);
   }
 
   function applyLeadFilters() {
