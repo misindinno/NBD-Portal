@@ -522,6 +522,27 @@
     .fu-filter-chips { width: 100%; }
   }
 
+  /* ── Dashboard — modern section cards ───────────────────────────────────── */
+  .db-page .db-kpis { margin-bottom: 4px; }
+  .db-section {
+    background: linear-gradient(180deg, #ffffff 0%, #FAFBFF 100%);
+    border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px 16px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.05);
+    transition: box-shadow .15s, border-color .15s;
+  }
+  .db-section:hover { box-shadow: 0 4px 12px rgba(15,23,42,.07); border-color: #C7D2FE; }
+  .db-section > div:first-child { /* section header */
+    color: #1E293B; font-weight: 800;
+  }
+  .db-section table { font-size: 12px; }
+  .db-section table th {
+    background: #F8FAFC; color: #475569; font-size: 10px; font-weight: 850;
+    text-transform: uppercase; letter-spacing: .04em; padding: 7px 10px;
+    border-bottom: 1px solid #E2E8F0; text-align: left;
+  }
+  .db-section table td { padding: 7px 10px; border-bottom: 1px solid #F1F5F9; color: #374151; }
+  .db-section table tr:hover td { background: #F5F7FB; }
+
   /* ── Today's Activity overrides — natural page flow (not fixed-height) ─── */
   .fu-page.td-page { height: auto; min-height: 0; }
   .fu-page.td-page #fu-body { display: block; flex: none; min-height: 0; }

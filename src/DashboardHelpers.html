@@ -6,66 +6,72 @@ function _dbHtml() {
   const monthAgo  = localDateInputValue(new Date(Date.now() - 30 * 86400000));
 
   return `
-  <div id="db-wrap" style="padding-bottom:40px;max-width:100%;overflow-x:hidden">
+  <div class="fu-page td-page db-page" id="db-wrap">
 
-    <!-- Filter Bar -->
-    <div class="card" style="padding:12px 18px;margin-bottom:16px;overflow-x:auto">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:min-content">
-        <span style="font-size:12px;font-weight:600;color:var(--md-primary);display:flex;align-items:center;gap:5px;white-space:nowrap">${icon('sliders-horizontal',14)} Filters</span>
-        <div style="display:flex;align-items:center;gap:4px">
-          <span style="font-size:11px;color:#888">From</span>
-          <input type="date" id="db-f-from" class="form-control" value="${monthAgo}" style="width:136px;padding:4px 7px;font-size:12px">
+    <div class="fu-topbar">
+      <div class="fu-topbar-left">
+        <div class="fu-hero-icon" style="background:linear-gradient(135deg,#DBEAFE,#93C5FD);color:#1D4ED8">${icon('layout-dashboard',16)}</div>
+        <div class="fu-topbar-titles">
+          <div class="fu-hero-title">Dashboard</div>
+          <div class="fu-hero-sub">Performance, pipeline, and geography at a glance.</div>
         </div>
-        <div style="display:flex;align-items:center;gap:4px">
-          <span style="font-size:11px;color:#888">To</span>
-          <input type="date" id="db-f-to" class="form-control" value="${todayStr}" style="width:136px;padding:4px 7px;font-size:12px">
-        </div>
-        ${canAssign ? `<select id="db-f-user" class="form-control" style="width:150px;padding:4px 7px;font-size:12px">
+      </div>
+      <div class="fu-topbar-right">
+        <button class="fu-filter-toggle ${_dbFiltersOpen ? 'open' : ''}" id="db-filter-toggle" onclick="_dbToggleFilters()">
+          ${icon('sliders-horizontal', 14)} <span>Filters</span>
+          ${icon(_dbFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
+        </button>
+        <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_dbClearFilters()" title="Reset filters">${icon('x', 13)}<span class="fu-btn-text"> Reset</span></button>
+        <button class="btn btn-primary btn-sm fu-topbar-btn" onclick="_dbRenderAll()" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
+      </div>
+    </div>
+
+    <div class="fu-filter-bar" id="db-filter-bar" style="display:${_dbFiltersOpen ? 'block' : 'none'}">
+      <div class="fu-filter-card-grid">
+        <label class="fu-filter"><span>From</span><input type="date" id="db-f-from" value="${monthAgo}"></label>
+        <label class="fu-filter"><span>To</span><input type="date" id="db-f-to" value="${todayStr}"></label>
+        ${canAssign ? `<label class="fu-filter"><span>Salesperson</span><select id="db-f-user">
           <option value="">All Salespeople</option>
           ${(cfg.users||[]).map(u=>`<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}
-        </select>` : `<input type="hidden" id="db-f-user" value="">`}
-        <select id="db-f-stage" class="form-control" style="width:145px;padding:4px 7px;font-size:12px">
+        </select></label>` : `<input type="hidden" id="db-f-user" value="">`}
+        <label class="fu-filter"><span>Stage</span><select id="db-f-stage">
           <option value="">All Stages</option>
           ${(cfg.stages||[]).map(s=>`<option value="${escapeHtml(s['Stage ID'])}">${escapeHtml(s['Stage Name'])}</option>`).join('')}
-        </select>
-        <select id="db-f-source" class="form-control" style="width:135px;padding:4px 7px;font-size:12px">
+        </select></label>
+        <label class="fu-filter"><span>Source</span><select id="db-f-source">
           <option value="">All Sources</option>
           ${(cfg.sources||[]).map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
-        </select>
-        <select id="db-f-priority" class="form-control" style="width:125px;padding:4px 7px;font-size:12px">
+        </select></label>
+        <label class="fu-filter"><span>Priority</span><select id="db-f-priority">
           <option value="">All Priorities</option>
           ${(cfg.priorities||[]).map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}
-        </select>
-        <select id="db-f-status" class="form-control" style="width:120px;padding:4px 7px;font-size:12px">
+        </select></label>
+        <label class="fu-filter"><span>Status</span><select id="db-f-status">
           <option value="">All Status</option>
           <option value="Open">Open</option>
           <option value="Won">Won</option>
           <option value="Lost">Lost</option>
-        </select>
-        <select id="db-f-state" class="form-control" style="width:135px;padding:4px 7px;font-size:12px">
+        </select></label>
+        <label class="fu-filter"><span>State</span><select id="db-f-state">
           <option value="">All States</option>
           ${(cfg.states||[]).map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
-        </select>
-        <select id="db-f-city" class="form-control" style="width:145px;padding:4px 7px;font-size:12px">
+        </select></label>
+        <label class="fu-filter"><span>City</span><select id="db-f-city">
           <option value="">All Cities</option>
-        </select>
-        <button class="btn btn-outlined" onclick="_dbClearFilters()" style="padding:4px 10px;font-size:12px;white-space:nowrap">${icon('x',12)} Clear</button>
-        <button class="btn btn-primary" onclick="_dbRenderAll()" style="padding:4px 10px;font-size:12px;white-space:nowrap;margin-left:auto">${icon('refresh-cw',12)} Refresh</button>
+        </select></label>
       </div>
     </div>
 
-    <!-- KPI Row 1 -->
-    <div id="db-kpi1" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;margin-bottom:12px"></div>
-    <!-- KPI Row 2 -->
-    <div id="db-kpi2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;margin-bottom:16px"></div>
+    <div id="db-kpi1" class="fu-kpis db-kpis"></div>
+    <div id="db-kpi2" class="fu-kpis db-kpis"></div>
 
     <!-- Pipeline Funnel + Follow-up Donut -->
     <div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;margin-bottom:16px;min-width:0">
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('git-branch-plus',15)} Lead Pipeline Funnel</div>
         <div id="db-funnel"></div>
       </div>
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('phone-call',15)} Follow-up Status</div>
         <div style="position:relative;max-width:220px;margin:0 auto">
           <canvas id="db-fu-donut"></canvas>
@@ -83,11 +89,11 @@ function _dbHtml() {
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('map',15)} State Wise Lead Count</div>
         <canvas id="db-state-chart" style="max-width:100%"></canvas>
       </div>
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('building-2',15)} Top Cities by Lead Count</div>
         <canvas id="db-city-chart" style="max-width:100%"></canvas>
       </div>
@@ -99,33 +105,33 @@ function _dbHtml() {
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('table-2',15)} State Summary</div>
         <div id="db-state-summary" style="overflow-x:auto;max-height:320px"></div>
       </div>
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('table-2',15)} City Summary</div>
         <div id="db-city-summary" style="overflow-x:auto;max-height:320px"></div>
       </div>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('grid-3x3',15)} Stage x State Matrix</div>
         <div id="db-stage-state-matrix" style="overflow:auto;max-height:360px"></div>
       </div>
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('grid-3x3',15)} Stage x City Matrix</div>
         <div id="db-stage-city-matrix" style="overflow:auto;max-height:360px"></div>
       </div>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#2E7D32">${icon('flame',15)} Hot Cities</div>
         <div id="db-hot-cities" style="overflow-x:auto;max-height:300px"></div>
       </div>
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#C62828">${icon('triangle-alert',15)} Problem Cities</div>
         <div id="db-problem-cities" style="overflow-x:auto;max-height:300px"></div>
       </div>
@@ -133,11 +139,11 @@ function _dbHtml() {
 
     <!-- Source Chart + Team Chart -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('bar-chart-2',15)} Lead Source Analytics</div>
         <canvas id="db-source-chart" style="max-width:100%"></canvas>
       </div>
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('users',15)} Team Performance</div>
         <canvas id="db-team-chart" style="max-width:100%"></canvas>
       </div>
@@ -154,11 +160,11 @@ function _dbHtml() {
 
     <!-- Overdue Follow-ups + Leads Without Follow-up -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#C62828">${icon('triangle-alert',15)} Overdue Follow-ups</div>
         <div id="db-overdue-table" style="max-height:300px;overflow-y:auto;overflow-x:auto"></div>
       </div>
-      <div class="card" style="padding:22px">
+      <div class="db-section">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#E65100">${icon('flame',15)} Leads Without Follow-up</div>
         <div id="db-nofollowup-table" style="max-height:300px;overflow-y:auto;overflow-x:auto"></div>
       </div>
@@ -177,7 +183,7 @@ function _dbHtml() {
     </div>
 
     <!-- Activity Timeline -->
-    <div class="card" style="padding:22px">
+    <div class="db-section">
       <div style="font-size:13px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:7px;color:#333">${icon('activity',15)} Recent Activity</div>
       <div id="db-activity"></div>
     </div>
@@ -302,16 +308,21 @@ function _dbRenderAll() {
 
 // ─── KPI Cards ────────────────────────────────────────────────────────────────
 function _dbKpiCard(label, value, iconName, color, sub, subColor) {
-  subColor = subColor || '#888';
-  return `<div class="card" style="padding:14px 16px;border-left:4px solid ${color}">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
-      <div style="min-width:0;flex:1">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#999;margin-bottom:5px;line-height:1.3">${label}</div>
-        <div style="font-size:24px;font-weight:700;color:${color};line-height:1.1">${escapeHtml(String(value))}</div>
-        ${sub ? `<div style="font-size:11px;color:${subColor};margin-top:4px">${sub}</div>` : ''}
-      </div>
-      <span style="color:${color};opacity:.65;flex-shrink:0">${icon(iconName, 24)}</span>
-    </div>
+  // Map dashboard colors to fu-kpi gradient variants
+  const clsMap = {
+    '#1565C0':'blue', '#0277BD':'blue', '#1976D2':'blue',
+    '#2E7D32':'success','#388E3C':'success','#16A34A':'success',
+    '#D32F2F':'danger','#C62828':'danger',
+    '#6A1B9A':'purple',
+    '#E65100':'warning','#F57C00':'warning',
+    '#757575':'neutral'
+  };
+  const cls = clsMap[color] || 'blue';
+  return `<div class="fu-kpi fu-kpi-${cls}" style="cursor:default">
+    <span class="fu-kpi-icon">${icon(iconName, 17)}</span>
+    <span class="fu-kpi-value">${escapeHtml(String(value))}</span>
+    <span class="fu-kpi-label">${escapeHtml(label)}</span>
+    <span class="fu-kpi-sub">${sub || ''}</span>
   </div>`;
 }
 

@@ -2,6 +2,16 @@
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 let _dbCharts = {};
+let _dbFiltersOpen = false;
+
+function _dbToggleFilters() {
+  _dbFiltersOpen = !_dbFiltersOpen;
+  const bar = el('db-filter-bar');
+  const toggle = el('db-filter-toggle');
+  if (bar) bar.style.display = _dbFiltersOpen ? 'block' : 'none';
+  if (toggle) { toggle.classList.toggle('open', _dbFiltersOpen); renderIcons(toggle); }
+}
+window._dbToggleFilters = _dbToggleFilters;
 
 async function loadDashboard() {
   el('page-title').textContent = 'Dashboard';
