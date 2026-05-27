@@ -189,6 +189,7 @@ function _recoverFailedQueueJob(job) {
 async function _refreshLeadsCache() {
   const rows = await api.getLeads().catch(() => api.getFollowupLeads());
   AppCache.setRows('leads', await _applyPendingLeadQueueOverlay(rows));
+  try { renderSidebar(); } catch (e) {}
   const pg = App.currentPage;
   if (pg === 'leads') {
     if (window.leadTable) {
@@ -244,6 +245,7 @@ async function _applyPendingLeadQueueOverlay(rows) {
 async function _refreshFollowupsCache() {
   const rows = await api.getFollowups({});
   AppCache.setRows('followups', rows);
+  try { renderSidebar(); } catch (e) {}
   const pg = App.currentPage;
   if (pg && pg.startsWith('followups')) {
     _renderFUTab(window.currentFollowupTab || 'all');

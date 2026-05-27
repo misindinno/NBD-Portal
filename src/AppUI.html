@@ -421,9 +421,22 @@ function renderSidebar() {
   const show = mod => isAdmin || hasModule(mod);
 
   const _todayStr = (typeof localDateInputValue === 'function') ? localDateInputValue() : new Date().toISOString().slice(0, 10);
-  const _fuPlanned = r => String(r['Planned Date'] || r['Next Follow-up Date'] || r['Follow-up Date'] || '').slice(0, 10);
+  const _toDateStr = (v) => {
+    if (!v) return '';
+    if (typeof _fmtDate === 'function') return _fmtDate(v);
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    return String(v).slice(0, 10);
+  };
+  const _fuPlanned = r => _toDateStr(r['Planned Date'] || r['Next Follow-up Date'] || r['Follow-up Date']);
+  const _isClosedFu = r => {
+    const s = String(r['Status'] || '').toLowerCase();
+    if (s === 'closed') return true;
+    if (r['Done Date']) return true;
+    if (r['Outcome']) return true;
+    return false;
+  };
   const fuOpen = AppCache.getRows('followups').filter(r =>
-    String(r['Status'] || 'Open').toLowerCase() !== 'closed' &&
+    !_isClosedFu(r) &&
     String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change'
   );
   const fuCount = fuOpen.filter(r => { const d = _fuPlanned(r); return d && d <= _todayStr; }).length;
@@ -431,7 +444,9 @@ function renderSidebar() {
   const _stages = (App.config && (App.config.allStages || App.config.stages)) || [];
   const _finalStageIds = new Set(_stages.filter(s => s['Is Final Stage'] === true || s['Is Final Stage'] === 'TRUE').map(s => s['Stage ID']));
   const leadsCount = AppCache.getRows('leads').filter(l =>
-    !(l['NBD Lead ID'] || l['Pushed To NBD At']) && !_finalStageIds.has(l['Stage ID'])
+    !(l['NBD Lead ID'] || l['Pushed To NBD At']) &&
+    !_finalStageIds.has(l['Stage ID']) &&
+    String(l['Lead Status'] || 'Open').toLowerCase() === 'open'
   ).length;
   const queueCount = typeof QueueManager !== 'undefined' ? QueueManager.pendingCount() : 0;
   const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
