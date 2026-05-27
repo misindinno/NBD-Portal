@@ -420,11 +420,22 @@ function renderSidebar() {
   const isAdmin = u.role === 'ADMIN';
   const show = mod => isAdmin || hasModule(mod);
 
-  const fuCount    = AppCache.getRows('followups').filter(r => String(r['Status']||'Open').toLowerCase() !== 'closed').length;
-  const pipeCount  = AppCache.getRows('leads').filter(r => String(r['Lead Status']||'Open').toLowerCase() === 'open').length;
+  const _todayStr = (typeof localDateInputValue === 'function') ? localDateInputValue() : new Date().toISOString().slice(0, 10);
+  const _fuPlanned = r => String(r['Planned Date'] || r['Next Follow-up Date'] || r['Follow-up Date'] || '').slice(0, 10);
+  const fuOpen = AppCache.getRows('followups').filter(r =>
+    String(r['Status'] || 'Open').toLowerCase() !== 'closed' &&
+    String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change'
+  );
+  const fuCount = fuOpen.filter(r => { const d = _fuPlanned(r); return d && d <= _todayStr; }).length;
+  const pipeCount = AppCache.getRows('leads').filter(r => String(r['Lead Status'] || 'Open').toLowerCase() === 'open').length;
+  const _stages = (App.config && (App.config.allStages || App.config.stages)) || [];
+  const _finalStageIds = new Set(_stages.filter(s => s['Is Final Stage'] === true || s['Is Final Stage'] === 'TRUE').map(s => s['Stage ID']));
+  const leadsCount = AppCache.getRows('leads').filter(l =>
+    !(l['NBD Lead ID'] || l['Pushed To NBD At']) && !_finalStageIds.has(l['Stage ID'])
+  ).length;
   const queueCount = typeof QueueManager !== 'undefined' ? QueueManager.pendingCount() : 0;
   const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
-  const badge = n => n > 0 ? `<span class="nav-badge">${n > 99 ? '99+' : n}</span>` : '';
+  const badge = (n, title) => n > 0 ? `<span class="nav-badge"${title ? ` title="${title}"` : ''}>${n > 99 ? '99+' : n}</span>` : '';
 
   const navItem = (page, lucideIcon, label, extraBadge = '') =>
     `<a href="#" data-page="${page}" data-tooltip="${label}" onclick="navigate('${page}');return false;">
@@ -438,13 +449,13 @@ function renderSidebar() {
   const mainItems = [
     show('Dashboard') ? navItem('dashboard', 'layout-dashboard', 'Dashboard') : '',
     show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : '',
-    show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount))   : '',
+    show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount, 'Overdue + Today'))   : '',
     show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
   ].filter(Boolean).join('');
   if (mainItems) html += `<div class="nav-section">Main</div>${mainItems}`;
 
   const leadItems = [
-    show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master') : '',
+    show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master', badge(leadsCount, 'Pending (not in final stage)')) : '',
     show('LeadForm')  ? navItem('leadform', 'file-plus',  'Lead Form')   : '',
     isLqPortal && show('BulkEntry') ? navItem('bulkview', 'table-2',    'Bulk Entry')  : '',
   ].filter(Boolean).join('');
