@@ -63,6 +63,118 @@ function _installConfigRouteFallback() {
       toast('Saving settings...', 'info');
     });
   };
+  if (!window.loadStagesConfig) window.loadStagesConfig = async function() {
+    const container = el('cfg-stages');
+    if (!container) return;
+    container.innerHTML = skeletonPage('cards');
+    let stages = [];
+    try {
+      stages = await api.getAllStages();
+    } catch (err) {
+      container.innerHTML = `<div class="card" style="padding:24px;color:#D32F2F">${escapeHtml(err.message || String(err))}</div>`;
+      return;
+    }
+    const nextOrder = stages.reduce((max, s) => Math.max(max, Number(s['Stage Order']) || 0), 0) + 1;
+    container.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <p style="color:#666;font-size:13px">Drag to reorder stages</p>
+        <button class="btn btn-primary btn-sm" onclick='openStageForm({"Stage Order":${nextOrder}})'>${icon('plus', 14)} Add Stage</button>
+      </div>
+      <div id="stages-list">
+        ${stages.map(s => `
+          <div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;cursor:move" data-stage-id="${escapeHtml(s['Stage ID'] || '')}">
+            <span class="drag-handle" style="color:#999">${icon('grip-vertical', 18)}</span>
+            <div style="width:12px;height:12px;border-radius:50%;background:${safeColor(s['Color'], '#2196F3')}"></div>
+            <div style="flex:1">
+              <b>${escapeHtml(s['Stage Name'] || '')}</b>
+              <span style="color:#999;font-size:12px;margin-left:8px">Order: ${escapeHtml(s['Stage Order'] || '')}</span>
+              ${window._sheetTruthy(s['Is Initial Stage'], false) ? '<span class="badge" style="background:#E8F5E9;color:#2E7D32;margin-left:6px">Initial</span>' : ''}
+              ${window._sheetTruthy(s['Is Final Stage'], false) ? '<span class="badge" style="background:#E3F2FD;color:#1565C0;margin-left:6px">Final</span>' : ''}
+              ${s['TAT Days'] ? '<span class="badge" style="background:#FFF8E1;color:#F57F17;margin-left:6px">TAT: ' + escapeHtml(s['TAT Days']) + 'd</span>' : ''}
+              ${window._sheetTruthy(s['Is Skippable'], false) ? '<span class="badge" style="background:#F3E5F5;color:#6A1B9A;margin-left:6px">Skippable</span>' : ''}
+            </div>
+            <button class="btn btn-sm btn-outlined" onclick="openStageForm(${String(JSON.stringify(s)).replace(/"/g,'&quot;')})">Edit</button>
+          </div>`).join('')}
+      </div>`;
+    renderIcons(container);
+    if (window.Sortable && el('stages-list')) {
+      Sortable.create(el('stages-list'), {
+        animation: 150,
+        handle: '.drag-handle',
+        onEnd: evt => {
+          const orderedIds = Array.from(evt.to.children).map(node => node.dataset.stageId);
+          QueueManager.enqueue({
+            module: 'stages',
+            actionType: 'reorderStages',
+            payload: { ids: orderedIds },
+            onDone: () => { toast('Stages reordered!'); _refreshAppConfig().catch(() => {}); },
+            onFail: j => { toast('Reorder failed: ' + (j.error || 'Error'), 'error'); window.loadStagesConfig(); }
+          });
+          toast('Saving order...', 'info');
+        }
+      });
+    }
+  };
+  if (!window.openStageForm) window.openStageForm = function(data = {}) {
+    const isEdit = !!data['Stage ID'];
+    const overlay = showModal(`
+      <div class="modal-header">
+        <h2>${isEdit ? 'Edit' : 'Add'} Stage</h2>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&#x2715;</button>
+      </div>
+      <form id="stage-form">
+        <div class="form-group"><label>Stage Name *</label><input class="form-control" name="Stage Name" value="${escapeHtml(data['Stage Name'] || '')}" required></div>
+        <div class="form-row">
+          <div class="form-group"><label>Color *</label><input class="form-control" name="Color" type="color" value="${safeColor(data['Color'], '#2196F3')}" required></div>
+          <div class="form-group"><label>Stage Order</label><input class="form-control" name="Stage Order" type="number" value="${escapeHtml(data['Stage Order'] || 1)}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>TAT Days</label><input class="form-control" name="TAT Days" type="number" min="0" value="${escapeHtml(data['TAT Days'] || '')}"></div>
+          <div class="form-group"><label>Stage Outcome</label><select class="form-control" name="Stage Outcome">
+            <option value="" ${!data['Stage Outcome'] ? 'selected' : ''}>None</option>
+            <option value="Won" ${data['Stage Outcome'] === 'Won' ? 'selected' : ''}>Won</option>
+            <option value="Lost" ${data['Stage Outcome'] === 'Lost' ? 'selected' : ''}>Lost</option>
+          </select></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:12px 0">
+          ${[
+            ['Is Active', 'Is Active', true],
+            ['Is Final Stage', 'Is Final Stage', false],
+            ['Is Initial Stage', 'Is Initial Stage', false],
+            ['Is Skippable', 'Allow Skip', false]
+          ].map(([name, label, def]) => `<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" name="${name}" ${window._sheetTruthy(data[name], def) ? 'checked' : ''}> ${label}</label>`).join('')}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>`);
+    overlay.querySelector('#stage-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = {
+        'Stage Name': fd.get('Stage Name'),
+        'Color': fd.get('Color'),
+        'Stage Order': fd.get('Stage Order'),
+        'TAT Days': fd.get('TAT Days') || '',
+        'Stage Outcome': fd.get('Stage Outcome') || '',
+        'Is Active': fd.has('Is Active'),
+        'Is Final Stage': fd.has('Is Final Stage'),
+        'Is Initial Stage': fd.has('Is Initial Stage'),
+        'Is Skippable': fd.has('Is Skippable')
+      };
+      if (isEdit) payload['Stage ID'] = data['Stage ID'];
+      overlay.remove();
+      QueueManager.enqueue({
+        module: 'stages',
+        actionType: 'saveStage',
+        payload,
+        onDone: () => { toast('Stage saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadStagesConfig(); },
+        onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
+      });
+      toast('Saving stage...', 'info');
+    });
+  };
   if (!window.loadFieldConfig) window.loadFieldConfig = async function() {
     if (!el('cfg-fields')) return;
     el('cfg-fields').innerHTML = skeletonPage('table');
