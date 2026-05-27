@@ -8,8 +8,9 @@ function _nbdEscalateBtn(size) {
   const url = String(App?.config?.settings?.escalateFormUrl || '').trim();
   const cls  = size === 'sm' ? 'btn btn-primary btn-sm' : 'btn btn-primary';
   const style = size === 'sm' ? '' : 'height:32px;padding:0 14px;font-size:13px;white-space:nowrap;flex-shrink:0';
-  if (!url) return `<button class="${cls}" style="${style}" disabled title="Escalate form URL not configured in Settings">${icon('external-link', 14)} Escalate</button>`;
-  return `<button class="${cls}" style="${style}" onclick="window.open(${JSON.stringify(url)},'_blank')">${icon('external-link', 14)} Escalate</button>`;
+  const styleAttr = style ? ` style="${style}"` : '';
+  if (!url) return `<button class="${cls}"${styleAttr} disabled title="Escalate form URL not configured in Settings">${icon('external-link', 14)} Escalate</button>`;
+  return `<button class="${cls}"${styleAttr} onclick='window.open(${JSON.stringify(url)},"_blank")'>${icon('external-link', 14)} Escalate</button>`;
 }
 window._nbdEscalateBtn = _nbdEscalateBtn;
 
