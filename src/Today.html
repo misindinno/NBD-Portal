@@ -24,6 +24,7 @@ async function loadToday() {
   if (!AppCache.isLoaded('followupHistory')) loads.push(_ensureCached('followupHistory', () => api.getFollowupHistory({})));
   if (!AppCache.isLoaded('activityLogs'))   loads.push(_ensureCached('activityLogs',   () => api.getLeadActivityLogs({})));
   if (!AppCache.isLoaded('leads'))          loads.push(_ensureCached('leads',           () => api.getLeads()));
+  if (!AppCache.isLoaded('followups'))      loads.push(_ensureCached('followups',       () => api.getFollowups({})));
   if (loads.length) await Promise.all(loads);
 
   _renderToday();
@@ -245,7 +246,43 @@ function _todayApply() {
     [...history.map(r => r['Lead ID']), ...actLogs.map(r => r['Lead ID'])].filter(Boolean)
   ).size;
 
+  // ── Pending Follow-ups: overdue + today open follow-ups + leads with no follow-up ──
+  const _todayStr = localDateInputValue();
+  const _toDateStr = (v) => {
+    if (!v) return '';
+    if (typeof _fmtDate === 'function') return _fmtDate(v);
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    return String(v).slice(0, 10);
+  };
+  const _isClosedFu = r => String(r['Status'] || '').toLowerCase() === 'closed' || !!r['Done Date'] || !!r['Outcome'];
+  const _planned = r => _toDateStr(r['Planned Date'] || r['Next Follow-up Date'] || r['Follow-up Date']);
+  const allFollowups = AppCache.getRows('followups') || [];
+  const openFu = allFollowups.filter(r =>
+    !_isClosedFu(r) && String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change'
+  );
+  const pendingFu = openFu.filter(r => { const d = _planned(r); return d && d <= _todayStr; });
+  if (userFilter) {
+    // Scope pending follow-ups to selected user when set
+    var pendingFuFiltered = pendingFu.filter(r =>
+      r['Created By'] === userFilter || r['Done By'] === userFilter ||
+      leadMap[r['Lead ID']]?.['Assigned To'] === userFilter
+    );
+  } else { var pendingFuFiltered = pendingFu; }
+  const _fuLeadIds = new Set(
+    allFollowups.map(r => r['Lead ID'])
+      .concat((AppCache.getRows('followupHistory') || []).map(r => r['Lead ID']))
+      .filter(Boolean)
+  );
+  const leadsNoFu = AppCache.getRows('leads').filter(l =>
+    String(l['Lead Status'] || 'Open').toLowerCase() === 'open' &&
+    !(l['NBD Lead ID'] || l['Pushed To NBD At']) &&
+    !_fuLeadIds.has(l['Lead ID']) &&
+    (!userFilter || l['Assigned To'] === userFilter || l['Created By'] === userFilter)
+  );
+  const pendingCount = pendingFuFiltered.length + leadsNoFu.length;
+
   const cards = [
+    { key: 'pending',   label: 'Pending Follow-up', value: pendingCount,       sub: 'overdue + today + new', icon: 'alert-circle', cls: 'warning' },
     { key: 'unique',    label: 'Unique Leads',    value: uniqueLeads,          sub: 'leads touched', icon: 'users',        cls: 'blue' },
     { key: 'connected', label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected',     icon: 'check-circle-2', cls: 'success' },
     { key: 'notpicked', label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',     icon: 'phone-missed', cls: 'danger' },
@@ -303,6 +340,35 @@ function _todayApply() {
         'Outcome': '', 'Next Follow-up Date': ''
       }));
       break;
+    case 'pending':
+      allRows = [
+        ...pendingFuFiltered.map(r => {
+          const planned = r['Planned Date'] || r['Next Follow-up Date'] || r['Follow-up Date'] || '';
+          const pStr = _toDateStr(planned);
+          const overdue = pStr && pStr < _todayStr;
+          return {
+            _isLog: true,
+            'Created At': planned,
+            'Lead ID': r['Lead ID'] || '',
+            'Created By': leadMap[r['Lead ID']]?.['Assigned To'] || r['Created By'] || '',
+            'Follow-up Type': overdue ? 'Overdue' : 'Due Today',
+            'Remark': r['Discussion'] || r['Remark'] || 'Pending follow-up',
+            'Follow-up Date': planned,
+            'Planned Date': planned,
+            'Outcome': '', 'Next Follow-up Date': ''
+          };
+        }),
+        ...leadsNoFu.map(l => ({
+          _isLog: true,
+          'Created At': l['Created At'] || '',
+          'Lead ID': l['Lead ID'] || '',
+          'Created By': l['Assigned To'] || l['Created By'] || '',
+          'Follow-up Type': 'No Follow-up Yet',
+          'Remark': l['Client Description'] || 'New lead — needs first follow-up',
+          'Outcome': '', 'Next Follow-up Date': ''
+        }))
+      ];
+      break;
     case 'unique':
     default:
       allRows = [...history, ...logRows];
@@ -312,7 +378,7 @@ function _todayApply() {
   const chipEl = el('td-card-filter-chip');
   if (chipEl) {
     if (_todayCardFilter) {
-      const labelMap = { connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', stage:'Stage Moves', newleads:'New Leads', unique:'Unique Leads' };
+      const labelMap = { pending:'Pending Follow-up', connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', stage:'Stage Moves', newleads:'New Leads', unique:'Unique Leads' };
       chipEl.innerHTML = `<button class="fu-filter-chip" onclick="_todayCardClick('${_todayCardFilter}')">${escapeHtml(labelMap[_todayCardFilter] || _todayCardFilter)} ${icon('x', 11)}</button>`;
       renderIcons(chipEl);
     } else {
