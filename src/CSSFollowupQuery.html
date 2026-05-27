@@ -522,6 +522,12 @@
     .fu-filter-chips { width: 100%; }
   }
 
+  /* ── Today's Activity overrides — natural page flow (not fixed-height) ─── */
+  .fu-page.td-page { height: auto; min-height: 0; }
+  .fu-page.td-page #fu-body { display: block; flex: none; min-height: 0; }
+  .fu-page.td-page .fu-worklist-card { display: flex; flex: none; min-height: 0; }
+  .fu-page.td-page .fu-table-scroll { overflow-x: auto; max-height: none; }
+
   /* ── Today's Activity — chart cards ─────────────────────────────────────── */
   .td-charts {
     display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;

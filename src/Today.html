@@ -22,7 +22,7 @@ function _renderToday() {
   const users = App.config.users || [];
 
   el('today-wrap').innerHTML = `
-    <div class="fu-page fu-density-${_todayDensity}" id="today-page">
+    <div class="fu-page td-page fu-density-${_todayDensity}" id="today-page">
       <div class="fu-topbar">
         <div class="fu-topbar-left">
           <div class="fu-hero-icon" style="background:linear-gradient(135deg,#EEF2FF,#C7D2FE);color:#4338CA">${icon('activity', 16)}</div>
@@ -223,18 +223,22 @@ function _todayApply() {
   const missedHistory  = history.filter(r => MISSED_MODES.has(r['Contact Mode'] || ''));
   const activeHistory  = history.filter(r => !MISSED_MODES.has(r['Contact Mode'] || ''));
 
-  const callsDone  = activeHistory.filter(r => r['Follow-up Type'] === 'Call').length;
+  const callsDone  = activeHistory.filter(r => r['Contact Mode'] === 'Call Connected' || r['Follow-up Type'] === 'Call').length;
   const visitsDone = activeHistory.filter(r => r['Follow-up Type'] === 'Visit').length;
-  const waDone     = activeHistory.filter(r => r['Follow-up Type'] === 'WhatsApp').length;
+  const waDone     = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp').length;
   const stageMovs  = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase().includes('stage')).length;
+  const uniqueLeads = new Set(
+    [...history.map(r => r['Lead ID']), ...actLogs.map(r => r['Lead ID'])].filter(Boolean)
+  ).size;
 
   const cards = [
-    { label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected', icon: 'check-circle-2', cls: 'success' },
-    { label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',  icon: 'phone-missed',  cls: 'danger' },
-    { label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',  icon: 'user-plus',     cls: 'blue' },
-    { label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',  icon: 'arrow-right-circle', cls: 'warning' },
-    { label: 'Calls Made',      value: callsDone,            sub: 'type = Call',icon: 'phone-call',    cls: 'purple' },
-    { label: 'WhatsApp',        value: waDone,               sub: 'type = WA',  icon: 'message-circle', cls: 'success' }
+    { label: 'Unique Leads',    value: uniqueLeads,          sub: 'leads touched', icon: 'users',        cls: 'blue' },
+    { label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected',     icon: 'check-circle-2', cls: 'success' },
+    { label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',     icon: 'phone-missed', cls: 'danger' },
+    { label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
+    { label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
+    { label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
+    { label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' }
   ];
   el('td-cards').innerHTML = cards.map(k => `
     <div class="fu-kpi fu-kpi-${k.cls}">
