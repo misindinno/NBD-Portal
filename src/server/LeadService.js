@@ -374,20 +374,40 @@ function _isLeadPushedToNbd_(lead) {
 
 function _validateLeadStageMove_(fromStageId, toStageId) {
   if (!fromStageId || !toStageId || String(fromStageId) === String(toStageId)) return { ok: true };
-  const stages = getAllStages();
-  const fromIdx = stages.findIndex(s => String(s['Stage ID']) === String(fromStageId));
-  const toIdx = stages.findIndex(s => String(s['Stage ID']) === String(toStageId));
-  if (fromIdx === -1 || toIdx === -1) return { ok: true };
-  if (toIdx === fromIdx + 1) return { ok: true };
 
-  const targetStage = stages[toIdx];
-  if (!_leadStageIsFinal_(targetStage)) {
-    return { ok: false, message: 'Leads can only move to the next stage.' };
+  const allStages    = getAllStages();
+  const activeStages = getActiveStages();
+
+  const fromAllIdx = allStages.findIndex(s => String(s['Stage ID']) === String(fromStageId));
+  const toAllIdx   = allStages.findIndex(s => String(s['Stage ID']) === String(toStageId));
+  if (fromAllIdx === -1 || toAllIdx === -1) return { ok: true };
+
+  const targetStage    = allStages[toAllIdx];
+  const fromActiveIdx  = activeStages.findIndex(s => String(s['Stage ID']) === String(fromStageId));
+  const toActiveIdx    = activeStages.findIndex(s => String(s['Stage ID']) === String(toStageId));
+
+  // Immediate next active stage is always allowed
+  if (fromActiveIdx !== -1 && toActiveIdx === fromActiveIdx + 1) return { ok: true };
+
+  // Lead currently on an inactive (legacy) stage — allow moving to the next active stage after it in order
+  if (fromActiveIdx === -1 && toActiveIdx !== -1) {
+    const nextActiveAfterFrom = allStages
+      .slice(fromAllIdx + 1)
+      .find(s => s['Is Active'] === true || s['Is Active'] === 'TRUE');
+    if (nextActiveAfterFrom && String(nextActiveAfterFrom['Stage ID']) === String(toStageId)) return { ok: true };
   }
+
+  // Non-final stages must be the immediate next active stage
+  if (!_leadStageIsFinal_(targetStage)) {
+    return { ok: false, message: 'Leads can only move to the next active stage.' };
+  }
+
+  // Final stages: Lost/Disqualified can be selected from any stage
   if (_leadStageIsLostOrDisqualified_(targetStage)) return { ok: true };
 
-  const regularStages = stages.filter(s => !_leadStageIsFinal_(s));
-  const lastRegular = regularStages[regularStages.length - 1];
+  // Qualified/Won requires completing all regular ACTIVE pipeline steps first
+  const regularActive = activeStages.filter(s => !_leadStageIsFinal_(s));
+  const lastRegular   = regularActive[regularActive.length - 1];
   if (lastRegular && String(lastRegular['Stage ID']) === String(fromStageId)) return { ok: true };
   return {
     ok: false,
