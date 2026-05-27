@@ -4,7 +4,8 @@
 let _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
 let _fuPage = 1;
 let _fuPageSize = 25;
-let _fuDensity = 'comfortable';
+let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_fuDensity')) || 'compact';
+let _fuFiltersOpen = false;
 
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
@@ -17,6 +18,7 @@ async function loadFollowups(tab = 'all') {
 
   el('content').innerHTML = _fuShellHTML(tab);
   renderIcons();
+  _fuInstallShortcuts();
 
   if      (tab === 'today')   await _renderFUTab('today');
   else if (tab === 'overdue') await _renderFUTab('overdue');
@@ -29,20 +31,20 @@ async function loadFollowups(tab = 'all') {
 function _fuShellHTML(tab) {
   const showFilters = tab !== 'custom';
   return `
-    <div class="fu-page">
-      <div class="fu-hero">
-        <div class="fu-hero-main">
-          <div class="fu-hero-icon">${icon('phone-call', 20)}</div>
-          <div>
+    <div class="fu-page fu-density-${_fuDensity}">
+      <div class="fu-topbar">
+        <div class="fu-topbar-left">
+          <div class="fu-hero-icon">${icon('phone-call', 16)}</div>
+          <div class="fu-topbar-titles">
             <div class="fu-hero-title">Follow-ups</div>
-            <div class="fu-hero-sub">Track planned activity, close conversations, and keep every lead moving.</div>
+            <div class="fu-hero-sub">Track planned activity, close conversations, keep every lead moving.</div>
           </div>
         </div>
-        <div class="fu-hero-actions">
-          <button class="btn btn-outlined btn-sm" onclick="_renderFUTab(window.currentFollowupTab || 'all')">${icon('refresh-cw', 14)} Refresh</button>
+        <div class="fu-topbar-right">
+          <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_renderFUTab(window.currentFollowupTab || 'all')" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
           ${_isNBDPortal()
             ? _nbdEscalateBtn('sm')
-            : `<button class="btn btn-primary btn-sm" onclick="openFollowupForm()">${icon('plus', 16)} Add Follow-up</button>`}
+            : `<button class="btn btn-primary btn-sm fu-topbar-btn" onclick="openFollowupForm()">${icon('plus', 14)}<span class="fu-btn-text"> Add Follow-up</span></button>`}
         </div>
       </div>
       <div id="fu-kpis" class="fu-kpis">${_fuKpiSkeleton()}</div>
@@ -130,7 +132,33 @@ function _fuFilterChipsHTML() {
   return chips.map(([key, label]) => `<button class="fu-filter-chip" onclick="_fuOnFilterChange('${key}','')">${escapeHtml(label)} ${icon('x', 11)}</button>`).join('');
 }
 
+function _fuActiveFilterCount() {
+  const f = _fuFilterState;
+  return ['type','assignedTo','contactMode','stage','dateFrom','dateTo'].filter(k => f[k]).length;
+}
+
 function _fuModernFilterBarHTML() {
+  const f = _fuFilterState;
+  const count = _fuActiveFilterCount();
+  return `
+  <div class="fu-filter-bar" id="fu-filter-bar">
+    <div class="fu-filter-row">
+      <label class="fu-search">${icon('search', 14)}
+        <input type="search" id="fu-f-search" placeholder="Search company, contact, phone, remark... (Ctrl+K)" value="${escapeHtml(f.search)}" oninput="_fuOnFilterChange('search',this.value)">
+      </label>
+      <button class="fu-filter-toggle ${_fuFiltersOpen ? 'open' : ''}" id="fu-filter-toggle" onclick="_fuToggleFilters()" title="Filters (Esc to close)">
+        ${icon('sliders-horizontal', 14)} <span>Filters</span>
+        ${count ? `<span class="fu-filter-active-count">${count}</span>` : ''}
+        ${icon(_fuFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
+      </button>
+      ${count ? `<button class="fu-filter-clear-inline" onclick="_fuClearFilters()" title="Clear filters">${icon('x', 13)} Clear</button>` : ''}
+      <div class="fu-filter-chips" id="fu-filter-chips">${_fuFilterChipsHTML()}</div>
+    </div>
+    <div class="fu-filter-panel" id="fu-filter-panel" style="display:${_fuFiltersOpen ? 'flex' : 'none'}">${_fuFilterPanelHTML()}</div>
+  </div>`;
+}
+
+function _fuFilterPanelHTML() {
   const cfg = App.config || {};
   const types = cfg.followupTypes || [];
   const users = cfg.users || [];
@@ -138,10 +166,6 @@ function _fuModernFilterBarHTML() {
   const f = _fuFilterState;
   const modes = ['Call Connected', 'WhatsApp Chat', 'Not Picked'];
   return `
-  <div class="fu-filter-card">
-    <label class="fu-search">${icon('search', 15)}
-      <input type="search" id="fu-f-search" placeholder="Search company, contact, phone, remark..." value="${escapeHtml(f.search)}" oninput="_fuOnFilterChange('search',this.value)">
-    </label>
     <label class="fu-filter"><span>Type</span><select id="fu-f-type" onchange="_fuOnFilterChange('type',this.value)">
       <option value="">All Types</option>
       ${types.map(t=>`<option value="${escapeHtml(t)}"${f.type===t?' selected':''}>${escapeHtml(t)}</option>`).join('')}
@@ -160,9 +184,33 @@ function _fuModernFilterBarHTML() {
     </select></label>
     <label class="fu-filter fu-date"><span>From</span><input type="date" id="fu-f-from" value="${escapeHtml(f.dateFrom)}" onchange="_fuOnFilterChange('dateFrom',this.value)"></label>
     <label class="fu-filter fu-date"><span>To</span><input type="date" id="fu-f-to" value="${escapeHtml(f.dateTo)}" onchange="_fuOnFilterChange('dateTo',this.value)"></label>
-    <button class="btn btn-outlined btn-sm" onclick="_fuClearFilters()">${icon('x', 13)} Clear</button>
-    <div class="fu-filter-chips" id="fu-filter-chips">${_fuFilterChipsHTML()}</div>
-  </div>`;
+    <button class="btn btn-outlined btn-sm" onclick="_fuClearFilters()">${icon('x', 13)} Clear All</button>`;
+}
+
+function _fuToggleFilters() {
+  _fuFiltersOpen = !_fuFiltersOpen;
+  const panel = el('fu-filter-panel');
+  const toggle = el('fu-filter-toggle');
+  if (panel) panel.style.display = _fuFiltersOpen ? 'flex' : 'none';
+  if (toggle) {
+    toggle.classList.toggle('open', _fuFiltersOpen);
+    renderIcons(toggle);
+  }
+}
+window._fuToggleFilters = _fuToggleFilters;
+
+function _fuInstallShortcuts() {
+  if (window._fuShortcutsInstalled) return;
+  window._fuShortcutsInstalled = true;
+  document.addEventListener('keydown', (e) => {
+    if (!String(App.currentPage || '').startsWith('followups')) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      const s = el('fu-f-search');
+      if (s) { e.preventDefault(); s.focus(); s.select(); }
+    } else if (e.key === 'Escape' && _fuFiltersOpen) {
+      _fuToggleFilters();
+    }
+  });
 }
 
 function _fuOnFilterChange(key, value) {
@@ -452,47 +500,43 @@ function _fuTable(rows, emptyMsg, ctx) {
     return m;
   }, { overdue: 0, today: 0, future: 0 });
 
+  const densityToggle = `
+    <div class="fu-density-toggle" role="group" aria-label="Row density">
+      <button class="${_fuDensity === 'comfortable' ? 'active' : ''}" title="Comfortable" onclick="_fuSetDensity('comfortable')">${icon('rows-3', 12)}</button>
+      <button class="${_fuDensity === 'compact' ? 'active' : ''}" title="Compact" onclick="_fuSetDensity('compact')">${icon('list', 12)}</button>
+      <button class="${_fuDensity === 'ultra' ? 'active' : ''}" title="Ultra Compact" onclick="_fuSetDensity('ultra')">${icon('menu', 12)}</button>
+    </div>`;
+
   if (!data.length) {
     return `
-      <div class="fu-worklist-card">
+      <div class="fu-worklist-card fu-density-${_fuDensity}">
         <div class="fu-worklist-head">
           <div><div class="fu-worklist-title">Worklist</div><div class="fu-worklist-sub">0 follow-ups found</div></div>
-          <div class="fu-density-toggle">
-            <button class="${_fuDensity === 'comfortable' ? 'active' : ''}" onclick="_fuSetDensity('comfortable')">${icon('rows-3', 13)}</button>
-            <button class="${_fuDensity === 'compact' ? 'active' : ''}" onclick="_fuSetDensity('compact')">${icon('list', 13)}</button>
-          </div>
+          ${densityToggle}
         </div>
-        <table class="fu-table">
-          <thead>
-            <tr>
-              <th>Due</th><th>Lead Details</th><th>Last Remark</th><th>Remark Date</th><th>Stage</th><th>Owner</th><th>Action</th>
-            </tr>
-          </thead>
+        <div class="fu-table-scroll"><table class="fu-table">
+          <thead><tr><th>Due</th><th>Lead Details</th><th>Last Remark</th><th>Remark Date</th><th>Stage</th><th>Owner</th><th>Action</th></tr></thead>
           <tbody><tr><td colspan="7" class="empty-table-cell">${emptyMsg}</td></tr></tbody>
-        </table>
+        </table></div>
       </div>`;
   }
 
   return `
-    <div class="fu-worklist-card ${_fuDensity === 'compact' ? 'compact' : ''}">
+    <div class="fu-worklist-card fu-density-${_fuDensity}">
       <div class="fu-worklist-head">
-        <div>
-          <div class="fu-worklist-title">Worklist</div>
-          <div class="fu-worklist-sub">${data.length} follow-up${data.length === 1 ? '' : 's'} found</div>
+        <div class="fu-worklist-head-left">
+          <div class="fu-worklist-title">Worklist <span class="fu-worklist-count">${data.length}</span></div>
+          <span class="fu-summary-pill danger" title="Overdue">${icon('circle-alert', 11)} ${counts.overdue}</span>
+          <span class="fu-summary-pill success" title="Today">${icon('calendar-days', 11)} ${counts.today}</span>
+          <span class="fu-summary-pill" title="Future">${icon('calendar-clock', 11)} ${counts.future}</span>
         </div>
         <div class="fu-worklist-tools">
-          <span class="fu-summary-pill danger">Overdue ${counts.overdue}</span>
-          <span class="fu-summary-pill success">Today ${counts.today}</span>
-          <span class="fu-summary-pill">Future ${counts.future}</span>
           <label class="fu-page-size">Rows
             <select onchange="_fuSetPageSize(this.value)">
               ${[10, 25, 50, 100].map(n => `<option value="${n}"${n === _fuPageSize ? ' selected' : ''}>${n}</option>`).join('')}
             </select>
           </label>
-          <div class="fu-density-toggle">
-            <button class="${_fuDensity === 'comfortable' ? 'active' : ''}" title="Comfortable" onclick="_fuSetDensity('comfortable')">${icon('rows-3', 13)}</button>
-            <button class="${_fuDensity === 'compact' ? 'active' : ''}" title="Compact" onclick="_fuSetDensity('compact')">${icon('list', 13)}</button>
-          </div>
+          ${densityToggle}
         </div>
       </div>
       <div class="fu-table-scroll">
@@ -527,7 +571,13 @@ function _fuSetPage(page) {
 }
 
 function _fuSetDensity(value) {
-  _fuDensity = value === 'compact' ? 'compact' : 'comfortable';
+  _fuDensity = ['comfortable','compact','ultra'].includes(value) ? value : 'compact';
+  try { localStorage.setItem('_fuDensity', _fuDensity); } catch (e) {}
+  const page = document.querySelector('.fu-page');
+  if (page) {
+    page.classList.remove('fu-density-comfortable','fu-density-compact','fu-density-ultra');
+    page.classList.add('fu-density-' + _fuDensity);
+  }
   _renderFUTab(window.currentFollowupTab || 'all');
 }
 
