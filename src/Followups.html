@@ -67,10 +67,22 @@ function _fuTabsHTML(active) {
     ['closed', 'Closed', 'check-circle-2'],
     ['custom', 'Custom Query', 'filter']
   ];
-  return tabs.map(([id, label, ic]) => `
+  const count = _fuActiveFilterCount();
+  const tabBtns = tabs.map(([id, label, ic]) => `
     <button class="fu-tab ${active === id ? 'active' : ''}" onclick="loadFollowups('${id}')">
       ${icon(ic, 14)} <span>${label}</span><span class="fu-tab-count" id="fu-tab-count-${id}">-</span>
     </button>`).join('');
+  const filterToggle = active === 'custom' ? '' : `
+    <div class="fu-tabs-right">
+      <div class="fu-filter-chips" id="fu-filter-chips-inline">${_fuFilterChipsHTML()}</div>
+      ${count ? `<button class="fu-filter-clear-inline" onclick="_fuClearFilters()" title="Clear filters">${icon('x', 13)} Clear</button>` : ''}
+      <button class="fu-filter-toggle ${_fuFiltersOpen ? 'open' : ''}" id="fu-filter-toggle" onclick="_fuToggleFilters()" title="Filters (Esc to close)">
+        ${icon('sliders-horizontal', 14)} <span>Filters</span>
+        ${count ? `<span class="fu-filter-active-count">${count}</span>` : ''}
+        ${icon(_fuFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
+      </button>
+    </div>`;
+  return `<div class="fu-tabs-left">${tabBtns}</div>${filterToggle}`;
 }
 
 function _fuFilterBarHTML() {
@@ -139,63 +151,50 @@ function _fuActiveFilterCount() {
 
 function _fuModernFilterBarHTML() {
   const f = _fuFilterState;
-  const count = _fuActiveFilterCount();
-  return `
-  <div class="fu-filter-bar" id="fu-filter-bar">
-    <div class="fu-filter-row">
-      <label class="fu-search">${icon('search', 14)}
-        <input type="search" id="fu-f-search" placeholder="Search company, contact, phone, remark... (Ctrl+K)" value="${escapeHtml(f.search)}" oninput="_fuOnFilterChange('search',this.value)">
-      </label>
-      <button class="fu-filter-toggle ${_fuFiltersOpen ? 'open' : ''}" id="fu-filter-toggle" onclick="_fuToggleFilters()" title="Filters (Esc to close)">
-        ${icon('sliders-horizontal', 14)} <span>Filters</span>
-        ${count ? `<span class="fu-filter-active-count">${count}</span>` : ''}
-        ${icon(_fuFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
-      </button>
-      ${count ? `<button class="fu-filter-clear-inline" onclick="_fuClearFilters()" title="Clear filters">${icon('x', 13)} Clear</button>` : ''}
-      <div class="fu-filter-chips" id="fu-filter-chips">${_fuFilterChipsHTML()}</div>
-    </div>
-    <div class="fu-filter-panel" id="fu-filter-panel" style="display:${_fuFiltersOpen ? 'flex' : 'none'}">${_fuFilterPanelHTML()}</div>
-  </div>`;
-}
-
-function _fuFilterPanelHTML() {
   const cfg = App.config || {};
   const types = cfg.followupTypes || [];
   const users = cfg.users || [];
   const stages = cfg.stages || cfg.allStages || [];
-  const f = _fuFilterState;
   const modes = ['Call Connected', 'WhatsApp Chat', 'Not Picked'];
   return `
-    <label class="fu-filter"><span>Type</span><select id="fu-f-type" onchange="_fuOnFilterChange('type',this.value)">
-      <option value="">All Types</option>
-      ${types.map(t=>`<option value="${escapeHtml(t)}"${f.type===t?' selected':''}>${escapeHtml(t)}</option>`).join('')}
-    </select></label>
-    <label class="fu-filter"><span>Owner</span><select id="fu-f-user" onchange="_fuOnFilterChange('assignedTo',this.value)">
-      <option value="">All Users</option>
-      ${users.map(u=>`<option value="${escapeHtml(u.id)}"${f.assignedTo===u.id?' selected':''}>${escapeHtml(u.name)}</option>`).join('')}
-    </select></label>
-    <label class="fu-filter"><span>Contact</span><select id="fu-f-contact" onchange="_fuOnFilterChange('contactMode',this.value)">
-      <option value="">All Modes</option>
-      ${modes.map(m=>`<option value="${escapeHtml(m)}"${f.contactMode===m?' selected':''}>${escapeHtml(m)}</option>`).join('')}
-    </select></label>
-    <label class="fu-filter"><span>Stage</span><select id="fu-f-stage" onchange="_fuOnFilterChange('stage',this.value)">
-      <option value="">All Stages</option>
-      ${stages.map(s=>`<option value="${escapeHtml(s['Stage ID'])}"${f.stage===s['Stage ID']?' selected':''}>${escapeHtml(s['Stage Name'])}</option>`).join('')}
-    </select></label>
-    <label class="fu-filter fu-date"><span>From</span><input type="date" id="fu-f-from" value="${escapeHtml(f.dateFrom)}" onchange="_fuOnFilterChange('dateFrom',this.value)"></label>
-    <label class="fu-filter fu-date"><span>To</span><input type="date" id="fu-f-to" value="${escapeHtml(f.dateTo)}" onchange="_fuOnFilterChange('dateTo',this.value)"></label>
-    <button class="btn btn-outlined btn-sm" onclick="_fuClearFilters()">${icon('x', 13)} Clear All</button>`;
+  <div class="fu-filter-bar" id="fu-filter-bar" style="display:${_fuFiltersOpen ? 'block' : 'none'}">
+    <div class="fu-filter-card-grid">
+      <label class="fu-search">${icon('search', 14)}
+        <input type="search" id="fu-f-search" placeholder="Search company, contact, phone, remark... (Ctrl+K)" value="${escapeHtml(f.search)}" oninput="_fuOnFilterChange('search',this.value)">
+      </label>
+      <label class="fu-filter"><span>Type</span><select id="fu-f-type" onchange="_fuOnFilterChange('type',this.value)">
+        <option value="">All Types</option>
+        ${types.map(t=>`<option value="${escapeHtml(t)}"${f.type===t?' selected':''}>${escapeHtml(t)}</option>`).join('')}
+      </select></label>
+      <label class="fu-filter"><span>Owner</span><select id="fu-f-user" onchange="_fuOnFilterChange('assignedTo',this.value)">
+        <option value="">All Users</option>
+        ${users.map(u=>`<option value="${escapeHtml(u.id)}"${f.assignedTo===u.id?' selected':''}>${escapeHtml(u.name)}</option>`).join('')}
+      </select></label>
+      <label class="fu-filter"><span>Contact</span><select id="fu-f-contact" onchange="_fuOnFilterChange('contactMode',this.value)">
+        <option value="">All Modes</option>
+        ${modes.map(m=>`<option value="${escapeHtml(m)}"${f.contactMode===m?' selected':''}>${escapeHtml(m)}</option>`).join('')}
+      </select></label>
+      <label class="fu-filter"><span>Stage</span><select id="fu-f-stage" onchange="_fuOnFilterChange('stage',this.value)">
+        <option value="">All Stages</option>
+        ${stages.map(s=>`<option value="${escapeHtml(s['Stage ID'])}"${f.stage===s['Stage ID']?' selected':''}>${escapeHtml(s['Stage Name'])}</option>`).join('')}
+      </select></label>
+      <label class="fu-filter fu-date"><span>From</span><input type="date" id="fu-f-from" value="${escapeHtml(f.dateFrom)}" onchange="_fuOnFilterChange('dateFrom',this.value)"></label>
+      <label class="fu-filter fu-date"><span>To</span><input type="date" id="fu-f-to" value="${escapeHtml(f.dateTo)}" onchange="_fuOnFilterChange('dateTo',this.value)"></label>
+      <button class="btn btn-outlined btn-sm fu-filter-clear-all" onclick="_fuClearFilters()">${icon('x', 13)} Clear All</button>
+    </div>
+  </div>`;
 }
 
 function _fuToggleFilters() {
   _fuFiltersOpen = !_fuFiltersOpen;
-  const panel = el('fu-filter-panel');
+  const bar = el('fu-filter-bar');
   const toggle = el('fu-filter-toggle');
-  if (panel) panel.style.display = _fuFiltersOpen ? 'flex' : 'none';
+  if (bar) bar.style.display = _fuFiltersOpen ? 'block' : 'none';
   if (toggle) {
     toggle.classList.toggle('open', _fuFiltersOpen);
     renderIcons(toggle);
   }
+  if (_fuFiltersOpen) { const s = el('fu-f-search'); if (s) s.focus(); }
 }
 window._fuToggleFilters = _fuToggleFilters;
 
@@ -301,9 +300,11 @@ async function _renderFUTab(tab) {
       }
     }
     const ctx = _buildFollowupContext(AppCache.getRows('leads'));
+    const tabsEl = el('fu-tabs');
+    if (tabsEl) { tabsEl.innerHTML = _fuTabsHTML(window.currentFollowupTab || 'all'); renderIcons(tabsEl); }
     _fuRenderOverview(ctx);
     rows = _fuApplyFilters(rows, ctx);
-    const chips = el('fu-filter-chips'); if (chips) { chips.innerHTML = _fuFilterChipsHTML(); renderIcons(chips); }
+    const inlineChips = el('fu-filter-chips-inline'); if (inlineChips) { inlineChips.innerHTML = _fuFilterChipsHTML(); renderIcons(inlineChips); }
     const hasFilter = Object.values(_fuFilterState).some(Boolean);
     const emptyMsg = hasFilter
       ? `No follow-ups match the current filters. <a href="#" onclick="_fuClearFilters();return false" style="color:#4F46E5">Clear filters</a>`

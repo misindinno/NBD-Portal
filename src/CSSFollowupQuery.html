@@ -172,11 +172,9 @@
   .fu-page #fu-body {
     flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
   }
-  /* Scroll-aware collapse: hide heading + KPIs + tabs + filters when user scrolls the table */
+  /* Scroll-aware collapse: hide heading + KPIs when user scrolls the table */
   .fu-page.fu-scrolled .fu-topbar,
-  .fu-page.fu-scrolled .fu-kpis,
-  .fu-page.fu-scrolled .fu-tabs,
-  .fu-page.fu-scrolled .fu-filter-bar { display: none; }
+  .fu-page.fu-scrolled .fu-kpis { display: none; }
   /* Compact topbar (48–56px) */
   .fu-topbar {
     display: flex; align-items: center; justify-content: space-between;
@@ -240,14 +238,23 @@
   .fu-kpi-purple .fu-kpi-icon  { background: linear-gradient(135deg, #EDE9FE, #C4B5FD); color: #6D28D9; }
   .fu-kpi-skeleton { height: 60px; border-radius: 8px; }
 
-  /* Segmented control tabs (36px) */
+  /* Segmented control tabs (36px) with inline filter toggle */
   .fu-tabs {
-    display: flex; align-items: center; gap: 4px; overflow-x: auto;
+    display: flex; align-items: center; gap: 8px;
     border-bottom: 1px solid #E5E7EB; padding-bottom: 4px;
-    flex-shrink: 0; scrollbar-width: thin;
+    flex-shrink: 0;
   }
-  .fu-tabs::-webkit-scrollbar { height: 4px; }
-  .fu-tabs::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 2px; }
+  .fu-tabs-left {
+    display: flex; align-items: center; gap: 4px;
+    flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin;
+  }
+  .fu-tabs-left::-webkit-scrollbar { height: 4px; }
+  .fu-tabs-left::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 2px; }
+  .fu-tabs-right {
+    display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    padding-left: 6px; border-left: 1px solid #E5E7EB;
+  }
+  .fu-tabs-right .fu-filter-chips { max-width: 300px; overflow: hidden; flex-wrap: nowrap; }
   .fu-tab {
     height: 30px; border: 1px solid #E5E7EB; background: #fff; color: #475569;
     border-radius: 999px; padding: 0 12px; display: inline-flex; align-items: center;
@@ -267,56 +274,66 @@
   }
   .fu-tab.active .fu-tab-count { background: rgba(255,255,255,.25); color: #fff; }
 
-  /* Collapsible filter bar (48–60px collapsed) */
+  /* Filter dropdown card — only visible when toggled */
   .fu-filter-bar {
-    background: #fff; border: 1px solid #E5E7EB; border-radius: 8px;
-    box-shadow: 0 1px 2px rgba(15,23,42,.04); flex-shrink: 0;
+    background: #fff; border: 1px solid #C7D2FE; border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(15,23,42,.10), 0 2px 6px rgba(15,23,42,.05);
+    flex-shrink: 0; padding: 12px;
+    animation: fuFilterSlide .18s ease-out;
   }
-  .fu-filter-row {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    padding: 8px 10px; min-height: 48px;
+  @keyframes fuFilterSlide {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
+  .fu-filter-card-grid {
+    display: grid; gap: 8px;
+    grid-template-columns: minmax(220px, 2fr) repeat(auto-fit, minmax(140px, 1fr));
+    align-items: end;
+  }
+  .fu-filter-card-grid .fu-filter-clear-all { grid-column: -2 / -1; height: 32px; }
   .fu-search {
-    height: 32px; min-width: min(360px, 100%); flex: 1 1 260px;
-    display: flex; align-items: center; gap: 6px; padding: 0 10px;
+    height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 10px;
     border: 1px solid #D1D5DB; border-radius: 7px; background: #fff;
   }
   .fu-search:focus-within { border-color: #818CF8; box-shadow: 0 0 0 3px rgba(129,140,248,.15); }
   .fu-search svg { color: #6B7280; flex-shrink: 0; }
   .fu-search input { border: none; outline: none; width: 100%; font-size: 12.5px; color: #111827; background: transparent; }
   .fu-filter-toggle {
-    height: 32px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 7px;
+    height: 30px; padding: 0 10px; border: 1px solid #D1D5DB; border-radius: 999px;
     background: #fff; color: #334155; display: inline-flex; align-items: center;
     gap: 5px; cursor: pointer; font-size: 12px; font-weight: 700; white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(15,23,42,.04); transition: all .15s;
   }
-  .fu-filter-toggle:hover { background: #F8FAFC; border-color: #94A3B8; }
-  .fu-filter-toggle.open { background: #EEF2FF; color: #3730A3; border-color: #C7D2FE; }
+  .fu-filter-toggle:hover { background: #F8FAFC; border-color: #94A3B8; transform: translateY(-1px); }
+  .fu-filter-toggle.open {
+    background: linear-gradient(135deg, #6366F1, #4F46E5); color: #fff; border-color: #4338CA;
+    box-shadow: 0 3px 8px rgba(99,102,241,.30);
+  }
+  .fu-filter-toggle.open svg { color: #fff; }
   .fu-filter-active-count {
     min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
-    background: #4F46E5; color: #fff; font-size: 10px; font-weight: 800;
+    background: #EF4444; color: #fff; font-size: 10px; font-weight: 800;
     display: inline-flex; align-items: center; justify-content: center;
   }
+  .fu-filter-toggle.open .fu-filter-active-count { background: rgba(255,255,255,.25); }
   .fu-filter-clear-inline {
-    height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 7px;
+    height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: 999px;
     background: #FEF2F2; color: #B91C1C; cursor: pointer; font-size: 12px; font-weight: 700;
     display: inline-flex; align-items: center; gap: 4px;
   }
   .fu-filter-clear-inline:hover { background: #FEE2E2; }
-  .fu-filter-panel {
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    padding: 10px; border-top: 1px solid #F1F5F9; background: #FAFBFC;
-    border-radius: 0 0 8px 8px;
-  }
-  .fu-filter { display: flex; align-items: center; gap: 5px; color: #64748B; font-size: 11px; font-weight: 800; }
+  .fu-filter { display: flex; flex-direction: column; gap: 4px; color: #64748B; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
   .fu-filter select, .fu-filter input {
     height: 32px; border: 1px solid #D1D5DB; border-radius: 7px;
-    background: #fff; color: #111827; padding: 0 8px; font-size: 12px;
+    background: #fff; color: #111827; padding: 0 8px; font-size: 12px; font-weight: 500;
+    text-transform: none; letter-spacing: 0;
   }
-  .fu-filter-chips { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .fu-filter-chips { display: inline-flex; align-items: center; gap: 5px; flex-wrap: nowrap; }
   .fu-filter-chip {
     border: none; background: #EEF2FF; color: #3730A3; border-radius: 999px;
     padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;
-    font-size: 11px; font-weight: 700; cursor: pointer;
+    font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    max-width: 140px; overflow: hidden; text-overflow: ellipsis;
   }
   .fu-filter-chip:hover { background: #E0E7FF; }
 
