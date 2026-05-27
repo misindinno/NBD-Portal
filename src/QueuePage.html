@@ -5,20 +5,26 @@ let _queuePageRefreshTimer = null;
 let _qpAdminFilter = '';
 let _qpAllUserEmails = [];
 let _qpJobs = [];
+let _qpAdminJobs = [];
 let _qpHealth = null;
 let _qpLastRefreshAt = null;
 let _qpAutoRefresh = true;
 let _qpFilters = { status: '', module: '', query: '' };
+let _qpPage = 1;
+let _qpPageSize = 25;
 
 async function loadQueuePage() {
   _stopQueuePageRefresh();
   _qpAdminFilter = '';
   _qpAllUserEmails = [];
   _qpJobs = [];
+  _qpAdminJobs = [];
   _qpHealth = null;
   _qpLastRefreshAt = null;
   _qpAutoRefresh = true;
   _qpFilters = { status: '', module: '', query: '' };
+  _qpPage = 1;
+  _qpPageSize = 25;
   el('content').innerHTML = _queuePageShell();
   renderIcons(el('content'));
   await _refreshQueuePage();
@@ -97,11 +103,32 @@ function _qpToggleAutoRefresh() {
 
 function _qpOnUserFilterChange(email) {
   _qpAdminFilter = email || '';
+  _qpPage = 1;
+  if (_qpIsAdmin() && _qpAdminJobs.length) {
+    _qpJobs = _qpApplyUserFilter(_qpAdminJobs);
+    _renderQueueStats(_qpJobs);
+    _renderQueueFilters(_qpJobs, true);
+    _renderQueuePage(_qpJobs, true);
+    _qpRefreshHealthOnly();
+    return;
+  }
   _refreshQueuePage();
 }
 
 function _qpOnFilterChange(key, value) {
   _qpFilters[key] = value || '';
+  _qpPage = 1;
+  _renderQueuePage(_qpJobs, _qpIsAdmin());
+}
+
+function _qpOnPageSizeChange(value) {
+  _qpPageSize = Math.max(10, Number(value) || 25);
+  _qpPage = 1;
+  _renderQueuePage(_qpJobs, _qpIsAdmin());
+}
+
+function _qpSetPage(page) {
+  _qpPage = Math.max(1, Number(page) || 1);
   _renderQueuePage(_qpJobs, _qpIsAdmin());
 }
 
@@ -116,10 +143,11 @@ async function _refreshQueuePage(showSpinner = false) {
     const isAdmin = _qpIsAdmin();
 
     if (isAdmin) {
-      try { serverJobs = await api.getAllQueueHistory(_qpAdminFilter, 300); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
+      try { serverJobs = await api.getAllQueueHistory('', 500); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
       try { _qpHealth = await api.getQueueHealth(_qpAdminFilter); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
-      if (!_qpAdminFilter) _qpAllUserEmails = [...new Set(serverJobs.map(j => j.userEmail).filter(Boolean))].sort();
-      displayJobs = serverJobs;
+      _qpAdminJobs = serverJobs;
+      _qpAllUserEmails = [...new Set(serverJobs.map(j => j.userEmail).filter(Boolean))].sort();
+      displayJobs = _qpApplyUserFilter(serverJobs);
     } else {
       const localJobs = QueueManager.getAllJobs();
       try { serverJobs = await api.getQueueHistory(150); } catch (e) { console.warn('[QueuePage] History load failed', e); }
@@ -141,6 +169,15 @@ async function _refreshQueuePage(showSpinner = false) {
     if (body) body.innerHTML = `<div class="qp-error-card">${escapeHtml(String(err.message || err))}</div>`;
   } finally {
     if (refreshBtn) refreshBtn.classList.remove('spinning');
+  }
+}
+
+async function _qpRefreshHealthOnly() {
+  try {
+    _qpHealth = await api.getQueueHealth(_qpAdminFilter);
+    _renderQueueHealth(_qpHealth);
+  } catch (e) {
+    console.warn('[QueuePage] Health refresh failed', e);
   }
 }
 
@@ -244,6 +281,7 @@ function _renderQueueStats(jobs) {
 function _qpQuickStatus(key) {
   const map = { pending: 'LIVE', done: 'DONE', failed: 'FAILED', dead: 'DEAD' };
   _qpFilters.status = map[key] || '';
+  _qpPage = 1;
   const sel = el('qp-status-filter');
   if (sel) sel.value = _qpFilters.status;
   _renderQueuePage(_qpJobs, _qpIsAdmin());
@@ -327,6 +365,10 @@ function _renderQueuePage(jobs, showUser = false) {
   const bodyEl = el('qp-body');
   if (!bodyEl) return;
   const filtered = _filterQueueJobs(jobs);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / _qpPageSize));
+  _qpPage = Math.min(Math.max(1, _qpPage), pageCount);
+  const start = (_qpPage - 1) * _qpPageSize;
+  const paged = filtered.slice(start, start + _qpPageSize);
 
   if (!filtered.length) {
     bodyEl.innerHTML = `<div class="qp-empty">
@@ -341,6 +383,19 @@ function _renderQueuePage(jobs, showUser = false) {
   const userColHeader = showUser ? `<th>User</th>` : '';
   bodyEl.innerHTML = `
   <div class="qp-table-card">
+    <div class="qp-table-meta">
+      <div>
+        <span class="qp-table-count">${escapeHtml(filtered.length)}</span>
+        <span class="qp-muted">job${filtered.length === 1 ? '' : 's'} found</span>
+        ${_qpAdminFilter ? `<span class="qp-filter-chip">${icon('user', 12)} ${escapeHtml(_qpAdminFilter)}</span>` : ''}
+      </div>
+      <div class="qp-page-size">
+        <span>Rows</span>
+        <select onchange="_qpOnPageSizeChange(this.value)">
+          ${[10, 25, 50, 100].map(n => `<option value="${n}"${n === _qpPageSize ? ' selected' : ''}>${n}</option>`).join('')}
+        </select>
+      </div>
+    </div>
     <div class="qp-table-scroll">
       <table class="qp-table">
         <thead>
@@ -356,11 +411,47 @@ function _renderQueuePage(jobs, showUser = false) {
             <th class="qp-actions-th">Actions</th>
           </tr>
         </thead>
-        <tbody>${filtered.map(j => _queueJobRow(j, showUser)).join('')}</tbody>
+        <tbody>${paged.map(j => _queueJobRow(j, showUser)).join('')}</tbody>
       </table>
     </div>
+    ${_qpPagination(filtered.length, start, paged.length, pageCount)}
   </div>`;
   renderIcons(bodyEl);
+}
+
+function _qpApplyUserFilter(jobs) {
+  const email = String(_qpAdminFilter || '').trim().toLowerCase();
+  if (!email) return jobs;
+  return jobs.filter(j => String(j.userEmail || '').trim().toLowerCase() === email);
+}
+
+function _qpPagination(total, start, visibleCount, pageCount) {
+  const from = total ? start + 1 : 0;
+  const to = start + visibleCount;
+  const pages = _qpPageButtons(pageCount);
+  return `<div class="qp-pagination">
+    <div class="qp-muted">Showing ${escapeHtml(from)}-${escapeHtml(to)} of ${escapeHtml(total)}</div>
+    <div class="qp-page-buttons">
+      <button class="qp-page-btn" ${_qpPage <= 1 ? 'disabled' : ''} onclick="_qpSetPage(${_qpPage - 1})">${icon('chevron-left', 14)}</button>
+      ${pages.map(p => p === '...'
+        ? `<span class="qp-page-ellipsis">...</span>`
+        : `<button class="qp-page-btn ${p === _qpPage ? 'active' : ''}" onclick="_qpSetPage(${p})">${p}</button>`
+      ).join('')}
+      <button class="qp-page-btn" ${_qpPage >= pageCount ? 'disabled' : ''} onclick="_qpSetPage(${_qpPage + 1})">${icon('chevron-right', 14)}</button>
+    </div>
+  </div>`;
+}
+
+function _qpPageButtons(pageCount) {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+  const set = new Set([1, pageCount, _qpPage - 1, _qpPage, _qpPage + 1]);
+  const nums = Array.from(set).filter(n => n >= 1 && n <= pageCount).sort((a, b) => a - b);
+  const out = [];
+  nums.forEach((n, i) => {
+    if (i && n - nums[i - 1] > 1) out.push('...');
+    out.push(n);
+  });
+  return out;
 }
 
 function _filterQueueJobs(jobs) {

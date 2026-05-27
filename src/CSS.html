@@ -619,6 +619,11 @@
   .qp-filter { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6B7280; font-weight: 700; }
   .qp-filter select { height: 36px; border: 1px solid #D1D5DB; border-radius: 7px; background: #fff; color: #111827; padding: 0 9px; font-size: 12px; }
   .qp-table-card { overflow: hidden; }
+  .qp-table-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid #E5E7EB; background: #FFFFFF; }
+  .qp-table-count { color: #111827; font-size: 13px; font-weight: 800; margin-right: 4px; }
+  .qp-filter-chip { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 3px 8px; border-radius: 999px; background: #F1F5F9; color: #334155; font-size: 11px; font-weight: 700; }
+  .qp-page-size { display: inline-flex; align-items: center; gap: 6px; color: #64748B; font-size: 11px; font-weight: 700; }
+  .qp-page-size select { height: 30px; border: 1px solid #D1D5DB; border-radius: 7px; background: #fff; color: #111827; padding: 0 8px; font-size: 12px; }
   .qp-table-scroll { overflow-x: auto; }
   .qp-table { width: 100%; border-collapse: collapse; min-width: 1040px; font-size: 12px; }
   .qp-table th { padding: 10px 12px; text-align: left; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #64748B; background: #F8FAFC; border-bottom: 1px solid #E5E7EB; white-space: nowrap; }
@@ -644,6 +649,12 @@
   .qp-actions { display: flex; gap: 5px; align-items: center; white-space: nowrap; }
   .qp-icon-btn { width: 28px; height: 28px; border: 1px solid #E5E7EB; border-radius: 7px; background: #fff; color: #475569; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
   .qp-icon-btn:hover { background: #F8FAFC; border-color: #CBD5E1; color: #111827; }
+  .qp-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-top: 1px solid #E5E7EB; background: #FFFFFF; }
+  .qp-page-buttons { display: inline-flex; align-items: center; gap: 4px; }
+  .qp-page-btn { min-width: 30px; height: 30px; border: 1px solid #E5E7EB; border-radius: 7px; background: #fff; color: #334155; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; font-weight: 700; }
+  .qp-page-btn:hover:not(:disabled), .qp-page-btn.active { background: #EEF2FF; color: #3730A3; border-color: #C7D2FE; }
+  .qp-page-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .qp-page-ellipsis { min-width: 24px; text-align: center; color: #94A3B8; font-size: 12px; font-weight: 700; }
   .qp-empty, .qp-error-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 8px; text-align: center; padding: 48px 20px; color: #9CA3AF; }
   .qp-empty-title { margin-top: 12px; font-size: 14px; font-weight: 700; color: #374151; }
   .qp-empty-text { font-size: 12px; margin-top: 4px; color: #6B7280; }
