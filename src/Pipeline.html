@@ -1,4 +1,100 @@
 <script>
+let _pipelineFilters = { search: '', priority: '', userId: '', overdueOnly: false, myLeads: false };
+let _pipelineFiltersOpen = false;
+
+function _pipelineApplyFilters() {
+  const f = _pipelineFilters;
+  const q = String(f.search || '').toLowerCase().trim();
+  const userId = String(f.userId || '');
+  const pri = String(f.priority || '').toLowerCase();
+  const myUid = App.user && App.user.id;
+  let visible = 0;
+  document.querySelectorAll('.pipeline-card').forEach(card => {
+    const lead = (window.pipelineLeadMap || {})[card.dataset.leadId] || {};
+    let match = true;
+    if (q) {
+      const hay = [lead['Company Name'], lead['Contact Person'], lead['Phone'], lead['City'], lead['Client Description'], lead['Email']]
+        .map(v => String(v || '').toLowerCase()).join(' ');
+      if (!hay.includes(q)) match = false;
+    }
+    if (match && pri && String(lead['Priority'] || '').toLowerCase() !== pri) match = false;
+    if (match && userId && lead['Assigned To'] !== userId) match = false;
+    if (match && f.myLeads && lead['Assigned To'] !== myUid) match = false;
+    if (match && f.overdueOnly && !card.querySelector('.pc-overdue-flag')) match = false;
+    card.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  document.querySelectorAll('.pipeline-cards').forEach(col => {
+    const shown = col.querySelectorAll('.pipeline-card:not([style*="display: none"])').length;
+    const countEl = col.parentElement?.querySelector('.pipeline-col-count');
+    if (countEl) {
+      const total = col.querySelectorAll('.pipeline-card').length;
+      countEl.textContent = (shown === total) ? total : `${shown}/${total}`;
+    }
+  });
+  const meta = document.querySelector('.pipeline-topbar-meta');
+  if (meta) {
+    const total = Object.keys(window.pipelineLeadMap || {}).length;
+    meta.textContent = (visible === total) ? `${total} lead${total !== 1 ? 's' : ''}` : `${visible} of ${total} shown`;
+  }
+}
+window._pipelineApplyFilters = _pipelineApplyFilters;
+
+function _pipelineOnFilterChange(key, value) {
+  _pipelineFilters[key] = value;
+  _pipelineApplyFilters();
+  _pipelineRefreshChipState();
+}
+window._pipelineOnFilterChange = _pipelineOnFilterChange;
+
+function _pipelineToggleChip(key) {
+  _pipelineFilters[key] = !_pipelineFilters[key];
+  _pipelineApplyFilters();
+  _pipelineRefreshChipState();
+}
+window._pipelineToggleChip = _pipelineToggleChip;
+
+function _pipelineRefreshChipState() {
+  ['myLeads','overdueOnly'].forEach(k => {
+    const btn = document.querySelector(`.pipe-quick-chip[data-key="${k}"]`);
+    if (btn) btn.classList.toggle('active', !!_pipelineFilters[k]);
+  });
+  const count = ['search','priority','userId'].filter(k => _pipelineFilters[k]).length
+              + (_pipelineFilters.overdueOnly ? 1 : 0)
+              + (_pipelineFilters.myLeads ? 1 : 0);
+  const badge = document.querySelector('#pipe-filter-toggle .fu-filter-active-count');
+  if (badge) badge.textContent = count;
+  const wrap = document.querySelector('#pipe-filter-toggle');
+  if (wrap) {
+    const existing = wrap.querySelector('.fu-filter-active-count');
+    if (!existing && count > 0) {
+      const span = document.createElement('span');
+      span.className = 'fu-filter-active-count';
+      span.textContent = count;
+      const chevron = wrap.querySelector('svg:last-child');
+      wrap.insertBefore(span, chevron);
+    } else if (existing && count === 0) existing.remove();
+  }
+}
+
+function _pipelineToggleFilters() {
+  _pipelineFiltersOpen = !_pipelineFiltersOpen;
+  const bar = el('pipe-filter-bar');
+  const toggle = el('pipe-filter-toggle');
+  if (bar) bar.style.display = _pipelineFiltersOpen ? 'block' : 'none';
+  if (toggle) { toggle.classList.toggle('open', _pipelineFiltersOpen); renderIcons(toggle); }
+  if (_pipelineFiltersOpen) { const s = el('pipe-search'); if (s) s.focus(); }
+}
+window._pipelineToggleFilters = _pipelineToggleFilters;
+
+function _pipelineClearFilters() {
+  _pipelineFilters = { search: '', priority: '', userId: '', overdueOnly: false, myLeads: false };
+  ['pipe-search','pipe-priority','pipe-user'].forEach(id => { const e = el(id); if (e) e.value = ''; });
+  _pipelineApplyFilters();
+  _pipelineRefreshChipState();
+}
+window._pipelineClearFilters = _pipelineClearFilters;
+
 async function loadPipeline() {
   el('page-title').textContent = 'Pipeline';
   if (!AppCache.isLoaded('leads')) {
@@ -163,19 +259,68 @@ async function loadPipeline() {
     </div>`;
   }
 
+  const usersOpts = (App.config.users || []).map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('');
+  const prioOpts  = (App.config.priorities || ['Hot','Warm','Cold']).map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+
   el('content').innerHTML = `
     <div class="pipeline-topbar">
-      <div style="display:flex;align-items:center;gap:12px">
-        <span class="pipeline-topbar-hint">${icon('move', 13)} Move leads forward by dragging</span>
+      <div class="pipe-top-left">
+        <span class="pipeline-topbar-hint">${icon('move', 13)} Drag cards to move stages</span>
         <span class="pipeline-topbar-meta">${pipelineLeads.length} lead${pipelineLeads.length !== 1 ? 's' : ''}</span>
+        <div class="pipe-quick-chips">
+          <button class="pipe-quick-chip" data-key="myLeads" onclick="_pipelineToggleChip('myLeads')">${icon('user', 11)} My leads</button>
+          <button class="pipe-quick-chip" data-key="overdueOnly" onclick="_pipelineToggleChip('overdueOnly')">${icon('alert-triangle', 11)} Overdue</button>
+        </div>
       </div>
-      ${_isNBDPortal() ? _nbdEscalateBtn('sm') : `<button class="btn btn-primary btn-sm" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>`}
+      <div class="pipe-top-right">
+        <button class="fu-filter-toggle ${_pipelineFiltersOpen ? 'open' : ''}" id="pipe-filter-toggle" onclick="_pipelineToggleFilters()" title="Filters">
+          ${icon('sliders-horizontal', 14)} <span>Filters</span>
+          ${icon(_pipelineFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
+        </button>
+        ${_isNBDPortal() ? _nbdEscalateBtn('sm') : `<button class="btn btn-primary btn-sm" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>`}
+      </div>
     </div>
+
+    <div class="fu-filter-bar" id="pipe-filter-bar" style="display:${_pipelineFiltersOpen ? 'block' : 'none'};margin-bottom:8px">
+      <div class="fu-filter-card-grid">
+        <label class="fu-search">${icon('search', 14)}
+          <input type="search" id="pipe-search" placeholder="Search company, contact, phone, city, description..." value="${escapeHtml(_pipelineFilters.search)}" oninput="_pipelineOnFilterChange('search',this.value)">
+        </label>
+        <label class="fu-filter"><span>Priority</span><select id="pipe-priority" onchange="_pipelineOnFilterChange('priority',this.value)">
+          <option value="">All</option>${prioOpts}
+        </select></label>
+        <label class="fu-filter"><span>Owner</span><select id="pipe-user" onchange="_pipelineOnFilterChange('userId',this.value)">
+          <option value="">All Owners</option>${usersOpts}
+        </select></label>
+        <button class="btn btn-outlined btn-sm fu-filter-clear-all" onclick="_pipelineClearFilters()">${icon('x', 13)} Clear</button>
+      </div>
+    </div>
+
     <div id="pipeline-board" class="pipeline-content">
       ${pipeline.map(renderCol).join('')}
     </div>`;
 
   renderIcons();
+  // restore element values + chip states from current filter state
+  if (_pipelineFilters.priority) { const e = el('pipe-priority'); if (e) e.value = _pipelineFilters.priority; }
+  if (_pipelineFilters.userId)   { const e = el('pipe-user');     if (e) e.value = _pipelineFilters.userId; }
+  _pipelineRefreshChipState();
+  _pipelineApplyFilters();
+
+  // Ctrl+K opens filter card + focuses search; Esc closes
+  if (!window._pipeKeysBound) {
+    window._pipeKeysBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (!String(App.currentPage || '').startsWith('pipeline')) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (!_pipelineFiltersOpen) _pipelineToggleFilters();
+        const s = el('pipe-search'); if (s) { s.focus(); s.select(); }
+      } else if (e.key === 'Escape' && _pipelineFiltersOpen) {
+        _pipelineToggleFilters();
+      }
+    });
+  }
 
   window.pipelineSortables = [];
   window.pipelineUpdateInFlight = false;
