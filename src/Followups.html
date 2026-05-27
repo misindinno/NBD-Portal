@@ -418,17 +418,25 @@ function _buildFollowupContext(leads = []) {
     ...(AppCache.getRows('followupHistory') || [])
   ];
   const lastDiscussionMap = {};
+  const lastDoneMap = {};
   allFuRows
-    .filter(f => !_isActivityLog(f) && f['Lead ID'] && (f['Discussion'] || f['Remark']))
-    .sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0))
+    .filter(f => !_isActivityLog(f) && f['Lead ID'])
+    .sort((a, b) => new Date(b['Done Date'] || b['Created At'] || 0) - new Date(a['Done Date'] || a['Created At'] || 0))
     .forEach(f => {
-      if (!lastDiscussionMap[f['Lead ID']]) lastDiscussionMap[f['Lead ID']] = f['Discussion'] || f['Remark'];
+      const leadId = f['Lead ID'];
+      if (!lastDiscussionMap[leadId] && (f['Discussion'] || f['Remark'])) {
+        lastDiscussionMap[leadId] = f['Discussion'] || f['Remark'];
+      }
+      if (!lastDoneMap[leadId] && f['Done Date']) {
+        lastDoneMap[leadId] = f['Done Date'];
+      }
     });
   return {
     leadMap: _mapRowsBy(leads, 'Lead ID'),
     userMap: App.config.userNameMap || (App.config.users || []).reduce((m, u) => { m[u.id] = u.name; return m; }, {}),
     stageMap: (App.config.allStages || App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {}),
-    lastDiscussionMap
+    lastDiscussionMap,
+    lastDoneMap
   };
 }
 
@@ -471,7 +479,8 @@ function _decorateFollowup(row, ctx) {
     _leadStageLabel: leadCurrentStage ? leadCurrentStage['Stage Name'] : '',
     _companyName: lead ? (lead['Company Name'] || '') : '',
     _contactPerson: lead ? (lead['Contact Person'] || '') : '',
-    _city: lead ? (lead['City'] || '') : ''
+    _city: lead ? (lead['City'] || '') : '',
+    _lastDoneDate: ctx?.lastDoneMap?.[row['Lead ID']] || ''
   };
 }
 
@@ -653,7 +662,14 @@ function _fuTableRow(r) {
       ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
     </td>
     <td><div class="fu-discussion" title="${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '')}">${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '-')}</div></td>
-    <td><div class="fu-date-sub">${formatDate(r['Done Date'] || r['Follow-up Date'] || '')}</div></td>
+    <td>${(() => {
+      const doneDate = r['Done Date'] || r._lastDoneDate || '';
+      const fallbackDate = r['Follow-up Date'] || '';
+      if (doneDate) {
+        return `<div class="fu-date-sub fu-date-done" title="Last done date"><span class="fu-date-tag">Done</span> ${formatDate(doneDate)}</div>`;
+      }
+      return `<div class="fu-date-sub muted-text">${fallbackDate ? formatDate(fallbackDate) : '-'}</div>`;
+    })()}</td>
     <td>${r._leadStageLabel ? `<span class="fu-stage-chip">${escapeHtml(r._leadStageLabel)}</span>` : '<span class="muted-text">-</span>'}</td>
     <td><div class="fu-owner-cell"><span class="fu-owner-avatar">${escapeHtml((r._assignedToLabel || r._createdByLabel || '?').trim().charAt(0).toUpperCase())}</span><span class="fu-owner-name">${escapeHtml(r._assignedToLabel || r._createdByLabel || '-')}</span></div></td>
     <td>${action}</td>
@@ -690,7 +706,7 @@ function _fuDueCell(row) {
 }
 
 function _followupDueBucket(row) {
-  if (row && !_isOpenFollowupRow(row)) return 'done';
+  if (row && (row['Done Date'] || !_isOpenFollowupRow(row))) return 'done';
   const d = _fmtDate(_fuPlannedDate(row));
   if (!d) return 'none';
   const today = localDateInputValue();
