@@ -408,14 +408,44 @@ function getAllQueueHistory_(filterEmail, limit) {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 // Queue operational health for the Queue page and debugging stuck jobs.
-function getQueueHealth_(userEmail, user) {
+function retryQueueJob_(requestId) {
+  assertServerContext_();
+  const id = String(requestId || '').trim();
+  if (!id) throw new Error('Request ID is required.');
+  const row = _findQueueRow_(id);
+  if (!row) throw new Error('Queue job not found.');
+  const status = String(row['Status'] || '');
+  if (![Q_STATUS.FAILED, Q_STATUS.DEAD].includes(status)) {
+    throw new Error('Only retrying or failed jobs can be retried.');
+  }
+  updateRow(SHEET_NAMES.QUEUE, 'Request ID', id, {
+    'Status': Q_STATUS.QUEUED,
+    'Updated At': now(),
+    'Attempt Count': 0,
+    'Next Retry At': now(),
+    'Lease Until': '',
+    'Lock Owner': '',
+    'Processed At': '',
+    'Last Error': String(row['Last Error'] || '').slice(0, 500)
+  });
+  return { requestId: id, status: Q_STATUS.QUEUED };
+}
+
+function getQueueHealth_(userEmail, user, filterEmail) {
   assertServerContext_();
   const email = String(userEmail || '').trim().toLowerCase();
+  const isAdmin = user && user.role === 'ADMIN';
+  const filter = String(filterEmail || '').trim().toLowerCase();
   const rows = getAllRows(SHEET_NAMES.QUEUE)
-    .filter(r => String(r['User Email'] || '').trim().toLowerCase() === email);
+    .filter(r => {
+      const rowEmail = String(r['User Email'] || '').trim().toLowerCase();
+      if (isAdmin && !filter) return true;
+      if (isAdmin && filter) return rowEmail === filter;
+      return rowEmail === email;
+    });
   const nowMs = Date.now();
   const stats = {
-    scope: 'user',
+    scope: isAdmin ? (filter ? 'filtered' : 'admin') : 'user',
     total: rows.length,
     queued: 0,
     processing: 0,

@@ -1,14 +1,24 @@
 <script>
-// ─── Queue History Page ───────────────────────────────────────────────────────
+// Queue operations page
 
 let _queuePageRefreshTimer = null;
-let _qpAdminFilter = '';      // email filter for admin view; '' = all users
-let _qpAllUserEmails = [];    // full email list cached on unfiltered load
+let _qpAdminFilter = '';
+let _qpAllUserEmails = [];
+let _qpJobs = [];
+let _qpHealth = null;
+let _qpLastRefreshAt = null;
+let _qpAutoRefresh = true;
+let _qpFilters = { status: '', module: '', query: '' };
 
 async function loadQueuePage() {
   _stopQueuePageRefresh();
   _qpAdminFilter = '';
   _qpAllUserEmails = [];
+  _qpJobs = [];
+  _qpHealth = null;
+  _qpLastRefreshAt = null;
+  _qpAutoRefresh = true;
+  _qpFilters = { status: '', module: '', query: '' };
   el('content').innerHTML = _queuePageShell();
   renderIcons(el('content'));
   await _refreshQueuePage();
@@ -20,39 +30,69 @@ function _qpIsAdmin() {
 
 function _queuePageShell() {
   const isAdmin = _qpIsAdmin();
-  const subtitle = isAdmin
-    ? 'Background save history — all users'
-    : 'Background save history for your account';
-  const adminFilter = isAdmin ? `
-  <div id="qp-user-filter" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-    <label style="font-size:12px;color:#6b7280;font-weight:600">User:</label>
-    <select id="qp-user-select" style="font-size:12px;padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;color:#374151;background:#fff" onchange="_qpOnUserFilterChange(this.value)">
-      <option value="">All Users</option>
-    </select>
-  </div>` : '';
   return `
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-    <div>
-      <div style="font-size:14px;font-weight:600;color:#111827">Write Queue</div>
-      <div style="font-size:12px;color:#6b7280;margin-top:2px">${subtitle}</div>
+  <div class="qp-page">
+    <div class="qp-header">
+      <div>
+        <div class="qp-title-row">
+          <span class="qp-title-icon">${icon('list-checks', 18)}</span>
+          <div>
+            <div class="qp-title">Write Queue</div>
+            <div class="qp-subtitle">${isAdmin ? 'Background save operations across users' : 'Your background save operations'}</div>
+          </div>
+        </div>
+      </div>
+      <div class="qp-header-actions">
+        ${isAdmin ? `<button class="btn btn-outlined btn-sm" onclick="_qpProcessNow()" id="qp-process-btn">${icon('zap', 14)} Process now</button>` : ''}
+        <button class="btn btn-outlined btn-sm" onclick="_qpToggleAutoRefresh()" id="qp-auto-btn">${icon('pause-circle', 14)} Live on</button>
+        <button class="btn btn-primary btn-sm" onclick="_refreshQueuePage(true)" id="qp-refresh-btn">${icon('refresh-cw', 14)} Refresh</button>
+      </div>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      ${adminFilter}
-      <button class="btn btn-outlined btn-sm" onclick="_refreshQueuePage(true)" id="qp-refresh-btn">
-        ${icon('refresh-cw', 14)} Refresh
-      </button>
+
+    <div id="qp-health">${_queueHealthSkeleton()}</div>
+    <div id="qp-stats" class="qp-stats">${_queueStatsSkeleton()}</div>
+    <div id="qp-filters">${_queueFilterSkeleton()}</div>
+    <div id="qp-body">${_queuePageSkeleton()}</div>
+  </div>`;
+}
+
+function _queueHealthSkeleton() {
+  return `<div class="qp-health-card qp-skeleton-card">
+    <div class="skeleton-line w-40"></div>
+    <div class="qp-health-grid">
+      ${Array.from({ length: 4 }, () => '<div class="skeleton-block" style="height:58px"></div>').join('')}
     </div>
-  </div>
-  <div id="qp-health" style="margin-bottom:16px"></div>
-  <div id="qp-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px"></div>
-  <div id="qp-body">${_queuePageSkeleton()}</div>`;
+  </div>`;
+}
+
+function _queueStatsSkeleton() {
+  return Array.from({ length: 5 }, () => '<div class="skeleton-block qp-stat-skeleton"></div>').join('');
+}
+
+function _queueFilterSkeleton() {
+  return `<div class="qp-filterbar">
+    <div class="skeleton-line w-40"></div>
+    <div class="skeleton-pill"></div>
+    <div class="skeleton-pill"></div>
+  </div>`;
 }
 
 function _queuePageSkeleton() {
-  return `<div class="skeleton-page">
-    <div class="skeleton-toolbar"><div class="skeleton-line w-40"></div></div>
-    <div class="skeleton-table">${Array.from({length:6},()=>'<div class="skeleton-row"></div>').join('')}</div>
+  return `<div class="qp-table-card skeleton-table">
+    <div class="skeleton-row"></div>
+    ${Array.from({ length: 8 }, () => '<div class="skeleton-row"></div>').join('')}
   </div>`;
+}
+
+function _qpToggleAutoRefresh() {
+  _qpAutoRefresh = !_qpAutoRefresh;
+  const btn = el('qp-auto-btn');
+  if (btn) btn.innerHTML = _qpAutoRefresh
+    ? `${icon('pause-circle', 14)} Live on`
+    : `${icon('play-circle', 14)} Live off`;
+  renderIcons(btn);
+  if (_qpAutoRefresh) _scheduleQueuePageRefresh();
+  else _stopQueuePageRefresh();
 }
 
 function _qpOnUserFilterChange(email) {
@@ -60,287 +100,470 @@ function _qpOnUserFilterChange(email) {
   _refreshQueuePage();
 }
 
+function _qpOnFilterChange(key, value) {
+  _qpFilters[key] = value || '';
+  _renderQueuePage(_qpJobs, _qpIsAdmin());
+}
+
 async function _refreshQueuePage(showSpinner = false) {
   const refreshBtn = el('qp-refresh-btn');
   if (showSpinner && refreshBtn) refreshBtn.classList.add('spinning');
-
-  const isAdmin = _qpIsAdmin();
+  _stopQueuePageRefresh();
 
   try {
     let serverJobs = [];
-    let health = null;
-
     let displayJobs = [];
+    const isAdmin = _qpIsAdmin();
+
     if (isAdmin) {
-      // Admin: fetch all users' jobs (optionally filtered by selected user)
-      try { serverJobs = await api.getAllQueueHistory(_qpAdminFilter, 200); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
-      try { health = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); }
-      // Cache full email list only when showing all users (unfiltered)
-      if (!_qpAdminFilter) {
-        _qpAllUserEmails = [...new Set(serverJobs.map(j => j.userEmail).filter(Boolean))].sort();
-      }
-      _qpPopulateUserDropdown();
+      try { serverJobs = await api.getAllQueueHistory(_qpAdminFilter, 300); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
+      try { _qpHealth = await api.getQueueHealth(_qpAdminFilter); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
+      if (!_qpAdminFilter) _qpAllUserEmails = [...new Set(serverJobs.map(j => j.userEmail).filter(Boolean))].sort();
       displayJobs = serverJobs;
-      _renderQueueHealth(health);
-      _renderQueuePage(displayJobs, true);
     } else {
-      // Non-admin: user-scoped view with local job merge
       const localJobs = QueueManager.getAllJobs();
-      try { serverJobs = await api.getQueueHistory(100); } catch (e) { console.warn('[QueuePage] History load failed', e); }
-      try { health = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); }
+      try { serverJobs = await api.getQueueHistory(150); } catch (e) { console.warn('[QueuePage] History load failed', e); }
+      try { _qpHealth = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
       displayJobs = _mergeQueueJobs(localJobs, serverJobs);
-      _renderQueueHealth(health);
-      _renderQueuePage(displayJobs, false);
     }
 
-    const hasPending = displayJobs.some(j => j.status === 'QUEUED' || j.status === 'PROCESSING' || j.status === 'FAILED');
-    if (hasPending) _scheduleQueuePageRefresh();
+    _qpJobs = displayJobs;
+    _qpLastRefreshAt = new Date();
+    _renderQueueHealth(_qpHealth);
+    _renderQueueStats(displayJobs);
+    _renderQueueFilters(displayJobs, isAdmin);
+    _renderQueuePage(displayJobs, isAdmin);
 
+    const hasPending = displayJobs.some(j => _qpIsLiveStatus(j.status));
+    if (_qpAutoRefresh && hasPending) _scheduleQueuePageRefresh();
   } catch (err) {
     const body = el('qp-body');
-    if (body) body.innerHTML = `<p style="color:#D32F2F;padding:20px">${escapeHtml(String(err.message || err))}</p>`;
+    if (body) body.innerHTML = `<div class="qp-error-card">${escapeHtml(String(err.message || err))}</div>`;
   } finally {
     if (refreshBtn) refreshBtn.classList.remove('spinning');
   }
 }
 
-function _qpPopulateUserDropdown() {
-  const sel = el('qp-user-select');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">All Users</option>' +
-    _qpAllUserEmails.map(e => `<option value="${escapeHtml(e)}"${e === _qpAdminFilter ? ' selected' : ''}>${escapeHtml(e)}</option>`).join('');
+async function _qpProcessNow() {
+  const btn = el('qp-process-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await api.processQueueNow();
+    toast('Queue processing started.', 'success');
+    await _refreshQueuePage(true);
+  } catch (e) {
+    toast(e.message || String(e), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function _qpRetryJob(requestId) {
+  if (!requestId) return;
+  try {
+    await api.retryQueueJob(requestId);
+    toast('Job queued for retry.', 'success');
+    await _refreshQueuePage(true);
+  } catch (e) {
+    toast(e.message || String(e), 'error');
+  }
 }
 
 function _renderQueueHealth(health) {
   const box = el('qp-health');
   if (!box) return;
   if (!health) {
-    box.innerHTML = `<div style="border:1px solid #fee2e2;background:#fff5f5;color:#991b1b;border-radius:8px;padding:10px 12px;font-size:12px">
-      Queue health could not be loaded. Check deployment/API permissions.
+    box.innerHTML = `<div class="qp-health-card qp-health-error">
+      <div class="qp-health-main">
+        <span class="q-badge q-dead">Health unavailable</span>
+        <span>Check deployment, API permissions, or queue trigger access.</span>
+      </div>
     </div>`;
     return;
   }
+
   const s = health.stats || {};
-  const triggerColor = health.triggerActive ? '#166534' : '#991B1B';
-  const triggerBg = health.triggerActive ? '#DCFCE7' : '#FEE2E2';
+  const triggerOk = !!health.triggerActive;
   const pendingAge = s.oldestPendingMinutes === null || s.oldestPendingMinutes === undefined
     ? 'None'
     : `${s.oldestPendingMinutes} min`;
+  const scopeLabel = s.scope === 'admin' ? 'All users' : s.scope === 'filtered' ? 'Filtered user' : 'My queue';
+  const lastWorker = health.lastFinishedAt || health.lastStartedAt || 'Never';
+  const lastRunMeta = `${health.lastStatus || 'Unknown'} / claimed ${health.lastClaimed || 0}, processed ${health.lastProcessed || 0}`;
+
   box.innerHTML = `
-    <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;overflow:hidden">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid #f3f4f6;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="q-badge" style="background:${triggerBg};color:${triggerColor}">${escapeHtml(health.triggerActive ? 'Trigger Active' : 'Trigger Missing')}</span>
-          <span style="font-size:12px;color:#6b7280">${escapeHtml(health.triggerStatus || '')}</span>
+    <div class="qp-health-card">
+      <div class="qp-health-top">
+        <div class="qp-health-main">
+          <span class="q-badge ${triggerOk ? 'q-done' : 'q-dead'}">${triggerOk ? 'Trigger active' : 'Trigger missing'}</span>
+          <span class="qp-muted">${escapeHtml(health.triggerStatus || '')}</span>
         </div>
-        <div style="font-size:11px;color:#6b7280">Last worker: ${escapeHtml(health.lastFinishedAt || health.lastStartedAt || 'Never')} ${health.lastStatus ? '(' + escapeHtml(health.lastStatus) + ')' : ''}</div>
+        <div class="qp-last-refresh">Last refresh: ${_qpLastRefreshAt ? escapeHtml(_qpFmtDate(_qpLastRefreshAt)) : 'Never'}</div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:1px;background:#f3f4f6">
-        ${_qpHealthMetric('Queued', s.queued || 0)}
-        ${_qpHealthMetric('Processing', s.processing || 0)}
-        ${_qpHealthMetric('Retrying', s.failed || 0)}
-        ${_qpHealthMetric('Failed', s.dead || 0)}
-        ${_qpHealthMetric('Stale Processing', s.staleProcessing || 0)}
-        ${_qpHealthMetric('Oldest Pending', pendingAge)}
+      <div class="qp-health-grid">
+        ${_qpHealthMetric('Scope', scopeLabel, 'users')}
+        ${_qpHealthMetric('Last worker', lastWorker, 'clock')}
+        ${_qpHealthMetric('Worker result', lastRunMeta, 'activity')}
+        ${_qpHealthMetric('Oldest pending', pendingAge, 'timer')}
       </div>
-      ${health.lastError ? `<div style="padding:9px 14px;border-top:1px solid #fee2e2;background:#fff5f5;color:#991b1b;font-size:12px">${escapeHtml(health.lastError)}</div>` : ''}
+      ${health.lastError ? `<div class="qp-health-error-line">${escapeHtml(health.lastError)}</div>` : ''}
     </div>`;
+  renderIcons(box);
 }
 
-function _qpHealthMetric(label, value) {
-  return `<div style="background:#fff;padding:10px 12px">
-    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;font-weight:700">${escapeHtml(label)}</div>
-    <div style="font-size:18px;font-weight:700;color:#111827;margin-top:2px">${escapeHtml(value)}</div>
+function _qpHealthMetric(label, value, iconName) {
+  return `<div class="qp-health-metric">
+    <div class="qp-health-metric-icon">${icon(iconName, 15)}</div>
+    <div>
+      <div class="qp-health-label">${escapeHtml(label)}</div>
+      <div class="qp-health-value">${escapeHtml(value)}</div>
+    </div>
   </div>`;
 }
 
+function _renderQueueStats(jobs) {
+  const statsEl = el('qp-stats');
+  if (!statsEl) return;
+  const stats = _queueStats(jobs);
+  const cards = [
+    { key: 'total', label: 'Total', value: stats.total, cls: 'neutral', icon: 'database' },
+    { key: 'pending', label: 'Pending', value: stats.pending, cls: 'blue', icon: 'loader-circle' },
+    { key: 'done', label: 'Saved', value: stats.done, cls: 'green', icon: 'check-circle-2' },
+    { key: 'failed', label: 'Retrying', value: stats.failed, cls: 'amber', icon: 'rotate-ccw' },
+    { key: 'dead', label: 'Failed', value: stats.dead, cls: 'red', icon: 'circle-alert' }
+  ];
+  statsEl.innerHTML = cards.map(c => `
+    <button type="button" class="qp-stat-card qp-stat-${c.cls}" onclick="_qpQuickStatus('${c.key === 'total' ? '' : c.key}')">
+      <span class="qp-stat-icon">${icon(c.icon, 17)}</span>
+      <span class="qp-stat-value">${escapeHtml(c.value)}</span>
+      <span class="qp-stat-label">${escapeHtml(c.label)}</span>
+    </button>`).join('');
+  renderIcons(statsEl);
+}
+
+function _qpQuickStatus(key) {
+  const map = { pending: 'LIVE', done: 'DONE', failed: 'FAILED', dead: 'DEAD' };
+  _qpFilters.status = map[key] || '';
+  const sel = el('qp-status-filter');
+  if (sel) sel.value = _qpFilters.status;
+  _renderQueuePage(_qpJobs, _qpIsAdmin());
+}
+
+function _renderQueueFilters(jobs, isAdmin) {
+  const box = el('qp-filters');
+  if (!box) return;
+  const modules = [...new Set(jobs.map(j => String(j.moduleName || '').trim()).filter(Boolean))].sort();
+  const adminFilter = isAdmin ? `
+    <label class="qp-filter">
+      <span>User</span>
+      <select id="qp-user-select" onchange="_qpOnUserFilterChange(this.value)">
+        <option value="">All users</option>
+        ${_qpAllUserEmails.map(e => `<option value="${escapeHtml(e)}"${e === _qpAdminFilter ? ' selected' : ''}>${escapeHtml(e)}</option>`).join('')}
+      </select>
+    </label>` : '';
+
+  box.innerHTML = `
+    <div class="qp-filterbar">
+      <label class="qp-search">
+        ${icon('search', 15)}
+        <input id="qp-query-filter" value="${escapeHtml(_qpFilters.query)}" placeholder="Search request, record, action, error..." oninput="_qpOnFilterChange('query', this.value)">
+      </label>
+      <label class="qp-filter">
+        <span>Status</span>
+        <select id="qp-status-filter" onchange="_qpOnFilterChange('status', this.value)">
+          ${_qpOption('', 'All status', _qpFilters.status)}
+          ${_qpOption('LIVE', 'Pending + processing', _qpFilters.status)}
+          ${_qpOption('QUEUED', 'Queued', _qpFilters.status)}
+          ${_qpOption('PROCESSING', 'Processing', _qpFilters.status)}
+          ${_qpOption('FAILED', 'Retrying', _qpFilters.status)}
+          ${_qpOption('DONE', 'Saved', _qpFilters.status)}
+          ${_qpOption('DEAD', 'Failed', _qpFilters.status)}
+        </select>
+      </label>
+      <label class="qp-filter">
+        <span>Module</span>
+        <select id="qp-module-filter" onchange="_qpOnFilterChange('module', this.value)">
+          ${_qpOption('', 'All modules', _qpFilters.module)}
+          ${modules.map(m => _qpOption(m, _qpModuleLabel(m), _qpFilters.module)).join('')}
+        </select>
+      </label>
+      ${adminFilter}
+    </div>`;
+  renderIcons(box);
+}
+
+function _qpOption(value, label, selected) {
+  return `<option value="${escapeHtml(value)}"${String(value) === String(selected) ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+}
+
 function _mergeQueueJobs(localJobs, serverJobs) {
-  // Build map from server (authoritative for status)
   const map = {};
   serverJobs.forEach(j => { map[j.requestId] = { ...j, _source: 'server' }; });
-
-  // Local jobs: add if not on server yet, or update status if local is newer
   localJobs.forEach(lj => {
     const srv = map[lj.requestId];
     if (!srv) {
-      // Not yet reflected server-side — show local version
       map[lj.requestId] = {
-        requestId:     lj.requestId,
-        status:        lj.status,
-        createdAt:     lj.enqueuedAt ? new Date(lj.enqueuedAt).toISOString().replace('T',' ').slice(0,19) : '',
-        updatedAt:     '',
-        moduleName:    lj.module || '',
-        actionType:    lj.actionType || '',
-        attemptCount:  0,
-        maxAttempts:   5,
-        nextRetryAt:   '',
-        lastError:     lj.error || '',
-        processedAt:   '',
+        requestId: lj.requestId,
+        status: lj.status,
+        createdAt: lj.enqueuedAt ? new Date(lj.enqueuedAt).toISOString().replace('T',' ').slice(0,19) : '',
+        updatedAt: '',
+        moduleName: lj.module || '',
+        actionType: lj.actionType || '',
+        attemptCount: 0,
+        maxAttempts: 5,
+        nextRetryAt: '',
+        lastError: lj.error || '',
+        processedAt: '',
         finalRecordId: lj.finalRecordId || '',
-        _source:       'local'
+        _source: 'local',
+        _enqueuedAt: lj.enqueuedAt || 0
       };
     }
   });
-
-  return Object.values(map).sort((a, b) => {
-    const ta = a.createdAt ? new Date(a.createdAt).getTime() : (a._enqueuedAt || 0);
-    const tb = b.createdAt ? new Date(b.createdAt).getTime() : (b._enqueuedAt || 0);
-    return tb - ta;
-  });
+  return Object.values(map).sort((a, b) => _qpJobTime(b) - _qpJobTime(a));
 }
 
 function _renderQueuePage(jobs, showUser = false) {
-  const stats = _queueStats(jobs);
-  const statsEl = el('qp-stats');
-  const bodyEl  = el('qp-body');
-  if (!statsEl || !bodyEl) return;
+  const bodyEl = el('qp-body');
+  if (!bodyEl) return;
+  const filtered = _filterQueueJobs(jobs);
 
-  statsEl.innerHTML = [
-    { label: 'Total',      val: stats.total,      color: '#6b7280', bg: '#f9fafb'  },
-    { label: 'Pending',    val: stats.pending,     color: '#1D4ED8', bg: '#EFF6FF'  },
-    { label: 'Saved',      val: stats.done,        color: '#166534', bg: '#DCFCE7'  },
-    { label: 'Retrying',   val: stats.failed,      color: '#92400E', bg: '#FEF3C7'  },
-    { label: 'Failed',     val: stats.dead,        color: '#991B1B', bg: '#FEE2E2'  }
-  ].map(s => `
-    <div style="display:flex;flex-direction:column;align-items:center;background:${s.bg};border-radius:8px;padding:10px 18px;min-width:80px">
-      <span style="font-size:20px;font-weight:700;color:${s.color}">${s.val}</span>
-      <span style="font-size:11px;color:#6b7280;margin-top:2px">${s.label}</span>
-    </div>`).join('');
-
-  if (!jobs.length) {
-    bodyEl.innerHTML = `<div style="text-align:center;padding:48px;color:#9ca3af">
-      ${icon('inbox', 36)}
-      <div style="margin-top:12px;font-size:13px">No queue jobs yet.<br>Jobs will appear here when you save leads or follow-ups.</div>
+  if (!filtered.length) {
+    bodyEl.innerHTML = `<div class="qp-empty">
+      ${icon('inbox', 42)}
+      <div class="qp-empty-title">No matching queue jobs</div>
+      <div class="qp-empty-text">Try changing the status, module, user, or search filter.</div>
     </div>`;
     renderIcons(bodyEl);
     return;
   }
 
-  const userColHeader = showUser ? `<th style="${_qpTh()}">User</th>` : '';
+  const userColHeader = showUser ? `<th>User</th>` : '';
   bodyEl.innerHTML = `
-  <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff">
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead>
-        <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb">
-          <th style="${_qpTh()}">Status</th>
-          ${userColHeader}
-          <th style="${_qpTh()}">Module / Action</th>
-          <th style="${_qpTh()}">Request ID</th>
-          <th style="${_qpTh()}">Queued At</th>
-          <th style="${_qpTh()}">Processed At</th>
-          <th style="${_qpTh()}">Attempts</th>
-          <th style="${_qpTh()}">Error / Record</th>
-        </tr>
-      </thead>
-      <tbody>${jobs.map(j => _queueJobRow(j, showUser)).join('')}</tbody>
-    </table>
+  <div class="qp-table-card">
+    <div class="qp-table-scroll">
+      <table class="qp-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            ${userColHeader}
+            <th>Module / Action</th>
+            <th>Request</th>
+            <th>Queued</th>
+            <th>Processed</th>
+            <th>Attempts</th>
+            <th>Result</th>
+            <th class="qp-actions-th">Actions</th>
+          </tr>
+        </thead>
+        <tbody>${filtered.map(j => _queueJobRow(j, showUser)).join('')}</tbody>
+      </table>
+    </div>
   </div>`;
   renderIcons(bodyEl);
 }
 
-function _qpTh() {
-  return 'padding:9px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6b7280';
+function _filterQueueJobs(jobs) {
+  const status = _qpFilters.status;
+  const module = String(_qpFilters.module || '').toLowerCase();
+  const query = String(_qpFilters.query || '').trim().toLowerCase();
+  return jobs.filter(j => {
+    if (status === 'LIVE' && !_qpIsLiveStatus(j.status)) return false;
+    if (status && status !== 'LIVE' && j.status !== status) return false;
+    if (module && String(j.moduleName || '').toLowerCase() !== module) return false;
+    if (query) {
+      const haystack = [
+        j.requestId, j.userEmail, j.moduleName, j.actionType, j.lastError,
+        j.finalRecordId, _qpModuleLabel(j.moduleName), _qpActionLabel(j.actionType)
+      ].join(' ').toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
 }
 
 function _queueJobRow(j, showUser = false) {
-  const statusBadge = _qpStatusBadge(j.status);
   const module = _qpModuleLabel(j.moduleName);
   const action = _qpActionLabel(j.actionType);
-  const shortId = j.requestId ? j.requestId.slice(-12) : '—';
-  const queuedAt = j.createdAt ? _qpFmtTs(j.createdAt) : '—';
-  const processedAt = j.processedAt ? _qpFmtTs(j.processedAt) : '—';
-  const shownAttempts = j.maxAttempts > 0 ? Math.min(Number(j.attemptCount || 0), Number(j.maxAttempts || 0)) : 0;
-  const attempts = j.maxAttempts > 0 ? `${shownAttempts}/${j.maxAttempts}` : '—';
+  const shortId = j.requestId ? j.requestId.slice(-12) : '-';
+  const queuedAt = j.createdAt ? _qpFmtTs(j.createdAt) : '-';
+  const processedAt = j.processedAt ? _qpFmtTs(j.processedAt) : '-';
+  const attempts = _qpAttempts(j);
   const errOrId = j.lastError
-    ? `<span style="color:#dc2626;font-size:11px" title="${escapeHtml(j.lastError)}">${escapeHtml(j.lastError.slice(0, 60))}${j.lastError.length > 60 ? '…' : ''}</span>`
+    ? `<button class="qp-link-danger" onclick="_qpOpenDetails('${escapeAttr(j.requestId)}')">${escapeHtml(j.lastError.slice(0, 54))}${j.lastError.length > 54 ? '...' : ''}</button>`
     : j.finalRecordId
-      ? `<span style="color:#166534;font-size:11px">ID: ${escapeHtml(String(j.finalRecordId).slice(0,16))}</span>`
-      : '<span style="color:#d1d5db">—</span>';
+      ? `<span class="qp-record-id">ID: ${escapeHtml(String(j.finalRecordId).slice(0, 18))}</span>`
+      : '<span class="qp-muted">-</span>';
   const retryHint = (j.status === 'FAILED' && j.nextRetryAt)
-    ? `<div style="font-size:10px;color:#92400E;margin-top:2px">retry at ${_qpFmtTs(j.nextRetryAt)}</div>` : '';
-  const rowBg = j.status === 'DEAD' ? 'background:#fff5f5' : j.status === 'PROCESSING' ? 'background:#fffbeb' : '';
-  const td = 'padding:10px 14px;border-bottom:1px solid #f3f4f6;vertical-align:middle';
+    ? `<div class="qp-retry-hint">Next retry ${_qpFmtTs(j.nextRetryAt)}</div>` : '';
+  const sourcePill = j._source === 'local' ? '<span class="qp-source-pill">Local</span>' : '';
+  const retryBtn = (_qpIsAdmin() && ['FAILED', 'DEAD'].includes(j.status))
+    ? `<button class="qp-icon-btn" title="Retry job" onclick="_qpRetryJob('${escapeAttr(j.requestId)}')">${icon('rotate-ccw', 14)}</button>` : '';
   const userCell = showUser
-    ? `<td style="${td}"><span style="font-size:11px;color:#374151">${escapeHtml(j.userEmail || '—')}</span></td>`
+    ? `<td><div class="qp-user-cell" title="${escapeAttr(j.userEmail || '')}">${escapeHtml(j.userEmail || '-')}</div></td>`
     : '';
-  return `<tr style="${rowBg}">
-    <td style="${td}">${statusBadge}${retryHint}</td>
+
+  return `<tr class="${j.status === 'DEAD' ? 'qp-row-dead' : j.status === 'PROCESSING' ? 'qp-row-processing' : ''}">
+    <td>${_qpStatusBadge(j.status)}${retryHint}</td>
     ${userCell}
-    <td style="${td}">
-      <div style="font-weight:600;color:#111827">${module}</div>
-      <div style="font-size:11px;color:#6b7280;margin-top:1px">${action}</div>
+    <td>
+      <div class="qp-module-line">${module} ${sourcePill}</div>
+      <div class="qp-action-line">${action}</div>
     </td>
-    <td style="${td}"><span style="font-family:monospace;font-size:11px;color:#6b7280" title="${escapeHtml(j.requestId)}">${escapeHtml(shortId)}</span></td>
-    <td style="${td}"><div style="font-size:12px;color:#374151">${queuedAt}</div></td>
-    <td style="${td}"><div style="font-size:12px;color:#374151">${processedAt}</div></td>
-    <td style="${td}"><div style="font-size:12px;text-align:center;color:#374151">${escapeHtml(attempts)}</div></td>
-    <td style="${td}">${errOrId}</td>
+    <td><button class="qp-request-id" title="${escapeAttr(j.requestId)}" onclick="_qpCopy('${escapeAttr(j.requestId)}')">${escapeHtml(shortId)}</button></td>
+    <td><span class="qp-time">${queuedAt}</span></td>
+    <td><span class="qp-time">${processedAt}</span></td>
+    <td>${attempts}</td>
+    <td>${errOrId}</td>
+    <td class="qp-actions">
+      <button class="qp-icon-btn" title="Details" onclick="_qpOpenDetails('${escapeAttr(j.requestId)}')">${icon('panel-right-open', 14)}</button>
+      <button class="qp-icon-btn" title="Copy request ID" onclick="_qpCopy('${escapeAttr(j.requestId)}')">${icon('copy', 14)}</button>
+      ${retryBtn}
+    </td>
   </tr>`;
+}
+
+function _qpAttempts(j) {
+  const max = Number(j.maxAttempts || 0);
+  const count = max > 0 ? Math.min(Number(j.attemptCount || 0), max) : Number(j.attemptCount || 0);
+  const pct = max > 0 ? Math.max(0, Math.min(100, (count / max) * 100)) : 0;
+  return `<div class="qp-attempts">
+    <div class="qp-attempts-text">${max > 0 ? `${count}/${max}` : count}</div>
+    <div class="qp-attempts-bar"><span style="width:${pct}%"></span></div>
+  </div>`;
 }
 
 function _qpStatusBadge(status) {
   const map = {
-    QUEUED:     ['q-queued',     'Queued'],
+    QUEUED: ['q-queued', 'Queued'],
     PROCESSING: ['q-processing', 'Processing'],
-    DONE:       ['q-done',       'Saved'],
-    FAILED:     ['q-failed',     'Retrying'],
-    DEAD:       ['q-dead',       'Failed']
+    DONE: ['q-done', 'Saved'],
+    FAILED: ['q-failed', 'Retrying'],
+    DEAD: ['q-dead', 'Failed']
   };
   const [cls, label] = map[status] || ['q-queued', status || '?'];
   return `<span class="q-badge ${cls}">${label}</span>`;
 }
 
+function _qpOpenDetails(requestId) {
+  const job = _qpJobs.find(j => String(j.requestId) === String(requestId));
+  if (!job) return;
+  const rows = [
+    ['Status', _qpStatusBadge(job.status)],
+    ['Request ID', `<code>${escapeHtml(job.requestId || '-')}</code>`],
+    ['Source', escapeHtml(job._source || 'server')],
+    ['User', escapeHtml(job.userEmail || '-')],
+    ['Module', escapeHtml(_qpModuleLabel(job.moduleName))],
+    ['Action', escapeHtml(_qpActionLabel(job.actionType))],
+    ['Queued at', escapeHtml(job.createdAt || '-')],
+    ['Updated at', escapeHtml(job.updatedAt || '-')],
+    ['Processed at', escapeHtml(job.processedAt || '-')],
+    ['Attempts', `${escapeHtml(job.attemptCount || 0)} / ${escapeHtml(job.maxAttempts || '-')}`],
+    ['Next retry at', escapeHtml(job.nextRetryAt || '-')],
+    ['Final record ID', escapeHtml(job.finalRecordId || '-')],
+    ['Last error', `<div class="qp-detail-error">${escapeHtml(job.lastError || '-')}</div>`]
+  ];
+  const retryBtn = (_qpIsAdmin() && ['FAILED', 'DEAD'].includes(job.status))
+    ? `<button class="btn btn-primary" onclick="_qpRetryJob('${escapeAttr(job.requestId)}');this.closest('.modal-overlay').remove()">${icon('rotate-ccw', 14)} Retry</button>` : '';
+  const overlay = showModal(`
+    <div class="modal-header">
+      <h2>Queue Job Details</h2>
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&#x2715;</button>
+    </div>
+    <div class="qp-detail-grid">
+      ${rows.map(([label, value]) => `<div class="qp-detail-label">${escapeHtml(label)}</div><div class="qp-detail-value">${value}</div>`).join('')}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outlined" onclick="_qpCopy('${escapeAttr(job.requestId)}')">${icon('copy', 14)} Copy ID</button>
+      ${retryBtn}
+      <button class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Close</button>
+    </div>`);
+  overlay.querySelector('.modal').classList.add('modal-wide');
+  renderIcons(overlay);
+}
+
+function _qpCopy(text) {
+  if (!text) return;
+  const done = () => toast('Copied.', 'success');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => _qpFallbackCopy(text, done));
+  } else {
+    _qpFallbackCopy(text, done);
+  }
+}
+
+function _qpFallbackCopy(text, done) {
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  document.body.appendChild(input);
+  input.select();
+  try { document.execCommand('copy'); done(); } catch (_) {}
+  input.remove();
+}
+
 function _qpModuleLabel(m) {
-  const map = {
-    leads: 'Leads',
-    followups: 'Follow-ups',
-    config: 'Config',
-    stages: 'Stages',
-    fields: 'Fields'
-  };
-  return map[String(m || '').toLowerCase()] || escapeHtml(m || '—');
+  const map = { leads: 'Leads', followups: 'Follow-ups', config: 'Config', stages: 'Stages', fields: 'Fields', bulk: 'Bulk' };
+  return map[String(m || '').toLowerCase()] || (m || '-');
 }
 
 function _qpActionLabel(a) {
   const map = {
-    saveLead:             'Save Lead',
-    deleteLead:           'Delete Lead',
-    updateLeadStage:      'Update Stage',
+    saveLead: 'Save Lead',
+    deleteLead: 'Delete Lead',
+    updateLeadStage: 'Update Stage',
     moveLeadStageWithFields: 'Move Stage + Fields',
-    pushLeadToNbd:        'Push to NBD',
-    saveFollowup:         'Save Follow-up',
-    markFollowupDone:     'Mark Follow-up Done',
-    deleteFollowup:       'Delete Follow-up',
-    addConfig:            'Add Config',
-    updateConfigStatus:   'Update Config Status',
-    saveStage:            'Save Stage',
-    reorderStages:        'Reorder Stages',
-    saveFieldConfig:      'Save Field',
-    savePortalSettings:   'Save Portal Settings',
-    saveUser:             'Save User'
+    pushLeadToNbd: 'Push to NBD',
+    saveFollowup: 'Save Follow-up',
+    markFollowupDone: 'Mark Follow-up Done',
+    deleteFollowup: 'Delete Follow-up',
+    addConfig: 'Add Config',
+    updateConfigStatus: 'Update Config Status',
+    saveStage: 'Save Stage',
+    reorderStages: 'Reorder Stages',
+    saveFieldConfig: 'Save Field',
+    savePortalSettings: 'Save Portal Settings',
+    saveUser: 'Save User'
   };
-  return map[a] || escapeHtml(a || '—');
+  return map[a] || (a || '-');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(String(value || '')).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function _qpFmtTs(ts) {
-  if (!ts) return '—';
+  if (!ts) return '-';
   try {
     const d = new Date(String(ts).replace(' ', 'T'));
-    if (isNaN(d)) return escapeHtml(ts);
+    if (isNaN(d)) return ts;
     return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' })
       + ' ' + d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', hour12: true });
-  } catch (_) { return escapeHtml(ts); }
+  } catch (_) { return ts; }
+}
+
+function _qpFmtDate(d) {
+  return d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: true });
 }
 
 function _queueStats(jobs) {
   const s = { total: jobs.length, pending: 0, done: 0, failed: 0, dead: 0 };
   jobs.forEach(j => {
     if (j.status === 'QUEUED' || j.status === 'PROCESSING') s.pending++;
-    else if (j.status === 'DONE')   s.done++;
+    else if (j.status === 'DONE') s.done++;
     else if (j.status === 'FAILED') s.failed++;
-    else if (j.status === 'DEAD')   s.dead++;
+    else if (j.status === 'DEAD') s.dead++;
   });
   return s;
+}
+
+function _qpIsLiveStatus(status) {
+  return status === 'QUEUED' || status === 'PROCESSING' || status === 'FAILED';
+}
+
+function _qpJobTime(job) {
+  return job.createdAt ? new Date(String(job.createdAt).replace(' ', 'T')).getTime() : (job._enqueuedAt || 0);
 }
 
 function _scheduleQueuePageRefresh() {
@@ -351,6 +574,9 @@ function _scheduleQueuePageRefresh() {
 }
 
 function _stopQueuePageRefresh() {
-  if (_queuePageRefreshTimer) { clearTimeout(_queuePageRefreshTimer); _queuePageRefreshTimer = null; }
+  if (_queuePageRefreshTimer) {
+    clearTimeout(_queuePageRefreshTimer);
+    _queuePageRefreshTimer = null;
+  }
 }
 </script>

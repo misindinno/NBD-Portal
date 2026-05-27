@@ -427,11 +427,11 @@ function apiGetQueueHistory(token, limit) {
   });
 }
 
-function apiGetQueueHealth(token) {
+function apiGetQueueHealth(token, filterEmail) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
-    return respond(getQueueHealth_(user.email, user));
+    return respond(getQueueHealth_(user.email, user, filterEmail || ''));
   });
 }
 
@@ -442,6 +442,25 @@ function apiGetAllQueueHistory(token, filterEmail, limit) {
     const user = _requireAuthToken_(token);
     if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
     return respond(getAllQueueHistory_(filterEmail || '', Number(limit) || 100));
+  });
+}
+
+function apiProcessQueueNow(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
+    processQueue();
+    return respond(getQueueHealth_(user.email, user, ''));
+  });
+}
+
+function apiRetryQueueJob(token, requestId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
+    return respond(retryQueueJob_(requestId));
   });
 }
 
