@@ -31,11 +31,14 @@ function getCurrentUserByEmail_(email) {
   if (!email) return respond(null, 'Could not identify user.');
   const normalised = email.trim().toLowerCase();
   const users = getAllRows(SHEET_NAMES.USERS);
-  const user  = users.find(u =>
+  const baseUser  = users.find(u =>
     String(u['Email Address']).trim().toLowerCase() === normalised &&
     isActiveUserValue(u['Is Active'])
   );
-  if (!user) return respond(null, 'ACCESS_DENIED');
+  if (!baseUser) return respond(null, 'ACCESS_DENIED');
+  const access = getPortalAccessForUser_(baseUser, normalised);
+  if (access && !isActiveUserValue(access['Is Active'])) return respond(null, 'ACCESS_DENIED');
+  const user = mergeUserPortalAccess_(baseUser, access);
   const role = normalizeStaffPermission(user['Permission'] || user['Role']);
   const modules = getEffectiveUserModules(user, role);
   return respond({
@@ -44,12 +47,145 @@ function getCurrentUserByEmail_(email) {
     title:         user['Title'],
     email:         user['Email Address'],
     role,
+    portalKey:     currentPortalKey_(),
     department:    user['Department'],
     jobTitle:      user['Job Title'],
     modules,
     canEditConfig: role === 'ADMIN' || isTruthyPermission(user['Can Edit Config']) || userHasModule({ modules }, 'Config'),
-    canManageUsers:role === 'ADMIN' || userHasModule({ modules }, 'Users')
+    canManageUsers:role === 'ADMIN' || isTruthyPermission(user['Can Manage Users']) || userHasModule({ modules }, 'Users')
   });
+}
+
+function currentPortalKey_() {
+  const configured = String(CLIENT_CONFIG.PORTAL_KEY || '').trim().toUpperCase();
+  if (configured) return configured;
+  const title = String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase();
+  if (title.includes('lq')) return 'LQ';
+  if (title.includes('nbd')) return 'NBD';
+  return 'DEFAULT';
+}
+
+function portalAccessHeaders_() {
+  return [
+    'Access ID','User ID','Email Address','Portal Key',
+    'Permission','Allowed Modules','Can Edit Config','Can Manage Users',
+    'Department Scope','Is Active','Created At','Updated At'
+  ];
+}
+
+function ensureUserPortalAccessSheet_() {
+  safeInitHeaders(SHEET_NAMES.USER_PORTAL_ACCESS, portalAccessHeaders_());
+}
+
+function getPortalAccessForUser_(user, email, portalKey) {
+  const key = String(portalKey || currentPortalKey_()).trim().toUpperCase();
+  const userId = getStaffUserId(user, email);
+  const normEmail = String(email || user['Email Address'] || '').trim().toLowerCase();
+  try {
+    ensureUserPortalAccessSheet_();
+    return getAllRows(SHEET_NAMES.USER_PORTAL_ACCESS).find(r =>
+      String(r['Portal Key'] || '').trim().toUpperCase() === key &&
+      (
+        (userId && String(r['User ID'] || '') === String(userId)) ||
+        (normEmail && String(r['Email Address'] || '').trim().toLowerCase() === normEmail)
+      )
+    ) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function mergeUserPortalAccess_(user, access) {
+  const email = String(user['Email Address'] || access?.['Email Address'] || '').trim().toLowerCase();
+  if (!access) return { ...user, 'ID': user['ID'] || user['User ID'] || email };
+  return {
+    ...user,
+    'ID': user['ID'] || user['User ID'] || access['User ID'] || email,
+    'Permission': access['Permission'] || user['Permission'] || user['Role'],
+    'Allowed Modules': access['Allowed Modules'] !== '' && access['Allowed Modules'] !== undefined
+      ? access['Allowed Modules']
+      : user['Allowed Modules'],
+    'Can Edit Config': access['Can Edit Config'] !== '' && access['Can Edit Config'] !== undefined
+      ? access['Can Edit Config']
+      : user['Can Edit Config'],
+    'Can Manage Users': access['Can Manage Users'] !== '' && access['Can Manage Users'] !== undefined
+      ? access['Can Manage Users']
+      : user['Can Manage Users'],
+    'Is Active': access['Is Active'] !== '' && access['Is Active'] !== undefined
+      ? access['Is Active']
+      : user['Is Active'],
+    'Portal Key': access['Portal Key'] || currentPortalKey_(),
+    '_Portal Access ID': access['Access ID'] || ''
+  };
+}
+
+function getUsersWithPortalAccess_(portalKey, includeInactive) {
+  const key = String(portalKey || currentPortalKey_()).trim().toUpperCase();
+  ensureUserPortalAccessSheet_();
+  return getAllRows(SHEET_NAMES.USERS)
+    .filter(u => includeInactive || isActiveUserValue(u['Is Active']))
+    .map(u => {
+      const email = String(u['Email Address'] || '').trim().toLowerCase();
+      const access = getPortalAccessForUser_(u, email, key);
+      return mergeUserPortalAccess_(u, access);
+    })
+    .filter(u => includeInactive || isActiveUserValue(u['Is Active']));
+}
+
+function upsertUserPortalAccess_(user, data) {
+  ensureUserPortalAccessSheet_();
+  const key = currentPortalKey_();
+  const email = String(data['Email Address'] || user['Email Address'] || '').trim().toLowerCase();
+  const userId = getStaffUserId(user, email);
+  const existing = getPortalAccessForUser_(user, email, key);
+  const modules = parseUserModules(data['Allowed Modules']);
+  const row = {
+    'Access ID': existing?.['Access ID'] || generateUUID(),
+    'User ID': userId,
+    'Email Address': email,
+    'Portal Key': key,
+    'Permission': normalizeStaffPermission(data['Permission'] || data['Role']),
+    'Allowed Modules': String(data['Allowed Modules'] || '').trim().toUpperCase() === 'NONE'
+      ? 'NONE'
+      : (modules.length ? modules.join(',') : getRoleModules(normalizeStaffPermission(data['Permission'] || data['Role'])).join(',')),
+    'Can Edit Config': isTruthyPermission(data['Can Edit Config']) || modules.some(m => _moduleKey(m) === 'config'),
+    'Can Manage Users': isTruthyPermission(data['Can Manage Users']) || modules.some(m => _moduleKey(m) === 'users'),
+    'Department Scope': data['Department Scope'] || '',
+    'Is Active': data['Is Active'] === true || data['Is Active'] === 'TRUE',
+    'Created At': existing?.['Created At'] || now(),
+    'Updated At': now()
+  };
+  if (existing?.['Access ID']) updateRow(SHEET_NAMES.USER_PORTAL_ACCESS, 'Access ID', existing['Access ID'], row);
+  else insertRow(SHEET_NAMES.USER_PORTAL_ACCESS, row);
+  return row;
+}
+
+function migrateUserPortalAccess() {
+  return withServerContext_(() => {
+    const count = migrateUserPortalAccess_();
+    return 'Migrated ' + count + ' user portal access rows for ' + currentPortalKey_() + '.';
+  });
+}
+
+function migrateUserPortalAccess_() {
+  ensureUserPortalAccessSheet_();
+  const key = currentPortalKey_();
+  let created = 0;
+  getAllRows(SHEET_NAMES.USERS).forEach(user => {
+    const email = String(user['Email Address'] || '').trim().toLowerCase();
+    if (!email) return;
+    if (getPortalAccessForUser_(user, email, key)) return;
+    upsertUserPortalAccess_(user, {
+      ...user,
+      'Permission': user['Permission'] || user['Role'] || 'USER',
+      'Allowed Modules': user['Allowed Modules'] || '',
+      'Can Edit Config': user['Can Edit Config'],
+      'Can Manage Users': user['Can Manage Users'],
+      'Is Active': user['Is Active'] === false || user['Is Active'] === 'FALSE' ? false : true
+    });
+    created++;
+  });
+  return created;
 }
 
 function getStaffUserId(row, fallbackEmail) {

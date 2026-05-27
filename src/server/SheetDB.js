@@ -46,7 +46,8 @@ function normalizeSheetName(name) {
 }
 
 function isUserDatabaseSheet(sheetName) {
-  return normalizeSheetName(sheetName) === USER_DATABASE_SHEET_NAME;
+  const normalized = normalizeSheetName(sheetName);
+  return normalized === USER_DATABASE_SHEET_NAME || normalized === SHEET_NAMES.USER_PORTAL_ACCESS;
 }
 
 function getHeaders(sheetName) {

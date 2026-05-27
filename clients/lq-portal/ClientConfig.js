@@ -5,6 +5,7 @@ const CLIENT_CONFIG = {
   NBD_TARGET_SPREADSHEET_ID:    '1X3ltwu9Etf9FjG2gxoCSHfw8sEDQcvXtWJTugEcUz8U',
   USER_DATABASE_SPREADSHEET_ID: '1jFr5BFta-ry6mJ8GGOh1p0gk2vhCRs4bv-RayBfX4BA',
   USER_DATABASE_SHEET_NAME:     'Staff List',
+  PORTAL_KEY:                   'LQ',
   APP_TITLE:                    'LQ Portal',
   UPLOAD_FOLDER_NAME:           'LQ Portal Custom Field Uploads',
   THEME: {

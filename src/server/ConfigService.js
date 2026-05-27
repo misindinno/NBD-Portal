@@ -209,10 +209,9 @@ function getAppConfig() {
       leadFields: getFieldConfig("Leads"),
       followupFields: getFieldConfig("Followups"),
       _allConfigs: getAllRows(SHEET_NAMES.CONFIG),
-      users: queryRows(
-        SHEET_NAMES.USERS,
-        (u) => isActiveUserValue(u["Is Active"]) && _userMatchesDepartmentSettings_(u, settings),
-      ).map((u) => {
+      users: getUsersWithPortalAccess_()
+        .filter((u) => isActiveUserValue(u["Is Active"]) && _userMatchesDepartmentSettings_(u, settings))
+        .map((u) => {
         const email = String(u["Email Address"] || "")
           .trim()
           .toLowerCase();

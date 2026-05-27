@@ -276,7 +276,7 @@ function _findNbdAssignableUser_(spreadsheetId, userId) {
 }
 
 function _nbdAssignableUsers_(spreadsheetId) {
-  return getAllRows(SHEET_NAMES.USERS)
+  return getUsersWithPortalAccess_('NBD')
     .filter(row => isActiveUserValue(row['Is Active']))
     .map(row => {
       const email = String(row['Email Address'] || '').trim().toLowerCase();

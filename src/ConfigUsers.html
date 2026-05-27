@@ -115,7 +115,7 @@ async function loadUsersConfig() {
     : allUsers;
   el('cfg-users').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <p style="color:#666;font-size:13px">Manage user roles and permissions</p>
+      <p style="color:#666;font-size:13px">Manage user roles and modules for this portal${App.user?.portalKey ? ' (' + escapeHtml(App.user.portalKey) + ')' : ''}. Identity details stay shared.</p>
       <button class="btn btn-primary btn-sm" onclick="openUserForm()">${icon('plus', 14)} Add User</button>
     </div>
     <div class="table-wrap"><table>

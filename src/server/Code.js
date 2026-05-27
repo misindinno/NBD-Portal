@@ -73,6 +73,7 @@ function onOpen() {
   const menu = SpreadsheetApp.getUi()
     .createMenu(CLIENT_CONFIG.APP_TITLE)
     .addItem('⚙️ Run Setup', 'setupSheets')
+    .addItem('🔐 Migrate Portal Permissions', 'migrateUserPortalAccess')
     .addItem('🔐 Update Permissions', 'updatePermissions')
     .addSeparator()
     .addItem('🔄 Push Update to All Clients', 'pushUpdate')
@@ -198,26 +199,28 @@ function _dispatchWrite(fn, email, payload) {
 
 function _saveUser(data, email) {
   requireUserManager();
-  const payload = _normalizeUserPayload(data);
+  const payload = _normalizeUserIdentityPayload(data);
   const lookupId = data['ID'] || data['User ID'];
   const lookupEmail = data['_Original Email Address'] || data['Email Address'];
+  let finalUserId = payload['ID'] || lookupId || '';
   if (lookupId) {
     updateRow(SHEET_NAMES.USERS, 'ID', lookupId, payload);
   } else if (lookupEmail && queryRows(SHEET_NAMES.USERS, u => String(u['Email Address']).trim().toLowerCase() === String(lookupEmail).trim().toLowerCase()).length) {
     updateRow(SHEET_NAMES.USERS, 'Email Address', lookupEmail, payload);
+    const updated = queryRows(SHEET_NAMES.USERS, u => String(u['Email Address']).trim().toLowerCase() === String(payload['Email Address']).trim().toLowerCase())[0] || {};
+    finalUserId = updated['ID'] || updated['User ID'] || finalUserId || payload['Email Address'];
   } else {
-    insertRow(SHEET_NAMES.USERS, { ...payload, 'ID': payload['ID'] || generateUUID() });
+    finalUserId = payload['ID'] || generateUUID();
+    insertRow(SHEET_NAMES.USERS, { ...payload, 'ID': finalUserId });
   }
+  upsertUserPortalAccess_({ ...payload, 'ID': finalUserId }, data);
   invalidateAppConfigCache();
   return respond(true);
 }
 
-function _normalizeUserPayload(data) {
+function _normalizeUserIdentityPayload(data) {
   const permission = normalizeStaffPermission(data['Permission'] || data['Role']);
   if (!ROLE_PERMISSIONS[permission]) throw new Error('Unsupported permission: ' + permission);
-  const modules = parseUserModules(data['Allowed Modules']);
-  const hasModulesField = Object.prototype.hasOwnProperty.call(data, 'Allowed Modules');
-  const allowedModules = hasModulesField ? (modules.length ? modules.join(',') : 'NONE') : getRoleModules(permission).join(',');
   const payload = {
     'Job Title': data['Job Title'] || '',
     'Department': data['Department'] || '',
@@ -226,9 +229,6 @@ function _normalizeUserPayload(data) {
     'Name': data['Name'] || '',
     'Title': data['Title'] || data['Name'] || '',
     'ID': data['ID'] || data['User ID'] || '',
-    'Permission': permission,
-    'Allowed Modules': allowedModules,
-    'Can Edit Config': isTruthyPermission(data['Can Edit Config']) || modules.some(m => _moduleKey(m) === 'config'),
     'Is Active': data['Is Active'] === true || data['Is Active'] === 'TRUE'
   };
   if (Object.prototype.hasOwnProperty.call(data, 'Password')) payload['Password'] = data['Password'] || '';
@@ -247,6 +247,8 @@ function setupSheets() {
       'Job Title','Department','Email Address','Company Phone','Name','Title',
       'ID','Permission','Password','Allowed Modules','Can Edit Config','Is Active'
     ]);
+    ensureUserPortalAccessSheet_();
+    migrateUserPortalAccess_();
     safeInitHeaders(SHEET_NAMES.LEADS, [
       'Lead ID','Company Name','Contact Person','Phone','Alternate No','Email',
       'City','State','Address','GST No','Category',

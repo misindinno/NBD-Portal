@@ -287,7 +287,7 @@ function apiGetUsers(token) {
   return apiGuard_(() => {
     const user = _apiUser();
     if (!canManageUsersPermission(user)) throw new Error('Permission denied.');
-    return respond(getAllRows(SHEET_NAMES.USERS));
+    return respond(getUsersWithPortalAccess_(currentPortalKey_(), true));
   });
 }
 
