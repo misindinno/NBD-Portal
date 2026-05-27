@@ -37,7 +37,7 @@ async function _continueAppInit(token) {
   const defaultPage = requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser();
   _ensureCached('leads',          () => api.getLeads().catch(() => api.getFollowupLeads())).then(() => { try { renderSidebar(); } catch(e) {} }).catch(() => {});
   _ensureCached('followups',      () => api.getFollowups({})).then(() => { try { renderSidebar(); } catch(e) {} }).catch(() => {});
-  _ensureCached('followupHistory',() => api.getFollowupHistory({})).catch(() => {});
+  _ensureCached('followupHistory',() => api.getFollowupHistory({})).then(() => { try { renderSidebar(); } catch(e) {} }).catch(() => {});
   _ensureCached('activityLogs',   () => api.getLeadActivityLogs({})).catch(() => {});
   navigate(defaultPage);
   startCacheRevalidation();

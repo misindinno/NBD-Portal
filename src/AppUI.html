@@ -439,7 +439,19 @@ function renderSidebar() {
     !_isClosedFu(r) &&
     String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change'
   );
-  const fuCount = fuOpen.filter(r => { const d = _fuPlanned(r); return d && d <= _todayStr; }).length;
+  const _fuDueCount = fuOpen.filter(r => { const d = _fuPlanned(r); return d && d <= _todayStr; }).length;
+  // Add leads that have no follow-up activity at all (new leads needing first touch)
+  const _allFuLeadIds = new Set(
+    AppCache.getRows('followups').map(r => r['Lead ID'])
+      .concat(AppCache.getRows('followupHistory').map(r => r['Lead ID']))
+      .filter(Boolean)
+  );
+  const _newLeadsCount = AppCache.getRows('leads').filter(l =>
+    String(l['Lead Status'] || 'Open').toLowerCase() === 'open' &&
+    !(l['NBD Lead ID'] || l['Pushed To NBD At']) &&
+    !_allFuLeadIds.has(l['Lead ID'])
+  ).length;
+  const fuCount = _fuDueCount + _newLeadsCount;
   const pipeCount = AppCache.getRows('leads').filter(r => String(r['Lead Status'] || 'Open').toLowerCase() === 'open').length;
   const _stages = (App.config && (App.config.allStages || App.config.stages)) || [];
   const _finalStageIds = new Set(_stages.filter(s => s['Is Final Stage'] === true || s['Is Final Stage'] === 'TRUE').map(s => s['Stage ID']));
@@ -464,7 +476,7 @@ function renderSidebar() {
   const mainItems = [
     show('Dashboard') ? navItem('dashboard', 'layout-dashboard', 'Dashboard') : '',
     show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : '',
-    show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount, 'Overdue + Today'))   : '',
+    show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount, 'Overdue + Today + New leads without follow-up'))   : '',
     show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
   ].filter(Boolean).join('');
   if (mainItems) html += `<div class="nav-section">Main</div>${mainItems}`;
