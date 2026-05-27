@@ -1,5 +1,9 @@
 <script>
   let leadTable;
+  let _leadKpiFilter = '';
+  let _leadStatusTab = 'all';
+  let _leadFiltersOpen = false;
+  let _leadDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_leadDensity')) || 'compact';
 
   async function loadLeads(force = false) {
     el('page-title').textContent = 'Leads';
@@ -12,6 +16,119 @@
       await _ensureCached('leads', () => api.getLeads());
     }
     _renderLeadsTable(AppCache.getRows('leads'));
+  }
+
+  function _leadKpiClick(key) {
+    _leadKpiFilter = (_leadKpiFilter === key) ? '' : key;
+    applyLeadFilters();
+    _renderLeadKpis(AppCache.getRows('leads'));
+  }
+  window._leadKpiClick = _leadKpiClick;
+
+  function _leadStatusTabSet(key) {
+    _leadStatusTab = key;
+    applyLeadFilters();
+    const tabsEl = el('lead-status-tabs');
+    if (tabsEl) { tabsEl.innerHTML = _leadStatusTabsHTML(); renderIcons(tabsEl); }
+  }
+  window._leadStatusTabSet = _leadStatusTabSet;
+
+  function _leadStatusTabsHTML() {
+    const tabs = [
+      ['all',    'All',         'layers'],
+      ['active', 'Active',      'flame'],
+      ['closed', 'Closed/Won',  'check-circle-2'],
+      ['nbd',    'NBD Pushed',  'send']
+    ];
+    return tabs.map(([id, label, ic]) => `
+      <button class="fu-tab ${_leadStatusTab === id ? 'active' : ''}" onclick="_leadStatusTabSet('${id}')">
+        ${icon(ic, 14)} <span>${label}</span>
+      </button>`).join('');
+  }
+
+  function _leadToggleFilters() {
+    _leadFiltersOpen = !_leadFiltersOpen;
+    const bar = el('lead-filter-bar');
+    const toggle = el('lead-filter-toggle');
+    if (bar) bar.style.display = _leadFiltersOpen ? 'block' : 'none';
+    if (toggle) { toggle.classList.toggle('open', _leadFiltersOpen); renderIcons(toggle); }
+    if (_leadFiltersOpen) { const s = el('lead-search'); if (s) s.focus(); }
+  }
+  window._leadToggleFilters = _leadToggleFilters;
+
+  function _leadClearFilters() {
+    ['lead-search','lead-status-f','lead-priority-f','lead-stage-f'].forEach(id => { const e = el(id); if (e) e.value = ''; });
+    _leadKpiFilter = '';
+    _leadStatusTab = 'all';
+    const tabsEl = el('lead-status-tabs');
+    if (tabsEl) { tabsEl.innerHTML = _leadStatusTabsHTML(); renderIcons(tabsEl); }
+    applyLeadFilters();
+    _renderLeadKpis(AppCache.getRows('leads'));
+  }
+  window._leadClearFilters = _leadClearFilters;
+
+  function _leadSetDensity(value) {
+    _leadDensity = ['comfortable','compact','ultra'].includes(value) ? value : 'compact';
+    try { localStorage.setItem('_leadDensity', _leadDensity); } catch (e) {}
+    const page = el('leads-page');
+    if (page) {
+      page.classList.remove('fu-density-comfortable','fu-density-compact','fu-density-ultra');
+      page.classList.add('fu-density-' + _leadDensity);
+    }
+    const wl = el('leads-worklist');
+    if (wl) {
+      wl.classList.remove('fu-density-comfortable','fu-density-compact','fu-density-ultra');
+      wl.classList.add('fu-density-' + _leadDensity);
+    }
+    const heights = { comfortable: 52, compact: 42, ultra: 34 };
+    if (leadTable) { try { leadTable.setHeight(); leadTable.redraw(true); } catch(e) {} }
+    document.documentElement.style.setProperty('--lead-row-h', heights[_leadDensity] + 'px');
+    const toggleWrap = el('lead-density-toggle');
+    if (toggleWrap) toggleWrap.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.density === _leadDensity));
+  }
+  window._leadSetDensity = _leadSetDensity;
+
+  function _leadKpiCounts(leads) {
+    const stageMap = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
+    let total = 0, open = 0, hot = 0, warm = 0, cold = 0, closed = 0, nbd = 0;
+    leads.forEach(l => {
+      total++;
+      const isNbd = !!(l['NBD Lead ID'] || l['Pushed To NBD At']);
+      const stage = stageMap[l['Stage ID']] || {};
+      const isFinal = stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE';
+      if (isNbd) nbd++;
+      if (isFinal) closed++;
+      else if (String(l['Lead Status'] || 'Open').toLowerCase() === 'open') open++;
+      const p = String(l['Priority'] || '').toLowerCase();
+      if (p === 'hot') hot++;
+      else if (p === 'warm') warm++;
+      else if (p === 'cold') cold++;
+    });
+    return { total, open, hot, warm, cold, closed, nbd };
+  }
+
+  function _renderLeadKpis(leads) {
+    const wrap = el('lead-kpis');
+    if (!wrap) return;
+    const c = _leadKpiCounts(leads);
+    const cards = [
+      { key: '',     label: 'Total Leads', value: c.total,  sub: 'all leads',     icon: 'users',          cls: 'neutral' },
+      { key: 'open', label: 'Open',        value: c.open,   sub: 'in progress',   icon: 'circle-dot',     cls: 'blue' },
+      { key: 'hot',  label: 'Hot',         value: c.hot,    sub: 'high priority', icon: 'flame',          cls: 'danger' },
+      { key: 'warm', label: 'Warm',        value: c.warm,   sub: 'mid priority',  icon: 'thermometer',    cls: 'warning' },
+      { key: 'cold', label: 'Cold',        value: c.cold,   sub: 'low priority',  icon: 'snowflake',      cls: 'blue' },
+      { key: 'closed', label: 'Closed',    value: c.closed, sub: 'final stage',   icon: 'check-circle-2', cls: 'success' },
+      { key: 'nbd',  label: 'NBD Pushed',  value: c.nbd,    sub: 'sent to NBD',   icon: 'send',           cls: 'purple' }
+    ];
+    wrap.innerHTML = cards.map(k => `
+      <button type="button" class="fu-kpi fu-kpi-${k.cls} ${_leadKpiFilter === k.key && k.key ? 'active' : ''}"
+        ${k.key ? `onclick="_leadKpiClick('${k.key}')"` : ''}>
+        <span class="fu-kpi-icon">${icon(k.icon, 17)}</span>
+        <span class="fu-kpi-value">${escapeHtml(k.value)}</span>
+        <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
+        <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
+      </button>`).join('');
+    renderIcons(wrap);
   }
 
   function _leadSortKey(lead, stageMap) {
@@ -41,44 +158,85 @@
     const stageOpts = App.config.stages.map(function (s) { return '<option value="' + escapeHtml(s['Stage ID']) + '">' + escapeHtml(s['Stage Name']) + '</option>'; }).join('');
 
     el('content').innerHTML = `
-    <style>
-      #lead-table .tabulator-header { background:#fafafa; border-bottom:2px solid #e5e7eb; }
-      #lead-table .tabulator-col { background:#fafafa; border-right:none; }
-      #lead-table .tabulator-col-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; }
-      #lead-table .tabulator-cell { border-right:none; padding:7px 12px; vertical-align:middle; font-size:13px; }
-      #lead-table .tabulator-row { cursor:pointer; border-bottom:1px solid #f3f4f6; }
-      #lead-table .tabulator-row:hover .tabulator-cell { background:#f8f9ff; }
-      #lead-table .tabulator-footer { background:#fafafa; border-top:1px solid #e5e7eb; padding:6px 12px; }
-      #lead-table .tabulator-page { font-size:12px; padding:3px 9px; border-radius:5px; border:1px solid #e5e7eb; margin:0 2px; cursor:pointer; }
-      #lead-table .tabulator-page.active { background:#4f46e5; color:#fff; border-color:#4f46e5; }
-      #lead-table .tabulator-page:disabled { opacity:.4; cursor:default; }
-      #lead-table .tabulator-paginator { display:flex; align-items:center; gap:4px; font-size:12px; color:#6b7280; }
-    </style>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <div style="position:relative;display:flex;align-items:center">
-          <span style="position:absolute;left:8px;color:#9ca3af;pointer-events:none;line-height:0">${icon('search', 13)}</span>
-          <input id="lead-search" class="form-control" placeholder="Search company or contact..." style="padding-left:28px;height:32px;font-size:12px;width:200px">
+    <div class="fu-page td-page fu-density-${_leadDensity}" id="leads-page">
+      <div class="fu-topbar">
+        <div class="fu-topbar-left">
+          <div class="fu-hero-icon" style="background:linear-gradient(135deg,#FEF3C7,#FCD34D);color:#92400E">${icon('users', 16)}</div>
+          <div class="fu-topbar-titles">
+            <div class="fu-hero-title">Lead Master</div>
+            <div class="fu-hero-sub">Single source of truth for every lead, priority, and stage.</div>
+          </div>
         </div>
-        <select id="lead-status-f"   class="form-control" style="height:32px;font-size:12px;padding:0 8px;min-width:0;width:120px"><option value="">All Status</option>${statusOpts}</select>
-        <select id="lead-priority-f" class="form-control" style="height:32px;font-size:12px;padding:0 8px;min-width:0;width:120px"><option value="">All Priority</option>${priorityOpts}</select>
-        <select id="lead-stage-f"    class="form-control" style="height:32px;font-size:12px;padding:0 8px;min-width:0;width:140px"><option value="">All Stages</option>${stageOpts}</select>
+        <div class="fu-topbar-right">
+          <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="loadLeads(true)" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
+          ${_isNBDPortal() ? _nbdEscalateBtn('sm') : `<button class="btn btn-primary btn-sm fu-topbar-btn" onclick="openLeadForm()">${icon('plus', 14)}<span class="fu-btn-text"> Add Lead</span></button>`}
+        </div>
       </div>
-      ${_isNBDPortal() ? _nbdEscalateBtn() : `<button class="btn btn-primary" style="height:32px;padding:0 14px;font-size:13px;white-space:nowrap;flex-shrink:0" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>`}
-    </div>
-    <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff"><div id="lead-table"></div></div>`;
+
+      <div id="lead-kpis" class="fu-kpis"></div>
+
+      <div class="fu-tabs">
+        <div class="fu-tabs-left" id="lead-status-tabs">${_leadStatusTabsHTML()}</div>
+        <div class="fu-tabs-right">
+          <button class="fu-filter-toggle ${_leadFiltersOpen ? 'open' : ''}" id="lead-filter-toggle" onclick="_leadToggleFilters()">
+            ${icon('sliders-horizontal', 14)} <span>Filters</span>
+            ${icon(_leadFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
+          </button>
+        </div>
+      </div>
+
+      <div class="fu-filter-bar" id="lead-filter-bar" style="display:${_leadFiltersOpen ? 'block' : 'none'}">
+        <div class="fu-filter-card-grid">
+          <label class="fu-search">${icon('search', 14)}
+            <input type="search" id="lead-search" placeholder="Search company, contact, description... (Ctrl+K)" oninput="applyLeadFilters()">
+          </label>
+          <label class="fu-filter"><span>Status</span><select id="lead-status-f" onchange="applyLeadFilters()">
+            <option value="">All Status</option>${statusOpts}
+          </select></label>
+          <label class="fu-filter"><span>Priority</span><select id="lead-priority-f" onchange="applyLeadFilters()">
+            <option value="">All Priority</option>${priorityOpts}
+          </select></label>
+          <label class="fu-filter"><span>Stage</span><select id="lead-stage-f" onchange="applyLeadFilters()">
+            <option value="">All Stages</option>${stageOpts}
+          </select></label>
+          <button class="btn btn-outlined btn-sm fu-filter-clear-all" onclick="_leadClearFilters()">${icon('x', 13)} Clear</button>
+        </div>
+      </div>
+
+      <div id="fu-body">
+        <div class="fu-worklist-card fu-density-${_leadDensity}" id="leads-worklist">
+          <div class="fu-worklist-head">
+            <div class="fu-worklist-head-left">
+              <div class="fu-worklist-title">Leads <span class="fu-worklist-count" id="lead-row-count">${sorted.length}</span></div>
+            </div>
+            <div class="fu-worklist-tools">
+              <div class="fu-density-toggle" id="lead-density-toggle" role="group" aria-label="Row density">
+                <button data-density="comfortable" class="${_leadDensity === 'comfortable' ? 'active' : ''}" title="Comfortable" onclick="_leadSetDensity('comfortable')">${icon('rows-3', 12)}</button>
+                <button data-density="compact" class="${_leadDensity === 'compact' ? 'active' : ''}" title="Compact" onclick="_leadSetDensity('compact')">${icon('list', 12)}</button>
+                <button data-density="ultra" class="${_leadDensity === 'ultra' ? 'active' : ''}" title="Ultra Compact" onclick="_leadSetDensity('ultra')">${icon('menu', 12)}</button>
+              </div>
+            </div>
+          </div>
+          <div id="lead-table"></div>
+        </div>
+      </div>
+    </div>`;
 
     renderIcons();
+    _renderLeadKpis(leads);
+    const rowHeights = { comfortable: 52, compact: 42, ultra: 34 };
+    document.documentElement.style.setProperty('--lead-row-h', rowHeights[_leadDensity] + 'px');
 
     const priColors = { hot: 'background:#fee2e2;color:#dc2626', warm: 'background:#fff7ed;color:#ea580c', cold: 'background:#eff6ff;color:#2563eb' };
 
+    const rowH = { comfortable: 52, compact: 42, ultra: 34 }[_leadDensity] || 42;
     if (leadTable) { try { leadTable.destroy(); } catch(e) {} leadTable = null; }
     leadTable = new Tabulator('#lead-table', {
       data: sorted,
       layout: 'fitColumns',
       pagination: 'local',
       paginationSize: 25,
-      rowHeight: 46,
+      rowHeight: rowH,
       placeholder: '<div style="padding:48px;text-align:center;color:#9ca3af;font-size:13px">No leads found</div>',
       rowFormatter: function (row) { row.getElement().title = ''; },
       columns: [
@@ -181,23 +339,48 @@
     });
 
     window.leadTable = leadTable;
-    el('lead-search').addEventListener('input', function () { applyLeadFilters(); });
-    el('lead-status-f').addEventListener('change', function () { applyLeadFilters(); });
-    el('lead-priority-f').addEventListener('change', function () { applyLeadFilters(); });
-    el('lead-stage-f').addEventListener('change', function () { applyLeadFilters(); });
+    leadTable.on('dataFiltered', function (filters, rows) {
+      const cnt = el('lead-row-count'); if (cnt) cnt.textContent = rows.length;
+    });
   }
 
   function applyLeadFilters() {
-    const filters = [];
-    const q = el('lead-search')?.value?.trim();
-    const status = el('lead-status-f')?.value;
-    const priority = el('lead-priority-f')?.value;
-    const stage = el('lead-stage-f')?.value;
-    if (q) filters.push([{ field: 'Company Name', type: 'like', value: q }, { field: 'Contact Person', type: 'like', value: q }, { field: 'Client Description', type: 'like', value: q }]);
-    if (status) filters.push({ field: 'Lead Status', type: '=', value: status });
-    if (priority) filters.push({ field: 'Priority', type: '=', value: priority });
-    if (stage) filters.push({ field: 'Stage ID', type: '=', value: stage });
-    filters.length ? leadTable.setFilter(filters) : leadTable.clearFilter();
+    if (!leadTable) return;
+    const q = String(el('lead-search')?.value || '').trim().toLowerCase();
+    const status = el('lead-status-f')?.value || '';
+    const priority = el('lead-priority-f')?.value || '';
+    const stage = el('lead-stage-f')?.value || '';
+    const stageMap = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
+
+    const noFilters = !q && !status && !priority && !stage && !_leadKpiFilter && _leadStatusTab === 'all';
+    if (noFilters) { leadTable.clearFilter(); return; }
+
+    leadTable.setFilter(function (data) {
+      if (q) {
+        const hay = [data['Company Name'], data['Contact Person'], data['Client Description'], data['Phone'], data['City']]
+          .map(v => String(v || '').toLowerCase()).join(' ');
+        if (!hay.includes(q)) return false;
+      }
+      if (status && data['Lead Status'] !== status) return false;
+      if (priority && data['Priority'] !== priority) return false;
+      if (stage && data['Stage ID'] !== stage) return false;
+
+      const stg = stageMap[data['Stage ID']] || {};
+      const isFinal = stg['Is Final Stage'] === true || stg['Is Final Stage'] === 'TRUE';
+      const isNbd = !!(data['NBD Lead ID'] || data['Pushed To NBD At']);
+
+      if (_leadStatusTab === 'closed' && !isFinal) return false;
+      if (_leadStatusTab === 'nbd'    && !isNbd) return false;
+      if (_leadStatusTab === 'active' && (isFinal || isNbd)) return false;
+
+      if (_leadKpiFilter === 'open'  && String(data['Lead Status'] || 'Open').toLowerCase() !== 'open') return false;
+      if (_leadKpiFilter === 'hot'   && String(data['Priority'] || '').toLowerCase() !== 'hot')  return false;
+      if (_leadKpiFilter === 'warm'  && String(data['Priority'] || '').toLowerCase() !== 'warm') return false;
+      if (_leadKpiFilter === 'cold'  && String(data['Priority'] || '').toLowerCase() !== 'cold') return false;
+      if (_leadKpiFilter === 'closed' && !isFinal) return false;
+      if (_leadKpiFilter === 'nbd'    && !isNbd)   return false;
+      return true;
+    });
   }
   window.applyLeadFilters = applyLeadFilters;
 

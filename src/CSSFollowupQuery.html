@@ -528,6 +528,53 @@
   .fu-page.td-page .fu-worklist-card { display: flex; flex: none; min-height: 0; }
   .fu-page.td-page .fu-table-scroll { overflow-x: auto; max-height: none; }
 
+  /* ── Lead Master — Tabulator inside worklist card ───────────────────────── */
+  #leads-worklist #lead-table { border: none; background: transparent; font-size: 12.5px; }
+  #leads-worklist .tabulator { border: none; background: transparent; }
+  #leads-worklist .tabulator-header {
+    background: linear-gradient(180deg, #F8FAFC, #EEF2F7) !important;
+    border-bottom: 1px solid #E2E8F0;
+    box-shadow: 0 1px 0 #E2E8F0;
+  }
+  #leads-worklist .tabulator-col {
+    background: transparent !important; border-right: none !important;
+    padding: 8px 12px;
+  }
+  #leads-worklist .tabulator-col-title {
+    font-size: 10px !important; font-weight: 850 !important;
+    color: #475569 !important; text-transform: uppercase; letter-spacing: .04em;
+  }
+  #leads-worklist .tabulator-row {
+    cursor: pointer; border-bottom: 1px solid #F1F5F9; background: #fff;
+    transition: background .12s;
+  }
+  #leads-worklist .tabulator-cell {
+    border-right: none !important; padding: 8px 12px !important;
+    vertical-align: middle; font-size: 12.5px; color: #1E293B;
+  }
+  #leads-worklist .tabulator-row:hover .tabulator-cell { background: #F5F7FB !important; box-shadow: inset 0 0 0 9999px rgba(99,102,241,.03); }
+  #leads-worklist .tabulator-footer {
+    background: #FAFBFC; border-top: 1px solid #E5E7EB; padding: 6px 12px;
+  }
+  #leads-worklist .tabulator-paginator { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #64748B; }
+  #leads-worklist .tabulator-page {
+    min-width: 28px; height: 28px; font-size: 11.5px; font-weight: 800; padding: 0 8px;
+    border: 1px solid #E5E7EB; border-radius: 6px; background: #fff; color: #334155;
+    margin: 0 2px; cursor: pointer;
+  }
+  #leads-worklist .tabulator-page:hover:not(:disabled) { background: #EEF2FF; color: #3730A3; border-color: #C7D2FE; }
+  #leads-worklist .tabulator-page.active {
+    background: linear-gradient(135deg, #6366F1, #4F46E5); color: #fff; border-color: #4338CA;
+    box-shadow: 0 2px 6px rgba(99,102,241,.30);
+  }
+  #leads-worklist .tabulator-page:disabled { opacity: .4; cursor: default; }
+  #leads-worklist .tabulator-page-size {
+    height: 28px; border: 1px solid #E5E7EB; border-radius: 6px; background: #fff;
+    font-size: 12px; padding: 0 6px; color: #334155;
+  }
+  .fu-density-ultra #leads-worklist .tabulator-cell { padding: 4px 10px !important; font-size: 11.5px; }
+  .fu-density-comfortable #leads-worklist .tabulator-cell { padding: 10px 12px !important; }
+
   /* ── Today's Activity — chart cards ─────────────────────────────────────── */
   .td-charts {
     display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
