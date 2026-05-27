@@ -310,7 +310,23 @@ async function _renderFUTab(tab) {
       : `No ${tab} follow-ups found.`;
     body.innerHTML = _fuTable(rows, emptyMsg, ctx);
     renderIcons(body);
+    _fuAttachScrollCollapse();
   } catch(e) { body.innerHTML = `<p style="color:red">${e}</p>`; }
+}
+
+function _fuAttachScrollCollapse() {
+  const scroll = document.querySelector('.fu-table-scroll');
+  const page = document.querySelector('.fu-page');
+  if (!scroll || !page) return;
+  let ticking = false;
+  scroll.addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      page.classList.toggle('fu-scrolled', scroll.scrollTop > 20);
+      ticking = false;
+    });
+  }, { passive: true });
 }
 
 async function _loadFollowupContext() {

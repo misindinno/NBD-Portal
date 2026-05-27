@@ -172,6 +172,17 @@
   .fu-page #fu-body {
     flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
   }
+  /* Scroll-aware collapse: hide heading + KPIs when user scrolls the table */
+  .fu-page .fu-topbar,
+  .fu-page .fu-kpis {
+    transition: max-height .22s ease, opacity .18s ease, margin .22s ease, transform .22s ease;
+    overflow: hidden;
+  }
+  .fu-page.fu-scrolled .fu-topbar,
+  .fu-page.fu-scrolled .fu-kpis {
+    max-height: 0; opacity: 0; margin: 0; transform: translateY(-4px); pointer-events: none;
+  }
+  .fu-page.fu-scrolled { gap: 8px; }
   /* Compact topbar (48–56px) */
   .fu-topbar {
     display: flex; align-items: center; justify-content: space-between;
