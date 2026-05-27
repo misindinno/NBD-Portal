@@ -156,7 +156,7 @@ function _todayApply() {
   if (userFilter) newLeads = newLeads.filter(r => r['Assigned To'] === userFilter || r['Created By'] === userFilter);
 
   // ── Split history: missed vs connected ──
-  const MISSED_MODES = new Set(['Call Missed', 'Not Picked']);
+  const MISSED_MODES = new Set(['Not Picked']);
   const missedHistory  = history.filter(r => MISSED_MODES.has(r['Contact Mode'] || ''));
   const activeHistory  = history.filter(r => !MISSED_MODES.has(r['Contact Mode'] || ''));
 
@@ -214,7 +214,6 @@ function _todayApply() {
     const contactModeStyle = {
       'Call Connected': { bg:'#dcfce7', color:'#16a34a' },
       'WhatsApp Chat':  { bg:'#dbeafe', color:'#2563eb' },
-      'Call Missed':    { bg:'#fee2e2', color:'#dc2626' },
       'Not Picked':     { bg:'#fee2e2', color:'#dc2626' },
       'Stage Change':   { bg:'#f1f5f9', color:'#64748b' },
       'Log':            { bg:'#f1f5f9', color:'#64748b' },
