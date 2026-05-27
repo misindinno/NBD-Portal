@@ -1,9 +1,0 @@
-name: Test
-on:
-  push:
-    branches: [main, master]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "workflow triggered"
