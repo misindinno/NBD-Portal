@@ -3,7 +3,19 @@
 
 let _todayCharts = {};
 let _todayFiltersOpen = false;
+let _todayCardFilter = '';
 let _todayDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_todayDensity')) || 'compact';
+
+function _todayCardClick(key) {
+  _todayCardFilter = (_todayCardFilter === key) ? '' : key;
+  _todayApply();
+  const scroll = document.querySelector('#today-page .fu-table-scroll') || document.querySelector('#today-page');
+  if (scroll && _todayCardFilter) {
+    const wl = el('td-worklist');
+    if (wl) wl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+window._todayCardClick = _todayCardClick;
 
 async function loadToday() {
   el('content').innerHTML = `<div id="today-wrap">${skeletonPage('table')}</div>`;
@@ -85,6 +97,7 @@ function _renderToday() {
           <div class="fu-worklist-head">
             <div class="fu-worklist-head-left">
               <div class="fu-worklist-title">Activity Feed <span class="fu-worklist-count" id="td-row-count">0</span></div>
+              <div id="td-card-filter-chip"></div>
             </div>
             <div class="fu-worklist-tools">
               <div class="fu-density-toggle" role="group" aria-label="Row density">
@@ -131,6 +144,7 @@ function _todayRenderRangeTabs(active) {
 
 function _todaySetRange(range) {
   window._todayRange = range;
+  _todayCardFilter = '';
   _todayRenderRangeTabs(range);
   // open the filter card automatically when custom is chosen
   if (range === 'custom' && !_todayFiltersOpen) _todayToggleFilters();
@@ -232,21 +246,21 @@ function _todayApply() {
   ).size;
 
   const cards = [
-    { label: 'Unique Leads',    value: uniqueLeads,          sub: 'leads touched', icon: 'users',        cls: 'blue' },
-    { label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected',     icon: 'check-circle-2', cls: 'success' },
-    { label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',     icon: 'phone-missed', cls: 'danger' },
-    { label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
-    { label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
-    { label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
-    { label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' }
+    { key: 'unique',    label: 'Unique Leads',    value: uniqueLeads,          sub: 'leads touched', icon: 'users',        cls: 'blue' },
+    { key: 'connected', label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected',     icon: 'check-circle-2', cls: 'success' },
+    { key: 'notpicked', label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',     icon: 'phone-missed', cls: 'danger' },
+    { key: 'newleads',  label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
+    { key: 'stage',     label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
+    { key: 'calls',     label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
+    { key: 'wa',        label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' }
   ];
   el('td-cards').innerHTML = cards.map(k => `
-    <div class="fu-kpi fu-kpi-${k.cls}">
+    <button type="button" class="fu-kpi fu-kpi-${k.cls} ${_todayCardFilter === k.key ? 'active' : ''}" onclick="_todayCardClick('${k.key}')">
       <span class="fu-kpi-icon">${icon(k.icon, 17)}</span>
       <span class="fu-kpi-value">${escapeHtml(k.value)}</span>
       <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
       <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
-    </div>`).join('');
+    </button>`).join('');
   renderIcons(el('td-cards'));
 
   _todayDestroyCharts();
@@ -271,8 +285,40 @@ function _todayApply() {
   });
 
   const tbody = el('td-tbody');
-  const allRows = [...history, ...logRows];
+  let allRows;
+  switch (_todayCardFilter) {
+    case 'connected': allRows = [...activeHistory]; break;
+    case 'notpicked': allRows = [...missedHistory]; break;
+    case 'calls':     allRows = activeHistory.filter(r => r['Contact Mode'] === 'Call Connected' || r['Follow-up Type'] === 'Call'); break;
+    case 'wa':        allRows = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp'); break;
+    case 'stage':     allRows = [...logRows.filter(r => String(r['Follow-up Type'] || '').toLowerCase().includes('stage'))]; break;
+    case 'newleads':
+      allRows = newLeads.map(l => ({
+        _isLog: true,
+        'Created At': l['Created At'] || '',
+        'Lead ID':    l['Lead ID'] || '',
+        'Created By': l['Created By'] || l['Assigned To'] || '',
+        'Follow-up Type': 'New Lead',
+        'Remark': l['Client Description'] || `New lead created`,
+        'Outcome': '', 'Next Follow-up Date': ''
+      }));
+      break;
+    case 'unique':
+    default:
+      allRows = [...history, ...logRows];
+  }
   el('td-row-count').textContent = allRows.length;
+
+  const chipEl = el('td-card-filter-chip');
+  if (chipEl) {
+    if (_todayCardFilter) {
+      const labelMap = { connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', stage:'Stage Moves', newleads:'New Leads', unique:'Unique Leads' };
+      chipEl.innerHTML = `<button class="fu-filter-chip" onclick="_todayCardClick('${_todayCardFilter}')">${escapeHtml(labelMap[_todayCardFilter] || _todayCardFilter)} ${icon('x', 11)}</button>`;
+      renderIcons(chipEl);
+    } else {
+      chipEl.innerHTML = '';
+    }
+  }
   if (!allRows.length) {
     tbody.innerHTML = `<tr><td colspan="7" class="empty-table-cell">No activity found for the selected period.</td></tr>`;
   } else {
