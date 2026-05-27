@@ -2,11 +2,12 @@
 // ─── Today's Activity Page ────────────────────────────────────────────────────
 
 let _todayCharts = {};
+let _todayFiltersOpen = false;
+let _todayDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_todayDensity')) || 'compact';
 
 async function loadToday() {
   el('content').innerHTML = `<div id="today-wrap">${skeletonPage('table')}</div>`;
 
-  // Ensure all needed caches are loaded
   const loads = [];
   if (!AppCache.isLoaded('followupHistory')) loads.push(_ensureCached('followupHistory', () => api.getFollowupHistory({})));
   if (!AppCache.isLoaded('activityLogs'))   loads.push(_ensureCached('activityLogs',   () => api.getLeadActivityLogs({})));
@@ -21,83 +22,154 @@ function _renderToday() {
   const users = App.config.users || [];
 
   el('today-wrap').innerHTML = `
-    <style>
-      .td-filter-bar { display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px }
-      .td-filter-bar select, .td-filter-bar input { height:34px;font-size:12px;padding:0 10px;border-radius:7px;border:1px solid #e5e7eb;background:#fff;color:#374151 }
-      .td-cards { display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:20px }
-      .td-card { background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-left:4px solid #6366f1 }
-      .td-card-label { font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;margin-bottom:6px }
-      .td-card-value { font-size:28px;font-weight:700;color:#111827;line-height:1 }
-      .td-card-sub   { font-size:11px;color:#9ca3af;margin-top:4px }
-      .td-charts { display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:20px }
-      .td-chart-box { background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08) }
-      .td-chart-title { font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.4px }
-      .td-table-wrap { background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden }
-      .td-table { width:100%;border-collapse:collapse;font-size:13px }
-      .td-table th { background:#f9fafb;padding:9px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;border-bottom:2px solid #e5e7eb }
-      .td-table td { padding:9px 12px;border-bottom:1px solid #f3f4f6;color:#374151;vertical-align:middle }
-      .td-table tr:last-child td { border-bottom:none }
-      .td-table tr:hover td { background:#f8f9ff;cursor:pointer }
-      .td-empty { text-align:center;color:#9ca3af;padding:36px;font-size:13px }
-      @media(max-width:900px){ .td-charts{grid-template-columns:1fr} }
-    </style>
-
-    <div class="td-filter-bar">
-      <select id="td-range" onchange="_todayApply()">
-        <option value="today">Today</option>
-        <option value="yesterday">Yesterday</option>
-        <option value="7d">Last 7 Days</option>
-        <option value="30d">This Month</option>
-        <option value="custom">Custom Range</option>
-      </select>
-      <input type="date" id="td-from" style="display:none" onchange="_todayApply()">
-      <input type="date" id="td-to"   style="display:none" onchange="_todayApply()">
-      ${isAdminOrManager ? `<select id="td-user" onchange="_todayApply()">
-        <option value="">All Users</option>
-        ${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}
-      </select>` : ''}
-      <select id="td-type" onchange="_todayApply()">
-        <option value="">All Types</option>
-        <option>Call</option><option>WhatsApp</option><option>Visit</option>
-        <option>Email</option><option>Payment</option>
-      </select>
-    </div>
-
-    <div class="td-cards" id="td-cards"></div>
-
-    <div class="td-charts">
-      <div class="td-chart-box">
-        <div class="td-chart-title">By Type</div>
-        <div style="position:relative;height:180px"><canvas id="td-chart-type"></canvas></div>
+    <div class="fu-page fu-density-${_todayDensity}" id="today-page">
+      <div class="fu-topbar">
+        <div class="fu-topbar-left">
+          <div class="fu-hero-icon" style="background:linear-gradient(135deg,#EEF2FF,#C7D2FE);color:#4338CA">${icon('activity', 16)}</div>
+          <div class="fu-topbar-titles">
+            <div class="fu-hero-title">Today's Activity</div>
+            <div class="fu-hero-sub">Live view of follow-ups done, stage moves, and new leads added.</div>
+          </div>
+        </div>
+        <div class="fu-topbar-right">
+          <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="loadToday()" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
+        </div>
       </div>
-      <div class="td-chart-box">
-        <div class="td-chart-title">Daily Trend (7 days)</div>
-        <div style="position:relative;height:180px"><canvas id="td-chart-trend"></canvas></div>
-      </div>
-      <div class="td-chart-box">
-        <div class="td-chart-title">Contact Modes</div>
-        <div style="position:relative;height:180px"><canvas id="td-chart-outcome"></canvas></div>
-      </div>
-    </div>
 
-    <div class="td-table-wrap">
-      <table class="td-table">
-        <thead><tr>
-          <th>Done At</th><th>Agent</th><th>Company</th><th>Planned Date</th>
-          <th>Contact Mode</th><th>Remark</th><th>Next Planned Date</th>
-        </tr></thead>
-        <tbody id="td-tbody"></tbody>
-      </table>
+      <div id="td-cards" class="fu-kpis"></div>
+
+      <div class="fu-tabs" id="td-tabs">
+        <div class="fu-tabs-left" id="td-range-tabs"></div>
+        <div class="fu-tabs-right">
+          <button class="fu-filter-toggle ${_todayFiltersOpen ? 'open' : ''}" id="td-filter-toggle" onclick="_todayToggleFilters()">
+            ${icon('sliders-horizontal', 14)} <span>Filters</span>
+            ${icon(_todayFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
+          </button>
+        </div>
+      </div>
+
+      <div class="fu-filter-bar" id="td-filter-bar" style="display:${_todayFiltersOpen ? 'block' : 'none'}">
+        <div class="fu-filter-card-grid">
+          <label class="fu-filter"><span>From</span><input type="date" id="td-from" onchange="_todayApply()"></label>
+          <label class="fu-filter"><span>To</span><input type="date" id="td-to" onchange="_todayApply()"></label>
+          ${isAdminOrManager ? `<label class="fu-filter"><span>User</span><select id="td-user" onchange="_todayApply()">
+            <option value="">All Users</option>
+            ${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}
+          </select></label>` : ''}
+          <label class="fu-filter"><span>Type</span><select id="td-type" onchange="_todayApply()">
+            <option value="">All Types</option>
+            <option>Call</option><option>WhatsApp</option><option>Visit</option>
+            <option>Email</option><option>Payment</option>
+          </select></label>
+          <button class="btn btn-outlined btn-sm fu-filter-clear-all" onclick="_todayClearFilters()">${icon('x', 13)} Clear</button>
+        </div>
+      </div>
+
+      <div id="fu-body">
+        <div class="td-charts">
+          <div class="td-chart-box">
+            <div class="td-chart-title">${icon('bar-chart-3', 13)} By Type</div>
+            <div class="td-chart-canvas-wrap"><canvas id="td-chart-type"></canvas></div>
+          </div>
+          <div class="td-chart-box">
+            <div class="td-chart-title">${icon('trending-up', 13)} Daily Trend (7 days)</div>
+            <div class="td-chart-canvas-wrap"><canvas id="td-chart-trend"></canvas></div>
+          </div>
+          <div class="td-chart-box">
+            <div class="td-chart-title">${icon('pie-chart', 13)} Contact Modes</div>
+            <div class="td-chart-canvas-wrap"><canvas id="td-chart-outcome"></canvas></div>
+          </div>
+        </div>
+
+        <div class="fu-worklist-card fu-density-${_todayDensity}" id="td-worklist">
+          <div class="fu-worklist-head">
+            <div class="fu-worklist-head-left">
+              <div class="fu-worklist-title">Activity Feed <span class="fu-worklist-count" id="td-row-count">0</span></div>
+            </div>
+            <div class="fu-worklist-tools">
+              <div class="fu-density-toggle" role="group" aria-label="Row density">
+                <button class="${_todayDensity === 'comfortable' ? 'active' : ''}" title="Comfortable" onclick="_todaySetDensity('comfortable')">${icon('rows-3', 12)}</button>
+                <button class="${_todayDensity === 'compact' ? 'active' : ''}" title="Compact" onclick="_todaySetDensity('compact')">${icon('list', 12)}</button>
+                <button class="${_todayDensity === 'ultra' ? 'active' : ''}" title="Ultra Compact" onclick="_todaySetDensity('ultra')">${icon('menu', 12)}</button>
+              </div>
+            </div>
+          </div>
+          <div class="fu-table-scroll">
+            <table class="fu-table">
+              <thead><tr>
+                <th>Done At</th><th>Agent</th><th>Company</th><th>Planned</th>
+                <th>Contact Mode</th><th>Remark</th><th>Next Planned</th>
+              </tr></thead>
+              <tbody id="td-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>`;
 
+  renderIcons();
+  _todayRenderRangeTabs('today');
+  _todayApply();
+}
+
+function _todayRenderRangeTabs(active) {
+  const tabs = [
+    ['today', 'Today', 'calendar-days'],
+    ['yesterday', 'Yesterday', 'calendar-minus'],
+    ['7d', 'Last 7 Days', 'calendar-range'],
+    ['30d', 'This Month', 'calendar'],
+    ['custom', 'Custom', 'sliders-horizontal']
+  ];
+  const wrap = el('td-range-tabs');
+  if (!wrap) return;
+  wrap.innerHTML = tabs.map(([id, label, ic]) => `
+    <button class="fu-tab ${active === id ? 'active' : ''}" data-range="${id}" onclick="_todaySetRange('${id}')">
+      ${icon(ic, 14)} <span>${label}</span>
+    </button>`).join('');
+  renderIcons(wrap);
+}
+
+function _todaySetRange(range) {
+  window._todayRange = range;
+  _todayRenderRangeTabs(range);
+  // open the filter card automatically when custom is chosen
+  if (range === 'custom' && !_todayFiltersOpen) _todayToggleFilters();
+  _todayApply();
+}
+
+function _todayToggleFilters() {
+  _todayFiltersOpen = !_todayFiltersOpen;
+  const bar = el('td-filter-bar');
+  const toggle = el('td-filter-toggle');
+  if (bar) bar.style.display = _todayFiltersOpen ? 'block' : 'none';
+  if (toggle) { toggle.classList.toggle('open', _todayFiltersOpen); renderIcons(toggle); }
+}
+
+function _todayClearFilters() {
+  const u = el('td-user'); if (u) u.value = '';
+  const t = el('td-type'); if (t) t.value = '';
+  const f = el('td-from'); if (f) f.value = '';
+  const to = el('td-to'); if (to) to.value = '';
+  _todayApply();
+}
+
+function _todaySetDensity(value) {
+  _todayDensity = ['comfortable','compact','ultra'].includes(value) ? value : 'compact';
+  try { localStorage.setItem('_todayDensity', _todayDensity); } catch (e) {}
+  const page = el('today-page');
+  const worklist = el('td-worklist');
+  [page, worklist].forEach(node => {
+    if (!node) return;
+    node.classList.remove('fu-density-comfortable','fu-density-compact','fu-density-ultra');
+    node.classList.add('fu-density-' + _todayDensity);
+  });
   _todayApply();
 }
 
 function _todayDateRange() {
-  const range = el('td-range')?.value || 'today';
+  const range = window._todayRange || 'today';
   const todayStr = localDateInputValue();
   let from, to;
-
   if (range === 'today') {
     from = to = todayStr;
   } else if (range === 'yesterday') {
@@ -117,11 +189,6 @@ function _todayDateRange() {
 }
 
 function _todayApply() {
-  const range = el('td-range')?.value || 'today';
-  const fromEl = el('td-from'), toEl = el('td-to');
-  if (fromEl) fromEl.style.display = range === 'custom' ? '' : 'none';
-  if (toEl)   toEl.style.display   = range === 'custom' ? '' : 'none';
-
   const { from, to } = _todayDateRange();
   const userFilter = el('td-user')?.value || '';
   const typeFilter = el('td-type')?.value || '';
@@ -133,7 +200,6 @@ function _todayApply() {
   });
   const leadMap  = AppCache.getRows('leads').reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
 
-  // ── History rows in range ──
   let history = AppCache.getRows('followupHistory').filter(r => {
     const d = _fmtDate(r['Created At'] || r['Done Date'] || '');
     return d >= from && d <= to;
@@ -141,53 +207,49 @@ function _todayApply() {
   if (userFilter) history = history.filter(r => r['Done By'] === userFilter || r['Created By'] === userFilter || leadMap[r['Lead ID']]?.['Assigned To'] === userFilter);
   if (typeFilter) history = history.filter(r => r['Follow-up Type'] === typeFilter);
 
-  // ── Activity logs in range ──
   let actLogs = AppCache.getRows('activityLogs').filter(r => {
     const d = _fmtDate(r['Created At'] || '');
     return d >= from && d <= to;
   });
   if (userFilter) actLogs = actLogs.filter(r => r['Created By'] === userFilter);
 
-  // ── New leads in range ──
   let newLeads = AppCache.getRows('leads').filter(r => {
     const d = _fmtDate(r['Created At'] || '');
     return d >= from && d <= to;
   });
   if (userFilter) newLeads = newLeads.filter(r => r['Assigned To'] === userFilter || r['Created By'] === userFilter);
 
-  // ── Split history: missed vs connected ──
   const MISSED_MODES = new Set(['Not Picked']);
   const missedHistory  = history.filter(r => MISSED_MODES.has(r['Contact Mode'] || ''));
   const activeHistory  = history.filter(r => !MISSED_MODES.has(r['Contact Mode'] || ''));
 
-  // ── Render cards ──
   const callsDone  = activeHistory.filter(r => r['Follow-up Type'] === 'Call').length;
   const visitsDone = activeHistory.filter(r => r['Follow-up Type'] === 'Visit').length;
   const waDone     = activeHistory.filter(r => r['Follow-up Type'] === 'WhatsApp').length;
   const stageMovs  = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase().includes('stage')).length;
 
   const cards = [
-    { label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected',   color: '#6366f1' },
-    { label: 'Not Picked',    value: missedHistory.length, sub: 'not picked',  color: '#ef4444' },
-    { label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',   color: '#10b981' },
-    { label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',   color: '#f59e0b' },
-    { label: 'Calls Made',      value: callsDone,            sub: 'type = Call', color: '#3b82f6' },
-    { label: 'WhatsApp',        value: waDone,               sub: 'type = WA',   color: '#22c55e' },
+    { label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected', icon: 'check-circle-2', cls: 'success' },
+    { label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',  icon: 'phone-missed',  cls: 'danger' },
+    { label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',  icon: 'user-plus',     cls: 'blue' },
+    { label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',  icon: 'arrow-right-circle', cls: 'warning' },
+    { label: 'Calls Made',      value: callsDone,            sub: 'type = Call',icon: 'phone-call',    cls: 'purple' },
+    { label: 'WhatsApp',        value: waDone,               sub: 'type = WA',  icon: 'message-circle', cls: 'success' }
   ];
-  el('td-cards').innerHTML = cards.map(c => `
-    <div class="td-card" style="border-left-color:${c.color}">
-      <div class="td-card-label">${escapeHtml(c.label)}</div>
-      <div class="td-card-value" style="color:${c.color}">${c.value}</div>
-      <div class="td-card-sub">${escapeHtml(c.sub)}</div>
+  el('td-cards').innerHTML = cards.map(k => `
+    <div class="fu-kpi fu-kpi-${k.cls}">
+      <span class="fu-kpi-icon">${icon(k.icon, 17)}</span>
+      <span class="fu-kpi-value">${escapeHtml(k.value)}</span>
+      <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
+      <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
     </div>`).join('');
+  renderIcons(el('td-cards'));
 
-  // ── Charts ──
   _todayDestroyCharts();
   _todayChartType(history);
   _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap);
   _todayChartContactMode(history);
 
-  // ── Table: merge followupHistory + activityLogs ──
   const logRows = actLogs.map(r => {
     const oldStage = r['Old Value'] ? (AppLookup.stageName(r['Old Value']) || r['Old Value']) : '';
     const newStage = r['New Value'] ? (AppLookup.stageName(r['New Value']) || r['New Value']) : '';
@@ -200,55 +262,79 @@ function _todayApply() {
       'Follow-up Type': r['Action Type'] || 'Log',
       'Remark': remark,
       'Outcome': '',
-      'Next Follow-up Date': '',
+      'Next Follow-up Date': ''
     };
   });
 
-  // ── Single combined table: all history + activity logs ──
   const tbody = el('td-tbody');
   const allRows = [...history, ...logRows];
+  el('td-row-count').textContent = allRows.length;
   if (!allRows.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="td-empty">No activity found for the selected period.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-table-cell">No activity found for the selected period.</td></tr>`;
   } else {
     const sorted = [...allRows].sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0));
     const contactModeStyle = {
-      'Call Connected': { bg:'#dcfce7', color:'#16a34a' },
-      'WhatsApp Chat':  { bg:'#dbeafe', color:'#2563eb' },
-      'Not Picked':     { bg:'#fee2e2', color:'#dc2626' },
-      'Stage Change':   { bg:'#f1f5f9', color:'#64748b' },
-      'Log':            { bg:'#f1f5f9', color:'#64748b' },
+      'Call Connected': { bg:'#dcfce7', color:'#166534' },
+      'WhatsApp Chat':  { bg:'#dbeafe', color:'#1D4ED8' },
+      'Not Picked':     { bg:'#fee2e2', color:'#B91C1C' },
+      'Stage Change':   { bg:'#f1f5f9', color:'#475569' },
+      'Log':            { bg:'#f1f5f9', color:'#475569' }
     };
     tbody.innerHTML = sorted.map(r => {
       const lead      = leadMap[r['Lead ID']] || {};
       const company   = escapeHtml(lead['Company Name'] || r['Lead ID'] || '—');
+      const city      = lead['City'] ? escapeHtml(lead['City']) : '';
       const createdBy = r['Created By'] || r['Done By'] || '';
-      const agent     = escapeHtml(userMap[createdBy] || createdBy || '—');
+      const agentName = userMap[createdBy] || createdBy || '—';
+      const initial   = String(agentName).trim().charAt(0).toUpperCase() || '?';
       const isLog     = !!r._isLog;
       const isMissed  = MISSED_MODES.has(r['Contact Mode'] || '');
       const cm        = isLog ? (r['Follow-up Type'] || 'Log') : (r['Contact Mode'] || '');
-      const cms       = contactModeStyle[cm];
+      const cms       = contactModeStyle[cm] || { bg:'#f3f4f6', color:'#6b7280' };
       const contactBadge = cm
-        ? `<span style="background:${cms ? cms.bg : '#f3f4f6'};color:${cms ? cms.color : '#6b7280'};font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px">${escapeHtml(cm)}</span>`
-        : `<span style="color:#9ca3af;font-size:12px">—</span>`;
+        ? `<span class="td-mode-badge" style="background:${cms.bg};color:${cms.color}">${escapeHtml(cm)}</span>`
+        : `<span class="muted-text">—</span>`;
       const remark    = escapeHtml(r['Remark'] || r['Discussion'] || '—');
+      const remarkRaw = (r['Remark'] || r['Discussion'] || '');
       const nextDate  = r['Next Follow-up Date'] || r['Next Planned Date'] || r['Next Date'] || '';
-      const next      = nextDate ? formatDate(nextDate) : `<span style="color:#9ca3af">—</span>`;
+      const next      = nextDate ? formatDate(nextDate) : `<span class="muted-text">—</span>`;
       const doneAt    = formatDate(r['Done Date'] || r['Created At'] || '');
       const planned   = r['Follow-up Date'] || r['Planned Date'] || '';
-      const plannedFmt = planned ? formatDate(planned) : `<span style="color:#9ca3af">—</span>`;
+      const plannedFmt = planned ? formatDate(planned) : `<span class="muted-text">—</span>`;
       const leadId    = r['Lead ID'] || '';
-      const rowBg     = isMissed ? 'background:#fff8f8' : isLog ? 'opacity:.75' : '';
-      return `<tr style="${rowBg}" onclick="${leadId ? `_todayOpenLead('${escapeHtml(leadId)}')` : ''}">
-        <td style="white-space:nowrap;font-size:12px;color:#6b7280">${doneAt}</td>
-        <td style="font-size:12px">${agent}</td>
-        <td><div style="font-weight:600;font-size:13px">${company}</div></td>
-        <td style="white-space:nowrap;font-size:12px;color:#6b7280">${plannedFmt}</td>
+      const rowCls    = isMissed ? 'fu-row-overdue' : (isLog ? 'fu-row-done' : '');
+      return `<tr class="fu-row ${rowCls}" ${leadId ? `onclick="_todayOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer"` : ''}>
+        <td><div class="fu-date-sub" style="margin-top:0;font-weight:600;color:#1E293B">${doneAt}</div></td>
+        <td><div class="fu-owner-cell"><span class="fu-owner-avatar">${escapeHtml(initial)}</span><span class="fu-owner-name">${escapeHtml(agentName)}</span></div></td>
+        <td>
+          <div class="fu-lead-title">${company}</div>
+          ${city ? `<div class="fu-lead-sub">${icon('map-pin', 12)} ${city}</div>` : ''}
+        </td>
+        <td><div class="fu-date-sub">${plannedFmt}</div></td>
         <td>${contactBadge}</td>
-        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${remark}">${remark}</td>
-        <td style="font-size:12px;white-space:nowrap">${next}</td>
+        <td><div class="fu-discussion" title="${escapeHtml(remarkRaw)}">${remark}</div></td>
+        <td><div class="fu-date-sub">${next}</div></td>
       </tr>`;
     }).join('');
+    renderIcons(tbody);
   }
+  _todayAttachScrollCollapse();
+}
+
+function _todayAttachScrollCollapse() {
+  const scroll = document.querySelector('#today-page .fu-table-scroll');
+  const page = el('today-page');
+  if (!scroll || !page || scroll._tdBound) return;
+  scroll._tdBound = true;
+  let ticking = false;
+  scroll.addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      page.classList.toggle('fu-scrolled', scroll.scrollTop > 20);
+      ticking = false;
+    });
+  }, { passive: true });
 }
 
 function _todayOpenLead(leadId) {
@@ -259,10 +345,9 @@ function _todayOpenLead(leadId) {
 function _todayDestroyCharts() {
   Object.values(_todayCharts).forEach(c => { try { c.destroy(); } catch(e) {} });
   _todayCharts = {};
-  // Reset canvas elements so Chart.js starts fresh without stale pixel dimensions
   ['td-chart-type', 'td-chart-trend', 'td-chart-outcome'].forEach(id => {
     const c = el(id);
-    if (c) { c.width = c.width; } // clears canvas content and resets internal state
+    if (c) { c.width = c.width; }
   });
 }
 
@@ -286,8 +371,6 @@ function _todayChartType(history) {
 function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
   const ctx = el('td-chart-trend');
   if (!ctx) return;
-
-  // Always show last 7 days as trend context regardless of filter
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
@@ -304,7 +387,7 @@ function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
 
   _todayCharts.trend = new Chart(ctx, {
     type: 'line',
-    data: { labels, datasets: [{ data: counts, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.1)', tension: 0.4, fill: true, pointBackgroundColor: '#6366f1', pointRadius: 4 }] },
+    data: { labels, datasets: [{ data: counts, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.12)', tension: 0.4, fill: true, pointBackgroundColor: '#6366f1', pointRadius: 4 }] },
     options: {
       plugins: { legend: { display: false } },
       scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } }, grid: { color: '#f3f4f6' } }, x: { ticks: { font: { size: 11 } }, grid: { display: false } } },
