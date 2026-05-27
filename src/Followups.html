@@ -1,33 +1,21 @@
 <script>
 // ─── Follow-ups Page ─────────────────────────────────────────────────────────
 
-let _fuFilterState = { search: '', type: '', assignedTo: '', dateFrom: '', dateTo: '' };
+let _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
+let _fuPage = 1;
+let _fuPageSize = 25;
+let _fuDensity = 'comfortable';
 
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
   el('page-title').textContent = 'Follow-ups';
-  _fuFilterState = { search: '', type: '', assignedTo: '', dateFrom: '', dateTo: '' };
+  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
+  _fuPage = 1;
 
   const grp = el('nav-group-fu');
   if (grp) grp.classList.add('open');
 
-  const showFilters = tab !== 'custom';
-  el('content').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div class="tabs" style="margin-bottom:0;border:none">
-        <button class="tab-btn ${tab==='all'?'active':''}"     onclick="loadFollowups('all')">All</button>
-        <button class="tab-btn ${tab==='today'?'active':''}"   onclick="loadFollowups('today')">Today</button>
-        <button class="tab-btn ${tab==='overdue'?'active':''}" onclick="loadFollowups('overdue')">Overdue</button>
-        <button class="tab-btn ${tab==='future'?'active':''}"  onclick="loadFollowups('future')">Future</button>
-        <button class="tab-btn ${tab==='closed'?'active':''}"  onclick="loadFollowups('closed')">Closed</button>
-        <button class="tab-btn ${tab==='custom'?'active':''}"  onclick="loadFollowups('custom')">Custom Query</button>
-      </div>
-      ${_isNBDPortal()
-        ? _nbdEscalateBtn('sm')
-        : `<button class="btn btn-primary btn-sm" onclick="openFollowupForm()">${icon('plus', 16)} Add Follow-up</button>`}
-    </div>
-    ${showFilters ? _fuFilterBarHTML() : ''}
-    <div id="fu-body">${skeletonPage('table')}</div>`;
+  el('content').innerHTML = _fuShellHTML(tab);
   renderIcons();
 
   if      (tab === 'today')   await _renderFUTab('today');
@@ -36,6 +24,51 @@ async function loadFollowups(tab = 'all') {
   else if (tab === 'closed')  await _renderFUTab('closed');
   else if (tab === 'custom')  _renderCustomQuery();
   else                        await _renderFUTab('all');
+}
+
+function _fuShellHTML(tab) {
+  const showFilters = tab !== 'custom';
+  return `
+    <div class="fu-page">
+      <div class="fu-hero">
+        <div class="fu-hero-main">
+          <div class="fu-hero-icon">${icon('phone-call', 20)}</div>
+          <div>
+            <div class="fu-hero-title">Follow-ups</div>
+            <div class="fu-hero-sub">Track planned activity, close conversations, and keep every lead moving.</div>
+          </div>
+        </div>
+        <div class="fu-hero-actions">
+          <button class="btn btn-outlined btn-sm" onclick="_renderFUTab(window.currentFollowupTab || 'all')">${icon('refresh-cw', 14)} Refresh</button>
+          ${_isNBDPortal()
+            ? _nbdEscalateBtn('sm')
+            : `<button class="btn btn-primary btn-sm" onclick="openFollowupForm()">${icon('plus', 16)} Add Follow-up</button>`}
+        </div>
+      </div>
+      <div id="fu-kpis" class="fu-kpis">${_fuKpiSkeleton()}</div>
+      <div class="fu-tabs" id="fu-tabs">${_fuTabsHTML(tab)}</div>
+      ${showFilters ? _fuModernFilterBarHTML() : ''}
+      <div id="fu-body">${skeletonPage('table')}</div>
+    </div>`;
+}
+
+function _fuKpiSkeleton() {
+  return Array.from({ length: 6 }, () => '<div class="skeleton-block fu-kpi-skeleton"></div>').join('');
+}
+
+function _fuTabsHTML(active) {
+  const tabs = [
+    ['all', 'All', 'layers'],
+    ['today', 'Today', 'calendar-days'],
+    ['overdue', 'Overdue', 'circle-alert'],
+    ['future', 'Future', 'calendar-clock'],
+    ['closed', 'Closed', 'check-circle-2'],
+    ['custom', 'Custom Query', 'filter']
+  ];
+  return tabs.map(([id, label, ic]) => `
+    <button class="fu-tab ${active === id ? 'active' : ''}" onclick="loadFollowups('${id}')">
+      ${icon(ic, 14)} <span>${label}</span><span class="fu-tab-count" id="fu-tab-count-${id}">-</span>
+    </button>`).join('');
 }
 
 function _fuFilterBarHTML() {
@@ -82,17 +115,71 @@ function _fuFilterBarHTML() {
   </div>`;
 }
 
+function _fuFilterChipsHTML() {
+  const f = _fuFilterState;
+  const users = App.config.users || [];
+  const stages = App.config.stages || App.config.allStages || [];
+  const chips = [];
+  if (f.search) chips.push(['search', `Search: ${f.search}`]);
+  if (f.type) chips.push(['type', `Type: ${f.type}`]);
+  if (f.assignedTo) chips.push(['assignedTo', `Owner: ${(users.find(u => u.id === f.assignedTo) || {}).name || f.assignedTo}`]);
+  if (f.contactMode) chips.push(['contactMode', `Contact: ${f.contactMode}`]);
+  if (f.stage) chips.push(['stage', `Stage: ${(stages.find(s => s['Stage ID'] === f.stage) || {})['Stage Name'] || f.stage}`]);
+  if (f.dateFrom) chips.push(['dateFrom', `From: ${f.dateFrom}`]);
+  if (f.dateTo) chips.push(['dateTo', `To: ${f.dateTo}`]);
+  return chips.map(([key, label]) => `<button class="fu-filter-chip" onclick="_fuOnFilterChange('${key}','')">${escapeHtml(label)} ${icon('x', 11)}</button>`).join('');
+}
+
+function _fuModernFilterBarHTML() {
+  const cfg = App.config || {};
+  const types = cfg.followupTypes || [];
+  const users = cfg.users || [];
+  const stages = cfg.stages || cfg.allStages || [];
+  const f = _fuFilterState;
+  const modes = ['Call Connected', 'WhatsApp Chat', 'Not Picked'];
+  return `
+  <div class="fu-filter-card">
+    <label class="fu-search">${icon('search', 15)}
+      <input type="search" id="fu-f-search" placeholder="Search company, contact, phone, remark..." value="${escapeHtml(f.search)}" oninput="_fuOnFilterChange('search',this.value)">
+    </label>
+    <label class="fu-filter"><span>Type</span><select id="fu-f-type" onchange="_fuOnFilterChange('type',this.value)">
+      <option value="">All Types</option>
+      ${types.map(t=>`<option value="${escapeHtml(t)}"${f.type===t?' selected':''}>${escapeHtml(t)}</option>`).join('')}
+    </select></label>
+    <label class="fu-filter"><span>Owner</span><select id="fu-f-user" onchange="_fuOnFilterChange('assignedTo',this.value)">
+      <option value="">All Users</option>
+      ${users.map(u=>`<option value="${escapeHtml(u.id)}"${f.assignedTo===u.id?' selected':''}>${escapeHtml(u.name)}</option>`).join('')}
+    </select></label>
+    <label class="fu-filter"><span>Contact</span><select id="fu-f-contact" onchange="_fuOnFilterChange('contactMode',this.value)">
+      <option value="">All Modes</option>
+      ${modes.map(m=>`<option value="${escapeHtml(m)}"${f.contactMode===m?' selected':''}>${escapeHtml(m)}</option>`).join('')}
+    </select></label>
+    <label class="fu-filter"><span>Stage</span><select id="fu-f-stage" onchange="_fuOnFilterChange('stage',this.value)">
+      <option value="">All Stages</option>
+      ${stages.map(s=>`<option value="${escapeHtml(s['Stage ID'])}"${f.stage===s['Stage ID']?' selected':''}>${escapeHtml(s['Stage Name'])}</option>`).join('')}
+    </select></label>
+    <label class="fu-filter fu-date"><span>From</span><input type="date" id="fu-f-from" value="${escapeHtml(f.dateFrom)}" onchange="_fuOnFilterChange('dateFrom',this.value)"></label>
+    <label class="fu-filter fu-date"><span>To</span><input type="date" id="fu-f-to" value="${escapeHtml(f.dateTo)}" onchange="_fuOnFilterChange('dateTo',this.value)"></label>
+    <button class="btn btn-outlined btn-sm" onclick="_fuClearFilters()">${icon('x', 13)} Clear</button>
+    <div class="fu-filter-chips" id="fu-filter-chips">${_fuFilterChipsHTML()}</div>
+  </div>`;
+}
+
 function _fuOnFilterChange(key, value) {
   _fuFilterState[key] = value;
+  _fuPage = 1;
   _renderFUTab(window.currentFollowupTab || 'all');
 }
 
 function _fuClearFilters() {
-  _fuFilterState = { search: '', type: '', assignedTo: '', dateFrom: '', dateTo: '' };
+  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
+  _fuPage = 1;
   // Reset the filter inputs without full page reload
   const s = el('fu-f-search'); if (s) s.value = '';
   const t = el('fu-f-type');   if (t) t.value = '';
   const u = el('fu-f-user');   if (u) u.value = '';
+  const cm = el('fu-f-contact'); if (cm) cm.value = '';
+  const st = el('fu-f-stage'); if (st) st.value = '';
   const f = el('fu-f-from');   if (f) f.value = '';
   const to = el('fu-f-to');    if (to) to.value = '';
   _renderFUTab(window.currentFollowupTab || 'all');
@@ -100,7 +187,7 @@ function _fuClearFilters() {
 
 function _fuApplyFilters(rows, ctx) {
   const f = _fuFilterState;
-  if (!f.search && !f.type && !f.assignedTo && !f.dateFrom && !f.dateTo) return rows;
+  if (!f.search && !f.type && !f.assignedTo && !f.contactMode && !f.stage && !f.dateFrom && !f.dateTo) return rows;
   const searchQ = f.search.toLowerCase().trim();
   return rows.filter(row => {
     const lead = ctx?.leadMap?.[row['Lead ID']];
@@ -113,6 +200,8 @@ function _fuApplyFilters(rows, ctx) {
     }
     if (f.type && String(row['Follow-up Type'] || '') !== f.type) return false;
     if (f.assignedTo && lead?.['Assigned To'] !== f.assignedTo) return false;
+    if (f.contactMode && String(row['Contact Mode'] || '') !== f.contactMode) return false;
+    if (f.stage && lead?.['Stage ID'] !== f.stage && row['Updated Stage ID'] !== f.stage) return false;
     // Closed tab rows use Done Date; open tabs use Planned Date
     const dateField = row['Done Date'] ? _fmtDate(row['Done Date']) : _fmtDate(_fuPlannedDate(row));
     if (f.dateFrom && dateField && dateField < f.dateFrom) return false;
@@ -135,11 +224,12 @@ async function _renderFUTab(tab) {
       ]);
     }
   } else {
-    if (!AppCache.isLoaded('followups') || !AppCache.isLoaded('leads')) {
+    if (!AppCache.isLoaded('followups') || !AppCache.isLoaded('leads') || !AppCache.isLoaded('followupHistory')) {
       body.innerHTML = skeletonPage('table');
       await Promise.all([
         _ensureCached('followups', () => api.getFollowups({})),
-        _ensureCached('leads',     () => api.getFollowupLeads())
+        _ensureCached('leads',     () => api.getFollowupLeads()),
+        _ensureCached('followupHistory', () => api.getFollowupHistory({}))
       ]);
     }
   }
@@ -163,7 +253,9 @@ async function _renderFUTab(tab) {
       }
     }
     const ctx = _buildFollowupContext(AppCache.getRows('leads'));
+    _fuRenderOverview(ctx);
     rows = _fuApplyFilters(rows, ctx);
+    const chips = el('fu-filter-chips'); if (chips) { chips.innerHTML = _fuFilterChipsHTML(); renderIcons(chips); }
     const hasFilter = Object.values(_fuFilterState).some(Boolean);
     const emptyMsg = hasFilter
       ? `No follow-ups match the current filters. <a href="#" onclick="_fuClearFilters();return false" style="color:#4F46E5">Clear filters</a>`
@@ -176,6 +268,74 @@ async function _renderFUTab(tab) {
 async function _loadFollowupContext() {
   const data = await _getFollowupFormData();
   return _buildFollowupContext(data.leads || []);
+}
+
+function _fuRenderOverview(ctx) {
+  const openRows = (AppCache.getRows('followups') || [])
+    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+    .filter(_isOpenFollowupRow);
+  const historyRows = (AppCache.getRows('followupHistory') || [])
+    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+  const todayStr = localDateInputValue();
+  const counts = openRows.reduce((m, row) => {
+    const bucket = _followupDueBucket(row);
+    if (bucket === 'overdue') m.overdue++;
+    else if (bucket === 'today') m.today++;
+    else if (bucket === 'future') m.future++;
+    return m;
+  }, { overdue: 0, today: 0, future: 0 });
+  const closedToday = historyRows.filter(r => _fmtDate(r['Done Date'] || r['Created At']) === todayStr).length;
+  const notPicked = historyRows.filter(r => String(r['Contact Mode'] || '') === 'Not Picked').length;
+  const connected = historyRows.filter(r => ['Call Connected', 'WhatsApp Chat'].includes(String(r['Contact Mode'] || ''))).length;
+  const rate = connected + notPicked ? Math.round((connected / (connected + notPicked)) * 100) : 0;
+  const activeTab = window.currentFollowupTab || 'all';
+  const tabCounts = {
+    all: openRows.length,
+    today: counts.today,
+    overdue: counts.overdue,
+    future: counts.future,
+    closed: historyRows.length,
+    custom: ''
+  };
+  Object.entries(tabCounts).forEach(([key, val]) => {
+    const node = el('fu-tab-count-' + key);
+    if (node) node.textContent = val === '' ? '' : val;
+  });
+  const kpiEl = el('fu-kpis');
+  if (!kpiEl) return;
+  const kpis = [
+    { key: 'overdue', label: 'Overdue', value: counts.overdue, sub: 'Needs attention', icon: 'circle-alert', cls: 'danger' },
+    { key: 'today', label: 'Due Today', value: counts.today, sub: 'Planned for today', icon: 'calendar-days', cls: 'success' },
+    { key: 'future', label: 'Upcoming', value: counts.future, sub: 'Future follow-ups', icon: 'calendar-clock', cls: 'blue' },
+    { key: 'closed', label: 'Closed', value: historyRows.length, sub: `${closedToday} closed today`, icon: 'check-circle-2', cls: 'neutral' },
+    { key: 'notpicked', label: 'Not Picked', value: notPicked, sub: 'Contact attempts', icon: 'phone-missed', cls: 'warning' },
+    { key: 'rate', label: 'Connection Rate', value: `${rate}%`, sub: `${connected} connected`, icon: 'activity', cls: 'purple' }
+  ];
+  kpiEl.innerHTML = kpis.map(k => `
+    <button type="button" class="fu-kpi fu-kpi-${k.cls} ${activeTab === k.key ? 'active' : ''}" onclick="_fuKpiAction('${k.key}')">
+      <span class="fu-kpi-icon">${icon(k.icon, 17)}</span>
+      <span class="fu-kpi-value">${escapeHtml(k.value)}</span>
+      <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
+      <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
+    </button>`).join('');
+  renderIcons(kpiEl);
+}
+
+function _fuKpiAction(key) {
+  if (['overdue', 'today', 'future', 'closed'].includes(key)) {
+    loadFollowups(key);
+    return;
+  }
+  if (key === 'notpicked') {
+    if (window.currentFollowupTab !== 'closed') {
+      window.currentFollowupTab = 'closed';
+      el('content').innerHTML = _fuShellHTML('closed');
+      renderIcons();
+    }
+    _fuFilterState.contactMode = 'Not Picked';
+    _fuPage = 1;
+    _renderFUTab('closed');
+  }
 }
 
 async function _getFollowupFormData(force = false) {
@@ -282,6 +442,10 @@ function _fuTable(rows, emptyMsg, ctx) {
   const data = (rows || [])
     .map(row => ctx ? _decorateFollowup(row, ctx) : row)
     .sort(_compareFollowupDue);
+  const pageCount = Math.max(1, Math.ceil(data.length / _fuPageSize));
+  _fuPage = Math.min(Math.max(1, _fuPage), pageCount);
+  const start = (_fuPage - 1) * _fuPageSize;
+  const paged = data.slice(start, start + _fuPageSize);
   const counts = data.reduce((m, row) => {
     const bucket = _followupDueBucket(row);
     if (bucket === 'overdue' || bucket === 'today' || bucket === 'future') m[bucket]++;
@@ -290,12 +454,14 @@ function _fuTable(rows, emptyMsg, ctx) {
 
   if (!data.length) {
     return `
-      <div class="fu-table-summary">
-        <span class="fu-summary-pill danger">Overdue 0</span>
-        <span class="fu-summary-pill success">Today 0</span>
-        <span class="fu-summary-pill">Future 0</span>
-      </div>
-      <div class="table-wrap fu-table-wrap">
+      <div class="fu-worklist-card">
+        <div class="fu-worklist-head">
+          <div><div class="fu-worklist-title">Worklist</div><div class="fu-worklist-sub">0 follow-ups found</div></div>
+          <div class="fu-density-toggle">
+            <button class="${_fuDensity === 'comfortable' ? 'active' : ''}" onclick="_fuSetDensity('comfortable')">${icon('rows-3', 13)}</button>
+            <button class="${_fuDensity === 'compact' ? 'active' : ''}" onclick="_fuSetDensity('compact')">${icon('list', 13)}</button>
+          </div>
+        </div>
         <table class="fu-table">
           <thead>
             <tr>
@@ -308,12 +474,28 @@ function _fuTable(rows, emptyMsg, ctx) {
   }
 
   return `
-    <div class="fu-table-summary">
-      <span class="fu-summary-pill danger">Overdue ${counts.overdue}</span>
-      <span class="fu-summary-pill success">Today ${counts.today}</span>
-      <span class="fu-summary-pill">Future ${counts.future}</span>
-    </div>
-    <div class="table-wrap fu-table-wrap">
+    <div class="fu-worklist-card ${_fuDensity === 'compact' ? 'compact' : ''}">
+      <div class="fu-worklist-head">
+        <div>
+          <div class="fu-worklist-title">Worklist</div>
+          <div class="fu-worklist-sub">${data.length} follow-up${data.length === 1 ? '' : 's'} found</div>
+        </div>
+        <div class="fu-worklist-tools">
+          <span class="fu-summary-pill danger">Overdue ${counts.overdue}</span>
+          <span class="fu-summary-pill success">Today ${counts.today}</span>
+          <span class="fu-summary-pill">Future ${counts.future}</span>
+          <label class="fu-page-size">Rows
+            <select onchange="_fuSetPageSize(this.value)">
+              ${[10, 25, 50, 100].map(n => `<option value="${n}"${n === _fuPageSize ? ' selected' : ''}>${n}</option>`).join('')}
+            </select>
+          </label>
+          <div class="fu-density-toggle">
+            <button class="${_fuDensity === 'comfortable' ? 'active' : ''}" title="Comfortable" onclick="_fuSetDensity('comfortable')">${icon('rows-3', 13)}</button>
+            <button class="${_fuDensity === 'compact' ? 'active' : ''}" title="Compact" onclick="_fuSetDensity('compact')">${icon('list', 13)}</button>
+          </div>
+        </div>
+      </div>
+      <div class="fu-table-scroll">
       <table class="fu-table">
         <thead>
           <tr>
@@ -326,9 +508,56 @@ function _fuTable(rows, emptyMsg, ctx) {
             <th>Action</th>
           </tr>
         </thead>
-        <tbody>${data.map(_fuTableRow).join('')}</tbody>
+        <tbody>${paged.map(_fuTableRow).join('')}</tbody>
       </table>
+      </div>
+      ${_fuPagination(data.length, start, paged.length, pageCount)}
     </div>`;
+}
+
+function _fuSetPageSize(value) {
+  _fuPageSize = Math.max(10, Number(value) || 25);
+  _fuPage = 1;
+  _renderFUTab(window.currentFollowupTab || 'all');
+}
+
+function _fuSetPage(page) {
+  _fuPage = Math.max(1, Number(page) || 1);
+  _renderFUTab(window.currentFollowupTab || 'all');
+}
+
+function _fuSetDensity(value) {
+  _fuDensity = value === 'compact' ? 'compact' : 'comfortable';
+  _renderFUTab(window.currentFollowupTab || 'all');
+}
+
+function _fuPagination(total, start, visibleCount, pageCount) {
+  const from = total ? start + 1 : 0;
+  const to = start + visibleCount;
+  const pages = _fuPageButtons(pageCount);
+  return `<div class="fu-pagination">
+    <div class="muted-text">Showing ${from}-${to} of ${total}</div>
+    <div class="fu-page-buttons">
+      <button class="fu-page-btn" ${_fuPage <= 1 ? 'disabled' : ''} onclick="_fuSetPage(${_fuPage - 1})">${icon('chevron-left', 14)}</button>
+      ${pages.map(p => p === '...'
+        ? `<span class="fu-page-ellipsis">...</span>`
+        : `<button class="fu-page-btn ${p === _fuPage ? 'active' : ''}" onclick="_fuSetPage(${p})">${p}</button>`
+      ).join('')}
+      <button class="fu-page-btn" ${_fuPage >= pageCount ? 'disabled' : ''} onclick="_fuSetPage(${_fuPage + 1})">${icon('chevron-right', 14)}</button>
+    </div>
+  </div>`;
+}
+
+function _fuPageButtons(pageCount) {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+  const set = new Set([1, pageCount, _fuPage - 1, _fuPage, _fuPage + 1]);
+  const nums = Array.from(set).filter(n => n >= 1 && n <= pageCount).sort((a, b) => a - b);
+  const out = [];
+  nums.forEach((n, i) => {
+    if (i && n - nums[i - 1] > 1) out.push('...');
+    out.push(n);
+  });
+  return out;
 }
 
 function _canDeleteFollowup() {
@@ -339,15 +568,15 @@ function _fuTableRow(r) {
   const leadId = r['Lead ID'] || '';
   const company = r._companyName || (leadId ? 'Linked lead unavailable' : 'Standalone');
   const doneAction = _isOpenFollowupRow(r)
-    ? `<button type="button" class="btn btn-primary btn-sm fu-action-btn" data-followup-id="${escapeHtml(r['Follow-up ID'] || '')}" onclick="openMarkFollowupDoneForm(this.dataset.followupId)">${icon('check-circle', 14)} Mark Done</button>`
+    ? `<button type="button" class="fu-icon-action primary" title="Mark done" data-followup-id="${escapeHtml(r['Follow-up ID'] || '')}" onclick="openMarkFollowupDoneForm(this.dataset.followupId)">${icon('check-circle', 15)}</button>`
     : '';
   const leadAction = leadId && r._leadLabel !== 'Linked lead unavailable'
-    ? `<button type="button" class="btn btn-outlined btn-sm fu-action-btn" data-lead-id="${escapeHtml(leadId)}" onclick="_openFollowupLead(this)">${icon('history', 14)} Lead & History</button>`
+    ? `<button type="button" class="fu-icon-action" title="Lead and history" data-lead-id="${escapeHtml(leadId)}" onclick="_openFollowupLead(this)">${icon('history', 15)}</button>`
     : `<span class="muted-text">No linked lead</span>`;
   const deleteAction = _canDeleteFollowup()
-    ? `<button type="button" class="btn btn-sm fu-action-btn" style="color:#D32F2F;border-color:#D32F2F" data-followup-id="${escapeHtml(r['Follow-up ID'] || '')}" onclick="_confirmDeleteFollowup(this.dataset.followupId)">${icon('trash-2', 14)} Delete</button>`
+    ? `<button type="button" class="fu-icon-action danger" title="Delete" data-followup-id="${escapeHtml(r['Follow-up ID'] || '')}" onclick="_confirmDeleteFollowup(this.dataset.followupId)">${icon('trash-2', 15)}</button>`
     : '';
-  const action = `<div class="fu-action-stack">${doneAction}${leadAction}${deleteAction}</div>`;
+  const action = `<div class="fu-action-row">${doneAction}${leadAction}${deleteAction}</div>`;
   return `<tr class="fu-row fu-row-${_followupDueBucket(r)}">
     ${_fuDueCell(r)}
     <td>
