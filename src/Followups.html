@@ -470,7 +470,8 @@ function _decorateFollowup(row, ctx) {
     _leadPhone: lead ? (lead['Phone'] || '') : '',
     _leadStageLabel: leadCurrentStage ? leadCurrentStage['Stage Name'] : '',
     _companyName: lead ? (lead['Company Name'] || '') : '',
-    _contactPerson: lead ? (lead['Contact Person'] || '') : ''
+    _contactPerson: lead ? (lead['Contact Person'] || '') : '',
+    _city: lead ? (lead['City'] || '') : ''
   };
 }
 
@@ -648,7 +649,7 @@ function _fuTableRow(r) {
     ${_fuDueCell(r)}
     <td>
       <div class="fu-lead-title">${escapeHtml(company)}</div>
-      ${r._contactPerson ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson)}</div>` : ''}
+      ${(r._contactPerson || r._city) ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson || '-')}${r._city ? ` <span class="fu-lead-dot">•</span> ${icon('map-pin', 12)} ${escapeHtml(r._city)}` : ''}</div>` : ''}
       ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
     </td>
     <td><div class="fu-discussion" title="${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '')}">${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '-')}</div></td>
