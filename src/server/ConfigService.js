@@ -40,10 +40,8 @@ function updateConfigStatus(configId, status, email) {
 function savePortalSettings(settings, email) {
   requireConfigEditor();
   const props = PropertiesService.getScriptProperties();
-  props.setProperty(
-    "PORTAL_VISIBLE_DEPARTMENTS",
-    _normalizeDepartmentList_(settings && settings.visibleDepartments),
-  );
+  props.setProperty('PORTAL_VISIBLE_DEPARTMENTS', _normalizeDepartmentList_(settings && settings.visibleDepartments));
+  props.setProperty('PORTAL_ESCALATE_FORM_URL', String(settings && settings.escalateFormUrl || '').trim());
   invalidateAppConfigCache();
   _bumpStamp('config');
   return respond(true);
@@ -258,9 +256,10 @@ function getPortalSettings_() {
     const props = PropertiesService.getScriptProperties();
     return {
       visibleDepartments: _parseDepartmentList_(props.getProperty('PORTAL_VISIBLE_DEPARTMENTS')),
+      escalateFormUrl: String(props.getProperty('PORTAL_ESCALATE_FORM_URL') || '').trim(),
     };
   } catch (e) {
-    return { visibleDepartments: [] };
+    return { visibleDepartments: [], escalateFormUrl: '' };
   }
 }
 

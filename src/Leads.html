@@ -64,7 +64,7 @@
         <select id="lead-priority-f" class="form-control" style="height:32px;font-size:12px;padding:0 8px;min-width:0;width:120px"><option value="">All Priority</option>${priorityOpts}</select>
         <select id="lead-stage-f"    class="form-control" style="height:32px;font-size:12px;padding:0 8px;min-width:0;width:140px"><option value="">All Stages</option>${stageOpts}</select>
       </div>
-      ${_isNBDPortal() ? '' : `<button class="btn btn-primary" style="height:32px;padding:0 14px;font-size:13px;white-space:nowrap;flex-shrink:0" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>`}
+      ${_isNBDPortal() ? _nbdEscalateBtn() : `<button class="btn btn-primary" style="height:32px;padding:0 14px;font-size:13px;white-space:nowrap;flex-shrink:0" onclick="openLeadForm()">${icon('plus', 14)} Add Lead</button>`}
     </div>
     <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff"><div id="lead-table"></div></div>`;
 

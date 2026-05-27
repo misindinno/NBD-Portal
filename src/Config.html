@@ -82,6 +82,13 @@ async function loadPortalSettings() {
           ${escapeHtml(d)}
         </label>`).join('') || '<div style="font-size:13px;color:#888">No departments found. Add departments on user profiles first.</div>'}
       </div>
+      <div style="margin-bottom:18px">
+        <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Escalate Form URL</h3>
+        <p style="color:#666;font-size:13px;margin-bottom:8px">Google Form link shown as the Escalate button in NBD portal (opens in new tab). Leave blank to disable.</p>
+        <input type="url" name="escalateFormUrl" class="form-control" placeholder="https://docs.google.com/forms/..."
+          value="${escapeHtml(App.config?.settings?.escalateFormUrl || '')}"
+          style="max-width:500px;font-size:13px">
+      </div>
       <div class="modal-footer" style="padding:0;border-top:none">
         <button type="submit" class="btn btn-primary">${icon('save', 14)} Save Settings</button>
       </div>
@@ -95,7 +102,7 @@ async function loadPortalSettings() {
     resetButtonLoading(btn);
     QueueManager.enqueue({
       module: 'config', actionType: 'savePortalSettings',
-      payload: { visibleDepartments: fd.getAll('visibleDepartments') },
+      payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
       onDone: async () => {
         await _refreshAppConfig().catch(() => {});
         api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});

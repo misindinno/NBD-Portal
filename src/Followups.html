@@ -22,9 +22,9 @@ async function loadFollowups(tab = 'all') {
         <button class="tab-btn ${tab==='closed'?'active':''}"  onclick="loadFollowups('closed')">Closed</button>
         <button class="tab-btn ${tab==='custom'?'active':''}"  onclick="loadFollowups('custom')">Custom Query</button>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="openFollowupForm()">
-        ${icon('plus', 16)} Add Follow-up
-      </button>
+      ${_isNBDPortal()
+        ? _nbdEscalateBtn('sm')
+        : `<button class="btn btn-primary btn-sm" onclick="openFollowupForm()">${icon('plus', 16)} Add Follow-up</button>`}
     </div>
     ${showFilters ? _fuFilterBarHTML() : ''}
     <div id="fu-body">${skeletonPage('table')}</div>`;
