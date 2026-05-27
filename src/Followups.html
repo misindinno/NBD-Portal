@@ -634,10 +634,10 @@ function _fuTableRow(r) {
       ${r._contactPerson ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson)}</div>` : ''}
       ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
     </td>
-    <td><div class="fu-discussion">${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '-')}</div></td>
+    <td><div class="fu-discussion" title="${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '')}">${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '-')}</div></td>
     <td><div class="fu-date-sub">${formatDate(r['Done Date'] || r['Follow-up Date'] || '')}</div></td>
-    <td>${r._leadStageLabel ? `<span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(r._leadStageLabel)}</span>` : '-'}</td>
-    <td><div>${escapeHtml(r._assignedToLabel || r._createdByLabel || '-')}</div></td>
+    <td>${r._leadStageLabel ? `<span class="fu-stage-chip">${escapeHtml(r._leadStageLabel)}</span>` : '<span class="muted-text">-</span>'}</td>
+    <td><div class="fu-owner-cell"><span class="fu-owner-avatar">${escapeHtml((r._assignedToLabel || r._createdByLabel || '?').trim().charAt(0).toUpperCase())}</span><span class="fu-owner-name">${escapeHtml(r._assignedToLabel || r._createdByLabel || '-')}</span></div></td>
     <td>${action}</td>
   </tr>`;
 }
