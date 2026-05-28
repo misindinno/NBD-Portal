@@ -323,7 +323,7 @@ function _seedDefaultData() {
       ['Outcome','Interested'],['Outcome','Not Interested'],['Outcome','Call Again'],
       ['Outcome','Order Received'],['Outcome','Payment Received'],['Outcome','No Response'],
       ['Category','Dealer'],['Category','Distributor'],['Category','Direct'],['Category','OEM'],
-      ['Lead Status','Open'],['Lead Status','Won'],['Lead Status','Lost'],['Lead Status','Hold'],
+      ['Lead Status','Open'],['Lead Status','Won'],['Lead Status','Lost'],['Lead Status','Hold'],['Lead Status','Disqualified'],
       ['State','Delhi'],['State','Haryana'],['State','Punjab'],['State','Rajasthan'],
       ['State','UP'],['State','Maharashtra'],['State','Gujarat']
     ];

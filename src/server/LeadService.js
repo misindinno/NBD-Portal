@@ -428,9 +428,11 @@ function _leadStageIsLostOrDisqualified_(stage) {
 function _leadStatusForStage(stage) {
   if (!stage) return '';
   const outcome = String(stage['Stage Outcome'] || '').trim();
+  const outcomeLower = outcome.toLowerCase();
+  const name = String(stage['Stage Name'] || '').trim().toLowerCase();
+  if (outcomeLower.includes('disqualif') || name.includes('disqualif')) return 'Disqualified';
   if (outcome === 'Won' || outcome === 'Lost') return outcome;
   if (stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE') {
-    const name = String(stage['Stage Name'] || '').trim().toLowerCase();
     if (name.includes('lost')) return 'Lost';
     return 'Won';
   }
