@@ -419,13 +419,18 @@ function _buildFollowupContext(leads = []) {
   ];
   const lastDiscussionMap = {};
   const lastDoneMap = {};
+  const _isSystemRemark = (text) => {
+    const t = String(text || '').trim().toLowerCase();
+    return !t || t === 'new lead created' || t === 'lead created' || t === 'stage change';
+  };
   allFuRows
     .filter(f => !_isActivityLog(f) && f['Lead ID'])
     .sort((a, b) => new Date(b['Done Date'] || b['Created At'] || 0) - new Date(a['Done Date'] || a['Created At'] || 0))
     .forEach(f => {
       const leadId = f['Lead ID'];
-      if (!lastDiscussionMap[leadId] && (f['Discussion'] || f['Remark'])) {
-        lastDiscussionMap[leadId] = f['Discussion'] || f['Remark'];
+      const text = f['Discussion'] || f['Remark'];
+      if (!lastDiscussionMap[leadId] && text && !_isSystemRemark(text)) {
+        lastDiscussionMap[leadId] = text;
       }
       if (!lastDoneMap[leadId] && f['Done Date']) {
         lastDoneMap[leadId] = f['Done Date'];
@@ -471,7 +476,7 @@ function _decorateFollowup(row, ctx) {
     ...row,
     _leadLabel: lead ? _fuLeadLabel(lead) : (row['Lead ID'] ? 'Linked lead unavailable' : ''),
     _clientLabel: lead ? _fuClientLabel(lead) : '',
-    _remarkLabel: ctx?.lastDiscussionMap?.[row['Lead ID']] || (lead ? (lead['Client Description'] || '') : ''),
+    _remarkLabel: ctx?.lastDiscussionMap?.[row['Lead ID']] || '',
     _createdByLabel: ctx?.userMap?.[row['Created By']] || '',
     _assignedToLabel: lead ? (ctx?.userMap?.[lead['Assigned To']] || '') : '',
     _updatedStageLabel: stage ? stage['Stage Name'] : '',
@@ -661,7 +666,13 @@ function _fuTableRow(r) {
       ${(r._contactPerson || r._city) ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson || '-')}${r._city ? ` <span class="fu-lead-dot">•</span> ${icon('map-pin', 12)} ${escapeHtml(r._city)}` : ''}</div>` : ''}
       ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
     </td>
-    <td><div class="fu-discussion" title="${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '')}">${escapeHtml(r._remarkLabel || r['Discussion'] || r['Remark'] || '-')}</div></td>
+    <td>${(() => {
+      const sys = (t) => { const v = String(t || '').trim().toLowerCase(); return !v || v === 'new lead created' || v === 'lead created' || v === 'stage change'; };
+      const own = (!sys(r['Discussion']) && r['Discussion']) || (!sys(r['Remark']) && r['Remark']) || '';
+      const text = r._remarkLabel || own || '';
+      if (!text) return '<span class="muted-text" style="font-style:italic">No remarks yet</span>';
+      return `<div class="fu-discussion" title="${escapeHtml(text)}">${escapeHtml(text)}</div>`;
+    })()}</td>
     <td>${(() => {
       const doneDate = r['Done Date'] || r._lastDoneDate || '';
       const fallbackDate = r['Follow-up Date'] || '';
