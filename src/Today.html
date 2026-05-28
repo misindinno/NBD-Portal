@@ -242,6 +242,11 @@ function _todayApply() {
   const visitsDone = activeHistory.filter(r => r['Follow-up Type'] === 'Visit').length;
   const waDone     = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp').length;
   const stageMovs  = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase().includes('stage')).length;
+  const statusChanges = actLogs.filter(r => {
+    const action = String(r['Action Type'] || '').toLowerCase();
+    const field = String(r['Field Name'] || r['Field'] || '').toLowerCase();
+    return (action.includes('status') || field.includes('status')) && !action.includes('stage');
+  }).length;
   const uniqueLeads = new Set(
     [...history.map(r => r['Lead ID']), ...actLogs.map(r => r['Lead ID'])].filter(Boolean)
   ).size;
@@ -288,6 +293,7 @@ function _todayApply() {
     { key: 'notpicked', label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',     icon: 'phone-missed', cls: 'danger' },
     { key: 'newleads',  label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
     { key: 'stage',     label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
+    { key: 'status',    label: 'Lead Status Change', value: statusChanges,     sub: 'status updates', icon: 'refresh-cw', cls: 'blue' },
     { key: 'calls',     label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
     { key: 'wa',        label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' }
   ];
@@ -315,6 +321,8 @@ function _todayApply() {
       'Lead ID':    r['Lead ID'] || '',
       'Created By': r['Created By'] || '',
       'Follow-up Type': r['Action Type'] || 'Log',
+      '_rawAction': r['Action Type'] || '',
+      '_rawField': r['Field Name'] || r['Field'] || '',
       'Remark': remark,
       'Outcome': '',
       'Next Follow-up Date': ''
@@ -329,6 +337,11 @@ function _todayApply() {
     case 'calls':     allRows = activeHistory.filter(r => r['Contact Mode'] === 'Call Connected' || r['Follow-up Type'] === 'Call'); break;
     case 'wa':        allRows = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp'); break;
     case 'stage':     allRows = [...logRows.filter(r => String(r['Follow-up Type'] || '').toLowerCase().includes('stage'))]; break;
+    case 'status':    allRows = [...logRows.filter(r => {
+      const action = String(r['_rawAction'] || r['Follow-up Type'] || '').toLowerCase();
+      const field = String(r['_rawField'] || '').toLowerCase();
+      return (action.includes('status') || field.includes('status')) && !action.includes('stage');
+    })]; break;
     case 'newleads':
       allRows = newLeads.map(l => ({
         _isLog: true,
@@ -378,7 +391,7 @@ function _todayApply() {
   const chipEl = el('td-card-filter-chip');
   if (chipEl) {
     if (_todayCardFilter) {
-      const labelMap = { pending:'Pending Follow-up', connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', stage:'Stage Moves', newleads:'New Leads', unique:'Unique Leads' };
+      const labelMap = { pending:'Pending Follow-up', connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', stage:'Stage Moves', status:'Lead Status Change', newleads:'New Leads', unique:'Unique Leads' };
       chipEl.innerHTML = `<button class="fu-filter-chip" onclick="_todayCardClick('${_todayCardFilter}')">${escapeHtml(labelMap[_todayCardFilter] || _todayCardFilter)} ${icon('x', 11)}</button>`;
       renderIcons(chipEl);
     } else {
