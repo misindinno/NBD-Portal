@@ -208,7 +208,8 @@ function _todayNormalizeStatus(value) {
 function _todayLeadStatusForStage(stageIdOrName) {
   const value = String(stageIdOrName || '').trim();
   if (!value) return '';
-  const stage = (App.config.stages || App.config.allStages || []).find(s =>
+  const stageList = [...(App.config.stages || []), ...(App.config.allStages || [])];
+  const stage = stageList.find(s =>
     String(s['Stage ID'] || '') === value || String(s['Stage Name'] || '').trim().toLowerCase() === value.toLowerCase()
   );
   if (!stage) return '';
@@ -219,6 +220,13 @@ function _todayLeadStatusForStage(stageIdOrName) {
   if (outcome === 'won' || name.includes('qualified') || name.includes('won')) return 'Won';
   const isFinal = stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE';
   return isFinal ? 'Won' : '';
+}
+
+function _todayLeadStatusFromLead(lead) {
+  const stageStatus = _todayLeadStatusForStage(
+    lead?.['Stage ID'] || lead?.['Stage Name'] || lead?.['Current Stage'] || lead?.['Stage']
+  );
+  return stageStatus || _todayNormalizeStatus(lead?.['Lead Status']) || 'Open';
 }
 
 function _todayStatusMeta(status) {
@@ -307,8 +315,7 @@ function _todayApply() {
     return m;
   }, {});
   const statusLeadCounts = AppCache.getRows('leads').reduce((m, l) => {
-    const stageStatus = _todayLeadStatusForStage(l['Stage ID']);
-    const status = stageStatus || _todayNormalizeStatus(l['Lead Status']) || 'Open';
+    const status = _todayLeadStatusFromLead(l);
     m[status] = (m[status] || 0) + 1;
     return m;
   }, {});
