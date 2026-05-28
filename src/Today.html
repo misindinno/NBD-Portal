@@ -181,6 +181,20 @@ function _todaySetDensity(value) {
   _todayApply();
 }
 
+function _todayConfigValue(item) {
+  if (item === null || item === undefined) return '';
+  if (typeof item !== 'object') return String(item || '').trim();
+  return String(item['Value'] || item['Status'] || item['Lead Status'] || item['Name'] || item['Config Value'] || '').trim();
+}
+
+function _todayStatusValue(row) {
+  return String(row?.['New Value'] || row?.['Status After'] || row?.['New Status'] || row?.['Lead Status'] || row?.['Status'] || '').trim();
+}
+
+function _todayEscapeAttr(value) {
+  return escapeHtml(String(value || '')).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function _todayDateRange() {
   const range = window._todayRange || 'today';
   const todayStr = localDateInputValue();
@@ -242,11 +256,19 @@ function _todayApply() {
   const visitsDone = activeHistory.filter(r => r['Follow-up Type'] === 'Visit').length;
   const waDone     = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp').length;
   const stageMovs  = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase().includes('stage')).length;
-  const statusChanges = actLogs.filter(r => {
+  const statusChangeRows = actLogs.filter(r => {
     const action = String(r['Action Type'] || '').toLowerCase();
     const field = String(r['Field Name'] || r['Field'] || '').toLowerCase();
     return (action.includes('status') || field.includes('status')) && !action.includes('stage');
-  }).length;
+  });
+  const statusCounts = statusChangeRows.reduce((m, r) => {
+    const status = _todayStatusValue(r);
+    if (!status) return m;
+    m[status] = (m[status] || 0) + 1;
+    return m;
+  }, {});
+  const configuredStatuses = (App.config.statuses || []).map(_todayConfigValue).filter(Boolean);
+  const statusLabels = Array.from(new Set([...configuredStatuses, ...Object.keys(statusCounts)]));
   const uniqueLeads = new Set(
     [...history.map(r => r['Lead ID']), ...actLogs.map(r => r['Lead ID'])].filter(Boolean)
   ).size;
@@ -286,24 +308,40 @@ function _todayApply() {
   );
   const pendingCount = pendingFuFiltered.length + leadsNoFu.length;
 
-  const cards = [
+  const coreCards = [
     { key: 'pending',   label: 'Pending Follow-up', value: pendingCount,       sub: 'overdue + today + new', icon: 'alert-circle', cls: 'warning' },
     { key: 'unique',    label: 'Unique Leads',    value: uniqueLeads,          sub: 'leads touched', icon: 'users',        cls: 'blue' },
     { key: 'connected', label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected',     icon: 'check-circle-2', cls: 'success' },
     { key: 'notpicked', label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',     icon: 'phone-missed', cls: 'danger' },
+  ];
+  const statusCards = statusLabels.map(status => ({
+    key: 'status:' + encodeURIComponent(status),
+    label: status,
+    value: statusCounts[status] || 0,
+    sub: 'lead status updates',
+    icon: 'refresh-cw',
+    cls: 'blue'
+  }));
+  const activityCards = [
     { key: 'newleads',  label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
     { key: 'stage',     label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
-    { key: 'status',    label: 'Lead Status Change', value: statusChanges,     sub: 'status updates', icon: 'refresh-cw', cls: 'blue' },
     { key: 'calls',     label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
     { key: 'wa',        label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' }
   ];
-  el('td-cards').innerHTML = cards.map(k => `
-    <button type="button" class="fu-kpi fu-kpi-${k.cls} ${_todayCardFilter === k.key ? 'active' : ''}" onclick="_todayCardClick('${k.key}')">
+  const cardHTML = k => `
+    <button type="button" class="fu-kpi fu-kpi-${k.cls} ${_todayCardFilter === k.key ? 'active' : ''}" onclick="_todayCardClick('${_todayEscapeAttr(k.key)}')">
       <span class="fu-kpi-icon">${icon(k.icon, 17)}</span>
       <span class="fu-kpi-value">${escapeHtml(k.value)}</span>
       <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
       <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
-    </button>`).join('');
+    </button>`;
+  el('td-cards').innerHTML = [
+    ...coreCards.map(cardHTML),
+    statusCards.length ? '<div class="td-card-break">Lead status changes</div>' : '',
+    ...statusCards.map(cardHTML),
+    activityCards.length ? '<div class="td-card-break">Other activity</div>' : '',
+    ...activityCards.map(cardHTML)
+  ].join('');
   renderIcons(el('td-cards'));
 
   _todayDestroyCharts();
@@ -323,6 +361,10 @@ function _todayApply() {
       'Follow-up Type': r['Action Type'] || 'Log',
       '_rawAction': r['Action Type'] || '',
       '_rawField': r['Field Name'] || r['Field'] || '',
+      'New Value': r['New Value'] || '',
+      'Status After': r['Status After'] || r['New Status'] || '',
+      'Lead Status': r['Lead Status'] || '',
+      'Status': r['Status'] || '',
       'Remark': remark,
       'Outcome': '',
       'Next Follow-up Date': ''
@@ -331,17 +373,19 @@ function _todayApply() {
 
   const tbody = el('td-tbody');
   let allRows;
-  switch (_todayCardFilter) {
+  if (_todayCardFilter && _todayCardFilter.startsWith('status:')) {
+    const selectedStatus = decodeURIComponent(_todayCardFilter.slice('status:'.length));
+    allRows = [...logRows.filter(r => {
+      const action = String(r['_rawAction'] || r['Follow-up Type'] || '').toLowerCase();
+      const field = String(r['_rawField'] || '').toLowerCase();
+      return (action.includes('status') || field.includes('status')) && !action.includes('stage') && _todayStatusValue(r) === selectedStatus;
+    })];
+  } else switch (_todayCardFilter) {
     case 'connected': allRows = [...activeHistory]; break;
     case 'notpicked': allRows = [...missedHistory]; break;
     case 'calls':     allRows = activeHistory.filter(r => r['Contact Mode'] === 'Call Connected' || r['Follow-up Type'] === 'Call'); break;
     case 'wa':        allRows = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp'); break;
     case 'stage':     allRows = [...logRows.filter(r => String(r['Follow-up Type'] || '').toLowerCase().includes('stage'))]; break;
-    case 'status':    allRows = [...logRows.filter(r => {
-      const action = String(r['_rawAction'] || r['Follow-up Type'] || '').toLowerCase();
-      const field = String(r['_rawField'] || '').toLowerCase();
-      return (action.includes('status') || field.includes('status')) && !action.includes('stage');
-    })]; break;
     case 'newleads':
       allRows = newLeads.map(l => ({
         _isLog: true,
@@ -392,7 +436,10 @@ function _todayApply() {
   if (chipEl) {
     if (_todayCardFilter) {
       const labelMap = { pending:'Pending Follow-up', connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', stage:'Stage Moves', status:'Lead Status Change', newleads:'New Leads', unique:'Unique Leads' };
-      chipEl.innerHTML = `<button class="fu-filter-chip" onclick="_todayCardClick('${_todayCardFilter}')">${escapeHtml(labelMap[_todayCardFilter] || _todayCardFilter)} ${icon('x', 11)}</button>`;
+      const label = _todayCardFilter.startsWith('status:')
+        ? `Status: ${decodeURIComponent(_todayCardFilter.slice('status:'.length))}`
+        : (labelMap[_todayCardFilter] || _todayCardFilter);
+      chipEl.innerHTML = `<button class="fu-filter-chip" onclick="_todayCardClick('${_todayEscapeAttr(_todayCardFilter)}')">${escapeHtml(label)} ${icon('x', 11)}</button>`;
       renderIcons(chipEl);
     } else {
       chipEl.innerHTML = '';
