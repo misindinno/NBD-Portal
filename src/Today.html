@@ -306,7 +306,13 @@ function _todayApply() {
     m[status] = (m[status] || 0) + 1;
     return m;
   }, {});
-  const currentLeadStatuses = AppCache.getRows('leads').map(l => _todayNormalizeStatus(l['Lead Status'])).filter(Boolean);
+  const statusLeadCounts = AppCache.getRows('leads').reduce((m, l) => {
+    const stageStatus = _todayLeadStatusForStage(l['Stage ID']);
+    const status = stageStatus || _todayNormalizeStatus(l['Lead Status']) || 'Open';
+    m[status] = (m[status] || 0) + 1;
+    return m;
+  }, {});
+  const currentLeadStatuses = Object.keys(statusLeadCounts);
   const configuredStatuses = (App.config.statuses || []).map(_todayConfigValue).map(_todayNormalizeStatus).filter(Boolean);
   const statusLabels = Array.from(new Set([...configuredStatuses, 'Open', 'Won', 'Lost', 'Hold', 'Disqualified', ...currentLeadStatuses, ...Object.keys(statusCounts)]));
   const uniqueLeads = new Set(
@@ -359,8 +365,8 @@ function _todayApply() {
     return {
       key: 'status:' + encodeURIComponent(status),
       label: status,
-      value: statusCounts[status] || 0,
-      sub: 'today updates',
+      value: statusLeadCounts[status] || 0,
+      sub: `${statusCounts[status] || 0} today updates`,
       icon: meta.icon,
       cls: meta.cls
     };
