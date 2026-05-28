@@ -69,7 +69,9 @@ async function openFollowupForm(leadId = '', leadName = '') {
   const fuForm = overlay.querySelector('#fu-form');
   initFollowupCustomFields(overlay);
   _initFollowupValidator(fuForm).onSuccess(async () => {
+    if (fuForm.dataset.submitting === '1') return;
     if (!validateCfMultiselects(fuForm)) return;
+    fuForm.dataset.submitting = '1';
     const btn = fuForm.querySelector('[type=submit]');
     setButtonLoading(btn, 'Saving...');
     try {
@@ -111,6 +113,7 @@ async function openFollowupForm(leadId = '', leadName = '') {
     } catch (err) {
       toast(err, 'error');
       resetButtonLoading(btn);
+      fuForm.dataset.submitting = '';
     }
   });
   initFollowupCustomFields(overlay);
@@ -254,6 +257,7 @@ async function openMarkFollowupDoneForm(followupId) {
   ]);
   _updateDoneNextDateRequirement(form);
   validator.onSuccess(async () => {
+    if (form.dataset.submitting === '1') return;
     if (!form.querySelector('[name="Contact Mode"]:checked')) {
       const errEl = document.getElementById('fu-contact-mode-err');
       if (errEl) errEl.style.display = '';
@@ -265,6 +269,7 @@ async function openMarkFollowupDoneForm(followupId) {
       const firstInvalid = stageFieldsCont.querySelector('[required]:invalid');
       if (firstInvalid) { firstInvalid.reportValidity(); return; }
     }
+    form.dataset.submitting = '1';
     const btn = form.querySelector('[type=submit]');
     setButtonLoading(btn, 'Saving...');
     try {
@@ -291,6 +296,7 @@ async function openMarkFollowupDoneForm(followupId) {
     } catch (err) {
       toast(err, 'error');
       resetButtonLoading(btn);
+      form.dataset.submitting = '';
     }
   });
   renderIcons(overlay);
