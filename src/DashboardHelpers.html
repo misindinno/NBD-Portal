@@ -257,9 +257,25 @@ function _dbStats(leads, fus) {
   const todayStr = localDateInputValue();
   const ystStr   = localDateInputValue(new Date(Date.now() - 86400000));
 
-  const open = leads.filter(l => l['Lead Status'] === 'Open');
-  const won  = leads.filter(l => l['Lead Status'] === 'Won');
-  const lost = leads.filter(l => l['Lead Status'] === 'Lost');
+  const stageMap = (App.config.allStages || App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
+  const _isFinalStageId = (sid) => {
+    const s = stageMap[sid];
+    return !!(s && (s['Is Final Stage'] === true || s['Is Final Stage'] === 'TRUE'));
+  };
+  const _isLostStage = (sid) => {
+    const s = stageMap[sid];
+    if (!s) return false;
+    const outcome = String(s['Stage Outcome'] || '').trim().toLowerCase();
+    const name    = String(s['Stage Name'] || '').trim().toLowerCase();
+    return outcome === 'lost' || /lost|disqualif/.test(name);
+  };
+
+  const open = leads.filter(l => l['Lead Status'] === 'Open' && !_isFinalStageId(l['Stage ID']));
+  // Won = explicit Won status AND in a Won-outcome final stage (strict — excludes legacy/Lost)
+  const won  = leads.filter(l => l['Lead Status'] === 'Won' && _isFinalStageId(l['Stage ID']) && !_isLostStage(l['Stage ID']));
+  const lost = leads.filter(l => l['Lead Status'] === 'Lost' || (_isFinalStageId(l['Stage ID']) && _isLostStage(l['Stage ID'])));
+  // Closed = any lead currently in a final stage (Won + Lost + other terminal stages)
+  const closed = leads.filter(l => _isFinalStageId(l['Stage ID']));
 
   const todayLeads = leads.filter(l => _fmtDate(l['Created At']) === todayStr);
   const ystLeads   = leads.filter(l => _fmtDate(l['Created At']) === ystStr);
@@ -273,7 +289,7 @@ function _dbStats(leads, fus) {
   const convPct     = leads.length > 0 ? Math.round(won.length / leads.length * 100) : 0;
 
   return {
-    total: leads.length, open: open.length, won: won.length, lost: lost.length,
+    total: leads.length, open: open.length, won: won.length, lost: lost.length, closed: closed.length,
     todayLeads: todayLeads.length, ystLeads: ystLeads.length,
     convPct,
     todayFus: todayFus.length, overdueFus: overdueFus.length,
@@ -337,12 +353,14 @@ function _dbRenderKPIs(s) {
   const openPct  = s.total > 0 ? Math.round(s.open  / s.total * 100) : 0;
   const lostPct  = s.total > 0 ? Math.round(s.lost  / s.total * 100) : 0;
 
+  const closedPct = s.total > 0 ? Math.round(s.closed / s.total * 100) : 0;
   const kpi1 = [
     _dbKpiCard('Total Leads',      s.total,            'users',         '#1565C0'),
     _dbKpiCard('New Today',        s.todayLeads,        'user-plus',     '#0277BD', todaySub),
     _dbKpiCard('Active Leads',     s.open,              'list-todo',     '#2E7D32',  `${openPct}% of total`),
-    _dbKpiCard('Converted (Won)',  s.won,               'circle-check',  '#388E3C',  `${s.convPct}% of all leads`),
+    _dbKpiCard('Won',              s.won,               'circle-check',  '#388E3C',  `${s.convPct}% of all leads`),
     _dbKpiCard('Lost',             s.lost,              'circle-x',      '#D32F2F',  `${lostPct}% of total`),
+    _dbKpiCard('Closed',           s.closed,            'lock',          '#757575',  `${closedPct}% in final stage`),
     _dbKpiCard('Conversion %',     s.convPct + '%',     'trending-up',   '#6A1B9A',  `${s.won} won / ${s.total} total`)
   ];
 
