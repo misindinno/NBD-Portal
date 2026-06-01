@@ -186,6 +186,7 @@ function markFollowupDone(followupId, data, email) {
     followupPatch['Done Date'] = '';
     followupPatch['Done By'] = '';
   } else {
+    followupPatch['Planned Date'] = '';
     followupPatch['Next Follow-up Date'] = '';
     followupPatch['Done Date'] = doneDate;
     followupPatch['Done By'] = user.id;
@@ -322,13 +323,15 @@ function _leadActivityRows() {
 }
 
 function _normalizeFollowupRow(row) {
-  const planned = _plannedDate(row);
   const status = row['Status'] || (row['Outcome'] || row['Done Date'] ? 'Closed' : 'Open');
+  const isClosed = String(status || '').toLowerCase() === 'closed';
+  const nextPlanned = row['Next Follow-up Date'] || row['Next Planned Date'] || '';
+  const planned = nextPlanned || (isClosed ? _plannedDate(row) : '');
   return {
     ...row,
     'Planned Date': planned,
     'Follow-up Date': row['Follow-up Date'] || planned,
-    'Next Follow-up Date': row['Next Follow-up Date'] || planned,
+    'Next Follow-up Date': nextPlanned,
     'Status': status
   };
 }

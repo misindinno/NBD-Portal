@@ -335,10 +335,10 @@ function _todayApply() {
     return String(v).slice(0, 10);
   };
   const _isClosedFu = r => String(r['Status'] || '').toLowerCase() === 'closed' || !!r['Done Date'] || !!r['Outcome'];
-  const _planned = r => _toDateStr(r['Planned Date'] || r['Next Follow-up Date'] || r['Follow-up Date']);
+  const _planned = r => _toDateStr(r['Next Follow-up Date'] || r['Next Planned Date']);
   const allFollowups = AppCache.getRows('followups') || [];
   const openFu = allFollowups.filter(r =>
-    !_isClosedFu(r) && String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change'
+    !_isClosedFu(r) && String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change' && !!_planned(r)
   );
   const pendingFu = openFu.filter(r => { const d = _planned(r); return d && d <= _todayStr; });
   if (userFilter) {
@@ -456,7 +456,7 @@ function _todayApply() {
     case 'pending':
       allRows = [
         ...pendingFuFiltered.map(r => {
-          const planned = r['Planned Date'] || r['Next Follow-up Date'] || r['Follow-up Date'] || '';
+          const planned = r['Next Follow-up Date'] || r['Next Planned Date'] || '';
           const pStr = _toDateStr(planned);
           const overdue = pStr && pStr < _todayStr;
           return {

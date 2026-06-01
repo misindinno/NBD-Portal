@@ -28,7 +28,7 @@ async function openLeadDetail(leadId) {
     const leadFields = App.config.leadFields || [];
     const configOptions = _configOptionsMap(App.config._allConfigs || []);
     const fuContext = _buildFollowupContext([lead]);
-    const visibleFollowups = followups.filter(f => !_isActivityLog(f) && _isOpenFollowupRow(f));
+    const visibleFollowups = followups.filter(f => !_isActivityLog(f) && _isOpenFollowupRow(f) && !!_fmtDate(_fuPlannedDate(f)));
     const stageMap = App.config.stages.reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
     const stage = stageMap[lead['Stage ID']];
     const showNbdPush = _canPushLeadToNbd(lead);

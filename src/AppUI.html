@@ -427,7 +427,7 @@ function renderSidebar() {
     if (v instanceof Date) return v.toISOString().slice(0, 10);
     return String(v).slice(0, 10);
   };
-  const _fuPlanned = r => _toDateStr(r['Planned Date'] || r['Next Follow-up Date'] || r['Follow-up Date']);
+  const _fuPlanned = r => _toDateStr(r['Next Follow-up Date'] || r['Next Planned Date']);
   const _isClosedFu = r => {
     const s = String(r['Status'] || '').toLowerCase();
     if (s === 'closed') return true;
@@ -437,7 +437,8 @@ function renderSidebar() {
   };
   const fuOpen = AppCache.getRows('followups').filter(r =>
     !_isClosedFu(r) &&
-    String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change'
+    String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change' &&
+    !!_fuPlanned(r)
   );
   const _fuDueCount = fuOpen.filter(r => { const d = _fuPlanned(r); return d && d <= _todayStr; }).length;
   // Add leads that have no follow-up activity at all (new leads needing first touch)

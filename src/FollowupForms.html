@@ -175,9 +175,9 @@ async function openMarkFollowupDoneForm(followupId) {
           <input class="form-control" name="Done Date" type="date" value="${todayStr}" disabled max="${todayStr}" required>
         </div>
         <div class="form-group">
-          <label>Next Planned Date <span id="fu-next-date-required">*</span> <span style="font-size:10px;color:#9ca3af;font-weight:400">(within 7 days unless closing)</span></label>
-          <input class="form-control" name="Next Follow-up Date" type="date" min="${todayStr}" max="${maxNextDate}" ${leadIsFinalStage ? '' : 'required'}>
-          <div id="fu-next-date-help" style="font-size:11px;color:#6b7280;margin-top:4px;display:${leadIsFinalStage ? '' : 'none'}">Final-stage follow-ups can be closed without a next planned date.</div>
+          <label>Next Planned Date <span id="fu-next-date-required" style="font-size:10px;color:#9ca3af;font-weight:400">(optional)</span></label>
+          <input class="form-control" name="Next Follow-up Date" type="date" min="${todayStr}" max="${maxNextDate}" onchange="_updateDoneNextDateRequirement(this.form)" oninput="_updateDoneNextDateRequirement(this.form)">
+          <div id="fu-next-date-help" style="font-size:11px;color:#6b7280;margin-top:4px">Leave blank to close this follow-up. If planning the next one, choose a date within 7 days.</div>
         </div>
       </div>
       <div class="form-group">
@@ -250,12 +250,11 @@ async function openMarkFollowupDoneForm(followupId) {
   validator.addField(form.querySelector('[name="Remark"]'),             [{ rule: 'required', errorMessage: 'Done remark is required.' }]);
   validator.addField(form.querySelector('[name="Next Follow-up Date"]'),[
     { rule: 'function', validator: function(val) {
-        if (_markDoneClosesFollowup(form)) return true;
-        if (!val) return false;
+        if (!val || _markDoneClosesFollowup(form)) return true;
         const d = new Date(val); const t = new Date(); t.setHours(0,0,0,0);
         const mx = new Date(t); mx.setDate(mx.getDate() + 7);
         return d >= t && d <= mx;
-      }, errorMessage: 'Next planned date is required unless the follow-up is closing at a final stage, and must be within the next 7 days.' }
+      }, errorMessage: 'Next planned date must be within the next 7 days.' }
   ]);
   _updateDoneNextDateRequirement(form);
   validator.onSuccess(async () => {
@@ -476,21 +475,25 @@ function _selectedMarkDoneStageIsFinal(form) {
 }
 
 function _markDoneClosesFollowup(form) {
-  return form?.dataset?.currentFinalStage === 'true' || _selectedMarkDoneStageIsFinal(form);
+  const nextDate = form?.querySelector('[name="Next Follow-up Date"]')?.value || '';
+  return !nextDate || form?.dataset?.currentFinalStage === 'true' || _selectedMarkDoneStageIsFinal(form);
 }
 
 function _updateDoneNextDateRequirement(form) {
   if (!form) return;
   const closes = _markDoneClosesFollowup(form);
+  const finalStageCloses = form?.dataset?.currentFinalStage === 'true' || _selectedMarkDoneStageIsFinal(form);
   const input = form.querySelector('[name="Next Follow-up Date"]');
   const marker = form.querySelector('#fu-next-date-required');
   const help = form.querySelector('#fu-next-date-help');
   if (input) {
-    input.required = !closes;
-    if (closes) input.value = '';
+    input.required = false;
+    if (finalStageCloses) input.value = '';
   }
-  if (marker) marker.style.display = closes ? 'none' : '';
-  if (help) help.style.display = closes ? '' : 'none';
+  if (marker) marker.textContent = closes ? '(will close)' : '(within 7 days)';
+  if (help) help.textContent = closes
+    ? 'This follow-up will close without creating a next planned follow-up.'
+    : 'A next planned follow-up will stay open for the selected date.';
 }
 
 function _onMarkDoneStageChange(select) {

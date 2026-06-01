@@ -291,7 +291,8 @@ async function _renderFUTab(tab) {
     } else {
       rows = AppCache.getRows('followups')
         .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
-        .filter(_isOpenFollowupRow);
+        .filter(_isOpenFollowupRow)
+        .filter(r => !!_fmtDate(_fuPlannedDate(r)));
       if (tab === 'today') {
         rows = rows.filter(r => _fmtDate(_fuPlannedDate(r)) === todayStr);
       } else if (tab === 'overdue') {
@@ -339,7 +340,8 @@ async function _loadFollowupContext() {
 function _fuRenderOverview(ctx) {
   const openRows = (AppCache.getRows('followups') || [])
     .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
-    .filter(_isOpenFollowupRow);
+    .filter(_isOpenFollowupRow)
+    .filter(r => !!_fmtDate(_fuPlannedDate(r)));
   const historyRows = (AppCache.getRows('followupHistory') || [])
     .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
   const todayStr = localDateInputValue();
@@ -466,7 +468,7 @@ function _fuIsFinalStage(stage) {
 }
 
 function _fuPlannedDate(row) {
-  return row?.['Planned Date'] || row?.['Next Follow-up Date'] || row?.['Follow-up Date'] || '';
+  return row?.['Next Follow-up Date'] || row?.['Next Planned Date'] || '';
 }
 
 function _decorateFollowup(row, ctx) {
