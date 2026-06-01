@@ -100,10 +100,19 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
     }
   }
 
+  function _removeLeadRelatedRowsFromCache(leadId) {
+    if (!leadId) return;
+    AppCache.removeRow('leads', 'Lead ID', leadId);
+    ['followups', 'followupHistory', 'activityLogs'].forEach(col => {
+      if (!AppCache.isLoaded(col)) return;
+      AppCache.setRows(col, AppCache.getRows(col).filter(r => r['Lead ID'] !== leadId));
+    });
+  }
+
   function deleteLeadConfirm(leadId, overlay) {
     if (!leadId) return;
-    if (!confirm('Delete this lead? This cannot be undone.')) return;
-    AppCache.removeRow('leads', 'Lead ID', leadId);
+    if (!confirm('Delete this lead and all related follow-ups, history, activity logs, and custom field values? This cannot be undone.')) return;
+    _removeLeadRelatedRowsFromCache(leadId);
     if (overlay) overlay.remove();
     _refreshLeadViewsAfterLocalChange();
     QueueManager.enqueue({

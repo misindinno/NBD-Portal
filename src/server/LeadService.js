@@ -353,8 +353,14 @@ function deleteLead(leadId, email) {
   if (!result.success) throw new Error(result.error);
   const user = result.data;
   if (String(user.department || '').trim().toUpperCase() !== 'MIS') throw new Error('Permission denied. Only MIS department users can delete leads.');
+  const followupIds = getAllRows(SHEET_NAMES.FOLLOWUPS)
+    .filter(r => String(r['Lead ID'] || '') === String(leadId))
+    .map(r => r['Follow-up ID'])
+    .filter(Boolean);
   deleteRow(SHEET_NAMES.LEADS, 'Lead ID', leadId);
-  // Cascade: remove all follow-up, history, and activity data linked to this lead
+  // Cascade: remove all related master rows and custom-field values linked to this lead.
+  deleteCustomFieldValuesForEntity_('Leads', leadId);
+  followupIds.forEach(id => deleteCustomFieldValuesForEntity_('Followups', id));
   deleteAllRowsWhere(SHEET_NAMES.FOLLOWUPS,           r => r['Lead ID'] === leadId);
   deleteAllRowsWhere(SHEET_NAMES.FOLLOWUP_HISTORY,    r => r['Lead ID'] === leadId);
   deleteAllRowsWhere(SHEET_NAMES.LEAD_ACTIVITY_LOGS,  r => r['Lead ID'] === leadId);
