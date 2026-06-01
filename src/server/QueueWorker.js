@@ -148,11 +148,11 @@ function _handleJobError_(requestId, errMsg, attempt, actionType) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function _extractRecordId_(data, actionType, payload) {
   if (typeof data === 'string') return data; // many services return the ID as a string
-  if (data && data.nbdLeadId)   return data.nbdLeadId;
-  if (data && data.leadId)     return data.leadId;
-  if (data && data.followupId) return data.followupId;
-  if (payload && payload['Lead ID']) return payload['Lead ID'];
-  return '';
+  if (data && data.nbdLeadId)    return data.nbdLeadId;
+  if (data && data.leadId)       return data.leadId;
+  if (data && data.followupId)   return data.followupId;
+  if (data && data.id)           return data.id;
+  return _qDataId_(actionType, payload);
 }
 
 function _bumpStampForModule_(moduleName, actionType) {

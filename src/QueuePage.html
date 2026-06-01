@@ -407,7 +407,7 @@ function _renderQueuePage(jobs, showUser = false) {
             <th>Queued</th>
             <th>Processed</th>
             <th>Attempts</th>
-            <th>Result</th>
+            <th>Data ID / Result</th>
             <th class="qp-actions-th">Actions</th>
           </tr>
         </thead>
@@ -551,7 +551,7 @@ function _qpOpenDetails(requestId) {
     ['Processed at', escapeHtml(job.processedAt || '-')],
     ['Attempts', `${escapeHtml(job.attemptCount || 0)} / ${escapeHtml(job.maxAttempts || '-')}`],
     ['Next retry at', escapeHtml(job.nextRetryAt || '-')],
-    ['Final record ID', escapeHtml(job.finalRecordId || '-')],
+    ['Data ID', escapeHtml(job.finalRecordId || '-')],
     ['Last error', `<div class="qp-detail-error">${escapeHtml(job.lastError || '-')}</div>`]
   ];
   const retryBtn = (_qpIsAdmin() && ['FAILED', 'DEAD'].includes(job.status))

@@ -137,6 +137,27 @@ const QueueManager = (() => {
     return nextPayload;
   }
 
+  function _queueDataId(actionType, payload) {
+    const p = payload || {};
+    switch (actionType) {
+      case 'saveLead': return p['Lead ID'] || p.leadId || '';
+      case 'deleteLead': return p.id || p.leadId || p['Lead ID'] || '';
+      case 'updateLeadStage':
+      case 'moveLeadStageWithFields':
+      case 'pushLeadToNbd': return p.leadId || p['Lead ID'] || '';
+      case 'saveFollowup': return p['Follow-up ID'] || p.followupId || p.id || '';
+      case 'markFollowupDone':
+      case 'deleteFollowup': return p.id || p.followupId || p['Follow-up ID'] || '';
+      case 'updateConfigStatus':
+      case 'addConfig': return p.id || p['Config ID'] || '';
+      case 'saveStage': return p['Stage ID'] || p.stageId || '';
+      case 'reorderStages': return Array.isArray(p.ids) ? p.ids.join(',') : '';
+      case 'saveFieldConfig': return p['Field ID'] || p.fieldId || '';
+      case 'saveUser': return p['ID'] || p['User ID'] || p.userId || p.id || '';
+      default: return p.id || p.leadId || p.followupId || p['Lead ID'] || p['Follow-up ID'] || '';
+    }
+  }
+
   async function _sendJobToServer(job, rawPayload) {
     const payload = await _resolvePayloadDependencies(job.actionType, rawPayload || job.payload);
     const payloadLen = JSON.stringify(payload || {}).length;
@@ -238,7 +259,7 @@ const QueueManager = (() => {
         actionType:  opts.actionType,
         tempId,
         enqueuedAt:  Date.now(),
-        finalRecordId: null,
+        finalRecordId: _queueDataId(opts.actionType, opts.payload) || null,
         error:       null,
         serverEnqueued: false,
         payload:     serializedPayload.length < 100000 ? opts.payload : null
@@ -251,6 +272,8 @@ const QueueManager = (() => {
       // Fire and forget — send to server queue
       try {
         const payload = await _resolvePayloadDependencies(opts.actionType, opts.payload);
+        const dataId = _queueDataId(opts.actionType, payload);
+        if (dataId) _jobs[requestId].finalRecordId = dataId;
         const payloadLen = JSON.stringify(payload || {}).length;
         if (payloadLen > 200000) {
           throw new Error('This save is too large for the background queue. Remove large file attachments or reduce file size, then try again.');

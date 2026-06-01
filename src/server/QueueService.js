@@ -63,6 +63,39 @@ function _qRecordKey_(actionType, payload) {
   }
 }
 
+function _qDataId_(actionType, payload) {
+  if (!payload) return '';
+  const p = payload || {};
+  switch (actionType) {
+    case 'saveLead':
+      return p['Lead ID'] || p.leadId || '';
+    case 'deleteLead':
+      return p.id || p.leadId || p['Lead ID'] || '';
+    case 'updateLeadStage':
+    case 'moveLeadStageWithFields':
+    case 'pushLeadToNbd':
+      return p.leadId || p['Lead ID'] || '';
+    case 'saveFollowup':
+      return p['Follow-up ID'] || p.followupId || p.id || '';
+    case 'markFollowupDone':
+    case 'deleteFollowup':
+      return p.id || p.followupId || p['Follow-up ID'] || '';
+    case 'addConfig':
+    case 'updateConfigStatus':
+      return p.id || p['Config ID'] || '';
+    case 'saveStage':
+      return p['Stage ID'] || p.stageId || '';
+    case 'reorderStages':
+      return Array.isArray(p.ids) ? p.ids.join(',') : '';
+    case 'saveFieldConfig':
+      return p['Field ID'] || p.fieldId || '';
+    case 'saveUser':
+      return p['ID'] || p['User ID'] || p.userId || p.id || '';
+    default:
+      return p.id || p.leadId || p.followupId || p['Lead ID'] || p['Follow-up ID'] || '';
+  }
+}
+
 // ── Enqueue ───────────────────────────────────────────────────────────────────
 // Writes ONE row to JOB_QUEUE. Returns immediately — no heavy operations here.
 // Idempotent: if requestId already exists, returns existing status (no duplicate).
@@ -74,6 +107,7 @@ function enqueueJob_(userEmail, moduleName, actionType, payload, requestId) {
   if (payloadStr.length > 200000) throw new Error('Payload exceeds 200 KB limit.');
 
   const ts = now();
+  const dataId = _qDataId_(actionType, payload);
   const row = {
     'Request ID':     id,
     'Status':         Q_STATUS.QUEUED,
@@ -90,7 +124,7 @@ function enqueueJob_(userEmail, moduleName, actionType, payload, requestId) {
     'Lock Owner':     '',
     'Last Error':     '',
     'Processed At':   '',
-    'Final Record ID':''
+    'Final Record ID': dataId || ''
   };
 
   const lock = LockService.getScriptLock();
