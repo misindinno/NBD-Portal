@@ -248,7 +248,7 @@ function _fuApplyFilters(rows, ctx) {
     if (f.type && String(row['Follow-up Type'] || '') !== f.type) return false;
     if (f.assignedTo && lead?.['Assigned To'] !== f.assignedTo) return false;
     if (f.contactMode && String(row['Contact Mode'] || '') !== f.contactMode) return false;
-    if (f.stage && lead?.['Stage ID'] !== f.stage && row['Updated Stage ID'] !== f.stage) return false;
+    if (f.stage && lead?.['Stage ID'] !== f.stage && row['Stage ID'] !== f.stage && row['Updated Stage ID'] !== f.stage) return false;
     // Closed tab rows use Done Date; open tabs use Planned Date
     const dateField = row['Done Date'] ? _fmtDate(row['Done Date']) : _fmtDate(_fuPlannedDate(row));
     if (f.dateFrom && dateField && dateField < f.dateFrom) return false;
@@ -470,7 +470,7 @@ function _fuPlannedDate(row) {
 
 function _decorateFollowup(row, ctx) {
   const lead = ctx?.leadMap?.[row['Lead ID']];
-  const stage = ctx?.stageMap?.[row['Updated Stage ID']];
+  const stage = ctx?.stageMap?.[row['Updated Stage ID'] || row['Stage ID']];
   const leadCurrentStage = lead ? ctx?.stageMap?.[lead['Stage ID']] : null;
   return {
     ...row,
@@ -780,8 +780,9 @@ function _followupHistoryTable(rows, emptyMsg, ctx) {
         <th>Planned Date</th><th>Done Date</th><th>Done By</th><th>Contact Mode</th><th>Remark</th><th>Stage</th><th>Next Planned</th>
       </tr></thead>
       <tbody>${data.map(row => {
-        const stageLabel = row['Updated Stage ID']
-          ? (ctx?.stageMap?.[row['Updated Stage ID']]?.['Stage Name'] || row['Updated Stage ID'])
+        const stageId = row['Updated Stage ID'] || row['Stage ID'] || '';
+        const stageLabel = stageId
+          ? (ctx?.stageMap?.[stageId]?.['Stage Name'] || stageId)
           : '-';
         const contactMode = row['Contact Mode'] || '';
         const contactModeColor = {'Call Connected':'#16a34a','WhatsApp Chat':'#2563eb','Not Picked':'#dc2626'}[contactMode] || '#6b7280';

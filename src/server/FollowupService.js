@@ -4,11 +4,11 @@ function ensureFollowupSheets_() {
   safeInitHeaders(SHEET_NAMES.FOLLOWUPS, [
     'Follow-up ID','Lead ID','Planned Date','Follow-up Date','Follow-up Type',
     'Discussion','Outcome','Next Follow-up Date','Next Action','Status',
-    'Done Date','Done By','Updated Stage ID','Created By','Created At','Updated At'
+    'Done Date','Done By','Stage ID','Updated Stage ID','Created By','Created At','Updated At'
   ]);
   safeInitHeaders(SHEET_NAMES.FOLLOWUP_HISTORY, [
     'History ID','Follow-up ID','Lead ID','Planned Date','Done Date','Done By',
-    'Follow-up Type','Contact Mode','Remark','Outcome','Next Planned Date','Status After','Created At'
+    'Follow-up Type','Contact Mode','Remark','Outcome','Next Planned Date','Status After','Stage ID','Updated Stage ID','Created At'
   ]);
   safeInitHeaders(SHEET_NAMES.LEAD_ACTIVITY_LOGS, [
     'Log ID','Lead ID','Action Type','Old Value','New Value','Remark','Created By','Created At'
@@ -72,6 +72,7 @@ function saveFollowup(data, email) {
     'Next Follow-up Date': plannedDate,
     'Status': 'Open',
     'Outcome': payload['Outcome'] || '',
+    'Stage ID': lead && lead['Stage ID'] || payload['Stage ID'] || '',
     'Created By': user.id,
     'Created At': now(),
     'Updated At': now()
@@ -167,6 +168,8 @@ function markFollowupDone(followupId, data, email) {
     'Outcome': data['Outcome'] || row['Outcome'] || '',
     'Next Planned Date': nextDate,
     'Status After': statusAfter,
+    'Stage ID': row['Stage ID'] || lead && lead['Stage ID'] || '',
+    'Updated Stage ID': data['Updated Stage ID'] || row['Updated Stage ID'] || '',
     'Created At': now()
   };
 
@@ -179,6 +182,7 @@ function markFollowupDone(followupId, data, email) {
     followupPatch['Planned Date'] = nextDate;
     followupPatch['Next Follow-up Date'] = nextDate;
     followupPatch['Next Action'] = data['Next Action'] || row['Next Action'] || '';
+    followupPatch['Stage ID'] = data['Updated Stage ID'] || lead && lead['Stage ID'] || row['Stage ID'] || '';
     followupPatch['Done Date'] = '';
     followupPatch['Done By'] = '';
   } else {
@@ -422,6 +426,8 @@ function _migrateLegacyFollowupData_() {
       'Outcome': row['Outcome'] || '',
       'Next Planned Date': row['Next Follow-up Date'] || '',
       'Status After': 'Closed',
+      'Stage ID': row['Stage ID'] || '',
+      'Updated Stage ID': row['Updated Stage ID'] || '',
       'Created At': row['Updated At'] || row['Created At'] || now()
     });
     historyInserted++;

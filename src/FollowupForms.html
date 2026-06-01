@@ -82,6 +82,8 @@ async function openFollowupForm(leadId = '', leadName = '') {
       payload['Follow-up Date'] = payload['Follow-up Date'] || payload['Planned Date'];
       payload['Next Follow-up Date'] = payload['Planned Date'];
       payload['Status'] = 'Open';
+      const snapshotLead = payload['Lead ID'] ? AppCache.getRows('leads').find(l => l['Lead ID'] === payload['Lead ID']) : null;
+      payload['Stage ID'] = snapshotLead ? (snapshotLead['Stage ID'] || '') : '';
 
       const tempId = 'temp-fu-' + Date.now();
       AppCache.addRow('followups', {

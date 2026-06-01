@@ -13,7 +13,7 @@ const LEAD_MASTER_FIELDS = [
 const FOLLOWUP_MASTER_FIELDS = [
   'Follow-up ID','Lead ID','Planned Date','Follow-up Date','Follow-up Type',
   'Discussion','Outcome','Next Follow-up Date','Next Action','Status',
-  'Done Date','Done By','Updated Stage ID','Created By','Created At','Updated At'
+  'Done Date','Done By','Stage ID','Updated Stage ID','Created By','Created At','Updated At'
 ];
 
 function ensureCustomFieldValueSheets_() {

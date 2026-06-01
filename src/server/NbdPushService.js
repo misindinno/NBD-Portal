@@ -254,6 +254,7 @@ function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, source
     'Status': 'Open',
     'Done Date': '',
     'Done By': '',
+    'Stage ID': _nbdInitialStageId_(spreadsheetId) || '',
     'Updated Stage ID': '',
     'Created By': targetUser && targetUser.id || '',
     'Created At': ts,

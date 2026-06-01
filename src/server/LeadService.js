@@ -63,6 +63,7 @@ function saveLead(data, email) {
       'Discussion': 'New lead created',
       'Next Follow-up Date': followupDate,
       'Status': 'Open',
+      'Stage ID': prepared['Stage ID'] || '',
       'Created By': user.id,
       'Created At': now(),
       'Updated At': now()
