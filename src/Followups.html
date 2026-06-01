@@ -810,7 +810,7 @@ function _activityLogTable(rows, emptyMsg, ctx) {
     <table class="fu-table history-table">
       <thead><tr><th>Date</th><th>Action</th><th>From</th><th>To</th><th>Remark</th><th>By</th></tr></thead>
       <tbody>${data.map(row => `<tr>
-        <td>${formatDate(row['Created At']) || '-'}</td>
+        <td>${formatDateTime(row['Created At']) || '-'}</td>
         <td><span class="badge" style="background:#ECEFF1;color:#455A64">${escapeHtml(row['Action Type'] || 'Activity')}</span></td>
         <td>${escapeHtml(_activityValueLabel(row['Old Value'], ctx)) || '-'}</td>
         <td>${escapeHtml(_activityValueLabel(row['New Value'], ctx)) || '-'}</td>

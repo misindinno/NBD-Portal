@@ -101,7 +101,7 @@ function saveFollowup(data, email) {
         leadId: lead['Lead ID'],
         oldStageId: lead['Stage ID'] || '',
         newStageId: payload['Updated Stage ID'],
-        remark: payload['Discussion'] || payload['Remark'] || 'Stage updated from follow-up'
+        remark: payload['Discussion'] || payload['Remark'] || ''
       };
     }
     const leadUpdated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', payload['Lead ID'], updates);
@@ -365,13 +365,23 @@ function insertLeadActivityLog_(leadId, actionType, oldValue, newValue, remark, 
     'Action Type': actionType || 'Activity',
     'Old Value': oldValue || '',
     'New Value': newValue || '',
-    'Remark': remark || '',
+    'Remark': _leadActivityRemark_(actionType, newValue, remark),
     'Created By': userId || '',
     'Created At': now()
   };
   insertRow(SHEET_NAMES.LEAD_ACTIVITY_LOGS, row);
   _bumpStamp('activity_logs');
   return row;
+}
+
+function _leadActivityRemark_(actionType, newValue, remark) {
+  const text = String(remark || '').trim();
+  if (text) return text;
+  if (String(actionType || '').toLowerCase().includes('stage')) {
+    const stage = queryRows(SHEET_NAMES.STAGES, r => String(r['Stage ID']) === String(newValue))[0];
+    return 'Stage updated to ' + (stage && stage['Stage Name'] || newValue || 'next stage');
+  }
+  return '';
 }
 
 function _migrateLegacyFollowupData_() {
