@@ -186,19 +186,6 @@ async function openLeadDetail(leadId) {
 
     const lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
     const companyName = lead ? (lead['Company Name'] || leadId) : leadId;
-    let nbdUsers = [];
-    try {
-      nbdUsers = await api.getNbdAssignableUsers();
-    } catch (err) {
-      if (btn) resetButtonLoading(btn);
-      toast('Could not load NBD users: ' + (err.message || err), 'error');
-      return;
-    }
-    if (!nbdUsers.length) {
-      if (btn) resetButtonLoading(btn);
-      toast('No active NBD users found for assignment.', 'error');
-      return;
-    }
     if (btn) resetButtonLoading(btn);
 
     // Check for existing NBD leads matching phone / email / company
@@ -242,6 +229,20 @@ async function openLeadDetail(leadId) {
         return;
       }
       // else: pushAnyway — fall through to normal push flow
+    }
+
+    let nbdUsers = [];
+    try {
+      nbdUsers = await api.getNbdAssignableUsers();
+    } catch (err) {
+      if (btn) resetButtonLoading(btn);
+      toast('Could not load NBD users: ' + (err.message || err), 'error');
+      return;
+    }
+    if (!nbdUsers.length) {
+      if (btn) resetButtonLoading(btn);
+      toast('No active NBD users found for assignment.', 'error');
+      return;
     }
 
     const userOptionHTML = nbdUsers.map(u => {
