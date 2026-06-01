@@ -243,14 +243,6 @@ function apiGetFollowups(token, filters) {
   });
 }
 
-function apiGetFollowupWorklist(token, filters) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireModule('Followups');
-    return respond(getFollowupWorklist(filters || {}, user));
-  });
-}
-
 function apiGetFollowupHistory(token, filters) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

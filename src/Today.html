@@ -5,9 +5,6 @@ let _todayCharts = {};
 let _todayFiltersOpen = false;
 let _todayCardFilter = '';
 let _todayDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_todayDensity')) || 'compact';
-let _todayRangeDataKey = '';
-let _todayRangeHistory = [];
-let _todayRangeActivity = [];
 
 function _todayCardClick(key) {
   _todayCardFilter = (_todayCardFilter === key) ? '' : key;
@@ -22,9 +19,10 @@ window._todayCardClick = _todayCardClick;
 
 async function loadToday() {
   el('content').innerHTML = `<div id="today-wrap">${skeletonPage('table')}</div>`;
-  _todayRangeDataKey = '';
 
   const loads = [];
+  if (!AppCache.isLoaded('followupHistory')) loads.push(_ensureCached('followupHistory', () => api.getFollowupHistory({})));
+  if (!AppCache.isLoaded('activityLogs'))   loads.push(_ensureCached('activityLogs',   () => api.getLeadActivityLogs({})));
   if (!AppCache.isLoaded('leads'))          loads.push(_ensureCached('leads',           () => api.getLeads()));
   if (!AppCache.isLoaded('followups'))      loads.push(_ensureCached('followups',       () => api.getFollowups({})));
   if (loads.length) await Promise.all(loads);
@@ -266,29 +264,10 @@ function _todayDateRange() {
   return { from, to };
 }
 
-async function _todayEnsureRangeData(from, to) {
-  const key = `${from}|${to}`;
-  if (_todayRangeDataKey === key) return;
-  const [history, activity] = await Promise.all([
-    api.getFollowupHistory({ dateFrom: from, dateTo: to }),
-    api.getLeadActivityLogs({ dateFrom: from, dateTo: to })
-  ]);
-  _todayRangeDataKey = key;
-  _todayRangeHistory = history || [];
-  _todayRangeActivity = activity || [];
-}
-
-async function _todayApply() {
+function _todayApply() {
   const { from, to } = _todayDateRange();
   const userFilter = el('td-user')?.value || '';
   const typeFilter = el('td-type')?.value || '';
-  try {
-    await _todayEnsureRangeData(from, to);
-  } catch (e) {
-    console.warn('[Today] Range load failed, using cached rows if available', e);
-    _todayRangeHistory = AppCache.getRows('followupHistory') || [];
-    _todayRangeActivity = AppCache.getRows('activityLogs') || [];
-  }
 
   const userMap = {};
   (App.config.users || []).forEach(u => {
@@ -297,14 +276,14 @@ async function _todayApply() {
   });
   const leadMap  = AppCache.getRows('leads').reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
 
-  let history = (_todayRangeHistory || []).filter(r => {
+  let history = AppCache.getRows('followupHistory').filter(r => {
     const d = _fmtDate(r['Created At'] || r['Done Date'] || '');
     return d >= from && d <= to;
   });
   if (userFilter) history = history.filter(r => r['Done By'] === userFilter || r['Created By'] === userFilter || leadMap[r['Lead ID']]?.['Assigned To'] === userFilter);
   if (typeFilter) history = history.filter(r => r['Follow-up Type'] === typeFilter);
 
-  let actLogs = (_todayRangeActivity || []).filter(r => {
+  let actLogs = AppCache.getRows('activityLogs').filter(r => {
     const d = _fmtDate(r['Created At'] || '');
     return d >= from && d <= to;
   });

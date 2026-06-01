@@ -6,7 +6,6 @@ let _fuPage = 1;
 let _fuPageSize = 25;
 let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_fuDensity')) || 'compact';
 let _fuFiltersOpen = false;
-let _fuFilterTimer = null;
 
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
@@ -214,9 +213,7 @@ function _fuInstallShortcuts() {
 function _fuOnFilterChange(key, value) {
   _fuFilterState[key] = value;
   _fuPage = 1;
-  clearTimeout(_fuFilterTimer);
-  const delay = key === 'search' ? 350 : 120;
-  _fuFilterTimer = setTimeout(() => _renderFUTab(window.currentFollowupTab || 'all'), delay);
+  _renderFUTab(window.currentFollowupTab || 'all');
 }
 
 function _fuClearFilters() {
@@ -260,48 +257,6 @@ function _fuApplyFilters(rows, ctx) {
 }
 
 async function _renderFUTab(tab) {
-  if (tab !== 'custom' && api.getFollowupWorklist && !_fuHasPendingLocalFollowupJobs()) {
-    try {
-      await _renderFUTabServer(tab);
-      return;
-    } catch (e) {
-      console.warn('[Followups] Server worklist failed, using cache fallback', e);
-    }
-  }
-  await _renderFUTabFromCache(tab);
-}
-
-function _fuHasPendingLocalFollowupJobs() {
-  if (typeof QueueManager === 'undefined' || typeof QueueManager.getAllJobs !== 'function') return false;
-  return QueueManager.getAllJobs().some(j =>
-    j.module === 'followups' && ['QUEUED', 'PROCESSING', 'FAILED'].includes(String(j.status || ''))
-  );
-}
-
-async function _renderFUTabServer(tab) {
-  const body = el('fu-body');
-  if (!body) return;
-  body.innerHTML = skeletonPage('table');
-  const result = await api.getFollowupWorklist({
-    tab,
-    page: _fuPage,
-    pageSize: _fuPageSize,
-    ..._fuFilterState
-  });
-  const tabsEl = el('fu-tabs');
-  if (tabsEl) { tabsEl.innerHTML = _fuTabsHTML(window.currentFollowupTab || 'all'); renderIcons(tabsEl); }
-  _fuRenderOverviewFromCounts(result.counts || {});
-  const inlineChips = el('fu-filter-chips-inline'); if (inlineChips) { inlineChips.innerHTML = _fuFilterChipsHTML(); renderIcons(inlineChips); }
-  const hasFilter = Object.values(_fuFilterState).some(Boolean);
-  const emptyMsg = hasFilter
-    ? `No follow-ups match the current filters. <a href="#" onclick="_fuClearFilters();return false" style="color:#4F46E5">Clear filters</a>`
-    : `No ${tab} follow-ups found.`;
-  body.innerHTML = _fuTableServer(result.rows || [], emptyMsg, result.total || 0, result.page || _fuPage, result.pageSize || _fuPageSize);
-  renderIcons(body);
-  _fuAttachScrollCollapse();
-}
-
-async function _renderFUTabFromCache(tab) {
   const body = el('fu-body');
   if (!body) return;
 
@@ -443,40 +398,6 @@ function _fuRenderOverview(ctx) {
       <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
       <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
     </button>`).join('');
-  renderIcons(kpiEl);
-}
-
-function _fuRenderOverviewFromCounts(counts) {
-  counts = counts || {};
-  const tabCounts = {
-    all: counts.all || 0,
-    today: counts.today || 0,
-    overdue: counts.overdue || 0,
-    future: counts.future || 0,
-    closed: counts.closed || 0,
-    custom: ''
-  };
-  Object.entries(tabCounts).forEach(([key, val]) => {
-    const node = el('fu-tab-count-' + key);
-    if (node) node.textContent = val === '' ? '' : val;
-  });
-  const kpiEl = el('fu-kpis');
-  if (!kpiEl) return;
-  const activeTab = window.currentFollowupTab || 'all';
-  const items = [
-    { key: 'overdue', label: 'Overdue', value: counts.overdue || 0, sub: 'Needs attention', icon: 'circle-alert', cls: 'danger' },
-    { key: 'today', label: 'Due Today', value: counts.today || 0, sub: 'Planned for today', icon: 'calendar-days', cls: 'success' },
-    { key: 'future', label: 'Upcoming', value: counts.future || 0, sub: 'Future follow-ups', icon: 'calendar-clock', cls: 'blue' },
-    { key: 'closed', label: 'Closed', value: counts.closed || 0, sub: 'Closed / no next date', icon: 'check-circle-2', cls: 'neutral' }
-  ];
-  kpiEl.innerHTML = items.map(item => `
-    <button type="button" class="fu-kpi fu-kpi-${item.cls} ${activeTab === item.key ? 'active' : ''}" onclick="_fuKpiClick('${item.key}')">
-      <span class="fu-kpi-icon">${icon(item.icon, 17)}</span>
-      <span class="fu-kpi-value">${escapeHtml(item.value)}</span>
-      <span class="fu-kpi-label">${escapeHtml(item.label)}</span>
-      <span class="fu-kpi-sub">${escapeHtml(item.sub)}</span>
-    </button>
-  `).join('');
   renderIcons(kpiEl);
 }
 
@@ -686,72 +607,6 @@ function _fuTable(rows, emptyMsg, ctx) {
       </table>
       </div>
       ${_fuPagination(data.length, start, paged.length, pageCount)}
-    </div>`;
-}
-
-function _fuTableServer(rows, emptyMsg, total, page, pageSize) {
-  const data = rows || [];
-  const pageCount = Math.max(1, Math.ceil((total || 0) / (pageSize || _fuPageSize)));
-  _fuPage = Math.min(Math.max(1, page || _fuPage), pageCount);
-  const start = (_fuPage - 1) * (pageSize || _fuPageSize);
-  const counts = data.reduce((m, row) => {
-    const bucket = _followupDueBucket(row);
-    if (bucket === 'overdue' || bucket === 'today' || bucket === 'future') m[bucket]++;
-    return m;
-  }, { overdue: 0, today: 0, future: 0 });
-  const densityToggle = `
-    <div class="fu-density-toggle" role="group" aria-label="Row density">
-      <button class="${_fuDensity === 'comfortable' ? 'active' : ''}" title="Comfortable" onclick="_fuSetDensity('comfortable')">${icon('rows-3', 12)}</button>
-      <button class="${_fuDensity === 'compact' ? 'active' : ''}" title="Compact" onclick="_fuSetDensity('compact')">${icon('list', 12)}</button>
-      <button class="${_fuDensity === 'ultra' ? 'active' : ''}" title="Ultra Compact" onclick="_fuSetDensity('ultra')">${icon('menu', 12)}</button>
-    </div>`;
-  if (!data.length) {
-    return `
-      <div class="fu-worklist-card fu-density-${_fuDensity}">
-        <div class="fu-worklist-head">
-          <div><div class="fu-worklist-title">Worklist</div><div class="fu-worklist-sub">0 follow-ups found</div></div>
-          ${densityToggle}
-        </div>
-        <div class="fu-table-scroll"><table class="fu-table">
-          <tbody><tr><td style="padding:32px;text-align:center;color:#6b7280">${emptyMsg}</td></tr></tbody>
-        </table></div>
-      </div>`;
-  }
-  return `
-    <div class="fu-worklist-card fu-density-${_fuDensity}">
-      <div class="fu-worklist-head">
-        <div class="fu-worklist-head-left">
-          <div class="fu-worklist-title">Worklist <span class="fu-worklist-count">${total}</span></div>
-          <span class="fu-summary-pill danger" title="Overdue">${icon('circle-alert', 11)} ${counts.overdue}</span>
-          <span class="fu-summary-pill success" title="Today">${icon('calendar-days', 11)} ${counts.today}</span>
-          <span class="fu-summary-pill" title="Future">${icon('calendar-clock', 11)} ${counts.future}</span>
-        </div>
-        <div class="fu-worklist-tools">
-          <label class="fu-page-size">Rows
-            <select onchange="_fuSetPageSize(this.value)">
-              ${[10, 25, 50, 100].map(n => `<option value="${n}"${n === _fuPageSize ? ' selected' : ''}>${n}</option>`).join('')}
-            </select>
-          </label>
-          ${densityToggle}
-        </div>
-      </div>
-      <div class="fu-table-scroll">
-      <table class="fu-table">
-        <thead>
-          <tr>
-            <th>Due</th>
-            <th>Lead Details</th>
-            <th>Last Remark</th>
-            <th>Remark Date</th>
-            <th>Stage</th>
-            <th>Owner</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>${data.map(_fuTableRow).join('')}</tbody>
-      </table>
-      </div>
-      ${_fuPagination(total, start, data.length, pageCount)}
     </div>`;
 }
 
