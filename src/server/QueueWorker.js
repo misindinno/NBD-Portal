@@ -2,7 +2,7 @@
 // Background queue processor. Called by a time-based trigger every 1 minute.
 //
 // Safety constraints:
-//   - Processes max 20 jobs per run (prevents exceeding 6-min GAS runtime)
+//   - Processes repeated batches per run until queue is empty or cutoff is near
 //   - Hard cutoff at 4.5 minutes elapsed time
 //   - Uses a lease system — each claimed job is locked for 3 minutes
 //   - Stale jobs (lease expired, still PROCESSING) are automatically reclaimed
@@ -12,6 +12,7 @@
 const WORKER_ID        = 'worker-' + Math.random().toString(36).slice(2, 8);
 const WORKER_BATCH_SIZE = 20;
 const WORKER_CUTOFF_MS  = 4.5 * 60 * 1000; // stop before 6-min GAS limit
+const WORKER_CLAIM_MARGIN_MS = 30 * 1000; // don't claim a fresh batch near cutoff
 
 // ── Main entry point (called by time trigger) ─────────────────────────────────
 function processQueue() {
@@ -21,24 +22,36 @@ function processQueue() {
     props.setProperty('QUEUE_WORKER_LAST_STARTED_AT', now());
     props.setProperty('QUEUE_WORKER_LAST_STATUS', 'RUNNING');
     try {
-      const jobs = claimJobs_(WORKER_ID, WORKER_BATCH_SIZE);
-      props.setProperty('QUEUE_WORKER_LAST_CLAIMED', String(jobs.length));
       let processed = 0;
-      if (!jobs.length) {
+      let claimedTotal = 0;
+      let cutoffHit = false;
+
+      while (Date.now() - startMs <= WORKER_CUTOFF_MS - WORKER_CLAIM_MARGIN_MS) {
+        const jobs = claimJobs_(WORKER_ID, WORKER_BATCH_SIZE);
+        claimedTotal += jobs.length;
+        if (!jobs.length) break;
+
+        for (const job of jobs) {
+          if (Date.now() - startMs > WORKER_CUTOFF_MS) {
+            cutoffHit = true;
+            break;
+          }
+          _processQueueJob_(job);
+          processed++;
+        }
+        if (cutoffHit) break;
+      }
+
+      props.setProperty('QUEUE_WORKER_LAST_CLAIMED', String(claimedTotal));
+      if (!claimedTotal) {
         props.setProperty('QUEUE_WORKER_LAST_FINISHED_AT', now());
         props.setProperty('QUEUE_WORKER_LAST_PROCESSED', '0');
         props.setProperty('QUEUE_WORKER_LAST_STATUS', 'IDLE');
         return; // nothing to do
       }
-
-      for (const job of jobs) {
-        if (Date.now() - startMs > WORKER_CUTOFF_MS) break; // safety cutoff
-        _processQueueJob_(job);
-        processed++;
-      }
       props.setProperty('QUEUE_WORKER_LAST_FINISHED_AT', now());
       props.setProperty('QUEUE_WORKER_LAST_PROCESSED', String(processed));
-      props.setProperty('QUEUE_WORKER_LAST_STATUS', processed < jobs.length ? 'CUTOFF' : 'OK');
+      props.setProperty('QUEUE_WORKER_LAST_STATUS', cutoffHit ? 'CUTOFF' : 'OK');
     } catch (e) {
       props.setProperty('QUEUE_WORKER_LAST_FINISHED_AT', now());
       props.setProperty('QUEUE_WORKER_LAST_STATUS', 'ERROR');
