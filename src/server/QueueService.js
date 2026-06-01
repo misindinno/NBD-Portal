@@ -205,9 +205,9 @@ function claimJobs_(workerOwner, batchSize) {
     const payloadCol   = colIdx('Payload JSON');
     const actionCol    = colIdx('Action Type');
 
-    // One-at-a-time per record across ALL action types.
-    // Each job is keyed by "<type>:<id>" so saves/deletes/stage-moves for the
-    // same record block each other, but unrelated records run in parallel.
+    // Jobs for the same record are claimed in sheet order by the same worker,
+    // so stage 1 then stage 2 can finish in one cron run. Live leases owned by
+    // another worker still block the record to prevent concurrent writes.
     const blockedKeys = new Set();
 
     // First pass: mark keys of jobs that are actively PROCESSING (live lease)
@@ -247,8 +247,7 @@ function claimJobs_(workerOwner, batchSize) {
         continue;
       }
 
-      // Serial-per-record guard: skip if another job for the same record is
-      // already claimed in this batch or running in a concurrent worker.
+      // Serial-per-record guard: skip only if another live worker owns this record.
       let recordKey = '';
       try {
         recordKey = _qRecordKey_(String(row[actionCol] || ''), JSON.parse(String(row[payloadCol] || '{}')));
@@ -262,9 +261,6 @@ function claimJobs_(workerOwner, batchSize) {
       claimedRow[lockOwnerCol]  = workerOwner;
       claimedRow[updatedAtCol]  = nowStr;
       updates.push({ rowIndex: i + 1, values: claimedRow });
-
-      // Block any further jobs for this record in this batch
-      if (recordKey) blockedKeys.add(recordKey);
 
       // Build job object from row data
       const job = {};
