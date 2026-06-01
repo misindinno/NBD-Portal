@@ -188,7 +188,7 @@
       <div class="fu-filter-bar" id="lead-filter-bar" style="display:${_leadFiltersOpen ? 'block' : 'none'}">
         <div class="fu-filter-card-grid">
           <label class="fu-search">${icon('search', 14)}
-            <input type="search" id="lead-search" placeholder="Search company, contact, description... (Ctrl+K)" oninput="applyLeadFilters()">
+            <input type="search" id="lead-search" placeholder="Search company, contact, description, remark... (Ctrl+K)" oninput="applyLeadFilters()">
           </label>
           <label class="fu-filter"><span>Status</span><select id="lead-status-f" onchange="applyLeadFilters()">
             <option value="">All Status</option>${statusOpts}
@@ -378,7 +378,7 @@
 
     leadTable.setFilter(function (data) {
       if (q) {
-        const hay = [data['Company Name'], data['Contact Person'], data['Client Description'], data['Phone'], data['City']]
+        const hay = [data['Company Name'], data['Contact Person'], data['Client Description'], data['Phone'], data['City'], remarkSearchText(data)]
           .map(v => String(v || '').toLowerCase()).join(' ');
         if (!hay.includes(q)) return false;
       }

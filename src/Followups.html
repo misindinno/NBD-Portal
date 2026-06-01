@@ -242,7 +242,8 @@ function _fuApplyFilters(rows, ctx) {
       const company  = String(lead?.['Company Name']   || '').toLowerCase();
       const contact  = String(lead?.['Contact Person'] || '').toLowerCase();
       const phone    = String(lead?.['Phone']          || '').toLowerCase();
-      const remark   = String(row['Discussion'] || row['Remark'] || '').toLowerCase();
+      const remark   = [row['Discussion'], row['Remark'], remarkSearchText(row), remarkSearchText(lead)]
+        .map(v => String(v || '').toLowerCase()).join(' ');
       if (!company.includes(searchQ) && !contact.includes(searchQ) && !phone.includes(searchQ) && !remark.includes(searchQ)) return false;
     }
     if (f.type && String(row['Follow-up Type'] || '') !== f.type) return false;
@@ -504,8 +505,8 @@ function _fuCards(rows, emptyMsg, ctx) {
         </div>
         ${r._createdByLabel ? `<span style="font-size:12px;color:#999;white-space:nowrap">${icon('user', 12)} ${escapeHtml(r._createdByLabel)}</span>` : ''}
       </div>
-      <div style="font-weight:600;font-size:13px;margin-bottom:${r._remarkLabel ? '4px' : '8px'};line-height:1.4">${escapeHtml(r['Discussion']||'')}</div>
-      ${r._remarkLabel ? `<div style="font-size:12px;color:#555;background:#F5F5F5;border-radius:4px;padding:5px 8px;margin-bottom:8px">${icon('message-square', 12)} <em>${escapeHtml(r._remarkLabel)}</em></div>` : ''}
+      <div style="font-weight:600;font-size:13px;margin-bottom:${r._remarkLabel ? '4px' : '8px'};line-height:1.4" title="${escapeHtml(r['Discussion'] || '')}">${escapeHtml(r['Discussion']||'')}</div>
+      ${r._remarkLabel ? `<div style="font-size:12px;color:#555;background:#F5F5F5;border-radius:4px;padding:5px 8px;margin-bottom:8px" title="${escapeHtml(r._remarkLabel)}">${icon('message-square', 12)} <em>${escapeHtml(r._remarkLabel)}</em></div>` : ''}
       <div class="fu-card-meta" style="margin-bottom:${r['Next Follow-up Date'] ? '8px' : '0'}">
         ${r._clientLabel ? `<span>${icon('building-2', 12)} ${escapeHtml(r._clientLabel)}</span>` : (r._leadLabel ? `<span style="color:#aaa">${icon('target', 12)} ${escapeHtml(r._leadLabel)}</span>` : '<span style="color:#aaa">Standalone</span>')}
         ${_followupCustomFieldMeta(r)}
@@ -794,7 +795,7 @@ function _followupHistoryTable(rows, emptyMsg, ctx) {
           <td>${formatDate(row['Done Date']) || '-'}</td>
           <td>${escapeHtml(ctx?.userMap?.[row['Done By']] || row['Done By'] || '-')}</td>
           <td>${contactModeHTML}</td>
-          <td><div class="fu-discussion">${escapeHtml(row['Remark'] || '-')}</div></td>
+          <td><div class="fu-discussion" title="${escapeHtml(row['Remark'] || '')}">${escapeHtml(row['Remark'] || '-')}</div></td>
           <td>${stageLabel !== '-' ? `<span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(stageLabel)}</span>` : '-'}</td>
           <td>${formatDate(row['Next Planned Date']) || '-'}</td>
         </tr>`;
@@ -814,7 +815,7 @@ function _activityLogTable(rows, emptyMsg, ctx) {
         <td><span class="badge" style="background:#ECEFF1;color:#455A64">${escapeHtml(row['Action Type'] || 'Activity')}</span></td>
         <td>${escapeHtml(_activityValueLabel(row['Old Value'], ctx)) || '-'}</td>
         <td>${escapeHtml(_activityValueLabel(row['New Value'], ctx)) || '-'}</td>
-        <td><div class="fu-discussion">${escapeHtml(row['Remark'] || '-')}</div></td>
+        <td><div class="fu-discussion" title="${escapeHtml(row['Remark'] || '')}">${escapeHtml(row['Remark'] || '-')}</div></td>
         <td>${escapeHtml(ctx?.userMap?.[row['Created By']] || row['Created By'] || '-')}</td>
       </tr>`).join('')}</tbody>
     </table>

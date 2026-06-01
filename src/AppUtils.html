@@ -36,6 +36,15 @@ function escapeHtml(value) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[ch]));
 }
+function remarkSearchText(row) {
+  if (!row) return '';
+  return Object.keys(row)
+    .filter(k => /remark|discussion|note|comment/i.test(k))
+    .map(k => row[k])
+    .filter(v => v !== undefined && v !== null && v !== '')
+    .map(String)
+    .join(' ');
+}
 function safeColor(value, fallback = '#757575') {
   return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : fallback;
 }

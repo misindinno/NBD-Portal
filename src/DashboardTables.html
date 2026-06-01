@@ -355,7 +355,7 @@ function _dbRenderActivity(leads, page) {
             ${oldVal ? `<span style="color:#D32F2F;text-decoration:line-through">${escapeHtml(oldVal)}</span> → ` : ''}
             ${newVal ? `<span style="color:#388E3C;font-weight:500">${escapeHtml(newVal)}</span>` : ''}
           </div>` : ''}
-        ${log['Remark'] ? `<div style="font-size:11px;color:#888;margin-top:2px;font-style:italic">"${escapeHtml(String(log['Remark']).slice(0, 80))}"</div>` : ''}
+        ${log['Remark'] ? `<div style="font-size:11px;color:#888;margin-top:2px;font-style:italic" title="${escapeHtml(log['Remark'])}">"${escapeHtml(String(log['Remark']).slice(0, 80))}"</div>` : ''}
         <div style="font-size:10px;color:#bbb;margin-top:3px">${escapeHtml(user)}${ts ? ' · ' + formatDate(ts) : ''}</div>
       </div>`;
   }).join('');

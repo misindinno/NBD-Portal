@@ -610,7 +610,8 @@ function _runGlobalSearch(q) {
   const matchedLeads = leads.filter(l =>
     String(l['Company Name']        || '').toLowerCase().includes(ql) ||
     String(l['Client Description']  || '').toLowerCase().includes(ql) ||
-    String(l['City']                || '').toLowerCase().includes(ql)
+    String(l['City']                || '').toLowerCase().includes(ql) ||
+    String(remarkSearchText(l)      || '').toLowerCase().includes(ql)
   );
 
   // Contacts — match by Contact Person or Phone (skip leads already in Leads section)
@@ -625,7 +626,8 @@ function _runGlobalSearch(q) {
   // Follow-ups — match by Discussion or Remark
   const matchedFU = followups.filter(f =>
     String(f['Discussion'] || '').toLowerCase().includes(ql) ||
-    String(f['Remark']     || '').toLowerCase().includes(ql)
+    String(f['Remark']     || '').toLowerCase().includes(ql) ||
+    String(remarkSearchText(f) || '').toLowerCase().includes(ql)
   );
 
   const total = matchedLeads.length + matchedContacts.length + matchedFU.length;
