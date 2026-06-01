@@ -1,30 +1,30 @@
 <script>
 async function openLeadDetail(leadId) {
-    // Serve from cache; fall back to API if not loaded (e.g. direct deep link).
+    // Serve from cache; use the single-lead endpoint when heavy detail caches are absent.
     let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
-    if (lead && !AppCache.isLoaded('followups')) {
-      await _ensureCached('followups', () => api.getFollowups({}));
-    }
-    if (lead && !AppCache.isLoaded('followupHistory')) {
-      await _ensureCached('followupHistory', () => api.getFollowupHistory({})).catch(() => { });
-    }
-    if (lead && !AppCache.isLoaded('activityLogs')) {
-      await _ensureCached('activityLogs', () => api.getLeadActivityLogs({})).catch(() => { });
-    }
-    let followups = AppCache.getRows('followups')
-      .filter(f => f['Lead ID'] === leadId)
-      .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
-    let followupHistory = AppCache.getRows('followupHistory')
-      .filter(f => f['Lead ID'] === leadId);
-    let activityLogs = AppCache.getRows('activityLogs')
-      .filter(f => f['Lead ID'] === leadId);
-    if (!lead) {
+    let followups = AppCache.isLoaded('followups')
+      ? AppCache.getRows('followups').filter(f => f['Lead ID'] === leadId)
+      : [];
+    let followupHistory = AppCache.isLoaded('followupHistory')
+      ? AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId)
+      : [];
+    let activityLogs = AppCache.isLoaded('activityLogs')
+      ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId)
+      : [];
+
+    const needsLeadDetail = !lead || !AppCache.isLoaded('followups') || !AppCache.isLoaded('followupHistory') || !AppCache.isLoaded('activityLogs');
+    if (needsLeadDetail) {
       const data = await api.getLead(leadId);
-      lead = data.lead;
-      followups = data.followups || [];
-      followupHistory = data.followupHistory || [];
-      activityLogs = data.activityLogs || [];
+      if (!lead) lead = data.lead;
+      if (!AppCache.isLoaded('followups')) followups = data.followups || [];
+      if (!AppCache.isLoaded('followupHistory')) followupHistory = data.followupHistory || [];
+      if (!AppCache.isLoaded('activityLogs')) activityLogs = data.activityLogs || [];
     }
+    if (!lead) {
+      showToast('Lead not found or no longer available.', 'error');
+      return;
+    }
+    followups = followups.sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
     const leadFields = App.config.leadFields || [];
     const configOptions = _configOptionsMap(App.config._allConfigs || []);
     const fuContext = _buildFollowupContext([lead]);
