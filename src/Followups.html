@@ -42,9 +42,7 @@ function _fuShellHTML(tab) {
         </div>
         <div class="fu-topbar-right">
           <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_renderFUTab(window.currentFollowupTab || 'all')" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
-          ${_isNBDPortal()
-            ? _nbdEscalateBtn('sm')
-            : `<button class="btn btn-primary btn-sm fu-topbar-btn" onclick="openFollowupForm()">${icon('plus', 14)}<span class="fu-btn-text"> Add Follow-up</span></button>`}
+          ${_canAddFollowup() ? `<button class="btn btn-primary btn-sm fu-topbar-btn" onclick="openFollowupForm()">${icon('plus', 14)}<span class="fu-btn-text"> Add Follow-up</span></button>` : (_isNBDPortal() ? _nbdEscalateBtn('sm') : '')}
         </div>
       </div>
       <div id="fu-kpis" class="fu-kpis">${_fuKpiSkeleton()}</div>

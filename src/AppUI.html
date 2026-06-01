@@ -390,7 +390,11 @@ async function navigate(page) {
     else if (page === 'followups-today')   await _runPageLoader(page, 'loadFollowups', ['today']);
     else if (page === 'followups-overdue') await _runPageLoader(page, 'loadFollowups', ['overdue']);
     else if (page === 'followups-custom')  await _runPageLoader(page, 'loadFollowups', ['custom']);
-    else if (page === 'followups-new')     { await _runPageLoader(page, 'loadFollowups', ['all']); await _runPageLoader(page, 'openFollowupForm'); }
+    else if (page === 'followups-new')     {
+      await _runPageLoader(page, 'loadFollowups', ['all']);
+      if (_canAddFollowup()) await _runPageLoader(page, 'openFollowupForm');
+      else toast('Only admins can add follow-ups.', 'error');
+    }
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
     else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');

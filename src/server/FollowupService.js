@@ -43,7 +43,7 @@ function getLeadActivityLogs(filters) {
 
 function saveFollowup(data, email) {
   ensureFollowupSheets_();
-  const user = requireRole(['ADMIN', 'MANAGER', 'SALES', 'USER']);
+  const user = requireRole(['ADMIN']);
   let lead = null;
   let stage = null;
   let preparedLeadForStage = null;

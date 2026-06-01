@@ -1,5 +1,22 @@
 <script>
+function _canAddFollowup() {
+  return String(App?.user?.role || '').toUpperCase() === 'ADMIN';
+}
+
+function _addFollowupButtonHTML(leadId = '', leadName = '', size = 'sm') {
+  if (!_canAddFollowup()) return '';
+  const leadArg = escapeHtml(JSON.stringify(String(leadId || '')));
+  const nameArg = escapeHtml(JSON.stringify(String(leadName || '')));
+  return `<button class="btn btn-primary btn-${size}" onclick="openFollowupForm(${leadArg},${nameArg})">
+    ${icon('plus', 14)}<span class="fu-btn-text"> Add Follow-up</span>
+  </button>`;
+}
+
 async function openFollowupForm(leadId = '', leadName = '') {
+  if (!_canAddFollowup()) {
+    toast('Only admins can add follow-ups.', 'error');
+    return;
+  }
   const cfg = App.config;
   const formData = await _getFollowupFormData();
   const leads = formData.leads || [];
