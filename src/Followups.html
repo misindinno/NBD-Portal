@@ -260,12 +260,13 @@ async function _renderFUTab(tab) {
   const body = el('fu-body');
   if (!body) return;
 
-  // Closed tab uses followupHistory; all others use followups
+  // Closed tab uses followupHistory plus no-next-date master followups; all others use scheduled followups.
   if (tab === 'closed') {
-    if (!AppCache.isLoaded('followupHistory') || !AppCache.isLoaded('leads')) {
+    if (!AppCache.isLoaded('followupHistory') || !AppCache.isLoaded('followups') || !AppCache.isLoaded('leads')) {
       body.innerHTML = skeletonPage('table');
       await Promise.all([
         _ensureCached('followupHistory', () => api.getFollowupHistory({})),
+        _ensureCached('followups',       () => api.getFollowups({})),
         _ensureCached('leads',           () => api.getFollowupLeads())
       ]);
     }
@@ -284,13 +285,20 @@ async function _renderFUTab(tab) {
     const todayStr = localDateInputValue();
     let rows;
     if (tab === 'closed') {
-      rows = AppCache.getRows('followupHistory')
+      const historyRows = AppCache.getRows('followupHistory')
         .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+      const historyFollowupIds = new Set(historyRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
+      const noNextRows = AppCache.getRows('followups')
+        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+        .filter(_isNoNextPlannedFollowup)
+        .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || '')))
+        .map(r => ({ ...r, _closedNoNext: true }));
+      rows = historyRows.concat(noNextRows);
     } else {
       rows = AppCache.getRows('followups')
         .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
         .filter(_isOpenFollowupRow)
-        .filter(r => !!_fmtDate(_fuPlannedDate(r)));
+        .filter(r => !_isNoNextPlannedFollowup(r));
       if (tab === 'today') {
         rows = rows.filter(r => _fmtDate(_fuPlannedDate(r)) === todayStr);
       } else if (tab === 'overdue') {
@@ -342,6 +350,12 @@ function _fuRenderOverview(ctx) {
     .filter(r => !!_fmtDate(_fuPlannedDate(r)));
   const historyRows = (AppCache.getRows('followupHistory') || [])
     .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+  const historyFollowupIds = new Set(historyRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
+  const noNextClosedRows = (AppCache.getRows('followups') || [])
+    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+    .filter(_isNoNextPlannedFollowup)
+    .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || '')));
+  const closedRows = historyRows.concat(noNextClosedRows);
   const todayStr = localDateInputValue();
   const counts = openRows.reduce((m, row) => {
     const bucket = _followupDueBucket(row);
@@ -350,7 +364,7 @@ function _fuRenderOverview(ctx) {
     else if (bucket === 'future') m.future++;
     return m;
   }, { overdue: 0, today: 0, future: 0 });
-  const closedToday = historyRows.filter(r => _fmtDate(r['Done Date'] || r['Created At']) === todayStr).length;
+  const closedToday = closedRows.filter(r => _fmtDate(r['Done Date'] || r['Updated At'] || r['Created At']) === todayStr).length;
   const notPicked = historyRows.filter(r => String(r['Contact Mode'] || '') === 'Not Picked').length;
   const connected = historyRows.filter(r => ['Call Connected', 'WhatsApp Chat'].includes(String(r['Contact Mode'] || ''))).length;
   const rate = connected + notPicked ? Math.round((connected / (connected + notPicked)) * 100) : 0;
@@ -360,7 +374,7 @@ function _fuRenderOverview(ctx) {
     today: counts.today,
     overdue: counts.overdue,
     future: counts.future,
-    closed: historyRows.length,
+    closed: closedRows.length,
     custom: ''
   };
   Object.entries(tabCounts).forEach(([key, val]) => {
@@ -373,7 +387,7 @@ function _fuRenderOverview(ctx) {
     { key: 'overdue', label: 'Overdue', value: counts.overdue, sub: 'Needs attention', icon: 'circle-alert', cls: 'danger' },
     { key: 'today', label: 'Due Today', value: counts.today, sub: 'Planned for today', icon: 'calendar-days', cls: 'success' },
     { key: 'future', label: 'Upcoming', value: counts.future, sub: 'Future follow-ups', icon: 'calendar-clock', cls: 'blue' },
-    { key: 'closed', label: 'Closed', value: historyRows.length, sub: `${closedToday} closed today`, icon: 'check-circle-2', cls: 'neutral' },
+    { key: 'closed', label: 'Closed', value: closedRows.length, sub: `${closedToday} closed today`, icon: 'check-circle-2', cls: 'neutral' },
     { key: 'notpicked', label: 'Not Picked', value: notPicked, sub: 'Contact attempts', icon: 'phone-missed', cls: 'warning' },
     { key: 'rate', label: 'Connection Rate', value: `${rate}%`, sub: `${connected} connected`, icon: 'activity', cls: 'purple' }
   ];
@@ -459,6 +473,10 @@ function _isActivityLog(row) {
 
 function _isOpenFollowupRow(row) {
   return String(row?.['Status'] || (row?.['Outcome'] ? 'Closed' : 'Open')).toLowerCase() !== 'closed';
+}
+
+function _isNoNextPlannedFollowup(row) {
+  return !_fmtDate(_fuPlannedDate(row));
 }
 
 function _fuIsFinalStage(stage) {
@@ -646,7 +664,7 @@ function _fuPageButtons(pageCount) {
 function _fuTableRow(r) {
   const leadId = r['Lead ID'] || '';
   const company = r._companyName || (leadId ? 'Linked lead unavailable' : 'Standalone');
-  const doneAction = _isOpenFollowupRow(r)
+  const doneAction = _isOpenFollowupRow(r) && !_isNoNextPlannedFollowup(r)
     ? `<button type="button" class="fu-icon-action primary" title="Mark done" data-followup-id="${escapeHtml(r['Follow-up ID'] || '')}" onclick="openMarkFollowupDoneForm(this.dataset.followupId)">${icon('check-circle', 15)}</button>`
     : '';
   const leadAction = leadId && r._leadLabel !== 'Linked lead unavailable'
