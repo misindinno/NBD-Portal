@@ -86,6 +86,7 @@ const api = {
   getLeads:            ()      => api._authedRead('apiGetLeads'),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
   getFollowups:        (f)     => api._authedRead('apiGetFollowups', f),
+  getFollowupWorklist: (f)     => api._authedRead('apiGetFollowupWorklist', f),
   getFollowupHistory:  (f)     => api._authedRead('apiGetFollowupHistory', f),
   getLeadActivityLogs: (f)     => api._authedRead('apiGetLeadActivityLogs', f),
   getFollowupLeads:    ()      => api._authedRead('apiGetFollowupLeads'),

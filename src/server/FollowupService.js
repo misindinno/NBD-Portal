@@ -32,13 +32,82 @@ function getFollowupHistory(filters) {
   let rows = _followupHistoryRows();
   if (filters && filters.leadId) rows = rows.filter(r => r['Lead ID'] === filters.leadId);
   if (filters && filters.followupId) rows = rows.filter(r => r['Follow-up ID'] === filters.followupId);
+  if (filters && (filters.dateFrom || filters.dateTo)) {
+    const from = String(filters.dateFrom || '');
+    const to = String(filters.dateTo || '');
+    rows = rows.filter(r => {
+      const d = _fmtFollowupDate_(r['Created At'] || r['Done Date'] || '');
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+  }
   return rows.sort((a, b) => _timeValue(b['Created At'] || b['Done Date']) - _timeValue(a['Created At'] || a['Done Date']));
 }
 
 function getLeadActivityLogs(filters) {
   let rows = _leadActivityRows();
   if (filters && filters.leadId) rows = rows.filter(r => r['Lead ID'] === filters.leadId);
+  if (filters && (filters.dateFrom || filters.dateTo)) {
+    const from = String(filters.dateFrom || '');
+    const to = String(filters.dateTo || '');
+    rows = rows.filter(r => {
+      const d = _fmtFollowupDate_(r['Created At'] || '');
+      if (!d) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+  }
   return rows.sort((a, b) => _timeValue(b['Created At']) - _timeValue(a['Created At']));
+}
+
+function getFollowupWorklist(filters, user) {
+  filters = filters || {};
+  const tab = String(filters.tab || 'all').toLowerCase();
+  const pageSize = Math.max(10, Math.min(100, Number(filters.pageSize) || 25));
+  const page = Math.max(1, Number(filters.page) || 1);
+  const allFollowups = _scopeFollowupRows(getFollowups({ includeClosed: true }), user)
+    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+  const scopedLeads = _scopeAssignedRows(_leadRows(), user);
+  const leadMap = scopedLeads.reduce((m, l) => { if (l['Lead ID']) m[l['Lead ID']] = l; return m; }, {});
+  const userMap = _buildUserMapById_();
+  const stageMap = getAllRows(SHEET_NAMES.STAGES).reduce((m, s) => { if (s['Stage ID']) m[s['Stage ID']] = s; return m; }, {});
+  const todayStr = today();
+  const openScheduled = allFollowups
+    .filter(_isOpenFollowup)
+    .filter(r => !!_fmtFollowupDate_(r['Next Follow-up Date'] || r['Next Planned Date']));
+  const noNextClosed = allFollowups
+    .filter(r => !_fmtFollowupDate_(r['Next Follow-up Date'] || r['Next Planned Date']));
+  const counts = openScheduled.reduce((m, r) => {
+    const d = _fmtFollowupDate_(r['Next Follow-up Date'] || r['Next Planned Date']);
+    if (d < todayStr) m.overdue++;
+    else if (d === todayStr) m.today++;
+    else if (d > todayStr) m.future++;
+    return m;
+  }, { all: openScheduled.length, today: 0, overdue: 0, future: 0, closed: noNextClosed.length });
+
+  let rows;
+  if (tab === 'closed') {
+    const historyRows = _scopeFollowupHistoryRows(getFollowupHistory({}), user)
+      .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+    const historyIds = historyRows.reduce((m, r) => { if (r['Follow-up ID']) m[String(r['Follow-up ID'])] = true; return m; }, {});
+    rows = historyRows.concat(noNextClosed.filter(r => !historyIds[String(r['Follow-up ID'] || '')]));
+    counts.closed = rows.length;
+  } else {
+    rows = openScheduled;
+    if (tab === 'today') rows = rows.filter(r => _fmtFollowupDate_(r['Next Follow-up Date'] || r['Next Planned Date']) === todayStr);
+    else if (tab === 'overdue') rows = rows.filter(r => _fmtFollowupDate_(r['Next Follow-up Date'] || r['Next Planned Date']) < todayStr);
+    else if (tab === 'future') rows = rows.filter(r => _fmtFollowupDate_(r['Next Follow-up Date'] || r['Next Planned Date']) > todayStr);
+  }
+
+  rows = _filterFollowupWorklistRows_(rows, filters, leadMap);
+  rows = rows.sort(_sortFollowupWorklistRows_);
+  const total = rows.length;
+  const start = (page - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize).map(r => _decorateWorklistRow_(r, leadMap, userMap, stageMap));
+  return { rows: pageRows, total, page, pageSize, counts };
 }
 
 function saveFollowup(data, email) {
@@ -346,6 +415,65 @@ function _isOpenFollowup(row) {
 
 function _plannedDate(row) {
   return row && (row['Planned Date'] || row['Next Follow-up Date'] || row['Follow-up Date'] || '');
+}
+
+function _fmtFollowupDate_(value) {
+  if (!value) return '';
+  return formatDate(value);
+}
+
+function _filterFollowupWorklistRows_(rows, filters, leadMap) {
+  const search = String(filters.search || '').trim().toLowerCase();
+  const type = String(filters.type || '');
+  const assignedTo = String(filters.assignedTo || '');
+  const contactMode = String(filters.contactMode || '');
+  const stage = String(filters.stage || '');
+  const dateFrom = String(filters.dateFrom || '');
+  const dateTo = String(filters.dateTo || '');
+  return rows.filter(row => {
+    const lead = leadMap[row['Lead ID']] || {};
+    if (search) {
+      const haystack = [
+        lead['Company Name'], lead['Contact Person'], lead.Phone,
+        row.Discussion, row.Remark, row.Outcome, row['Next Action']
+      ].map(v => String(v || '').toLowerCase()).join(' ');
+      if (!haystack.includes(search)) return false;
+    }
+    if (type && String(row['Follow-up Type'] || '') !== type) return false;
+    if (assignedTo && lead['Assigned To'] !== assignedTo) return false;
+    if (contactMode && String(row['Contact Mode'] || '') !== contactMode) return false;
+    if (stage && lead['Stage ID'] !== stage && row['Stage ID'] !== stage && row['Updated Stage ID'] !== stage) return false;
+    const rowDate = _fmtFollowupDate_(row['Done Date'] || row['Next Follow-up Date'] || row['Next Planned Date'] || row['Created At']);
+    if (dateFrom && rowDate && rowDate < dateFrom) return false;
+    if (dateTo && rowDate && rowDate > dateTo) return false;
+    return true;
+  });
+}
+
+function _sortFollowupWorklistRows_(a, b) {
+  const ad = _fmtFollowupDate_(a['Next Follow-up Date'] || a['Next Planned Date']) || '9999-12-31';
+  const bd = _fmtFollowupDate_(b['Next Follow-up Date'] || b['Next Planned Date']) || '9999-12-31';
+  if (ad !== bd) return ad.localeCompare(bd);
+  return _timeValue(b['Created At'] || b['Done Date']) - _timeValue(a['Created At'] || a['Done Date']);
+}
+
+function _decorateWorklistRow_(row, leadMap, userMap, stageMap) {
+  const lead = leadMap[row['Lead ID']] || {};
+  const stage = stageMap[row['Updated Stage ID'] || row['Stage ID'] || lead['Stage ID']] || {};
+  const assignedUser = userMap[lead['Assigned To']] || {};
+  const createdUser = userMap[row['Created By']] || {};
+  return {
+    ...row,
+    _companyName: lead['Company Name'] || lead['Client Description'] || '',
+    _contactPerson: lead['Contact Person'] || '',
+    _city: lead.City || '',
+    _leadPhone: lead.Phone || '',
+    _leadLabel: lead['Lead ID'] ? ((lead['Company Name'] || lead['Client Description'] || lead['Lead ID']) + (lead.Phone ? ' - ' + lead.Phone : '')) : '',
+    _assignedToLabel: assignedUser.Name || lead['Assigned To'] || '',
+    _createdByLabel: createdUser.Name || row['Created By'] || '',
+    _leadStageLabel: stage['Stage Name'] || '',
+    _remarkLabel: row.Remark || row.Discussion || ''
+  };
 }
 
 function _sortFollowupsByCreated(a, b) {

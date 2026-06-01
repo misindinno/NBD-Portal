@@ -4,13 +4,17 @@ const SPREADSHEET_ID               = CLIENT_CONFIG.SPREADSHEET_ID;
 const USER_DATABASE_SPREADSHEET_ID = CLIENT_CONFIG.USER_DATABASE_SPREADSHEET_ID;
 const USER_DATABASE_SHEET_NAME     = CLIENT_CONFIG.USER_DATABASE_SHEET_NAME;
 let SERVER_CONTEXT_DEPTH = 0;
+let SHEETDB_READ_CACHE = {};
 
 function withServerContext_(fn) {
+  const isRootContext = SERVER_CONTEXT_DEPTH === 0;
+  if (isRootContext) SHEETDB_READ_CACHE = {};
   SERVER_CONTEXT_DEPTH++;
   try {
     return fn();
   } finally {
     SERVER_CONTEXT_DEPTH--;
+    if (isRootContext) SHEETDB_READ_CACHE = {};
   }
 }
 
@@ -58,16 +62,22 @@ function getHeaders(sheetName) {
 }
 
 function getAllRows(sheetName) {
+  const normalizedSheetName = normalizeSheetName(sheetName);
+  if (SHEETDB_READ_CACHE[normalizedSheetName]) {
+    return SHEETDB_READ_CACHE[normalizedSheetName].map(r => ({ ...r }));
+  }
   const sheet = getSheet(sheetName);
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
   const headers = data[0];
-  return data.slice(1).map((row) =>
+  const rows = data.slice(1).map((row) =>
     headers.reduce((obj, h, i) => {
       obj[h] = normalizeSheetValue(row[i]);
       return obj;
     }, {}),
   );
+  SHEETDB_READ_CACHE[normalizedSheetName] = rows;
+  return rows.map(r => ({ ...r }));
 }
 
 function normalizeSheetValue(value) {
@@ -101,6 +111,7 @@ function insertRow(sheetName, rowObj) {
   lock.waitLock(10000);
   try {
     sheet.appendRow(row);
+    _invalidateSheetCache_(sheetName);
   } finally {
     lock.releaseLock();
   }
@@ -126,6 +137,7 @@ function updateRow(sheetName, idColumn, idValue, updates) {
       updates[h] !== undefined ? updates[h] : data[rowIndex][i]
     );
     sheet.getRange(rowIndex + 1, 1, 1, headers.length).setValues([updatedRow]);
+    _invalidateSheetCache_(sheetName);
   } finally {
     lock.releaseLock();
   }
@@ -143,6 +155,7 @@ function deleteRow(sheetName, idColumn, idValue) {
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][col]) === String(idValue)) {
         sheet.deleteRow(i + 1);
+        _invalidateSheetCache_(sheetName);
         return true;
       }
     }
@@ -166,10 +179,15 @@ function deleteAllRowsWhere(sheetName, filterFn) {
       const row = headers.reduce((obj, h, j) => { obj[h] = data[i][j]; return obj; }, {});
       if (filterFn(row)) { sheet.deleteRow(i + 1); deleted++; }
     }
+    if (deleted) _invalidateSheetCache_(sheetName);
     return deleted;
   } finally {
     lock.releaseLock();
   }
+}
+
+function _invalidateSheetCache_(sheetName) {
+  delete SHEETDB_READ_CACHE[normalizeSheetName(sheetName)];
 }
 
 function queryRows(sheetName, filterFn) {
@@ -188,6 +206,7 @@ function safeInitHeaders(sheetName, requiredHeaders) {
       .getRange(1, 1, 1, requiredHeaders.length)
       .setValues([requiredHeaders]);
     _styleHeaderRow(sheet, 1, requiredHeaders.length);
+    _invalidateSheetCache_(sheetName);
     return;
   }
 
@@ -202,6 +221,7 @@ function safeInitHeaders(sheetName, requiredHeaders) {
   const startCol = lastCol + 1;
   sheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
   _styleHeaderRow(sheet, startCol, missing.length);
+  _invalidateSheetCache_(sheetName);
 }
 
 function _styleHeaderRow(sheet, startCol, count) {
