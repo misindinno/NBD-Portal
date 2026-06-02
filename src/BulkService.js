@@ -120,6 +120,13 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
   const rowResults = [];
   let saved = 0;
   let errors = 0;
+  const fastCreate = mode === 'create'
+    ? _trySaveBulkCreateFast_(sourceRows, validByRow, errorByRow, userEmail, initialStageId, batchId)
+    : null;
+  if (fastCreate) {
+    logBulkImport(fastCreate.summary, userEmail);
+    return fastCreate;
+  }
   sourceRows.forEach((row, i) => {
     const rowNumber = Number(row.__rowNumber) || i + 1;
     const preError = errorByRow[rowNumber];
@@ -232,6 +239,254 @@ function _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode) {
       fieldErrors: []
     };
   }
+}
+
+function _trySaveBulkCreateFast_(sourceRows, validByRow, errorByRow, userEmail, initialStageId, batchId) {
+  const validItems = [];
+  const rowResults = [];
+  sourceRows.forEach((row, i) => {
+    const rowNumber = Number(row.__rowNumber) || i + 1;
+    const preError = errorByRow[rowNumber];
+    if (preError) {
+      rowResults.push({
+        rowNumber,
+        saved: false,
+        status: 'Error',
+        errors: preError.errors || 'Validation failed',
+        fieldErrors: preError.fieldErrors || []
+      });
+      return;
+    }
+    const payload = validByRow[rowNumber];
+    if (!payload || _bulkPayloadHasComplexValue_(payload)) return;
+    validItems.push({ rowNumber, payload });
+  });
+  if (!validItems.length) return null;
+  if (validItems.length !== sourceRows.length - rowResults.length) return null;
+
+  try {
+    return withTrustedWriteUser_(userEmail, () =>
+      _saveBulkCreateFast_(sourceRows, validItems, rowResults, userEmail, initialStageId, batchId)
+    );
+  } catch (e) {
+    return null;
+  }
+}
+
+function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, initialStageId, batchId) {
+  const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
+  const ts = now();
+  const followupDate = today();
+  const fuTypes = getConfigByType('Follow-up Type');
+  const defaultFollowupType = fuTypes[0] || 'Call';
+  const leadRows = [];
+  const followupRows = [];
+  const customRows = [];
+  const leadIds = [];
+  const followupIds = [];
+  const rowResultsByNumber = {};
+  let saved = 0;
+  let errors = preResults.length;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const latestMap = _bulkExistingMap_(getAllRows(SHEET_NAMES.LEADS));
+    validItems.forEach(item => {
+      const payload = { ...(item.payload || {}) };
+      const duplicate = checkDuplicate(payload, latestMap, '');
+      if (duplicate) {
+        rowResultsByNumber[item.rowNumber] = {
+          rowNumber: item.rowNumber,
+          saved: false,
+          status: 'Error',
+          errors: duplicate,
+          fieldErrors: []
+        };
+        errors++;
+        return;
+      }
+
+      const id = generateUUID();
+      const followupId = generateUUID();
+      if (!payload['Stage ID']) payload['Stage ID'] = initialStageId || _bulkInitialStageId_();
+      if (user.role === 'SALES') payload['Assigned To'] = user.id;
+      const skipped = payload['__stage_skipped'] === 'true' || payload['skipped'] === true;
+      const prepared = _prepareLeadPayload(payload, payload['Stage ID'], {}, skipped);
+      _applyLeadStatusFromStage(prepared, prepared['Stage ID']);
+      const leadRow = {
+        ...prepared,
+        'Lead ID': id,
+        'Assigned To': prepared['Assigned To'] || user.id,
+        'Lead Status': prepared['Lead Status'] || 'Open',
+        'Last Follow-up Date': prepared['Last Follow-up Date'] || followupDate,
+        'Next Follow-up Date': prepared['Next Follow-up Date'] || followupDate,
+        'Created At': ts,
+        'Updated At': ts
+      };
+      leadRows.push(pickLeadMasterFields_(leadRow));
+      leadIds.push(id);
+      followupRows.push(pickFollowupMasterFields_({
+        'Follow-up ID': followupId,
+        'Lead ID': id,
+        'Planned Date': followupDate,
+        'Follow-up Date': followupDate,
+        'Follow-up Type': defaultFollowupType,
+        'Discussion': 'New lead created',
+        'Next Follow-up Date': followupDate,
+        'Status': 'Open',
+        'Stage ID': prepared['Stage ID'] || '',
+        'Created By': user.id,
+        'Created At': ts,
+        'Updated At': ts
+      }));
+      followupIds.push(followupId);
+      _bulkCustomValueRowsForLead_(id, prepared, user.id, prepared['Stage ID'], ts)
+        .forEach(r => customRows.push(r));
+      _bulkMarkDuplicateKeys_(latestMap, leadRow, id);
+      rowResultsByNumber[item.rowNumber] = {
+        rowNumber: item.rowNumber,
+        saved: true,
+        status: 'Saved',
+        recordId: id,
+        errors: ''
+      };
+      saved++;
+    });
+
+    try {
+      _bulkAppendRows_(SHEET_NAMES.LEADS, leadRows);
+      _bulkAppendRows_(SHEET_NAMES.FOLLOWUPS, followupRows);
+      _bulkAppendRows_(SHEET_NAMES.LEAD_FIELD_VALUES, customRows);
+    } catch (e) {
+      _bulkRollbackFastCreate_(leadIds, followupIds);
+      throw e;
+    }
+  } finally {
+    lock.releaseLock();
+  }
+
+  const rowResults = sourceRows.map((row, i) => {
+    const rowNumber = Number(row.__rowNumber) || i + 1;
+    return rowResultsByNumber[rowNumber] || preResults.find(r => Number(r.rowNumber) === rowNumber) || {
+      rowNumber,
+      saved: false,
+      status: 'Error',
+      errors: 'Row was not processed.',
+      fieldErrors: []
+    };
+  });
+  const summary = { batchId, mode: 'create', total: sourceRows.length, valid: saved, errors, saved };
+  _bulkSetProgress_(batchId, {
+    batchId,
+    mode: 'create',
+    status: 'DONE',
+    percent: 100,
+    total: sourceRows.length,
+    saved,
+    errors,
+    rowResults: _bulkPublicRowResults_(rowResults)
+  });
+  if (saved) {
+    _bumpStamp('leads');
+    _bumpStamp('followups');
+  }
+  return {
+    batchId,
+    summary,
+    rowResults,
+    errorRows: rowResults.filter(r => !r.saved).map(r => ({
+      rowNumber: r.rowNumber,
+      errors: r.errors,
+      fieldErrors: r.fieldErrors || []
+    }))
+  };
+}
+
+function _bulkPayloadHasComplexValue_(payload) {
+  return Object.keys(payload || {}).some(key => {
+    const value = payload[key];
+    return value && typeof value === 'object';
+  });
+}
+
+function _bulkAppendRows_(sheetName, rowObjects) {
+  if (!rowObjects || !rowObjects.length) return;
+  if (sheetName === SHEET_NAMES.LEAD_FIELD_VALUES) ensureCustomFieldValueSheets_();
+  if (sheetName === SHEET_NAMES.FOLLOWUPS) ensureFollowupSheets_();
+  const sheet = getSheet(sheetName);
+  const headers = getHeaders(sheetName);
+  const values = rowObjects.map(row => headers.map(h => row[h] !== undefined ? row[h] : ''));
+  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
+}
+
+function _bulkRollbackFastCreate_(leadIds, followupIds) {
+  const leadSet = (leadIds || []).reduce((m, id) => { if (id) m[String(id)] = true; return m; }, {});
+  const followupSet = (followupIds || []).reduce((m, id) => { if (id) m[String(id)] = true; return m; }, {});
+  _bulkDeleteRowsNoLock_(SHEET_NAMES.LEAD_FIELD_VALUES, row => leadSet[String(row['Lead ID'] || '')]);
+  _bulkDeleteRowsNoLock_(SHEET_NAMES.FOLLOWUPS, row =>
+    followupSet[String(row['Follow-up ID'] || '')] || leadSet[String(row['Lead ID'] || '')]
+  );
+  _bulkDeleteRowsNoLock_(SHEET_NAMES.LEADS, row => leadSet[String(row['Lead ID'] || '')]);
+}
+
+function _bulkDeleteRowsNoLock_(sheetName, predicate) {
+  const sheet = getSheet(sheetName);
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return 0;
+  const headers = data[0];
+  let deleted = 0;
+  for (let i = data.length - 1; i >= 1; i--) {
+    const row = headers.reduce((m, h, j) => { m[h] = data[i][j]; return m; }, {});
+    if (predicate(row)) {
+      sheet.deleteRow(i + 1);
+      deleted++;
+    }
+  }
+  return deleted;
+}
+
+function _bulkCustomValueRowsForLead_(leadId, payload, userId, stageId, ts) {
+  ensureCustomFieldValueSheets_();
+  return _bulkCustomFieldsForLeadWrite_(stageId)
+    .filter(field => field['Field Type'] !== 'Formula')
+    .map(field => {
+      const key = _customEffectiveColumnKey_(field, stageId);
+      if (!key || !Object.prototype.hasOwnProperty.call(payload, key)) return null;
+      const value = payload[key];
+      if (value === undefined || value === null || value === '') return null;
+      const isFile = field['Field Type'] === 'File';
+      return {
+        'Value ID': generateUUID(),
+        'Lead ID': leadId,
+        'Field ID': field['Field ID'],
+        'Column Key': key,
+        'Field Value': isFile ? '' : _customStoredValue_(value),
+        'File URL': isFile ? _customStoredValue_(value) : '',
+        'Updated By': userId || '',
+        'Updated At': ts || now()
+      };
+    })
+    .filter(Boolean);
+}
+
+function _bulkCustomFieldsForLeadWrite_(stageId) {
+  return queryRows(SHEET_NAMES.FIELD_CONFIG, r =>
+      (r['Sheet Name'] || 'Leads') === 'Leads' &&
+      (r['Is Visible'] !== false && r['Is Visible'] !== 'FALSE') &&
+      (!r['Stage ID'] || r['Stage ID'] === stageId)
+    );
+}
+
+function _bulkMarkDuplicateKeys_(map, row, leadId) {
+  const phone = _bulkNormPhone_(row['Phone']);
+  const altPhone = _bulkNormPhone_(row['Alternate No']);
+  const email = _bulkNormEmail_(row['Email']);
+  const company = _bulkNormText_(row['Company Name']);
+  if (phone) map.phone[phone] = leadId;
+  if (altPhone) map.phone[altPhone] = leadId;
+  if (email) map.email[email] = leadId;
+  if (company) map.company[company] = leadId;
 }
 
 function createBulkFollowupOnlyRow(row, rowNumber, userEmail) {
