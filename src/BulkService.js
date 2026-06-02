@@ -47,15 +47,32 @@ function validateBulkRows(rows, mode) {
   if ((Array.isArray(rows) ? rows.length : 0) > BULK_MAX_ROWS) {
     throw new Error('Bulk import supports up to ' + BULK_MAX_ROWS + ' rows at a time.');
   }
+  return _validateBulkRowsWithContext_(rows, mode, _bulkValidationContext_());
+}
+
+function _bulkValidationContext_() {
   const config = getBulkConfig();
-  const existingMap = _bulkExistingMap_();
+  const leads = getAllRows(SHEET_NAMES.LEADS);
+  return {
+    config,
+    leads,
+    existingMap: _bulkExistingMap_(leads)
+  };
+}
+
+function _validateBulkRowsWithContext_(rows, mode, ctx) {
+  mode = _bulkMode_(mode);
+  const config = ctx && ctx.config || getBulkConfig();
+  const leads = ctx && ctx.leads || getAllRows(SHEET_NAMES.LEADS);
+  const existingMap = ctx && ctx.existingMap || _bulkExistingMap_(leads);
   const normalized = _bulkRows_(rows).map((row, i) => normalizeBulkRow(row, Number(row.__rowNumber) || i + 1, config));
   const batchMap = { phone: {}, email: {}, company: {} };
   const updateLeadMap = {};
   const errorRows = [];
   const validRows = [];
+  const validItems = [];
   normalized.forEach(item => {
-    const lead = mode === 'update' ? _bulkFindLeadForRow_(item.row) : null;
+    const lead = mode === 'update' ? _bulkFindLeadForRow_(item.row, leads) : null;
     const fieldErrors = _bulkRowErrors_(item, config, existingMap, mode, lead ? lead['Lead ID'] : '');
     if (mode === 'create' && String(item.row['Lead ID'] || '').trim()) {
       fieldErrors.push({ fieldName: 'Lead ID', message: 'Lead ID is only allowed in Update mode.' });
@@ -71,12 +88,15 @@ function validateBulkRows(rows, mode) {
     if (fieldErrors.length) errorRows.push({ rowNumber: item.rowNumber, errors: fieldErrors.map(e => e.message).join('; '), fieldErrors, ...item.input });
     else {
       if (mode === 'update' && lead) updateLeadMap[lead['Lead ID']] = true;
-      validRows.push(mode === 'update' ? _bulkUpdatePayload_(item.row, lead['Lead ID']) : item.row);
+      const payload = mode === 'update' ? _bulkUpdatePayload_(item.row, lead['Lead ID']) : item.row;
+      validRows.push(payload);
+      validItems.push({ rowNumber: item.rowNumber, payload });
     }
   });
   return {
     summary: { total: normalized.length, valid: validRows.length, errors: errorRows.length, saved: 0 },
     validRows,
+    validItems,
     errorRows
   };
 }
@@ -87,11 +107,31 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
   const batchId = String(requestedBatchId || '').trim() || generateUUID();
   const sourceRows = _bulkRows_(rows);
   if (sourceRows.length > BULK_MAX_ROWS) throw new Error('Bulk import supports up to ' + BULK_MAX_ROWS + ' rows at a time.');
+  const validation = _validateBulkRowsWithContext_(sourceRows, mode, _bulkValidationContext_());
+  const validByRow = (validation.validItems || []).reduce((m, item) => {
+    m[item.rowNumber] = item.payload;
+    return m;
+  }, {});
+  const errorByRow = (validation.errorRows || []).reduce((m, row) => {
+    m[row.rowNumber] = row;
+    return m;
+  }, {});
+  const initialStageId = mode === 'create' ? _bulkInitialStageId_() : '';
   const rowResults = [];
   let saved = 0;
   let errors = 0;
   sourceRows.forEach((row, i) => {
-    const result = _saveBulkRowUnlocked_(row, Number(row.__rowNumber) || i + 1, userEmail, mode);
+    const rowNumber = Number(row.__rowNumber) || i + 1;
+    const preError = errorByRow[rowNumber];
+    const result = preError
+      ? {
+          rowNumber,
+          saved: false,
+          status: 'Error',
+          errors: preError.errors || 'Validation failed',
+          fieldErrors: preError.fieldErrors || []
+        }
+      : _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode, validByRow[rowNumber], initialStageId);
     rowResults.push(result);
     if (result.saved) saved++;
     else errors++;
@@ -145,22 +185,27 @@ function saveBulkRow(row, rowNumber, userEmail) {
 }
 
 function _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode) {
+  const preparedPayload = arguments.length >= 5 ? arguments[4] : null;
+  const initialStageId = arguments.length >= 6 ? arguments[5] : '';
   mode = _bulkMode_(mode);
   const source = { ...(row || {}), __rowNumber: Number(rowNumber) || Number(row && row.__rowNumber) || 1 };
   try {
-    const validation = validateBulkRows([source], mode);
-    if (validation.errorRows.length) {
-      const err = validation.errorRows[0];
-      return {
-        rowNumber: source.__rowNumber,
-        saved: false,
-        status: 'Error',
-        errors: err.errors || 'Validation failed',
-        fieldErrors: err.fieldErrors || []
-      };
+    let payload = preparedPayload;
+    if (!payload) {
+      const validation = validateBulkRows([source], mode);
+      if (validation.errorRows.length) {
+        const err = validation.errorRows[0];
+        return {
+          rowNumber: source.__rowNumber,
+          saved: false,
+          status: 'Error',
+          errors: err.errors || 'Validation failed',
+          fieldErrors: err.fieldErrors || []
+        };
+      }
+      payload = validation.validRows[0] || {};
     }
-    const payload = validation.validRows[0] || {};
-    if (mode === 'create' && !payload['Stage ID']) payload['Stage ID'] = _bulkInitialStageId_();
+    if (mode === 'create' && !payload['Stage ID']) payload['Stage ID'] = initialStageId || _bulkInitialStageId_();
     const response = withTrustedWriteUser_(userEmail, () => saveLead(payload, userEmail));
     if (!response || !response.success) {
       return {
@@ -576,8 +621,8 @@ function _bulkRowErrors_(item, config, existingMap, mode, excludeLeadId) {
   return errors;
 }
 
-function _bulkExistingMap_() {
-  return getAllRows(SHEET_NAMES.LEADS).reduce((m, row) => {
+function _bulkExistingMap_(leads) {
+  return (Array.isArray(leads) ? leads : getAllRows(SHEET_NAMES.LEADS)).reduce((m, row) => {
     const phone = _bulkNormPhone_(row['Phone']);
     const altPhone = _bulkNormPhone_(row['Alternate No']);
     const email = _bulkNormEmail_(row['Email']);
@@ -591,12 +636,12 @@ function _bulkExistingMap_() {
   }, { phone: {}, email: {}, company: {} });
 }
 
-function _bulkFindLeadForRow_(row) {
+function _bulkFindLeadForRow_(row, leads) {
   const leadId = String(row['Lead ID'] || row['Lead Id'] || row['ID'] || '').trim();
   const phone = _bulkNormPhone_(row['Phone']);
   const email = _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
-  return getAllRows(SHEET_NAMES.LEADS).find(lead => {
+  return (Array.isArray(leads) ? leads : getAllRows(SHEET_NAMES.LEADS)).find(lead => {
     if (leadId && String(lead['Lead ID'] || '').trim() === leadId) return true;
     if (phone && (_bulkNormPhone_(lead['Phone']) === phone || _bulkNormPhone_(lead['Alternate No']) === phone)) return true;
     if (email && _bulkNormEmail_(lead['Email']) === email) return true;
