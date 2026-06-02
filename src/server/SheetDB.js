@@ -47,7 +47,9 @@ function normalizeSheetName(name) {
 
 function isUserDatabaseSheet(sheetName) {
   const normalized = normalizeSheetName(sheetName);
-  return normalized === USER_DATABASE_SHEET_NAME || normalized === SHEET_NAMES.USER_PORTAL_ACCESS;
+  return normalized === USER_DATABASE_SHEET_NAME ||
+    normalized === SHEET_NAMES.USER_PORTAL_ACCESS ||
+    normalized === SHEET_NAMES.IDX_USERS;
 }
 
 function getHeaders(sheetName) {
@@ -82,6 +84,10 @@ function normalizeSheetValue(value) {
 }
 
 function findRowIndex(sheetName, idColumn, idValue) {
+  const indexedRow = typeof findIndexedRowNumber_ === 'function'
+    ? findIndexedRowNumber_(sheetName, idColumn, idValue)
+    : -1;
+  if (indexedRow > 1) return indexedRow;
   const sheet = getSheet(sheetName);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
@@ -98,12 +104,15 @@ function insertRow(sheetName, rowObj) {
   const headers = getHeaders(sheetName);
   const row = headers.map((h) => (rowObj[h] !== undefined ? rowObj[h] : ""));
   const lock = LockService.getScriptLock();
+  let rowNumber = 0;
   lock.waitLock(10000);
   try {
     sheet.appendRow(row);
+    rowNumber = sheet.getLastRow();
   } finally {
     lock.releaseLock();
   }
+  if (typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, rowObj, rowNumber);
 }
 
 function updateRow(sheetName, idColumn, idValue, updates) {
@@ -111,14 +120,23 @@ function updateRow(sheetName, idColumn, idValue, updates) {
   // Fix #10: acquire lock BEFORE reading row index to prevent race condition
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
+  let syncedRow = null;
+  let syncedRowNumber = 0;
   try {
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
     const col = headers.indexOf(idColumn);
     if (col === -1) return false;
     let rowIndex = -1;
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][col]) === String(idValue)) { rowIndex = i; break; }
+    const indexedRow = typeof findIndexedRowNumber_ === 'function'
+      ? findIndexedRowNumber_(sheetName, idColumn, idValue)
+      : -1;
+    if (indexedRow > 1 && indexedRow <= data.length && String(data[indexedRow - 1][col]) === String(idValue)) {
+      rowIndex = indexedRow - 1;
+    } else {
+      for (let i = 1; i < data.length; i++) {
+        if (String(data[i][col]) === String(idValue)) { rowIndex = i; break; }
+      }
     }
     if (rowIndex === -1) return false;
     // Fix #9: build full updated row and write in a single setValues call
@@ -126,9 +144,15 @@ function updateRow(sheetName, idColumn, idValue, updates) {
       updates[h] !== undefined ? updates[h] : data[rowIndex][i]
     );
     sheet.getRange(rowIndex + 1, 1, 1, headers.length).setValues([updatedRow]);
+    syncedRow = headers.reduce((obj, h, i) => {
+      obj[h] = normalizeSheetValue(updatedRow[i]);
+      return obj;
+    }, {});
+    syncedRowNumber = rowIndex + 1;
   } finally {
     lock.releaseLock();
   }
+  if (syncedRow && typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, syncedRow, syncedRowNumber);
   return true;
 }
 
@@ -143,6 +167,7 @@ function deleteRow(sheetName, idColumn, idValue) {
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][col]) === String(idValue)) {
         sheet.deleteRow(i + 1);
+        if (typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
         return true;
       }
     }
@@ -157,19 +182,20 @@ function deleteAllRowsWhere(sheetName, filterFn) {
   const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
+  let deleted = 0;
   try {
     const data = sheet.getDataRange().getValues();
     if (data.length < 2) return 0;
     const headers = data[0];
-    let deleted = 0;
     for (let i = data.length - 1; i >= 1; i--) {
       const row = headers.reduce((obj, h, j) => { obj[h] = data[i][j]; return obj; }, {});
       if (filterFn(row)) { sheet.deleteRow(i + 1); deleted++; }
     }
-    return deleted;
   } finally {
     lock.releaseLock();
   }
+  if (deleted && typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
+  return deleted;
 }
 
 function queryRows(sheetName, filterFn) {

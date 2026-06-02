@@ -224,7 +224,8 @@ function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAnyModule(['Leads', 'Followups']);
-    const lead = _leadRows().filter(r => r['Lead ID'] === id)[0];
+    const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', id);
+    const lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
     const followups = _scopeFollowupRows(getFollowups({ leadId: id, includeClosed: true }), user);
     if (!lead || (!_canReadAssignedRow(lead, user) && !followups.length)) return respond(null, 'Lead not found.');
     const followupHistory = _scopeFollowupHistoryRows(getFollowupHistory({ leadId: id }), user);
@@ -601,7 +602,7 @@ function _scopeLeadLinkedRows(rows, user, actorFields) {
     const scope = _portalDepartmentScopeSet_();
     return rows.filter(r => _linkedRowMatchesDepartmentScope_(r, actorFields, userMap, leadMap, scope));
   }
-  const leadIds = getAllRows(SHEET_NAMES.LEADS)
+  const leadIds = _leadIndexRowsForScope_()
     .filter(l => l['Assigned To'] === user.id)
     .map(l => l['Lead ID']);
   const allowed = {};
@@ -651,7 +652,7 @@ function _buildUserMapById_() {
 }
 
 function _buildLeadMapById_() {
-  return getAllRows(SHEET_NAMES.LEADS).reduce((m, l) => {
+  return _leadIndexRowsForScope_().reduce((m, l) => {
     if (l['Lead ID']) m[l['Lead ID']] = l;
     return m;
   }, {});
@@ -659,4 +660,13 @@ function _buildLeadMapById_() {
 
 function _leadRows() {
   return getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS));
+}
+
+function _leadIndexRowsForScope_() {
+  let rows = getAllRows(SHEET_NAMES.IDX_LEADS);
+  if (!rows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
+    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
+    rows = getAllRows(SHEET_NAMES.IDX_LEADS);
+  }
+  return rows;
 }

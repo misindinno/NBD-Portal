@@ -52,7 +52,7 @@ function validateBulkRows(rows, mode) {
 
 function _bulkValidationContext_() {
   const config = getBulkConfig();
-  const leads = getAllRows(SHEET_NAMES.LEADS);
+  const leads = _bulkLeadIndexRows_();
   return {
     config,
     leads,
@@ -63,7 +63,7 @@ function _bulkValidationContext_() {
 function _validateBulkRowsWithContext_(rows, mode, ctx) {
   mode = _bulkMode_(mode);
   const config = ctx && ctx.config || getBulkConfig();
-  const leads = ctx && ctx.leads || getAllRows(SHEET_NAMES.LEADS);
+  const leads = ctx && ctx.leads || _bulkLeadIndexRows_();
   const existingMap = ctx && ctx.existingMap || _bulkExistingMap_(leads);
   const normalized = _bulkRows_(rows).map((row, i) => normalizeBulkRow(row, Number(row.__rowNumber) || i + 1, config));
   const batchMap = { phone: {}, email: {}, company: {} };
@@ -293,7 +293,7 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const latestMap = _bulkExistingMap_(getAllRows(SHEET_NAMES.LEADS));
+    const latestMap = _bulkExistingMap_(_bulkLeadIndexRows_());
     validItems.forEach(item => {
       const payload = { ...(item.payload || {}) };
       const duplicate = checkDuplicate(payload, latestMap, '');
@@ -426,7 +426,11 @@ function _bulkAppendRows_(sheetName, rowObjects) {
   const sheet = getSheet(sheetName);
   const headers = getHeaders(sheetName);
   const values = rowObjects.map(row => headers.map(h => row[h] !== undefined ? row[h] : ''));
-  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, values.length, headers.length).setValues(values);
+  if (typeof syncIndexRow_ === 'function') {
+    rowObjects.forEach((row, i) => syncIndexRow_(sheetName, row, startRow + i));
+  }
 }
 
 function _bulkRollbackFastCreate_(leadIds, followupIds) {
@@ -437,6 +441,10 @@ function _bulkRollbackFastCreate_(leadIds, followupIds) {
     followupSet[String(row['Follow-up ID'] || '')] || leadSet[String(row['Lead ID'] || '')]
   );
   _bulkDeleteRowsNoLock_(SHEET_NAMES.LEADS, row => leadSet[String(row['Lead ID'] || '')]);
+  if (typeof rebuildIndexAfterDelete_ === 'function') {
+    rebuildIndexAfterDelete_(SHEET_NAMES.FOLLOWUPS);
+    rebuildIndexAfterDelete_(SHEET_NAMES.LEADS);
+  }
 }
 
 function _bulkDeleteRowsNoLock_(sheetName, predicate) {
@@ -452,6 +460,7 @@ function _bulkDeleteRowsNoLock_(sheetName, predicate) {
       deleted++;
     }
   }
+  if (deleted && typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
   return deleted;
 }
 
@@ -945,6 +954,15 @@ function _bulkExistingMap_(leads) {
   }, { phone: {}, email: {}, company: {} });
 }
 
+function _bulkLeadIndexRows_() {
+  let rows = getAllRows(SHEET_NAMES.IDX_LEADS);
+  if (!rows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
+    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
+    rows = getAllRows(SHEET_NAMES.IDX_LEADS);
+  }
+  return rows;
+}
+
 function _bulkFindLeadForRow_(row, leads) {
   const leadId = String(row['Lead ID'] || row['Lead Id'] || row['ID'] || '').trim();
   const phone = _bulkNormPhone_(row['Phone']);
@@ -960,7 +978,7 @@ function _bulkFindLeadForRow_(row, leads) {
 }
 
 function _bulkLeadHasAnyFollowup_(leadId) {
-  return getAllRows(SHEET_NAMES.FOLLOWUPS).some(row =>
+  return getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId).some(row =>
     row['Lead ID'] === leadId
   );
 }

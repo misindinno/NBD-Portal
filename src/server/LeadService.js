@@ -7,9 +7,12 @@ function getLeads() {
 }
 
 function getLead(leadId) {
-  const lead = getLeads().filter(r => r['Lead ID'] === leadId)[0];
+  const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
+  const lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
   if (!lead) return null;
-  const followups = _followupRows().filter(r => r['Lead ID'] === leadId)
+  const followups = getRowsWithCustomFieldValues_('Followups', getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId))
+    .filter(_isFollowupTaskRow)
+    .map(_normalizeFollowupRow)
     .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
   const followupHistory = _followupHistoryRows().filter(r => r['Lead ID'] === leadId);
   const activityLogs = _leadActivityRows().filter(r => r['Lead ID'] === leadId);
@@ -83,12 +86,17 @@ function checkLeadDuplicates(phone, email, excludeLeadId) {
   const normPhone = phone ? String(phone).replace(/\D/g, '') : '';
   const normEmail = email ? String(email).trim().toLowerCase() : '';
   if (!normPhone && !normEmail) return [];
-  return getLeads()
+  let indexRows = getAllRows(SHEET_NAMES.IDX_LEADS);
+  if (!indexRows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
+    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
+    indexRows = getAllRows(SHEET_NAMES.IDX_LEADS);
+  }
+  return indexRows
     .filter(lead => {
       if (excludeLeadId && lead['Lead ID'] === excludeLeadId) return false;
       if (normPhone) {
-        const lPhone = String(lead['Phone'] || '').replace(/\D/g, '');
-        const lAlt   = String(lead['Alternate No'] || '').replace(/\D/g, '');
+        const lPhone = String(lead['Phone'] || '');
+        const lAlt   = String(lead['Alternate No'] || '');
         if (lPhone && lPhone === normPhone) return true;
         if (lAlt   && lAlt   === normPhone) return true;
       }
@@ -353,8 +361,7 @@ function deleteLead(leadId, email) {
   if (!result.success) throw new Error(result.error);
   const user = result.data;
   if (String(user.department || '').trim().toUpperCase() !== 'MIS') throw new Error('Permission denied. Only MIS department users can delete leads.');
-  const followupIds = getAllRows(SHEET_NAMES.FOLLOWUPS)
-    .filter(r => String(r['Lead ID'] || '') === String(leadId))
+  const followupIds = getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId)
     .map(r => r['Follow-up ID'])
     .filter(Boolean);
   deleteRow(SHEET_NAMES.LEADS, 'Lead ID', leadId);

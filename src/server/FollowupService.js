@@ -48,7 +48,7 @@ function saveFollowup(data, email) {
   let stage = null;
   let preparedLeadForStage = null;
   if (data['Lead ID']) {
-    lead = queryRows(SHEET_NAMES.LEADS, r => r['Lead ID'] === data['Lead ID'])[0];
+    lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', data['Lead ID']);
     if (!lead) return respond(null, 'Lead not found.');
     if (!_canWriteFollowupForLead(lead, user)) return respond(null, 'Permission denied.');
     if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and follow-ups are locked in LQ.');
@@ -127,11 +127,11 @@ function saveFollowup(data, email) {
 function markFollowupDone(followupId, data, email) {
   ensureFollowupSheets_();
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES', 'USER']);
-  const row = queryRows(SHEET_NAMES.FOLLOWUPS, r => r['Follow-up ID'] === followupId)[0];
+  const row = getRowByIndexedId_(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
   if (!row) return respond(null, 'Follow-up not found.');
 
   const lead = row['Lead ID']
-    ? queryRows(SHEET_NAMES.LEADS, r => r['Lead ID'] === row['Lead ID'])[0]
+    ? getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', row['Lead ID'])
     : null;
   if (row['Lead ID'] && !lead) return respond(null, 'Linked lead not found.');
   if (!_canWriteFollowupRow(row, lead, user)) return respond(null, 'Permission denied.');
@@ -298,9 +298,9 @@ function deleteFollowup(followupId, email) {
   const user = result.data;
   const isMIS = String(user.department || '').trim().toUpperCase() === 'MIS';
   if (!isMIS && user.role !== 'ADMIN') throw new Error('Permission denied. Only MIS or Admin users can delete follow-ups.');
-  const row = queryRows(SHEET_NAMES.FOLLOWUPS, r => r['Follow-up ID'] === followupId)[0];
+  const row = getRowByIndexedId_(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
   const lead = row && row['Lead ID']
-    ? queryRows(SHEET_NAMES.LEADS, r => r['Lead ID'] === row['Lead ID'])[0]
+    ? getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', row['Lead ID'])
     : null;
   if (_isLeadPushedToNbd_(lead)) throw new Error('Lead is already pushed to NBD and follow-ups are locked in LQ.');
   deleteRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);

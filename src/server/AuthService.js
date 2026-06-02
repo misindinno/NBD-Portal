@@ -30,11 +30,7 @@ function getCurrentUser(email, includeWriteToken) {
 function getCurrentUserByEmail_(email) {
   if (!email) return respond(null, 'Could not identify user.');
   const normalised = email.trim().toLowerCase();
-  const users = getAllRows(SHEET_NAMES.USERS);
-  const baseUser  = users.find(u =>
-    String(u['Email Address']).trim().toLowerCase() === normalised &&
-    isActiveUserValue(u['Is Active'])
-  );
+  const baseUser = _getUserByEmailIndexed_(normalised);
   if (!baseUser) return respond(null, 'ACCESS_DENIED');
   const access = getPortalAccessForUser_(baseUser, normalised);
   if (access && !isActiveUserValue(access['Is Active'])) return respond(null, 'ACCESS_DENIED');
@@ -296,11 +292,7 @@ function _hashPassword(pw) {
 
 function validateUserPassword_(email, password) {
   const norm = String(email || '').trim().toLowerCase();
-  const users = getAllRows(SHEET_NAMES.USERS);
-  const user = users.find(u =>
-    String(u['Email Address']).trim().toLowerCase() === norm &&
-    isActiveUserValue(u['Is Active'])
-  );
+  const user = _getUserByEmailIndexed_(norm);
   if (!user) return null;
   const stored = String(user['Password'] || '').trim();
   if (!stored) return null;
@@ -308,6 +300,20 @@ function validateUserPassword_(email, password) {
   // Accept hashed password or plain-text (plain allowed during initial setup only)
   if (stored !== hashed && stored !== password) return null;
   return user;
+}
+
+function _getUserByEmailIndexed_(email) {
+  const norm = String(email || '').trim().toLowerCase();
+  if (!norm) return null;
+  let rows = getRowsByIndexedColumn_(SHEET_NAMES.USERS, 'Email Address', norm);
+  if (!rows.length && getSheet(SHEET_NAMES.USERS).getLastRow() > 1) {
+    rebuildIndexForSheet_(SHEET_NAMES.USERS);
+    rows = getRowsByIndexedColumn_(SHEET_NAMES.USERS, 'Email Address', norm);
+  }
+  return rows.find(u =>
+    String(u['Email Address']).trim().toLowerCase() === norm &&
+    isActiveUserValue(u['Is Active'])
+  ) || null;
 }
 
 function createAuthSession_(email, userId) {

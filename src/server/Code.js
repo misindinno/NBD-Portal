@@ -77,6 +77,7 @@ function onOpen() {
     .addItem('🔐 Update Permissions', 'updatePermissions')
     .addSeparator()
     .addItem('🔄 Push Update to All Clients', 'pushUpdate')
+    .addItem('🧭 Rebuild Indexes', 'rebuildAllIndexes')
     .addSeparator()
     .addItem('▶️ Install Queue Trigger', 'setupQueueTrigger')
     .addItem('⏹️ Remove Queue Trigger', 'removeQueueTrigger')
@@ -260,6 +261,7 @@ function setupSheets() {
     ]);
     ensureFollowupSheets_();
     ensureCustomFieldValueSheets_();
+    ensureIndexSheets_();
     safeInitHeaders(SHEET_NAMES.STAGES, [
       'Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Stage Outcome','Created At'
     ]);
@@ -288,6 +290,7 @@ function setupSheets() {
     _ensureQualifiedRemarksField_();
     _migrateLegacyFollowupData_();
     migrateLegacyCustomFieldValues_();
+    rebuildAllIndexes();
     _seedDefaultData();
     return 'Setup complete! All existing data preserved.';
   });
