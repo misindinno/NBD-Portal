@@ -269,6 +269,7 @@ function _trySaveBulkCreateFast_(sourceRows, validByRow, errorByRow, userEmail, 
       _saveBulkCreateFast_(sourceRows, validItems, rowResults, userEmail, initialStageId, batchId)
     );
   } catch (e) {
+    _logBulkFastFallback_(batchId, e);
     return null;
   }
 }
@@ -285,6 +286,7 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
   const leadIds = [];
   const followupIds = [];
   const rowResultsByNumber = {};
+  const fieldCache = {};
   let saved = 0;
   let errors = preResults.length;
 
@@ -341,7 +343,7 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
         'Updated At': ts
       }));
       followupIds.push(followupId);
-      _bulkCustomValueRowsForLead_(id, prepared, user.id, prepared['Stage ID'], ts)
+      _bulkCustomValueRowsForLead_(id, prepared, user.id, prepared['Stage ID'], ts, fieldCache)
         .forEach(r => customRows.push(r));
       _bulkMarkDuplicateKeys_(latestMap, leadRow, id);
       rowResultsByNumber[item.rowNumber] = {
@@ -403,6 +405,13 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
   };
 }
 
+function _logBulkFastFallback_(batchId, error) {
+  const message = error && error.message ? error.message : String(error || 'Unknown fast bulk fallback');
+  try {
+    Logger.log('[BulkService] Fast bulk create fallback for batch ' + (batchId || '-') + ': ' + message);
+  } catch (_) {}
+}
+
 function _bulkPayloadHasComplexValue_(payload) {
   return Object.keys(payload || {}).some(key => {
     const value = payload[key];
@@ -446,9 +455,14 @@ function _bulkDeleteRowsNoLock_(sheetName, predicate) {
   return deleted;
 }
 
-function _bulkCustomValueRowsForLead_(leadId, payload, userId, stageId, ts) {
+function _bulkCustomValueRowsForLead_(leadId, payload, userId, stageId, ts, fieldCache) {
   ensureCustomFieldValueSheets_();
-  return _bulkCustomFieldsForLeadWrite_(stageId)
+  const cacheKey = String(stageId || '');
+  const fields = fieldCache && fieldCache[cacheKey]
+    ? fieldCache[cacheKey]
+    : _bulkCustomFieldsForLeadWrite_(stageId);
+  if (fieldCache) fieldCache[cacheKey] = fields;
+  return fields
     .filter(field => field['Field Type'] !== 'Formula')
     .map(field => {
       const key = _customEffectiveColumnKey_(field, stageId);
