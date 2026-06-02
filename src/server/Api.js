@@ -320,27 +320,27 @@ function apiGetBulkConfig(token) {
   });
 }
 
-function apiValidateBulkRows(token, rows) {
+function apiValidateBulkRows(token, rows, mode) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireBulkEntry_();
-    return respond(validateBulkRows(rows || []));
+    return respond(validateBulkRows(rows || [], mode || 'create'));
   });
 }
 
-function apiSaveBulkRows(token, rows) {
+function apiSaveBulkRows(token, rows, mode) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireBulkEntry_();
-    return respond(saveBulkRows(rows || [], user.email));
+    return respond(saveBulkRows(rows || [], user.email, '', mode || 'create'));
   });
 }
 
-function apiSaveBulkRow(token, row, rowNumber) {
+function apiSaveBulkRow(token, row, rowNumber, mode) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireBulkEntry_();
-    return respond(saveBulkRow(row || {}, Number(rowNumber) || 1, user.email));
+    return respond(saveBulkRow(row || {}, Number(rowNumber) || 1, user.email, mode || 'create'));
   });
 }
 
@@ -357,6 +357,14 @@ function apiGetBulkProgress(token, batchId) {
   return apiGuard_(() => {
     _requireBulkEntry_();
     return respond(getBulkProgress(batchId || ''));
+  });
+}
+
+function apiGetBulkQueueSummary(token, limit) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireBulkEntry_();
+    return respond(getBulkQueueSummary(user.email, user.role === 'ADMIN', Number(limit) || 100));
   });
 }
 

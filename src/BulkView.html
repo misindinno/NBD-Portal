@@ -4,6 +4,8 @@ const BulkView = (() => {
   let config = [];
   let errors = [];
   let lastBatchId = '';
+  let bulkMode = 'create';
+  let bulkTab = 'entry';
   const BULK_CHUNK_SIZE = 25;
 
   function _html() {
@@ -29,6 +31,19 @@ const BulkView = (() => {
         .bulk-cell-status-saving { background:#dbeafe !important; color:#1d4ed8 !important; }
         .bulk-cell-status-queued { background:#f3f4f6 !important; color:#4b5563 !important; }
         .bulk-cell-status-error { background:#fee2e2 !important; color:#991b1b !important; }
+        .bulk-mode, .bulk-tabs { display:inline-flex; align-items:center; gap:4px; padding:3px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; }
+        .bulk-mode-btn, .bulk-tab { border:0; background:transparent; color:#4b5563; height:28px; padding:0 9px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+        .bulk-mode-btn.active, .bulk-tab.active { background:#fff; color:#111827; box-shadow:0 1px 2px rgba(15,23,42,.08); }
+        .bulk-tabs { width:max-content; }
+        .bulk-queue-card { border:1px solid #e5e7eb; border-radius:10px; background:#fff; overflow:hidden; }
+        .bulk-queue-head { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid #e5e7eb; }
+        .bulk-queue-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:10px; }
+        .bulk-queue-stat { background:#fff; border:1px solid #e5e7eb; border-radius:9px; padding:10px; }
+        .bulk-queue-stat strong { display:block; font-size:20px; color:#111827; line-height:1; }
+        .bulk-queue-stat span { font-size:11px; color:#6b7280; font-weight:700; }
+        .bulk-queue-table { width:100%; border-collapse:collapse; font-size:12px; }
+        .bulk-queue-table th { text-align:left; padding:9px 10px; background:#f8fafc; color:#64748b; font-size:10px; text-transform:uppercase; }
+        .bulk-queue-table td { padding:9px 10px; border-top:1px solid #f1f5f9; vertical-align:top; }
       </style>
       <div class="bulk-toolbar">
         <div>
@@ -36,6 +51,13 @@ const BulkView = (() => {
           <div class="bulk-meta" id="bulk-config-meta">Paste Excel rows, validate, then save in one batch.</div>
         </div>
         <div class="bulk-actions">
+          <div class="bulk-mode">
+            <button class="bulk-mode-btn active" id="bulk-mode-create" onclick="BulkView.setMode('create')">${icon('plus-circle', 13)} Create Leads</button>
+            <button class="bulk-mode-btn" id="bulk-mode-update" onclick="BulkView.setMode('update')">${icon('pencil', 13)} Update Leads</button>
+          </div>
+          <select class="form-control" id="bulk-assign-user" style="height:32px;width:170px;font-size:12px" onchange="BulkView.assignUser(this.value)">
+            <option value="">Assign user...</option>
+          </select>
           <button class="btn btn-outlined btn-sm bulk-action" onclick="BulkView.clear()">${icon('trash-2', 14)} Clear</button>
           <button class="btn btn-outlined btn-sm bulk-action" onclick="BulkView.validate()">${icon('check-circle', 14)} Validate</button>
           <button class="btn btn-primary btn-sm bulk-action" onclick="BulkView.save()">${icon('save', 14)} Save</button>
@@ -43,12 +65,19 @@ const BulkView = (() => {
           <button class="btn btn-outlined btn-sm" id="bulk-error-btn" onclick="BulkView.downloadErrors()" style="display:none">${icon('download', 14)} Error CSV</button>
         </div>
       </div>
+      <div class="bulk-tabs">
+        <button class="bulk-tab active" id="bulk-tab-entry" onclick="BulkView.switchTab('entry')">${icon('table-2', 14)} Entry</button>
+        <button class="bulk-tab" id="bulk-tab-queue" onclick="BulkView.switchTab('queue')">${icon('list-checks', 14)} Bulk Queue</button>
+      </div>
+      <div id="bulk-entry-panel">
       <div class="bulk-summary" id="bulk-summary"></div>
       <div style="display:flex;align-items:center;gap:10px">
         <div class="bulk-progress"><span id="bulk-progress-bar"></span></div>
         <span class="bulk-meta" id="bulk-progress-label">Ready</span>
       </div>
       <div class="bulk-grid-wrap"><div id="bulk-hot"></div></div>
+      </div>
+      <div id="bulk-queue-panel" style="display:none"></div>
     </div>`;
   }
 
@@ -65,6 +94,46 @@ const BulkView = (() => {
       { data: '__recordId__', title: 'Lead ID', readOnly: true, width: 160 },
       { data: '__errors__', title: 'Errors', readOnly: true, width: 260 }
     ];
+  }
+
+  function _assignedToFieldName() {
+    const field = config.find(f => String(f.targetHeader || f.targetColumn || f.fieldName || '').trim().toLowerCase() === 'assigned to');
+    return field ? field.fieldName : '';
+  }
+
+  function _fillAssignUserOptions() {
+    const sel = el('bulk-assign-user');
+    if (!sel) return;
+    const users = (App.config.users || []).filter(u => String(u.status || u.Status || 'Active') !== 'Inactive');
+    sel.innerHTML = '<option value="">Assign user...</option>' + users.map(u =>
+      `<option value="${escapeHtml(u.id || '')}">${escapeHtml(u.name || u.email || u.id || '')}</option>`
+    ).join('');
+  }
+
+  function assignUser(userId) {
+    if (!hot || !userId) return;
+    const fieldName = _assignedToFieldName();
+    if (!fieldName) {
+      Swal.fire('Assigned To missing', 'Bulk Config must include Assigned To mapped to the Assigned To column. It has been added by setup; refresh this page after redeploy.', 'warning');
+      return;
+    }
+    const selected = hot.getSelectedRangeLast && hot.getSelectedRangeLast();
+    const rowsToPatch = new Set();
+    if (selected) {
+      const from = Math.min(selected.from.row, selected.to.row);
+      const to = Math.max(selected.from.row, selected.to.row);
+      for (let r = from; r <= to; r++) rowsToPatch.add(r);
+    } else {
+      _gridRows().forEach(item => rowsToPatch.add(item.rowNumber - 1));
+    }
+    rowsToPatch.forEach(rowIndex => {
+      const row = hot.getSourceDataAtRow(rowIndex);
+      if (row) row[fieldName] = userId;
+    });
+    hot.render();
+    _setProgress(0, `Assigned ${rowsToPatch.size} row(s) - validate before save`);
+    const sel = el('bulk-assign-user');
+    if (sel) sel.value = '';
   }
 
   function _emptyRows(count = 50) {
@@ -100,6 +169,43 @@ const BulkView = (() => {
 
   function _setBusy(busy) {
     document.querySelectorAll('.bulk-action').forEach(btn => { btn.disabled = !!busy; });
+  }
+
+  function _updateModeUI() {
+    ['create', 'update'].forEach(mode => {
+      const btn = el('bulk-mode-' + mode);
+      if (btn) btn.classList.toggle('active', bulkMode === mode);
+    });
+    const meta = el('bulk-config-meta');
+    if (meta) {
+      const required = config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None';
+      meta.textContent = bulkMode === 'update'
+        ? `Update mode: match by Lead ID, Phone, Email, or Company Name. Required fields: ${required} - Max 500 rows.`
+        : `Create mode: duplicates are blocked before save. Required fields: ${required} - Max 500 rows.`;
+    }
+  }
+
+  function setMode(mode) {
+    bulkMode = mode === 'update' ? 'update' : 'create';
+    _markErrors([]);
+    _renderSummary();
+    _setProgress(0, bulkMode === 'update' ? 'Update mode selected - validate before save' : 'Create mode selected - validate before save');
+    _updateModeUI();
+    renderIcons(el('content'));
+  }
+
+  async function switchTab(tab) {
+    bulkTab = tab === 'queue' ? 'queue' : 'entry';
+    const entry = el('bulk-entry-panel');
+    const queue = el('bulk-queue-panel');
+    const entryTab = el('bulk-tab-entry');
+    const queueTab = el('bulk-tab-queue');
+    if (entry) entry.style.display = bulkTab === 'entry' ? '' : 'none';
+    if (queue) queue.style.display = bulkTab === 'queue' ? '' : 'none';
+    if (entryTab) entryTab.classList.toggle('active', bulkTab === 'entry');
+    if (queueTab) queueTab.classList.toggle('active', bulkTab === 'queue');
+    if (bulkTab === 'queue') await loadBulkQueue();
+    renderIcons(el('content'));
   }
 
   function _setRowMeta(rowNumber, patch) {
@@ -208,8 +314,8 @@ const BulkView = (() => {
       return;
     }
     config = await api.getBulkConfig();
-    const meta = el('bulk-config-meta');
-    if (meta) meta.textContent = `Required fields: ${config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None'} · Max 500 rows per import`;
+    _updateModeUI();
+    _fillAssignUserOptions();
 
     const content = el('content');
     if (content) content.addEventListener('paste', handlePaste);
@@ -250,7 +356,7 @@ const BulkView = (() => {
     _setBusy(true);
     _setProgress(20, 'Validating...');
     try {
-      const result = await api.validateBulkRows(rows);
+      const result = await api.validateBulkRows(rows, bulkMode);
       _markErrors(result.errorRows || []);
       _renderSummary(result.summary || {});
       _setProgress(100, result.summary?.errors ? 'Validation completed with errors' : 'Validation passed');
@@ -280,7 +386,7 @@ const BulkView = (() => {
     _setBusy(true);
     _setProgress(5, 'Validating before save...');
     try {
-      const validation = await api.validateBulkRows(_rows());
+      const validation = await api.validateBulkRows(_rows(), bulkMode);
       _markErrors(validation.errorRows || []);
       const invalidRows = new Set((validation.errorRows || []).map(r => Number(r.rowNumber)));
 
@@ -461,7 +567,7 @@ const BulkView = (() => {
     _setBusy(true);
     _setProgress(5, 'Validating before save...');
     try {
-      const validation = await api.validateBulkRows(_rows());
+      const validation = await api.validateBulkRows(_rows(), bulkMode);
       _markErrors(validation.errorRows || []);
       const invalidRows = new Set((validation.errorRows || []).map(r => Number(r.rowNumber)));
       if (invalidRows.size === gridRows.length) {
@@ -482,7 +588,7 @@ const BulkView = (() => {
         const normalizedRow = (validation.validRows || [])[validIdx++];
         if (!normalizedRow) return;
         const payload = { ...normalizedRow };
-        if (!payload['Stage ID']) payload['Stage ID'] = initialStageId;
+        if (bulkMode === 'create' && !payload['Stage ID']) payload['Stage ID'] = initialStageId;
         payload.__rowNumber = item.rowNumber;
         rowByNumber[item.rowNumber] = item;
         validItems.push({ rowNumber: item.rowNumber, payload });
@@ -499,6 +605,7 @@ const BulkView = (() => {
         try {
           await api.enqueueJob('bulk', 'saveBulkRows', {
             batchId: chunkBatchId,
+            mode: bulkMode,
             rows: chunk.map(item => item.payload)
           }, chunkBatchId);
           chunkMap[chunkBatchId] = {
@@ -619,6 +726,83 @@ const BulkView = (() => {
     });
   }
 
+  async function loadBulkQueue() {
+    const panel = el('bulk-queue-panel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="bulk-queue-card" style="padding:18px;color:#6b7280">Loading bulk queue...</div>';
+    try {
+      const data = await api.getBulkQueueSummary(100);
+      const jobs = data.jobs || [];
+      const stats = data.stats || {};
+      panel.innerHTML = `
+        <div class="bulk-queue-stats">
+          ${_bulkQueueStat('Total Chunks', stats.total || 0)}
+          ${_bulkQueueStat('Pending', stats.pending || 0)}
+          ${_bulkQueueStat('Processed', stats.done || 0)}
+          ${_bulkQueueStat('Retrying', stats.failed || 0)}
+          ${_bulkQueueStat('Failed', stats.dead || 0)}
+        </div>
+        <div class="bulk-queue-card">
+          <div class="bulk-queue-head">
+            <div>
+              <div style="font-size:13px;font-weight:800;color:#111827">Bulk Queue Detail</div>
+              <div class="bulk-meta">Chunk-wise progress, saved rows, failed rows, and pending processing.</div>
+            </div>
+            <button class="btn btn-outlined btn-sm" onclick="BulkView.loadBulkQueue()">${icon('refresh-cw', 13)} Refresh</button>
+          </div>
+          <div style="overflow:auto;max-height:calc(100vh - 330px)">
+            <table class="bulk-queue-table">
+              <thead><tr><th>Status</th><th>Mode</th><th>Batch / Request</th><th>Rows</th><th>Saved</th><th>Errors</th><th>Queued</th><th>Processed</th><th>Error Detail</th></tr></thead>
+              <tbody>
+                ${jobs.length ? jobs.map(_bulkQueueRowHTML).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:28px">No bulk queue jobs found.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+      renderIcons(panel);
+    } catch (e) {
+      panel.innerHTML = `<div class="bulk-queue-card" style="padding:18px;color:#991b1b">${escapeHtml(e.message || String(e))}</div>`;
+    }
+  }
+
+  function _bulkQueueStat(label, value) {
+    return `<div class="bulk-queue-stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
+  }
+
+  function _bulkQueueRowHTML(job) {
+    const progress = job.progress || {};
+    const total = Number(progress.total || job.totalRows || 0);
+    const saved = Number(progress.saved || 0);
+    const errCount = Number(progress.errors || 0);
+    const rowResults = Array.isArray(progress.rowResults) ? progress.rowResults : [];
+    const errPreview = rowResults
+      .filter(r => !r.saved && r.errors)
+      .slice(0, 3)
+      .map(r => `Row ${r.rowNumber}: ${r.errors}`)
+      .join('; ');
+    const mode = job.mode === 'update' ? 'Update' : 'Create';
+    return `<tr>
+      <td><span class="q-badge ${_bulkQueueBadge(job.status)}">${escapeHtml(job.status || '')}</span></td>
+      <td>${escapeHtml(mode)}</td>
+      <td><div style="font-weight:700">${escapeHtml(job.batchId || '-')}</div><div class="bulk-meta">${escapeHtml(job.requestId || '')}</div></td>
+      <td>${total || '-'}</td>
+      <td style="color:#166534;font-weight:800">${saved || 0}</td>
+      <td style="color:#991b1b;font-weight:800">${errCount || 0}</td>
+      <td>${escapeHtml(job.createdAt || '-')}</td>
+      <td>${escapeHtml(job.processedAt || '-')}</td>
+      <td title="${escapeHtml(errPreview || job.lastError || '')}">${escapeHtml(errPreview || job.lastError || '-')}</td>
+    </tr>`;
+  }
+
+  function _bulkQueueBadge(status) {
+    const st = String(status || '').toUpperCase();
+    if (st === 'DONE') return 'q-done';
+    if (st === 'DEAD') return 'q-dead';
+    if (st === 'FAILED') return 'q-failed';
+    if (st === 'PROCESSING') return 'q-processing';
+    return 'q-queued';
+  }
+
   async function downloadErrors() {
     if (!errors.length) return;
     const flatErrors = errors.map(({ fieldErrors, ...row }) => ({
@@ -644,7 +828,7 @@ const BulkView = (() => {
     _setProgress(0, 'Ready');
   }
 
-  return { load, validate, save: saveQueued, createFollowupsOnly, downloadErrors, clear, handlePaste };
+  return { load, validate, save: saveQueued, createFollowupsOnly, downloadErrors, clear, handlePaste, setMode, switchTab, loadBulkQueue, assignUser };
 })();
 
 async function loadBulkView() {

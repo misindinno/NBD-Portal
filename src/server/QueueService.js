@@ -12,7 +12,7 @@
 
 const Q_STATUS = { QUEUED: 'QUEUED', PROCESSING: 'PROCESSING', DONE: 'DONE', FAILED: 'FAILED', DEAD: 'DEAD' };
 const Q_MAX_ATTEMPTS  = 5;
-const Q_LEASE_MS      = 3 * 60 * 1000; // 3 minutes
+const Q_LEASE_MS      = 5 * 60 * 1000; // 5 minutes, covers long bulk chunks before GAS cutoff
 
 // Exponential-ish retry delays in seconds: 1m, 3m, 5m, 15m, 30m
 const Q_RETRY_DELAYS  = [60, 180, 300, 900, 1800];

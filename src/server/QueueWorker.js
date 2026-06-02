@@ -116,7 +116,7 @@ function _dispatchQueuedJob_(actionType, userEmail, payload) {
   switch (actionType) {
     // ── Leads
     case 'saveLead':              return saveLead(payload, userEmail);
-    case 'saveBulkRows':          return respond(saveBulkRows(payload.rows || [], userEmail, payload.batchId || ''));
+    case 'saveBulkRows':          return respond(saveBulkRows(payload.rows || [], userEmail, payload.batchId || '', payload.mode || 'create'));
     case 'deleteLead':            return deleteLead(payload.id, userEmail);
     case 'updateLeadStage':       return updateLeadStage(payload.leadId, payload.stageId, payload.note, userEmail);
     case 'moveLeadStageWithFields':

@@ -31,12 +31,19 @@ function getBulkConfig() {
       const configType = AUTO_DROPDOWN[key] || AUTO_DROPDOWN[targetKey];
       if (configType && configTypeMap[configType]) cfg.allowedValues = configTypeMap[configType];
     }
+    if (String(cfg.targetHeader || cfg.targetColumn || '').trim().toLowerCase() === 'assigned to') {
+      cfg.allowedValues = getAllRows(SHEET_NAMES.USERS)
+        .filter(u => u['Status'] === 'Active')
+        .map(u => String(getStaffUserId(u, String(u['Email Address'] || '').trim().toLowerCase()) || '').trim())
+        .filter(Boolean);
+    }
     return cfg;
   }).filter(Boolean);
 }
 
-function validateBulkRows(rows) {
+function validateBulkRows(rows, mode) {
   assertServerContext_();
+  mode = _bulkMode_(mode);
   if ((Array.isArray(rows) ? rows.length : 0) > BULK_MAX_ROWS) {
     throw new Error('Bulk import supports up to ' + BULK_MAX_ROWS + ' rows at a time.');
   }
@@ -44,14 +51,28 @@ function validateBulkRows(rows) {
   const existingMap = _bulkExistingMap_();
   const normalized = _bulkRows_(rows).map((row, i) => normalizeBulkRow(row, Number(row.__rowNumber) || i + 1, config));
   const batchMap = { phone: {}, email: {}, company: {} };
+  const updateLeadMap = {};
   const errorRows = [];
   const validRows = [];
   normalized.forEach(item => {
-    const fieldErrors = _bulkRowErrors_(item, config, existingMap);
-    const batchDuplicate = _bulkBatchDuplicate_(item.row, batchMap);
-    if (batchDuplicate) fieldErrors.push({ fieldName: null, message: batchDuplicate });
+    const lead = mode === 'update' ? _bulkFindLeadForRow_(item.row) : null;
+    const fieldErrors = _bulkRowErrors_(item, config, existingMap, mode, lead ? lead['Lead ID'] : '');
+    if (mode === 'create' && String(item.row['Lead ID'] || '').trim()) {
+      fieldErrors.push({ fieldName: 'Lead ID', message: 'Lead ID is only allowed in Update mode.' });
+    }
+    if (mode === 'update' && !lead) {
+      fieldErrors.push({ fieldName: null, message: 'Existing lead not found for update. Provide Lead ID, Phone, Email, or Company Name.' });
+    }
+    if (mode === 'update' && lead && updateLeadMap[lead['Lead ID']]) {
+      fieldErrors.push({ fieldName: null, message: 'Duplicate update target in pasted rows: ' + lead['Lead ID'] });
+    }
+    const batchDuplicate = _bulkBatchDuplicate_(item.row, batchMap, mode);
+    if (mode === 'create' && batchDuplicate) fieldErrors.push({ fieldName: null, message: batchDuplicate });
     if (fieldErrors.length) errorRows.push({ rowNumber: item.rowNumber, errors: fieldErrors.map(e => e.message).join('; '), fieldErrors, ...item.input });
-    else validRows.push(item.row);
+    else {
+      if (mode === 'update' && lead) updateLeadMap[lead['Lead ID']] = true;
+      validRows.push(mode === 'update' ? _bulkUpdatePayload_(item.row, lead['Lead ID']) : item.row);
+    }
   });
   return {
     summary: { total: normalized.length, valid: validRows.length, errors: errorRows.length, saved: 0 },
@@ -60,8 +81,9 @@ function validateBulkRows(rows) {
   };
 }
 
-function saveBulkRows(rows, userEmail, requestedBatchId) {
+function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
   assertServerContext_();
+  mode = _bulkMode_(mode);
   const batchId = String(requestedBatchId || '').trim() || generateUUID();
   const sourceRows = _bulkRows_(rows);
   if (sourceRows.length > BULK_MAX_ROWS) throw new Error('Bulk import supports up to ' + BULK_MAX_ROWS + ' rows at a time.');
@@ -69,14 +91,16 @@ function saveBulkRows(rows, userEmail, requestedBatchId) {
   let saved = 0;
   let errors = 0;
   sourceRows.forEach((row, i) => {
-    const result = saveBulkRow(row, Number(row.__rowNumber) || i + 1, userEmail);
+    const result = _saveBulkRowUnlocked_(row, Number(row.__rowNumber) || i + 1, userEmail, mode);
     rowResults.push(result);
     if (result.saved) saved++;
     else errors++;
     _bulkSetProgress_(batchId, {
       batchId,
+      mode,
       status: 'PROCESSING',
       percent: Math.round(((i + 1) / sourceRows.length) * 100),
+      total: sourceRows.length,
       saved,
       errors,
       currentRow: result.rowNumber
@@ -84,6 +108,7 @@ function saveBulkRows(rows, userEmail, requestedBatchId) {
   });
   const summary = {
     batchId,
+    mode,
     total: sourceRows.length,
     valid: saved,
     errors,
@@ -91,6 +116,7 @@ function saveBulkRows(rows, userEmail, requestedBatchId) {
   };
   _bulkSetProgress_(batchId, {
     batchId,
+    mode,
     status: 'DONE',
     percent: 100,
     total: sourceRows.length,
@@ -119,12 +145,16 @@ function saveBulkRows(rows, userEmail, requestedBatchId) {
 }
 
 function saveBulkRow(row, rowNumber, userEmail) {
+  const mode = _bulkMode_(arguments.length >= 4 ? arguments[3] : '');
   assertServerContext_();
+  return _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode);
+}
+
+function _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode) {
+  mode = _bulkMode_(mode);
   const source = { ...(row || {}), __rowNumber: Number(rowNumber) || Number(row && row.__rowNumber) || 1 };
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
   try {
-    const validation = validateBulkRows([source]);
+    const validation = validateBulkRows([source], mode);
     if (validation.errorRows.length) {
       const err = validation.errorRows[0];
       return {
@@ -136,7 +166,7 @@ function saveBulkRow(row, rowNumber, userEmail) {
       };
     }
     const payload = validation.validRows[0] || {};
-    if (!payload['Stage ID']) payload['Stage ID'] = _bulkInitialStageId_();
+    if (mode === 'create' && !payload['Stage ID']) payload['Stage ID'] = _bulkInitialStageId_();
     const response = withTrustedWriteUser_(userEmail, () => saveLead(payload, userEmail));
     if (!response || !response.success) {
       return {
@@ -162,16 +192,12 @@ function saveBulkRow(row, rowNumber, userEmail) {
       errors: e.message || String(e),
       fieldErrors: []
     };
-  } finally {
-    lock.releaseLock();
   }
 }
 
 function createBulkFollowupOnlyRow(row, rowNumber, userEmail) {
   assertServerContext_();
   const source = { ...(row || {}), __rowNumber: Number(rowNumber) || Number(row && row.__rowNumber) || 1 };
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
   try {
     const config = getBulkConfig();
     const normalized = normalizeBulkRow(source, source.__rowNumber, config);
@@ -210,8 +236,6 @@ function createBulkFollowupOnlyRow(row, rowNumber, userEmail) {
       errors: e.message || String(e),
       fieldErrors: []
     };
-  } finally {
-    lock.releaseLock();
   }
 }
 
@@ -224,6 +248,56 @@ function getBulkProgress(batchId) {
   } catch (e) {
     return { batchId, status: 'UNKNOWN', percent: 0 };
   }
+}
+
+function getBulkQueueSummary(userEmail, isAdmin, limit) {
+  assertServerContext_();
+  const maxRows = Math.min(Number(limit) || 100, 300);
+  const email = String(userEmail || '').trim().toLowerCase();
+  const rows = getAllRows(SHEET_NAMES.QUEUE)
+    .filter(r => String(r['Action Type'] || '') === 'saveBulkRows')
+    .filter(r => isAdmin || String(r['User Email'] || '').trim().toLowerCase() === email)
+    .sort((a, b) => _bulkDateMs_(b['Created At']) - _bulkDateMs_(a['Created At']))
+    .slice(0, maxRows);
+  const stats = { total: rows.length, pending: 0, done: 0, failed: 0, dead: 0 };
+  const jobs = rows.map(r => {
+    const status = String(r['Status'] || '');
+    if (status === 'DONE') stats.done++;
+    else if (status === 'FAILED') stats.failed++;
+    else if (status === 'DEAD') stats.dead++;
+    else stats.pending++;
+    const payload = _bulkParseJson_(r['Payload JSON']);
+    const batchId = String(payload.batchId || r['Final Record ID'] || '').trim();
+    return {
+      requestId: String(r['Request ID'] || ''),
+      status,
+      userEmail: String(r['User Email'] || ''),
+      batchId,
+      mode: _bulkMode_(payload.mode),
+      totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
+      createdAt: String(r['Created At'] || ''),
+      updatedAt: String(r['Updated At'] || ''),
+      processedAt: String(r['Processed At'] || ''),
+      lastError: String(r['Last Error'] || ''),
+      progress: batchId ? getBulkProgress(batchId) : null
+    };
+  });
+  return { stats, jobs };
+}
+
+function _bulkParseJson_(text) {
+  try {
+    return JSON.parse(String(text || '{}')) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function _bulkDateMs_(value) {
+  if (!value) return 0;
+  const d = value instanceof Date ? value : new Date(String(value).replace(' ', 'T'));
+  const ms = d.getTime();
+  return isNaN(ms) ? 0 : ms;
 }
 
 function createErrorCsv(errorRows) {
@@ -267,17 +341,37 @@ function _bulkNormText_(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-function checkDuplicate(row, existingMap) {
+function _bulkMode_(mode) {
+  return String(mode || '').trim().toLowerCase() === 'update' ? 'update' : 'create';
+}
+
+function _bulkUpdatePayload_(row, leadId) {
+  const payload = { 'Lead ID': leadId };
+  Object.keys(row || {}).forEach(key => {
+    const value = row[key];
+    if (key === 'Lead ID' || key === 'Lead Id' || key === 'ID') return;
+    if (value === undefined || value === null || value === '') return;
+    payload[key] = value;
+  });
+  return payload;
+}
+
+function checkDuplicate(row, existingMap, excludeLeadId) {
+  excludeLeadId = String(excludeLeadId || '').trim();
   const phone = _bulkNormPhone_(row['Phone']);
   const email = _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
-  if (phone && existingMap.phone[phone]) return 'Duplicate phone already exists.';
-  if (email && existingMap.email[email]) return 'Duplicate email already exists.';
-  if (company && existingMap.company[company]) return 'Duplicate company already exists.';
+  const phoneHit = phone ? existingMap.phone[phone] : '';
+  const emailHit = email ? existingMap.email[email] : '';
+  const companyHit = company ? existingMap.company[company] : '';
+  if (phoneHit && phoneHit !== excludeLeadId) return 'Duplicate phone already exists.';
+  if (emailHit && emailHit !== excludeLeadId) return 'Duplicate email already exists.';
+  if (companyHit && companyHit !== excludeLeadId) return 'Duplicate company already exists.';
   return '';
 }
 
-function _bulkBatchDuplicate_(row, batchMap) {
+function _bulkBatchDuplicate_(row, batchMap, mode) {
+  if (_bulkMode_(mode) === 'update') return '';
   const phone = _bulkNormPhone_(row['Phone']);
   const email = _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
@@ -323,18 +417,55 @@ function _ensureBulkSheets_() {
   const configSheet = getSheet(SHEET_NAMES.BULK_CONFIG);
   if (configSheet.getLastRow() < 2) {
     const defaults = [
+      ['Lead ID','No','Text','Lead ID','optional'],
       ['Company Name','Yes','Text','Company Name','notBlank'],
       ['Contact Person','Yes','Text','Contact Person','notBlank'],
       ['Phone','Yes','Text','Phone','phone'],
       ['Email','No','Text','Email','email'],
       ['Category','Yes','Text','Category','notBlank'],
       ['Source','Yes','Text','Source','notBlank'],
+      ['Assigned To','No','Text','Assigned To','optional'],
       ['State','Yes','Text','State','notBlank'],
       ['City','Yes','Text','City','notBlank'],
       ['Product Interest','No','Text','Product Interest','optional'],
       ['Remark','No','Text','Remark','optional']
     ];
     configSheet.getRange(2, 1, defaults.length, defaults[0].length).setValues(defaults);
+  } else {
+    const hasLeadId = getAllRows(SHEET_NAMES.BULK_CONFIG).some(r =>
+      String(r['Field Name'] || '').trim().toLowerCase() === 'lead id' ||
+      String(r['Target Column'] || '').trim().toLowerCase() === 'lead id'
+    );
+    if (!hasLeadId) {
+      const headers = getHeaders(SHEET_NAMES.BULK_CONFIG);
+      const row = {
+        'Field Name': 'Lead ID',
+        'Required': 'No',
+        'Data Type': 'Text',
+        'Target Column': 'Lead ID',
+        'Validation Rule': 'optional',
+        'Allowed Values': ''
+      };
+      configSheet.getRange(configSheet.getLastRow() + 1, 1, 1, headers.length)
+        .setValues([headers.map(h => row[h] !== undefined ? row[h] : '')]);
+    }
+    const hasAssignedTo = getAllRows(SHEET_NAMES.BULK_CONFIG).some(r =>
+      String(r['Field Name'] || '').trim().toLowerCase() === 'assigned to' ||
+      String(r['Target Column'] || '').trim().toLowerCase() === 'assigned to'
+    );
+    if (!hasAssignedTo) {
+      const headers = getHeaders(SHEET_NAMES.BULK_CONFIG);
+      const row = {
+        'Field Name': 'Assigned To',
+        'Required': 'No',
+        'Data Type': 'Text',
+        'Target Column': 'Assigned To',
+        'Validation Rule': 'optional',
+        'Allowed Values': ''
+      };
+      configSheet.getRange(configSheet.getLastRow() + 1, 1, 1, headers.length)
+        .setValues([headers.map(h => row[h] !== undefined ? row[h] : '')]);
+    }
   }
 }
 
@@ -379,12 +510,17 @@ function _bulkNormalizeValue_(value, field) {
   return String(raw).trim();
 }
 
-function _bulkRowErrors_(item, config, existingMap) {
+function _bulkRowErrors_(item, config, existingMap, mode, excludeLeadId) {
   const errors = [];
+  mode = _bulkMode_(mode);
   config.forEach(field => {
     const value = item.row[field.targetHeader];
     const empty = value === undefined || value === null || value === '';
-    if (field.required && empty) { errors.push({ fieldName: field.fieldName, message: field.fieldName + ' is required' }); return; }
+    if (field.required && empty) {
+      if (mode === 'update') return;
+      errors.push({ fieldName: field.fieldName, message: field.fieldName + ' is required' });
+      return;
+    }
     if (empty) return;
     if (field.dataType === 'Number' && Number(value) !== value) errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be a number' });
     if (field.dataType === 'Date' && String(new Date(value)) === 'Invalid Date') errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be a valid date' });
@@ -394,8 +530,9 @@ function _bulkRowErrors_(item, config, existingMap) {
     if (field.validationRule === 'phone' && value && !/^[0-9+\-\s()]{7,20}$/.test(String(value))) errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be a valid phone' });
     if (field.allowedValues && field.allowedValues.length && !field.allowedValues.map(v => v.toLowerCase()).includes(String(value).toLowerCase())) errors.push({ fieldName: field.fieldName, message: field.fieldName + ' must be one of: ' + field.allowedValues.join(', ') });
   });
-  const duplicate = checkDuplicate(item.row, existingMap);
-  if (duplicate) errors.push({ fieldName: null, message: duplicate });
+  const duplicate = checkDuplicate(item.row, existingMap, mode === 'update' ? excludeLeadId : '');
+  if (mode === 'create' && duplicate) errors.push({ fieldName: null, message: duplicate });
+  if (mode === 'update' && duplicate) errors.push({ fieldName: null, message: duplicate });
   return errors;
 }
 
@@ -405,10 +542,11 @@ function _bulkExistingMap_() {
     const altPhone = _bulkNormPhone_(row['Alternate No']);
     const email = _bulkNormEmail_(row['Email']);
     const company = _bulkNormText_(row['Company Name']);
-    if (phone) m.phone[phone] = true;
-    if (altPhone) m.phone[altPhone] = true;
-    if (email) m.email[email] = true;
-    if (company) m.company[company] = true;
+    const leadId = String(row['Lead ID'] || '').trim();
+    if (phone) m.phone[phone] = leadId;
+    if (altPhone) m.phone[altPhone] = leadId;
+    if (email) m.email[email] = leadId;
+    if (company) m.company[company] = leadId;
     return m;
   }, { phone: {}, email: {}, company: {} });
 }
