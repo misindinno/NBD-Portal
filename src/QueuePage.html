@@ -7,6 +7,7 @@ let _qpAllUserEmails = [];
 let _qpJobs = [];
 let _qpAdminJobs = [];
 let _qpHealth = null;
+let _qpBulkQueue = null;
 let _qpLastRefreshAt = null;
 let _qpAutoRefresh = true;
 let _qpFilters = { status: '', module: '', query: '' };
@@ -20,6 +21,7 @@ async function loadQueuePage() {
   _qpJobs = [];
   _qpAdminJobs = [];
   _qpHealth = null;
+  _qpBulkQueue = null;
   _qpLastRefreshAt = null;
   _qpAutoRefresh = true;
   _qpFilters = { status: '', module: '', query: '' };
@@ -58,6 +60,7 @@ function _queuePageShell() {
     <div id="qp-health">${_queueHealthSkeleton()}</div>
     <div id="qp-stats" class="qp-stats">${_queueStatsSkeleton()}</div>
     <div id="qp-filters">${_queueFilterSkeleton()}</div>
+    <div id="qp-bulk">${_bulkQueuePageSkeleton()}</div>
     <div id="qp-body">${_queuePageSkeleton()}</div>
   </div>`;
 }
@@ -90,6 +93,13 @@ function _queuePageSkeleton() {
   </div>`;
 }
 
+function _bulkQueuePageSkeleton() {
+  return `<div class="qp-table-card skeleton-table">
+    <div class="skeleton-row"></div>
+    ${Array.from({ length: 3 }, () => '<div class="skeleton-row"></div>').join('')}
+  </div>`;
+}
+
 function _qpToggleAutoRefresh() {
   _qpAutoRefresh = !_qpAutoRefresh;
   const btn = el('qp-auto-btn');
@@ -108,6 +118,7 @@ function _qpOnUserFilterChange(email) {
     _qpJobs = _qpApplyUserFilter(_qpAdminJobs);
     _renderQueueStats(_qpJobs);
     _renderQueueFilters(_qpJobs, true);
+    _renderBulkQueuePage(_qpBulkQueue);
     _renderQueuePage(_qpJobs, true);
     _qpRefreshHealthOnly();
     return;
@@ -145,6 +156,7 @@ async function _refreshQueuePage(showSpinner = false) {
     if (isAdmin) {
       try { serverJobs = await api.getAllQueueHistory('', 500); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
       try { _qpHealth = await api.getQueueHealth(_qpAdminFilter); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
+      try { _qpBulkQueue = await api.getBulkQueueSummary(100); } catch (e) { console.warn('[QueuePage] Bulk queue load failed', e); _qpBulkQueue = null; }
       _qpAdminJobs = serverJobs;
       _qpAllUserEmails = [...new Set(serverJobs.map(j => j.userEmail).filter(Boolean))].sort();
       displayJobs = _qpApplyUserFilter(serverJobs);
@@ -152,6 +164,7 @@ async function _refreshQueuePage(showSpinner = false) {
       const localJobs = QueueManager.getAllJobs();
       try { serverJobs = await api.getQueueHistory(150); } catch (e) { console.warn('[QueuePage] History load failed', e); }
       try { _qpHealth = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
+      try { _qpBulkQueue = await api.getBulkQueueSummary(100); } catch (e) { _qpBulkQueue = null; }
       displayJobs = _mergeQueueJobs(localJobs, serverJobs);
     }
 
@@ -160,6 +173,7 @@ async function _refreshQueuePage(showSpinner = false) {
     _renderQueueHealth(_qpHealth);
     _renderQueueStats(displayJobs);
     _renderQueueFilters(displayJobs, isAdmin);
+    _renderBulkQueuePage(_qpBulkQueue);
     _renderQueuePage(displayJobs, isAdmin);
 
     const hasPending = displayJobs.some(j => _qpIsLiveStatus(j.status));
@@ -328,6 +342,138 @@ function _renderQueueFilters(jobs, isAdmin) {
       ${adminFilter}
     </div>`;
   renderIcons(box);
+}
+
+function _renderBulkQueuePage(data) {
+  const box = el('qp-bulk');
+  if (!box) return;
+  if (!data || !Array.isArray(data.jobs)) {
+    box.innerHTML = `<div class="qp-table-card qp-bulk-card">
+      <div class="qp-table-meta">
+        <div>
+          <span class="qp-table-count">Bulk Queue</span>
+          <span class="qp-muted">No bulk queue detail available for this user.</span>
+        </div>
+      </div>
+    </div>`;
+    return;
+  }
+  const jobs = _qpApplyBulkUserFilter(data.jobs || []);
+  const stats = _qpBulkStats(jobs);
+  box.innerHTML = `
+    <div class="qp-table-card qp-bulk-card">
+      <div class="qp-table-meta">
+        <div>
+          <span class="qp-table-count">Bulk Queue</span>
+          <span class="qp-muted">Detailed chunk and row processing status</span>
+        </div>
+        <div class="qp-bulk-stats">
+          ${_qpBulkStat('Chunks', stats.total || 0, 'neutral')}
+          ${_qpBulkStat('Pending', stats.pending || 0, 'blue')}
+          ${_qpBulkStat('Saved', stats.done || 0, 'green')}
+          ${_qpBulkStat('Retrying', stats.failed || 0, 'amber')}
+          ${_qpBulkStat('Failed', stats.dead || 0, 'red')}
+        </div>
+      </div>
+      <div class="qp-table-scroll">
+        <table class="qp-table qp-bulk-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Mode</th>
+              <th>User</th>
+              <th>Batch / Request</th>
+              <th>Rows</th>
+              <th>Saved</th>
+              <th>Errors</th>
+              <th>Needs Processing</th>
+              <th>Queued</th>
+              <th>Processed</th>
+            </tr>
+          </thead>
+          <tbody>${jobs.length ? jobs.map(_qpBulkJobRows).join('') : '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:24px">No bulk jobs found.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+  renderIcons(box);
+}
+
+function _qpApplyBulkUserFilter(jobs) {
+  const email = String(_qpAdminFilter || '').trim().toLowerCase();
+  if (!_qpIsAdmin() || !email) return jobs;
+  return jobs.filter(j => String(j.userEmail || '').trim().toLowerCase() === email);
+}
+
+function _qpBulkStats(jobs) {
+  return (Array.isArray(jobs) ? jobs : []).reduce((s, job) => {
+    s.total++;
+    if (job.status === 'DONE') s.done++;
+    else if (job.status === 'FAILED') s.failed++;
+    else if (job.status === 'DEAD') s.dead++;
+    else s.pending++;
+    return s;
+  }, { total: 0, pending: 0, done: 0, failed: 0, dead: 0 });
+}
+
+function _qpBulkStat(label, value, tone) {
+  return `<span class="qp-bulk-stat qp-bulk-stat-${tone}"><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>`;
+}
+
+function _qpBulkJobRows(job) {
+  const progress = job.progress || {};
+  const rowStats = job.rowStats || {};
+  const total = Number(progress.total || job.totalRows || 0);
+  const saved = Number(rowStats.saved || progress.saved || 0);
+  const errors = Number(rowStats.errors || progress.errors || 0);
+  const pending = Number(rowStats.pending || Math.max(0, total - saved - errors));
+  const mode = job.mode === 'update' ? 'Update' : 'Create';
+  return `<tr class="${job.status === 'DEAD' ? 'qp-row-dead' : job.status === 'PROCESSING' ? 'qp-row-processing' : ''}">
+      <td>${_qpStatusBadge(job.status)}</td>
+      <td>${escapeHtml(mode)}</td>
+      <td><div class="qp-user-cell" title="${escapeAttr(job.userEmail || '')}">${escapeHtml(job.userEmail || '-')}</div></td>
+      <td>
+        <div class="qp-module-line">${escapeHtml(job.batchId || '-')}</div>
+        <button class="qp-request-id" title="${escapeAttr(job.requestId || '')}" onclick="_qpCopy('${escapeAttr(job.requestId || '')}')">${escapeHtml((job.requestId || '').slice(-12) || '-')}</button>
+      </td>
+      <td>${escapeHtml(total || 0)}</td>
+      <td><span class="qp-bulk-num qp-bulk-ok">${escapeHtml(saved || 0)}</span></td>
+      <td><span class="qp-bulk-num qp-bulk-bad">${escapeHtml(errors || 0)}</span></td>
+      <td><span class="qp-bulk-num qp-bulk-wait">${escapeHtml(pending || 0)}</span></td>
+      <td><span class="qp-time">${escapeHtml(_qpFmtTs(job.createdAt) || '-')}</span></td>
+      <td><span class="qp-time">${escapeHtml(_qpFmtTs(job.processedAt) || '-')}</span></td>
+    </tr>
+    <tr>
+      <td colspan="10">${_qpBulkDetail(job, { saved, errors, pending })}</td>
+    </tr>`;
+}
+
+function _qpBulkDetail(job, counts) {
+  const rows = Array.isArray(job.rows) ? job.rows : [];
+  return `<details class="qp-bulk-details">
+    <summary>Full row detail: saved ${escapeHtml(counts.saved || 0)}, errors ${escapeHtml(counts.errors || 0)}, needs processing ${escapeHtml(counts.pending || 0)}</summary>
+    <div class="qp-bulk-row-wrap">
+      <table class="qp-bulk-row-table">
+        <thead><tr><th>Row</th><th>Status</th><th>Lead ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>Email</th><th>Assigned To</th><th>Result / Error</th></tr></thead>
+        <tbody>${rows.length ? rows.map(_qpBulkDetailRow).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:16px">No row payload detail available.</td></tr>'}</tbody>
+      </table>
+    </div>
+  </details>`;
+}
+
+function _qpBulkDetailRow(row) {
+  const statusClass = row.status === 'Saved' ? 'saved' : (row.status === 'Error' ? 'error' : 'pending');
+  const result = row.errors || row.recordId || (row.status === 'Pending' ? 'Waiting for queue worker' : row.status);
+  return `<tr>
+    <td>${escapeHtml(row.rowNumber || '')}</td>
+    <td><span class="qp-bulk-row-status ${statusClass}">${escapeHtml(row.status || '')}</span></td>
+    <td title="${escapeAttr(row.leadId || '')}">${escapeHtml(row.leadId || '-')}</td>
+    <td title="${escapeAttr(row.company || '')}">${escapeHtml(row.company || '-')}</td>
+    <td title="${escapeAttr(row.contact || '')}">${escapeHtml(row.contact || '-')}</td>
+    <td title="${escapeAttr(row.phone || '')}">${escapeHtml(row.phone || '-')}</td>
+    <td title="${escapeAttr(row.email || '')}">${escapeHtml(row.email || '-')}</td>
+    <td title="${escapeAttr(row.assignedTo || '')}">${escapeHtml(row.assignedTo || '-')}</td>
+    <td title="${escapeAttr(result || '')}">${escapeHtml(result || '-')}</td>
+  </tr>`;
 }
 
 function _qpOption(value, label, selected) {
@@ -614,6 +760,7 @@ function _qpActionLabel(a) {
     saveStage: 'Save Stage',
     reorderStages: 'Reorder Stages',
     saveFieldConfig: 'Save Field',
+    saveBulkRows: 'Save Bulk Rows',
     savePortalSettings: 'Save Portal Settings',
     saveUser: 'Save User'
   };

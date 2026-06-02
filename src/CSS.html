@@ -670,6 +670,29 @@
   .qp-detail-label { background: #F8FAFC; color: #64748B; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
   .qp-detail-value { color: #111827; overflow-wrap: anywhere; }
   .qp-detail-error { color: #B91C1C; white-space: pre-wrap; }
+  .qp-bulk-card { border-color: #DBEAFE; }
+  .qp-bulk-stats { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .qp-bulk-stat { display: inline-flex; align-items: baseline; gap: 5px; padding: 4px 8px; border-radius: 999px; border: 1px solid #E5E7EB; background: #fff; color: #64748B; font-size: 11px; font-weight: 700; }
+  .qp-bulk-stat strong { color: #111827; font-size: 13px; }
+  .qp-bulk-stat-blue { background: #EFF6FF; border-color: #BFDBFE; color: #1D4ED8; }
+  .qp-bulk-stat-green { background: #DCFCE7; border-color: #BBF7D0; color: #166534; }
+  .qp-bulk-stat-amber { background: #FEF3C7; border-color: #FDE68A; color: #92400E; }
+  .qp-bulk-stat-red { background: #FEE2E2; border-color: #FECACA; color: #991B1B; }
+  .qp-bulk-table { min-width: 1180px; }
+  .qp-bulk-num { font-size: 12px; font-weight: 800; }
+  .qp-bulk-ok { color: #166534; }
+  .qp-bulk-bad { color: #991B1B; }
+  .qp-bulk-wait { color: #92400E; }
+  .qp-bulk-details { background: #F8FAFC; border: 1px solid #E5E7EB; border-radius: 8px; padding: 9px; }
+  .qp-bulk-details summary { cursor: pointer; color: #2563EB; font-weight: 800; font-size: 12px; }
+  .qp-bulk-row-wrap { margin-top: 8px; max-height: 280px; overflow: auto; border: 1px solid #E5E7EB; border-radius: 7px; background: #fff; }
+  .qp-bulk-row-table { width: 100%; border-collapse: collapse; min-width: 920px; font-size: 11px; }
+  .qp-bulk-row-table th { padding: 7px 8px; text-align: left; color: #64748B; font-size: 10px; text-transform: uppercase; background: #fff; border-bottom: 1px solid #E5E7EB; }
+  .qp-bulk-row-table td { padding: 7px 8px; border-top: 1px solid #F1F5F9; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qp-bulk-row-status { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 7px; font-size: 10px; font-weight: 800; }
+  .qp-bulk-row-status.saved { color: #166534; background: #DCFCE7; }
+  .qp-bulk-row-status.error { color: #991B1B; background: #FEE2E2; }
+  .qp-bulk-row-status.pending { color: #92400E; background: #FEF3C7; }
   @media (max-width: 720px) {
     .qp-header-actions { width: 100%; }
     .qp-header-actions .btn { flex: 1; justify-content: center; }
