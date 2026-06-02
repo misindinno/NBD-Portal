@@ -467,6 +467,7 @@ function renderSidebar() {
   ).length;
   const queueCount = typeof QueueManager !== 'undefined' ? QueueManager.pendingCount() : 0;
   const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
+  const canUseBulkEntry = isLqPortal ? show('BulkEntry') : u.role === 'ADMIN';
   const badge = (n, title) => n > 0 ? `<span class="nav-badge"${title ? ` title="${title}"` : ''}>${n > 99 ? '99+' : n}</span>` : '';
 
   const navItem = (page, lucideIcon, label, extraBadge = '') =>
@@ -489,7 +490,7 @@ function renderSidebar() {
   const leadItems = [
     show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master', badge(leadsCount, 'Pending (not in final stage)')) : '',
     show('LeadForm')  ? navItem('leadform', 'file-plus',  'Lead Form')   : '',
-    isLqPortal && show('BulkEntry') ? navItem('bulkview', 'table-2',    'Bulk Entry')  : '',
+    canUseBulkEntry ? navItem('bulkview', 'table-2',    'Bulk Entry')  : '',
   ].filter(Boolean).join('');
   if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
 
@@ -547,7 +548,10 @@ function canNavigate(page) {
   };
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
-  if (page === 'bulkview')  return String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq') && (hasModule('BulkEntry') || App.user.role === 'ADMIN');
+  if (page === 'bulkview') {
+    const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
+    return isLqPortal ? (hasModule('BulkEntry') || App.user.role === 'ADMIN') : App.user.role === 'ADMIN';
+  }
   if (page === 'queue')     return !!App.user;
   if (page === 'today')     return !!App.user;
   return hasModule(moduleMap[page] || page);
