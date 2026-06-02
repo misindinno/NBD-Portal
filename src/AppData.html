@@ -146,6 +146,7 @@ function _applyChangeLog(changes) {
 function _collectionsForQueueAction(actionType, moduleName) {
   const map = {
     saveLead:                ['leads', 'followups'],
+    saveBulkRows:            ['leads', 'followups'],
     deleteLead:              ['leads', 'followups', 'followupHistory', 'activityLogs'],
     updateLeadStage:         ['leads', 'activityLogs'],
     moveLeadStageWithFields: ['leads', 'activityLogs'],

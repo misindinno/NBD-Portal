@@ -377,11 +377,11 @@ function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
     const mod = String(moduleName || '');
     const action = String(actionType || '');
 
-    const allowed = ['leads', 'followups', 'config', 'stages', 'fields'];
+    const allowed = ['leads', 'followups', 'config', 'stages', 'fields', 'bulk'];
     if (!allowed.includes(mod)) throw new Error('Invalid module.');
 
     const allowedActions = [
-      'saveLead', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
+      'saveLead', 'saveBulkRows', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
       'pushLeadToNbd',
       'saveFollowup', 'markFollowupDone', 'deleteFollowup',
       'addConfig', 'updateConfigStatus', 'saveStage', 'reorderStages',
@@ -517,6 +517,10 @@ function _assertCanEnqueueJob_(user, moduleName, actionType) {
 
   if (actionType === 'deleteLead') {
     if ((!misDepartment && user.role !== 'ADMIN') || !has('Leads')) throw new Error('Permission denied. Only MIS or Admin users can delete leads.');
+    return;
+  }
+  if (actionType === 'saveBulkRows') {
+    _requireBulkEntry_();
     return;
   }
   if (['saveLead', 'updateLeadStage', 'moveLeadStageWithFields', 'pushLeadToNbd'].includes(actionType)) {

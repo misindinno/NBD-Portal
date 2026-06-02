@@ -60,9 +60,9 @@ function validateBulkRows(rows) {
   };
 }
 
-function saveBulkRows(rows, userEmail) {
+function saveBulkRows(rows, userEmail, requestedBatchId) {
   assertServerContext_();
-  const batchId = generateUUID();
+  const batchId = String(requestedBatchId || '').trim() || generateUUID();
   const sourceRows = _bulkRows_(rows);
   if (sourceRows.length > BULK_MAX_ROWS) throw new Error('Bulk import supports up to ' + BULK_MAX_ROWS + ' rows at a time.');
   const rowResults = [];
@@ -89,7 +89,22 @@ function saveBulkRows(rows, userEmail) {
     errors,
     saved
   };
-  _bulkSetProgress_(batchId, { batchId, status: 'DONE', percent: 100, saved, errors });
+  _bulkSetProgress_(batchId, {
+    batchId,
+    status: 'DONE',
+    percent: 100,
+    total: sourceRows.length,
+    saved,
+    errors,
+    rowResults: rowResults.map(r => ({
+      rowNumber: r.rowNumber,
+      saved: !!r.saved,
+      status: r.status || (r.saved ? 'Saved' : 'Error'),
+      recordId: r.recordId || '',
+      errors: r.errors || '',
+      fieldErrors: r.fieldErrors || []
+    }))
+  });
   logBulkImport(summary, userEmail);
   return {
     batchId,

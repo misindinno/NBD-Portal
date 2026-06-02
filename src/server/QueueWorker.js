@@ -116,6 +116,7 @@ function _dispatchQueuedJob_(actionType, userEmail, payload) {
   switch (actionType) {
     // ── Leads
     case 'saveLead':              return saveLead(payload, userEmail);
+    case 'saveBulkRows':          return respond(saveBulkRows(payload.rows || [], userEmail, payload.batchId || ''));
     case 'deleteLead':            return deleteLead(payload.id, userEmail);
     case 'updateLeadStage':       return updateLeadStage(payload.leadId, payload.stageId, payload.note, userEmail);
     case 'moveLeadStageWithFields':
@@ -161,6 +162,7 @@ function _handleJobError_(requestId, errMsg, attempt, actionType) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function _extractRecordId_(data, actionType, payload) {
   if (typeof data === 'string') return data; // many services return the ID as a string
+  if (data && data.batchId)      return data.batchId;
   if (data && data.nbdLeadId)    return data.nbdLeadId;
   if (data && data.leadId)       return data.leadId;
   if (data && data.followupId)   return data.followupId;
@@ -178,6 +180,7 @@ function _bumpStampForModule_(moduleName, actionType) {
   };
   const actionMap = {
     saveLead:                ['leads', 'followups'],
+    saveBulkRows:            ['leads', 'followups'],
     deleteLead:              ['leads', 'followups', 'followup_history', 'activity_logs'],
     updateLeadStage:         ['leads', 'activity_logs'],
     moveLeadStageWithFields: ['leads', 'activity_logs'],

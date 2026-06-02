@@ -36,6 +36,8 @@ function _qRecordKey_(actionType, payload) {
     // Leads
     case 'saveLead':
       return p['Lead ID'] ? 'lead:' + p['Lead ID'] : (p.leadId ? 'lead:' + p.leadId : '');
+    case 'saveBulkRows':
+      return p.batchId ? 'bulk:' + p.batchId : '';
     case 'deleteLead':
       return p.id ? 'lead:' + p.id : '';
     case 'updateLeadStage':
@@ -69,6 +71,8 @@ function _qDataId_(actionType, payload) {
   switch (actionType) {
     case 'saveLead':
       return p['Lead ID'] || p.leadId || '';
+    case 'saveBulkRows':
+      return p.batchId || '';
     case 'deleteLead':
       return p.id || p.leadId || p['Lead ID'] || '';
     case 'updateLeadStage':
