@@ -176,14 +176,31 @@ function getJobStatuses_(requestIds) {
 }
 
 // ── Job claiming (worker use only) ────────────────────────────────────────────
+function _qActionPriority_(actionType) {
+  const action = String(actionType || '');
+  if (action === 'markFollowupDone' || action === 'saveFollowup') return 0;
+  if (action === 'updateLeadStage' || action === 'moveLeadStageWithFields' || action === 'pushLeadToNbd') return 1;
+  if (action === 'saveLead') return 2;
+  if (action === 'deleteLead' || action === 'deleteFollowup') return 3;
+  if (action === 'saveBulkRows') return 9;
+  return 5;
+}
+
 // Atomically claims up to batchSize QUEUED (or stale PROCESSING) jobs.
 // Returns array of claimed job objects ready for processing.
-function claimJobs_(workerOwner, batchSize) {
+function claimJobs_(workerOwner, batchSize, options) {
   assertServerContext_();
   batchSize = Math.min(batchSize || 20, 20);
+  options = options || {};
+  const lockWaitMs = Number(options.lockWaitMs || 10000);
+  const preferredActions = (options.preferredActions || []).reduce((m, a) => {
+    m[String(a)] = true;
+    return m;
+  }, {});
+  const hasPreferredActions = Object.keys(preferredActions).length > 0;
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) return []; // another worker is active
+  if (!lock.tryLock(lockWaitMs)) return []; // another worker is active
 
   const claimed = [];
   try {
@@ -200,6 +217,7 @@ function claimJobs_(workerOwner, batchSize) {
     const leaseUntilCol = colIdx('Lease Until');
     const lockOwnerCol  = colIdx('Lock Owner');
     const updatedAtCol  = colIdx('Updated At');
+    const createdAtCol  = colIdx('Created At');
 
     const nowMs  = Date.now();
     const nowStr = now();
@@ -228,13 +246,17 @@ function claimJobs_(workerOwner, batchSize) {
       } catch (_) {}
     }
 
-    for (let i = 1; i < data.length && claimed.length < batchSize; i++) {
+    const candidates = [];
+
+    for (let i = 1; i < data.length; i++) {
       const row    = data[i];
       const status = String(row[statusCol] || '');
       const leaseUntil = row[leaseUntilCol] ? new Date(row[leaseUntilCol]).getTime() : 0;
       const nextRetry  = row[nextRetryCol]  ? new Date(row[nextRetryCol]).getTime()  : 0;
       const attempts   = Number(row[attemptCol] || 0);
       const maxAttempts= Number(row[maxAttCol]  || Q_MAX_ATTEMPTS);
+      const actionType = String(row[actionCol] || '');
+      if (hasPreferredActions && !preferredActions[actionType]) continue;
 
       const isClaimable = (
         (status === Q_STATUS.QUEUED    && nextRetry <= nowMs) ||
@@ -254,9 +276,37 @@ function claimJobs_(workerOwner, batchSize) {
       // Serial-per-record guard: skip only if another live worker owns this record.
       let recordKey = '';
       try {
-        recordKey = _qRecordKey_(String(row[actionCol] || ''), JSON.parse(String(row[payloadCol] || '{}')));
+        recordKey = _qRecordKey_(actionType, JSON.parse(String(row[payloadCol] || '{}')));
       } catch (_) {}
       if (recordKey && blockedKeys.has(recordKey)) continue;
+
+      candidates.push({
+        row,
+        rowIndex: i + 1,
+        actionType,
+        recordKey,
+        priority: _qActionPriority_(actionType),
+        createdMs: row[createdAtCol] ? new Date(row[createdAtCol]).getTime() : 0,
+        originalIndex: i
+      });
+    }
+
+    candidates.sort((a, b) => {
+      if (a.recordKey && a.recordKey === b.recordKey) return a.originalIndex - b.originalIndex;
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      if (a.createdMs !== b.createdMs) return a.createdMs - b.createdMs;
+      return a.originalIndex - b.originalIndex;
+    });
+
+    const claimedKeys = new Set();
+    for (let c = 0; c < candidates.length && claimed.length < batchSize; c++) {
+      const candidate = candidates[c];
+      const row = candidate.row;
+      if (candidate.recordKey && claimedKeys.has(candidate.recordKey)) {
+        // Keep jobs for the same record ordered. The next claim loop in the
+        // same worker run will pick the successor after the first job is done.
+        continue;
+      }
 
       // Claim: set PROCESSING + lease
       const claimedRow = row.slice();
@@ -264,13 +314,14 @@ function claimJobs_(workerOwner, batchSize) {
       claimedRow[leaseUntilCol] = leaseUntilStr;
       claimedRow[lockOwnerCol]  = workerOwner;
       claimedRow[updatedAtCol]  = nowStr;
-      updates.push({ rowIndex: i + 1, values: claimedRow });
+      updates.push({ rowIndex: candidate.rowIndex, values: claimedRow });
 
       // Build job object from row data
       const job = {};
       headers.forEach((h, j) => { job[h] = row[j]; });
-      job['_rowIndex'] = i + 1;
+      job['_rowIndex'] = candidate.rowIndex;
       claimed.push(job);
+      if (candidate.recordKey) claimedKeys.add(candidate.recordKey);
     }
 
     // Batch-write all updates at once

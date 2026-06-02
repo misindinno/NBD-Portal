@@ -127,7 +127,7 @@ function saveFollowup(data, email) {
 function markFollowupDone(followupId, data, email) {
   ensureFollowupSheets_();
   const user = requireRole(['ADMIN', 'MANAGER', 'SALES', 'USER']);
-  const row = _followupRows().filter(r => r['Follow-up ID'] === followupId)[0];
+  const row = queryRows(SHEET_NAMES.FOLLOWUPS, r => r['Follow-up ID'] === followupId)[0];
   if (!row) return respond(null, 'Follow-up not found.');
 
   const lead = row['Lead ID']
@@ -298,7 +298,7 @@ function deleteFollowup(followupId, email) {
   const user = result.data;
   const isMIS = String(user.department || '').trim().toUpperCase() === 'MIS';
   if (!isMIS && user.role !== 'ADMIN') throw new Error('Permission denied. Only MIS or Admin users can delete follow-ups.');
-  const row = _followupRows().filter(r => r['Follow-up ID'] === followupId)[0];
+  const row = queryRows(SHEET_NAMES.FOLLOWUPS, r => r['Follow-up ID'] === followupId)[0];
   const lead = row && row['Lead ID']
     ? queryRows(SHEET_NAMES.LEADS, r => r['Lead ID'] === row['Lead ID'])[0]
     : null;

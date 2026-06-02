@@ -471,6 +471,14 @@ function apiProcessQueueNow(token) {
   });
 }
 
+function apiKickQueue(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireAuthToken_(token);
+    return respond(processQueueFast_());
+  });
+}
+
 function apiRetryQueueJob(token, requestId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

@@ -117,6 +117,7 @@ async function openFollowupForm(leadId = '', leadName = '') {
       if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
       QueueManager.enqueue({
         module: 'followups', actionType: 'saveFollowup', payload, tempId,
+        flushNow: true,
         onDone: j => {
           if (j.finalRecordId) AppCache.patchRow('followups', 'Follow-up ID', tempId, { 'Follow-up ID': j.finalRecordId, '_queueTemp': false });
           toast('Follow-up saved!');
@@ -303,6 +304,7 @@ async function openMarkFollowupDoneForm(followupId) {
       QueueManager.enqueue({
         module: 'followups', actionType: 'markFollowupDone',
         payload: { id: followupId, data: payload },
+        flushNow: true,
         onDone: () => toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.'),
         onFail: j => {
           AppCache.addRow('followups', row);

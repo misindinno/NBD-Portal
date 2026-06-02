@@ -114,6 +114,7 @@ const api = {
   getQueueHealth:     (filterEmail)         => api._authedRead('apiGetQueueHealth', filterEmail || ''),
   getAllQueueHistory:  (filterEmail, limit) => api._authedRead('apiGetAllQueueHistory', filterEmail || '', limit || 100),
   processQueueNow:    ()                    => api._authedRead('apiProcessQueueNow'),
+  kickQueue:          ()                    => api._authedRead('apiKickQueue'),
   retryQueueJob:      (requestId)           => api._authedRead('apiRetryQueueJob', requestId),
 };
 </script>

@@ -11,6 +11,7 @@ const QueueManager = (() => {
   // job shape: { requestId, status, module, actionType, tempId, enqueuedAt, finalRecordId, error }
   let _jobs = {};       // requestId → job
   let _pollTimer = null;
+  let _kickTimer = null;
   function _notifyQueueChanged() {
     if (typeof renderSidebar !== 'function') return;
     try { renderSidebar(); } catch (e) { console.warn('[Queue] Sidebar refresh failed', e); }
@@ -269,6 +270,17 @@ const QueueManager = (() => {
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   }
 
+  function _kickQueueSoon() {
+    if (_kickTimer) return;
+    _kickTimer = setTimeout(() => {
+      _kickTimer = null;
+      if (!api.kickQueue) return;
+      api.kickQueue()
+        .then(() => _poll())
+        .catch(e => console.warn('[Queue] Fast queue kick failed; cron will continue processing', e));
+    }, 250);
+  }
+
   // ── Server change notification (called from _applyChangeLog) ─────────────────
   function onServerChange(moduleName) {
     // Mark any FAILED jobs for that module as potentially PROCESSING again
@@ -337,6 +349,7 @@ const QueueManager = (() => {
       }
 
       _startPoll();
+      if (opts.flushNow) _kickQueueSoon();
       return { requestId, tempId };
     },
 

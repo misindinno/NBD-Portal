@@ -13,6 +13,8 @@ const WORKER_ID        = 'worker-' + Math.random().toString(36).slice(2, 8);
 const WORKER_BATCH_SIZE = 20;
 const WORKER_CUTOFF_MS  = 4.5 * 60 * 1000; // stop before 6-min GAS limit
 const WORKER_CLAIM_MARGIN_MS = 30 * 1000; // don't claim a fresh batch near cutoff
+const WORKER_FAST_BATCH_SIZE = 5;
+const WORKER_FAST_CUTOFF_MS = 45 * 1000;
 
 // ── Main entry point (called by time trigger) ─────────────────────────────────
 function processQueue() {
@@ -60,6 +62,52 @@ function processQueue() {
       try {
         Logger.log('[QueueWorker] Fatal error: ' + e.message);
       } catch (_) {}
+    }
+  });
+}
+
+function processQueueFast_() {
+  return withServerContext_(() => {
+    const startMs = Date.now();
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('QUEUE_FAST_LAST_STARTED_AT', now());
+    props.setProperty('QUEUE_FAST_LAST_STATUS', 'RUNNING');
+    let processed = 0;
+    let claimedTotal = 0;
+    try {
+      while (Date.now() - startMs <= WORKER_FAST_CUTOFF_MS) {
+        const jobs = claimJobs_(WORKER_ID + '-fast', WORKER_FAST_BATCH_SIZE, {
+          lockWaitMs: 1200,
+          preferredActions: [
+            'markFollowupDone',
+            'saveFollowup',
+            'updateLeadStage',
+            'moveLeadStageWithFields',
+            'pushLeadToNbd',
+            'saveLead'
+          ]
+        });
+        claimedTotal += jobs.length;
+        if (!jobs.length) break;
+        for (const job of jobs) {
+          if (Date.now() - startMs > WORKER_FAST_CUTOFF_MS) break;
+          _processQueueJob_(job);
+          processed++;
+        }
+      }
+      props.setProperty('QUEUE_FAST_LAST_FINISHED_AT', now());
+      props.setProperty('QUEUE_FAST_LAST_CLAIMED', String(claimedTotal));
+      props.setProperty('QUEUE_FAST_LAST_PROCESSED', String(processed));
+      props.setProperty('QUEUE_FAST_LAST_STATUS', claimedTotal ? 'OK' : 'IDLE');
+      return { claimed: claimedTotal, processed };
+    } catch (e) {
+      props.setProperty('QUEUE_FAST_LAST_FINISHED_AT', now());
+      props.setProperty('QUEUE_FAST_LAST_STATUS', 'ERROR');
+      props.setProperty('QUEUE_FAST_LAST_ERROR', String(e.message || e).slice(0, 500));
+      try {
+        Logger.log('[QueueWorker] Fast queue error: ' + e.message);
+      } catch (_) {}
+      return { claimed: claimedTotal, processed, error: String(e.message || e) };
     }
   });
 }
