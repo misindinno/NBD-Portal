@@ -44,6 +44,21 @@ const BulkView = (() => {
         .bulk-queue-table { width:100%; border-collapse:collapse; font-size:12px; }
         .bulk-queue-table th { text-align:left; padding:9px 10px; background:#f8fafc; color:#64748b; font-size:10px; text-transform:uppercase; }
         .bulk-queue-table td { padding:9px 10px; border-top:1px solid #f1f5f9; vertical-align:top; }
+        .bulk-row-detail { background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #e5e7eb; }
+        .bulk-row-detail-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+        .bulk-row-detail-title { font-size:12px; font-weight:800; color:#111827; }
+        .bulk-row-mini-stats { display:flex; flex-wrap:wrap; gap:6px; }
+        .bulk-row-mini-stat { border:1px solid #e5e7eb; border-radius:999px; background:#fff; color:#475569; padding:3px 8px; font-size:11px; font-weight:800; }
+        .bulk-row-mini-stat.saved { color:#166534; background:#dcfce7; border-color:#bbf7d0; }
+        .bulk-row-mini-stat.error { color:#991b1b; background:#fee2e2; border-color:#fecaca; }
+        .bulk-row-mini-stat.pending { color:#92400e; background:#fef3c7; border-color:#fde68a; }
+        .bulk-row-table { width:100%; border-collapse:collapse; background:#fff; border-radius:7px; overflow:hidden; }
+        .bulk-row-table th { padding:7px 8px; background:#fff; border-bottom:1px solid #e5e7eb; color:#64748b; font-size:10px; text-transform:uppercase; }
+        .bulk-row-table td { padding:7px 8px; border-top:1px solid #f1f5f9; font-size:11px; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .bulk-row-status { display:inline-flex; align-items:center; border-radius:999px; padding:3px 7px; font-size:10px; font-weight:800; }
+        .bulk-row-status.saved { color:#166534; background:#dcfce7; }
+        .bulk-row-status.error { color:#991b1b; background:#fee2e2; }
+        .bulk-row-status.pending { color:#92400e; background:#fef3c7; }
       </style>
       <div class="bulk-toolbar">
         <div>
@@ -754,7 +769,7 @@ const BulkView = (() => {
             <table class="bulk-queue-table">
               <thead><tr><th>Status</th><th>Mode</th><th>Batch / Request</th><th>Rows</th><th>Saved</th><th>Errors</th><th>Queued</th><th>Processed</th><th>Error Detail</th></tr></thead>
               <tbody>
-                ${jobs.length ? jobs.map(_bulkQueueRowHTML).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:28px">No bulk queue jobs found.</td></tr>'}
+                ${jobs.length ? jobs.map(_bulkQueueJobHTML).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:28px">No bulk queue jobs found.</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -769,11 +784,13 @@ const BulkView = (() => {
     return `<div class="bulk-queue-stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
   }
 
-  function _bulkQueueRowHTML(job) {
+  function _bulkQueueJobHTML(job) {
     const progress = job.progress || {};
     const total = Number(progress.total || job.totalRows || 0);
-    const saved = Number(progress.saved || 0);
-    const errCount = Number(progress.errors || 0);
+    const rowStats = job.rowStats || {};
+    const saved = Number(rowStats.saved || progress.saved || 0);
+    const errCount = Number(rowStats.errors || progress.errors || 0);
+    const pending = Number(rowStats.pending || Math.max(0, total - saved - errCount));
     const rowResults = Array.isArray(progress.rowResults) ? progress.rowResults : [];
     const errPreview = rowResults
       .filter(r => !r.saved && r.errors)
@@ -791,6 +808,50 @@ const BulkView = (() => {
       <td>${escapeHtml(job.createdAt || '-')}</td>
       <td>${escapeHtml(job.processedAt || '-')}</td>
       <td title="${escapeHtml(errPreview || job.lastError || '')}">${escapeHtml(errPreview || job.lastError || '-')}</td>
+    </tr>
+    <tr>
+      <td colspan="9">${_bulkQueueDetailHTML(job, { total, saved, errCount, pending })}</td>
+    </tr>`;
+  }
+
+  function _bulkQueueDetailHTML(job, counts) {
+    const rows = Array.isArray(job.rows) ? job.rows : [];
+    return `<details>
+      <summary style="cursor:pointer;font-weight:800;color:#2563eb">Show full row detail (${escapeHtml(rows.length)} rows)</summary>
+      <div class="bulk-row-detail">
+        <div class="bulk-row-detail-head">
+          <div class="bulk-row-detail-title">Processed and Pending Rows</div>
+          <div class="bulk-row-mini-stats">
+            <span class="bulk-row-mini-stat saved">Saved ${escapeHtml(counts.saved || 0)}</span>
+            <span class="bulk-row-mini-stat error">Errors ${escapeHtml(counts.errCount || 0)}</span>
+            <span class="bulk-row-mini-stat pending">Needs Processing ${escapeHtml(counts.pending || 0)}</span>
+          </div>
+        </div>
+        <div style="overflow:auto;max-height:260px">
+          <table class="bulk-row-table">
+            <thead><tr><th>Row</th><th>Status</th><th>Lead ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>Email</th><th>Assigned To</th><th>Result / Error</th></tr></thead>
+            <tbody>
+              ${rows.length ? rows.map(_bulkQueueDetailRowHTML).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:18px">No row payload detail available for this job.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>`;
+  }
+
+  function _bulkQueueDetailRowHTML(row) {
+    const statusClass = row.status === 'Saved' ? 'saved' : (row.status === 'Error' ? 'error' : 'pending');
+    const resultText = row.errors || row.recordId || (row.status === 'Pending' ? 'Waiting for queue worker' : row.status);
+    return `<tr>
+      <td>${escapeHtml(row.rowNumber || '')}</td>
+      <td><span class="bulk-row-status ${statusClass}">${escapeHtml(row.status || '')}</span></td>
+      <td title="${escapeHtml(row.leadId || '')}">${escapeHtml(row.leadId || '-')}</td>
+      <td title="${escapeHtml(row.company || '')}">${escapeHtml(row.company || '-')}</td>
+      <td title="${escapeHtml(row.contact || '')}">${escapeHtml(row.contact || '-')}</td>
+      <td title="${escapeHtml(row.phone || '')}">${escapeHtml(row.phone || '-')}</td>
+      <td title="${escapeHtml(row.email || '')}">${escapeHtml(row.email || '-')}</td>
+      <td title="${escapeHtml(row.assignedTo || '')}">${escapeHtml(row.assignedTo || '-')}</td>
+      <td title="${escapeHtml(resultText || '')}">${escapeHtml(resultText || '-')}</td>
     </tr>`;
   }
 

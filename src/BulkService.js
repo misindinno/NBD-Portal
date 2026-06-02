@@ -103,7 +103,8 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
       total: sourceRows.length,
       saved,
       errors,
-      currentRow: result.rowNumber
+      currentRow: result.rowNumber,
+      rowResults: _bulkPublicRowResults_(rowResults)
     });
   });
   const summary = {
@@ -122,14 +123,7 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
     total: sourceRows.length,
     saved,
     errors,
-    rowResults: rowResults.map(r => ({
-      rowNumber: r.rowNumber,
-      saved: !!r.saved,
-      status: r.status || (r.saved ? 'Saved' : 'Error'),
-      recordId: r.recordId || '',
-      errors: r.errors || '',
-      fieldErrors: r.fieldErrors || []
-    }))
+    rowResults: _bulkPublicRowResults_(rowResults)
   });
   logBulkImport(summary, userEmail);
   return {
@@ -268,7 +262,7 @@ function getBulkQueueSummary(userEmail, isAdmin, limit) {
     else stats.pending++;
     const payload = _bulkParseJson_(r['Payload JSON']);
     const batchId = String(payload.batchId || r['Final Record ID'] || '').trim();
-    return {
+    const job = {
       requestId: String(r['Request ID'] || ''),
       status,
       userEmail: String(r['User Email'] || ''),
@@ -281,8 +275,54 @@ function getBulkQueueSummary(userEmail, isAdmin, limit) {
       lastError: String(r['Last Error'] || ''),
       progress: batchId ? getBulkProgress(batchId) : null
     };
+    job.rows = _bulkQueueDetailRows_(payload, job.progress, status);
+    job.rowStats = job.rows.reduce((m, row) => {
+      if (row.status === 'Saved') m.saved++;
+      else if (row.status === 'Error') m.errors++;
+      else m.pending++;
+      return m;
+    }, { saved: 0, errors: 0, pending: 0 });
+    return job;
   });
   return { stats, jobs };
+}
+
+function _bulkPublicRowResults_(rowResults) {
+  return (Array.isArray(rowResults) ? rowResults : []).map(r => ({
+    rowNumber: r.rowNumber,
+    saved: !!r.saved,
+    status: r.status || (r.saved ? 'Saved' : 'Error'),
+    recordId: r.recordId || '',
+    errors: r.errors || '',
+    fieldErrors: r.fieldErrors || []
+  }));
+}
+
+function _bulkQueueDetailRows_(payload, progress, queueStatus) {
+  const payloadRows = Array.isArray(payload && payload.rows) ? payload.rows : [];
+  const results = Array.isArray(progress && progress.rowResults) ? progress.rowResults : [];
+  const byRow = results.reduce((m, r) => {
+    m[String(r.rowNumber || '')] = r;
+    return m;
+  }, {});
+  return payloadRows.map((row, i) => {
+    const rowNumber = Number(row && row.__rowNumber) || i + 1;
+    const result = byRow[String(rowNumber)];
+    const isTerminalQueue = ['DONE', 'DEAD'].includes(String(queueStatus || '').toUpperCase());
+    const status = result ? (result.saved ? 'Saved' : 'Error') : (isTerminalQueue ? 'Not Processed' : 'Pending');
+    return {
+      rowNumber,
+      status,
+      recordId: result ? String(result.recordId || '') : '',
+      errors: result ? String(result.errors || '') : '',
+      company: String(row && row['Company Name'] || ''),
+      contact: String(row && row['Contact Person'] || ''),
+      phone: String(row && row['Phone'] || ''),
+      email: String(row && row['Email'] || ''),
+      assignedTo: String(row && row['Assigned To'] || ''),
+      leadId: String(row && row['Lead ID'] || '')
+    };
+  });
 }
 
 function _bulkParseJson_(text) {
