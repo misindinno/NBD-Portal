@@ -131,22 +131,30 @@ function enqueueJob_(userEmail, moduleName, actionType, payload, requestId) {
     'Final Record ID': dataId || ''
   };
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(8000);
-  try {
-    // Keep the idempotency check inside the append lock so concurrent requests
-    // with the same requestId cannot both enqueue.
-    const existing = _findQueueRow_(id);
-    if (existing) return { requestId: id, status: existing['Status'], alreadyQueued: true };
+  const existing = _findQueueRow_(id);
+  if (existing) return { requestId: id, status: existing['Status'], alreadyQueued: true };
 
-    const sheet = getSheet(SHEET_NAMES.QUEUE);
-    const headers = getHeaders(SHEET_NAMES.QUEUE);
-    sheet.appendRow(headers.map(h => row[h] !== undefined ? row[h] : ''));
+  const lock = LockService.getScriptLock();
+  const locked = lock.tryLock(1500);
+  try {
+    // Fast path: use the lock when it is immediately available so duplicate
+    // request IDs remain idempotent under normal conditions.
+    if (locked) {
+      const lockedExisting = _findQueueRow_(id);
+      if (lockedExisting) return { requestId: id, status: lockedExisting['Status'], alreadyQueued: true };
+    }
+    _appendQueueRow_(row);
   } finally {
-    lock.releaseLock();
+    if (locked) lock.releaseLock();
   }
 
-  return { requestId: id, status: Q_STATUS.QUEUED };
+  return { requestId: id, status: Q_STATUS.QUEUED, lockBypassed: !locked };
+}
+
+function _appendQueueRow_(row) {
+  const sheet = getSheet(SHEET_NAMES.QUEUE);
+  const headers = getHeaders(SHEET_NAMES.QUEUE);
+  sheet.appendRow(headers.map(h => row[h] !== undefined ? row[h] : ''));
 }
 
 // ── Status query (used by polling endpoint) ───────────────────────────────────

@@ -169,10 +169,27 @@ const QueueManager = (() => {
     if (payloadLen > 200000) {
       throw new Error('This save is too large for the background queue. Remove large file attachments or reduce file size, then try again.');
     }
-    await api.enqueueJob(job.module, job.actionType, payload, job.requestId);
+    await _enqueueJobWithRetry(job, payload);
     job.serverEnqueued = true;
     _save();
     _notifyQueueChanged();
+  }
+
+  async function _enqueueJobWithRetry(job, payload) {
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await api.enqueueJob(job.module, job.actionType, payload, job.requestId);
+      } catch (e) {
+        if (attempt >= maxAttempts || !_isTransientEnqueueError(e)) throw e;
+        await new Promise(resolve => setTimeout(resolve, 450 * attempt));
+      }
+    }
+  }
+
+  function _isTransientEnqueueError(error) {
+    const msg = String(error && error.message || error || '');
+    return /lock timeout|holding the lock|service invoked too many times|temporarily unavailable|server busy/i.test(msg);
   }
 
   function _resumeUnsentJobs() {
