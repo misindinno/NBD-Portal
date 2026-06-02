@@ -6,7 +6,11 @@ function _ensureCached(col, fetchFn) {
   if (AppCache.isLoaded(col)) return Promise.resolve();
   if (_fetching[col]) return _fetching[col];
   _fetching[col] = fetchFn()
-    .then(rows => col === 'leads' ? _applyPendingLeadQueueOverlay(rows) : rows)
+    .then(rows => col === 'leads'
+      ? _applyPendingLeadQueueOverlay(rows)
+      : col === 'followups'
+        ? _applyPendingFollowupQueueOverlay(rows)
+        : rows)
     .then(rows => AppCache.setRows(col, rows))
     .finally(() => delete _fetching[col]);
   return _fetching[col];
@@ -245,7 +249,7 @@ async function _applyPendingLeadQueueOverlay(rows) {
 
 async function _refreshFollowupsCache() {
   const rows = await api.getFollowups({});
-  AppCache.setRows('followups', rows);
+  AppCache.setRows('followups', await _applyPendingFollowupQueueOverlay(rows));
   try { renderSidebar(); } catch (e) {}
   const pg = App.currentPage;
   if (pg && pg.startsWith('followups')) {
@@ -253,6 +257,96 @@ async function _refreshFollowupsCache() {
   } else if (pg === 'dashboard') {
     loadDashboard();
   }
+}
+
+async function _applyPendingFollowupQueueOverlay(rows) {
+  let list = (rows || []).map(r => ({ ...r }));
+  if (typeof QueueManager === 'undefined' || typeof QueueManager.getPendingFollowupOps !== 'function') return list;
+  const ops = QueueManager.getPendingFollowupOps() || [];
+  if (!ops.length) return list;
+
+  const byId = list.reduce((m, row) => {
+    const id = String(row['Follow-up ID'] || '');
+    if (id) m[id] = row;
+    return m;
+  }, {});
+
+  ops.forEach(op => {
+    const followupId = String(op.followupId || '');
+    if (!followupId) return;
+
+    if (op.type === 'save') {
+      const payload = { ...(op.payload || {}) };
+      const row = {
+        ...payload,
+        'Follow-up ID': followupId,
+        'Planned Date': payload['Planned Date'] || payload['Next Follow-up Date'] || payload['Follow-up Date'] || '',
+        'Follow-up Date': payload['Follow-up Date'] || payload['Planned Date'] || payload['Next Follow-up Date'] || '',
+        'Next Follow-up Date': payload['Next Follow-up Date'] || payload['Planned Date'] || '',
+        'Status': payload['Status'] || 'Open',
+        'Created By': payload['Created By'] || App?.user?.id || '',
+        'Created At': payload['Created At'] || _queueIsoToLocal_(op.enqueuedAt),
+        'Updated At': payload['Updated At'] || _queueIsoToLocal_(op.enqueuedAt),
+        '_queueTemp': true,
+        '_queuePending': true,
+        '_queueRequestId': op.requestId || ''
+      };
+      byId[followupId] = { ...(byId[followupId] || {}), ...row };
+      return;
+    }
+
+    if (op.type === 'delete') {
+      delete byId[followupId];
+      return;
+    }
+
+    if (op.type === 'done') {
+      const row = byId[followupId];
+      if (!row) return;
+      const data = op.data || {};
+      const nextDate = data['Next Follow-up Date'] || data['Next Planned Date'] || '';
+      if (nextDate) {
+        byId[followupId] = {
+          ...row,
+          'Status': 'Open',
+          'Planned Date': nextDate,
+          'Next Follow-up Date': nextDate,
+          'Next Action': data['Next Action'] || row['Next Action'] || '',
+          'Updated Stage ID': data['Updated Stage ID'] || row['Updated Stage ID'] || '',
+          'Stage ID': data['Updated Stage ID'] || row['Stage ID'] || '',
+          'Done Date': '',
+          'Done By': '',
+          'Updated At': _queueIsoToLocal_(op.enqueuedAt),
+          '_queuePending': true,
+          '_queueRequestId': op.requestId || ''
+        };
+      } else {
+        delete byId[followupId];
+      }
+    }
+  });
+
+  return Object.values(byId).sort((a, b) => _queueTimeValue_(b['Created At'] || b['Updated At']) - _queueTimeValue_(a['Created At'] || a['Updated At']));
+}
+
+function _queueIsoToLocal_(value) {
+  if (!value) return _nowStr();
+  try {
+    const d = typeof value === 'number' ? new Date(value) : new Date(String(value));
+    if (isNaN(d)) return _nowStr();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 19).replace('T', ' ');
+  } catch (_) {
+    return _nowStr();
+  }
+}
+
+function _queueTimeValue_(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  const time = new Date(normalized).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 async function _refreshFollowupHistoryCache() {

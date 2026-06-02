@@ -207,6 +207,48 @@ const QueueManager = (() => {
     return patches;
   }
 
+  function _pendingFollowupOps() {
+    const ops = [];
+    Object.values(_jobs)
+      .filter(job => ['QUEUED', 'PROCESSING', 'FAILED'].includes(job.status))
+      .filter(job => ['saveFollowup', 'markFollowupDone', 'deleteFollowup'].includes(job.actionType))
+      .sort((a, b) => (a.enqueuedAt || 0) - (b.enqueuedAt || 0))
+      .forEach(job => {
+        const payload = job.payload || {};
+        if (job.actionType === 'saveFollowup') {
+          const followupId = String(job.tempId || payload['Follow-up ID'] || payload.followupId || job.requestId || '');
+          if (!followupId) return;
+          ops.push({
+            type: 'save',
+            followupId,
+            requestId: job.requestId,
+            enqueuedAt: job.enqueuedAt || Date.now(),
+            payload
+          });
+        } else if (job.actionType === 'markFollowupDone') {
+          const followupId = String(payload.id || payload.followupId || payload['Follow-up ID'] || job.tempId || '');
+          if (!followupId) return;
+          ops.push({
+            type: 'done',
+            followupId,
+            requestId: job.requestId,
+            enqueuedAt: job.enqueuedAt || Date.now(),
+            data: payload.data || {}
+          });
+        } else if (job.actionType === 'deleteFollowup') {
+          const followupId = String(payload.id || payload.followupId || payload['Follow-up ID'] || job.tempId || '');
+          if (!followupId) return;
+          ops.push({
+            type: 'delete',
+            followupId,
+            requestId: job.requestId,
+            enqueuedAt: job.enqueuedAt || Date.now()
+          });
+        }
+      });
+    return ops;
+  }
+
   async function _poll() {
     const ids = _pendingIds();
     if (!ids.length) { _stopPoll(); return; }
@@ -311,6 +353,8 @@ const QueueManager = (() => {
     pendingCount() { return _pendingIds().length; },
 
     getPendingLeadPatches() { return _pendingLeadPatches(); },
+
+    getPendingFollowupOps() { return _pendingFollowupOps(); },
 
     // All local jobs (including completed) sorted newest-first — for history page.
     getAllJobs() {
