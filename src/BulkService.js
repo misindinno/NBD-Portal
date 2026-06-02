@@ -247,16 +247,30 @@ function normalizeBulkRow(row, rowNumber, config) {
   }, {});
   const out = {};
   config.forEach(field => {
-    const raw = input[field.fieldName];
+    const raw = Object.prototype.hasOwnProperty.call(input, field.fieldName)
+      ? input[field.fieldName]
+      : input[field.targetHeader];
     out[field.targetHeader] = _bulkNormalizeValue_(raw, field);
   });
   return { rowNumber, input, row: out };
 }
 
+function _bulkNormPhone_(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function _bulkNormEmail_(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function _bulkNormText_(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 function checkDuplicate(row, existingMap) {
-  const phone = String(row['Phone'] || '').trim();
-  const email = String(row['Email'] || '').trim().toLowerCase();
-  const company = String(row['Company Name'] || '').trim().toLowerCase();
+  const phone = _bulkNormPhone_(row['Phone']);
+  const email = _bulkNormEmail_(row['Email']);
+  const company = _bulkNormText_(row['Company Name']);
   if (phone && existingMap.phone[phone]) return 'Duplicate phone already exists.';
   if (email && existingMap.email[email]) return 'Duplicate email already exists.';
   if (company && existingMap.company[company]) return 'Duplicate company already exists.';
@@ -264,9 +278,9 @@ function checkDuplicate(row, existingMap) {
 }
 
 function _bulkBatchDuplicate_(row, batchMap) {
-  const phone = String(row['Phone'] || '').trim();
-  const email = String(row['Email'] || '').trim().toLowerCase();
-  const company = String(row['Company Name'] || '').trim().toLowerCase();
+  const phone = _bulkNormPhone_(row['Phone']);
+  const email = _bulkNormEmail_(row['Email']);
+  const company = _bulkNormText_(row['Company Name']);
   if (phone && batchMap.phone[phone]) return 'Duplicate phone in pasted rows.';
   if (email && batchMap.email[email]) return 'Duplicate email in pasted rows.';
   if (company && batchMap.company[company]) return 'Duplicate company in pasted rows.';
@@ -387,10 +401,12 @@ function _bulkRowErrors_(item, config, existingMap) {
 
 function _bulkExistingMap_() {
   return getAllRows(SHEET_NAMES.LEADS).reduce((m, row) => {
-    const phone = String(row['Phone'] || '').trim();
-    const email = String(row['Email'] || '').trim().toLowerCase();
-    const company = String(row['Company Name'] || '').trim().toLowerCase();
+    const phone = _bulkNormPhone_(row['Phone']);
+    const altPhone = _bulkNormPhone_(row['Alternate No']);
+    const email = _bulkNormEmail_(row['Email']);
+    const company = _bulkNormText_(row['Company Name']);
     if (phone) m.phone[phone] = true;
+    if (altPhone) m.phone[altPhone] = true;
     if (email) m.email[email] = true;
     if (company) m.company[company] = true;
     return m;
@@ -399,14 +415,14 @@ function _bulkExistingMap_() {
 
 function _bulkFindLeadForRow_(row) {
   const leadId = String(row['Lead ID'] || row['Lead Id'] || row['ID'] || '').trim();
-  const phone = String(row['Phone'] || '').trim();
-  const email = String(row['Email'] || '').trim().toLowerCase();
-  const company = String(row['Company Name'] || '').trim().toLowerCase();
+  const phone = _bulkNormPhone_(row['Phone']);
+  const email = _bulkNormEmail_(row['Email']);
+  const company = _bulkNormText_(row['Company Name']);
   return getAllRows(SHEET_NAMES.LEADS).find(lead => {
     if (leadId && String(lead['Lead ID'] || '').trim() === leadId) return true;
-    if (phone && String(lead['Phone'] || '').trim() === phone) return true;
-    if (email && String(lead['Email'] || '').trim().toLowerCase() === email) return true;
-    if (company && String(lead['Company Name'] || '').trim().toLowerCase() === company) return true;
+    if (phone && (_bulkNormPhone_(lead['Phone']) === phone || _bulkNormPhone_(lead['Alternate No']) === phone)) return true;
+    if (email && _bulkNormEmail_(lead['Email']) === email) return true;
+    if (company && _bulkNormText_(lead['Company Name']) === company) return true;
     return false;
   }) || null;
 }
