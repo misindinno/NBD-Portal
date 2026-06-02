@@ -89,11 +89,15 @@ const QueueManager = (() => {
         _updateBadge(rid);
         if (srv.status === 'DONE') {
           if (_callbacks[rid]?.onDone) _callbacks[rid].onDone(_jobs[rid]);
-          else if (typeof _refreshAfterQueueJob === 'function') _refreshAfterQueueJob(_jobs[rid]);
+          if (typeof _refreshAfterQueueJob === 'function') _refreshAfterQueueJob(_jobs[rid]);
           delete _callbacks[rid];
         } else if (srv.status === 'DEAD') {
-          if (_callbacks[rid]?.onFail) _callbacks[rid].onFail(_jobs[rid]);
-          else if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[rid]);
+          if (_callbacks[rid]?.onFail) {
+            _callbacks[rid].onFail(_jobs[rid]);
+            if (typeof _refreshAfterQueueJob === 'function') _refreshAfterQueueJob(_jobs[rid]);
+          } else if (typeof _recoverFailedQueueJob === 'function') {
+            _recoverFailedQueueJob(_jobs[rid]);
+          }
           delete _callbacks[rid];
         }
       }
