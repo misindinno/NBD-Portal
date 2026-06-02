@@ -783,7 +783,7 @@ const BulkView = (() => {
     if (!panel) return;
     panel.innerHTML = '<div class="bulk-queue-card" style="padding:18px;color:#6b7280">Loading bulk queue...</div>';
     try {
-      const data = await api.getBulkQueueSummary(100);
+      const data = await api.getBulkQueueSummary(100, true);
       const jobs = data.jobs || [];
       const stats = data.stats || {};
       panel.innerHTML = `

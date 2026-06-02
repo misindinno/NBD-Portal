@@ -360,11 +360,19 @@ function apiGetBulkProgress(token, batchId) {
   });
 }
 
-function apiGetBulkQueueSummary(token, limit) {
+function apiGetBulkQueueSummary(token, limit, includeRows) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireBulkEntry_();
-    return respond(getBulkQueueSummary(user.email, user.role === 'ADMIN', Number(limit) || 100));
+    return respond(getBulkQueueSummary(user.email, user.role === 'ADMIN', Number(limit) || 100, includeRows !== false));
+  });
+}
+
+function apiGetBulkQueueJobDetail(token, requestId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireBulkEntry_();
+    return respond(getBulkQueueJobDetail(user.email, user.role === 'ADMIN', requestId || ''));
   });
 }
 

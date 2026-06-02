@@ -156,7 +156,7 @@ async function _refreshQueuePage(showSpinner = false) {
     if (isAdmin) {
       try { serverJobs = await api.getAllQueueHistory('', 500); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
       try { _qpHealth = await api.getQueueHealth(_qpAdminFilter); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
-      try { _qpBulkQueue = await api.getBulkQueueSummary(100); } catch (e) { console.warn('[QueuePage] Bulk queue load failed', e); _qpBulkQueue = null; }
+      try { _qpBulkQueue = await api.getBulkQueueSummary(30, false); } catch (e) { console.warn('[QueuePage] Bulk queue load failed', e); _qpBulkQueue = null; }
       _qpAdminJobs = serverJobs;
       _qpAllUserEmails = [...new Set(serverJobs.map(j => j.userEmail).filter(Boolean))].sort();
       displayJobs = _qpApplyUserFilter(serverJobs);
@@ -164,7 +164,7 @@ async function _refreshQueuePage(showSpinner = false) {
       const localJobs = QueueManager.getAllJobs();
       try { serverJobs = await api.getQueueHistory(150); } catch (e) { console.warn('[QueuePage] History load failed', e); }
       try { _qpHealth = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
-      try { _qpBulkQueue = await api.getBulkQueueSummary(100); } catch (e) { _qpBulkQueue = null; }
+      try { _qpBulkQueue = await api.getBulkQueueSummary(30, false); } catch (e) { _qpBulkQueue = null; }
       displayJobs = _mergeQueueJobs(localJobs, serverJobs);
     }
 
@@ -443,21 +443,40 @@ function _qpBulkJobRows(job) {
       <td><span class="qp-time">${escapeHtml(_qpFmtTs(job.processedAt) || '-')}</span></td>
     </tr>
     <tr>
-      <td colspan="10">${_qpBulkDetail(job, { saved, errors, pending })}</td>
+      <td colspan="10">${_qpBulkDetailShell(job, { saved, errors, pending })}</td>
     </tr>`;
 }
 
-function _qpBulkDetail(job, counts) {
-  const rows = Array.isArray(job.rows) ? job.rows : [];
-  return `<details class="qp-bulk-details">
+function _qpBulkDetailShell(job, counts) {
+  const safeId = escapeAttr(job.requestId || '');
+  const targetId = 'qp-bulk-detail-' + String(job.requestId || '').replace(/[^a-zA-Z0-9_-]/g, '-');
+  return `<details class="qp-bulk-details" ontoggle="_qpBulkDetailsToggled(this,'${safeId}','${escapeAttr(targetId)}')">
     <summary>Full row detail: saved ${escapeHtml(counts.saved || 0)}, errors ${escapeHtml(counts.errors || 0)}, needs processing ${escapeHtml(counts.pending || 0)}</summary>
-    <div class="qp-bulk-row-wrap">
-      <table class="qp-bulk-row-table">
-        <thead><tr><th>Row</th><th>Status</th><th>Lead ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>Email</th><th>Assigned To</th><th>Result / Error</th></tr></thead>
-        <tbody>${rows.length ? rows.map(_qpBulkDetailRow).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:16px">No row payload detail available.</td></tr>'}</tbody>
-      </table>
+    <div class="qp-bulk-row-wrap" id="${escapeAttr(targetId)}">
+      <div style="padding:16px;color:#64748b;font-size:12px;font-weight:700">Open to load row details.</div>
     </div>
   </details>`;
+}
+
+async function _qpBulkDetailsToggled(detailsEl, requestId, targetId) {
+  if (!detailsEl || !detailsEl.open || detailsEl.dataset.loaded === '1' || detailsEl.dataset.loading === '1') return;
+  const target = el(targetId);
+  if (!target) return;
+  detailsEl.dataset.loading = '1';
+  target.innerHTML = '<div style="padding:16px;color:#64748b;font-size:12px;font-weight:700">Loading row details...</div>';
+  try {
+    const detail = await api.getBulkQueueJobDetail(requestId);
+    const rows = Array.isArray(detail.rows) ? detail.rows : [];
+    target.innerHTML = `<table class="qp-bulk-row-table">
+      <thead><tr><th>Row</th><th>Status</th><th>Lead ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>Email</th><th>Assigned To</th><th>Result / Error</th></tr></thead>
+      <tbody>${rows.length ? rows.map(_qpBulkDetailRow).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:16px">No row payload detail available.</td></tr>'}</tbody>
+    </table>`;
+    detailsEl.dataset.loaded = '1';
+  } catch (e) {
+    target.innerHTML = `<div style="padding:16px;color:#991b1b;font-size:12px">${escapeHtml(e.message || String(e))}</div>`;
+  } finally {
+    detailsEl.dataset.loading = '';
+  }
 }
 
 function _qpBulkDetailRow(row) {
