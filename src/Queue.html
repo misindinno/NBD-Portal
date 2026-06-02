@@ -7,11 +7,13 @@ const QueueManager = (() => {
   const LS_KEY     = 'nbd_queue_v1';
   const POLL_MS    = 4_000;   // poll every 4 s while jobs are pending
   const MAX_AGE_MS = 24 * 60 * 60 * 1000; // discard stale jobs after 24 h
+  const UNSENT_RETRY_MAX_MS = 60_000;
 
   // job shape: { requestId, status, module, actionType, tempId, enqueuedAt, finalRecordId, error }
   let _jobs = {};       // requestId → job
   let _pollTimer = null;
   let _kickTimer = null;
+  let _unsentRetryTimer = null;
   function _notifyQueueChanged() {
     if (typeof renderSidebar !== 'function') return;
     try { renderSidebar(); } catch (e) { console.warn('[Queue] Sidebar refresh failed', e); }
@@ -52,7 +54,7 @@ const QueueManager = (() => {
       DEAD:       'q-dead'
     }[j.status] || 'q-queued';
     const label = {
-      QUEUED:     'Queued',
+      QUEUED:     j.serverEnqueued === false ? 'Queued Local' : 'Queued',
       PROCESSING: 'Saving…',
       DONE:       'Saved',
       FAILED:     'Retrying',
@@ -67,6 +69,13 @@ const QueueManager = (() => {
       .filter(j => j.serverEnqueued !== false)
       .filter(j => j.status === 'QUEUED' || j.status === 'PROCESSING' || j.status === 'FAILED')
       .map(j => j.requestId);
+  }
+
+  function _pendingUnsentJobs() {
+    return Object.values(_jobs)
+      .filter(j => j.serverEnqueued === false)
+      .filter(j => j.payload)
+      .filter(j => j.status !== 'DONE' && j.status !== 'DEAD');
   }
 
   function _updateBadge(requestId) {
@@ -171,6 +180,9 @@ const QueueManager = (() => {
     }
     await _enqueueJobWithRetry(job, payload);
     job.serverEnqueued = true;
+    job.enqueueAttempts = 0;
+    job.nextEnqueueAt = 0;
+    job.error = null;
     _save();
     _notifyQueueChanged();
   }
@@ -189,20 +201,78 @@ const QueueManager = (() => {
 
   function _isTransientEnqueueError(error) {
     const msg = String(error && error.message || error || '');
-    return /lock timeout|holding the lock|service invoked too many times|temporarily unavailable|server busy/i.test(msg);
+    return /lock timeout|holding the lock|service invoked too many times|temporarily unavailable|server busy|network|timeout|connection|script error|internal error/i.test(msg);
+  }
+
+  function _isRecoverableLocalQueueError(error) {
+    const msg = String(error && error.message || error || '');
+    if (/payload too large|permission denied|invalid module|invalid action|lead save failed first/i.test(msg)) return false;
+    return true;
+  }
+
+  function _parkUnsentJob(job, error) {
+    if (!job) return;
+    const attempts = Number(job.enqueueAttempts || 0) + 1;
+    job.status = 'QUEUED';
+    job.serverEnqueued = false;
+    job.enqueueAttempts = attempts;
+    job.nextEnqueueAt = Date.now() + Math.min(UNSENT_RETRY_MAX_MS, 2500 * Math.pow(2, Math.min(attempts, 5)));
+    job.error = error && error.message ? error.message : String(error || 'Waiting to send to server queue');
+    _save();
+    _updateBadge(job.requestId);
+    _notifyQueueChanged();
+    _scheduleUnsentRetry();
+  }
+
+  function _scheduleUnsentRetry() {
+    if (_unsentRetryTimer) return;
+    const jobs = _pendingUnsentJobs();
+    if (!jobs.length) return;
+    const nowMs = Date.now();
+    const nextAt = jobs.reduce((min, j) => {
+      const at = Number(j.nextEnqueueAt || 0);
+      return Math.min(min, at > 0 ? at : nowMs);
+    }, nowMs + UNSENT_RETRY_MAX_MS);
+    _unsentRetryTimer = setTimeout(() => {
+      _unsentRetryTimer = null;
+      _retryUnsentJobs();
+    }, Math.max(500, Math.min(UNSENT_RETRY_MAX_MS, nextAt - nowMs)));
+  }
+
+  async function _retryUnsentJobs() {
+    const nowMs = Date.now();
+    const due = _pendingUnsentJobs()
+      .filter(j => !j.nextEnqueueAt || Number(j.nextEnqueueAt) <= nowMs)
+      .slice(0, 5);
+    for (const job of due) {
+      try {
+        await _sendJobToServer(job);
+        _updateBadge(job.requestId);
+      } catch (err) {
+        if (_isRecoverableLocalQueueError(err)) {
+          _parkUnsentJob(job, err);
+        } else {
+          job.status = 'DEAD';
+          job.error = err.message || String(err);
+          _save();
+          _updateBadge(job.requestId);
+          _notifyQueueChanged();
+          if (_callbacks[job.requestId]?.onFail) _callbacks[job.requestId].onFail(job);
+          else if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(job);
+          delete _callbacks[job.requestId];
+        }
+      }
+    }
+    if (_pendingUnsentJobs().length) _scheduleUnsentRetry();
+    if (_pendingIds().length) _startPoll();
   }
 
   function _resumeUnsentJobs() {
-    Object.values(_jobs).forEach(job => {
-      if (job.serverEnqueued !== false || !job.payload || job.status === 'DONE' || job.status === 'DEAD') return;
-      _sendJobToServer(job).catch(err => {
-        job.status = 'DEAD';
-        job.error = err.message || String(err);
-        _save();
-        _notifyQueueChanged();
-        if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(job);
-      });
+    _pendingUnsentJobs().forEach(job => {
+      if (!job.nextEnqueueAt || Number(job.nextEnqueueAt) < Date.now()) job.nextEnqueueAt = Date.now() + 500;
     });
+    _save();
+    _scheduleUnsentRetry();
   }
 
   function _pendingLeadPatches() {
@@ -337,7 +407,7 @@ const QueueManager = (() => {
         finalRecordId: _queueDataId(opts.actionType, opts.payload) || null,
         error:       null,
         serverEnqueued: false,
-        payload:     serializedPayload.length < 100000 ? opts.payload : null
+        payload:     serializedPayload.length < 190000 ? opts.payload : null
       };
       _save();
       _notifyQueueChanged();
@@ -355,13 +425,18 @@ const QueueManager = (() => {
         }
         await _sendJobToServer(_jobs[requestId], payload);
       } catch (err) {
-        _jobs[requestId].status = 'DEAD';
-        _jobs[requestId].error  = err.message || String(err);
-        _save();
-        _updateBadge(requestId);
-        _notifyQueueChanged();
-        opts.onFail?.(_jobs[requestId]);
-        if (!opts.onFail && typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[requestId]);
+        if (_isRecoverableLocalQueueError(err) && _jobs[requestId].payload) {
+          _parkUnsentJob(_jobs[requestId], err);
+          toast('Saved locally. It will retry sending to queue automatically.', 'info');
+        } else {
+          _jobs[requestId].status = 'DEAD';
+          _jobs[requestId].error  = err.message || String(err);
+          _save();
+          _updateBadge(requestId);
+          _notifyQueueChanged();
+          opts.onFail?.(_jobs[requestId]);
+          if (!opts.onFail && typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[requestId]);
+        }
         return { requestId, tempId };
       }
 
@@ -380,7 +455,7 @@ const QueueManager = (() => {
     onServerChange,
 
     // Expose pending count (for debug / banner display).
-    pendingCount() { return _pendingIds().length; },
+    pendingCount() { return _pendingIds().length + _pendingUnsentJobs().length; },
 
     getPendingLeadPatches() { return _pendingLeadPatches(); },
 
