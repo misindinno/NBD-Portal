@@ -13,10 +13,13 @@ const BulkView = (() => {
     <div class="bulk-page">
       <style>
         .bulk-page { display:flex; flex-direction:column; gap:12px; height:calc(100vh - 150px); min-height:520px; }
+        #bulk-entry-panel { display:flex; flex-direction:column; gap:12px; flex:1; min-height:0; }
         .bulk-toolbar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
         .bulk-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
         .bulk-meta { font-size:12px; color:#6b7280; }
-        .bulk-grid-wrap { border:1px solid #e5e7eb; border-radius:10px; background:#fff; min-height:0; flex:1; position:relative; overflow:hidden; }
+        .bulk-grid-wrap { border:1px solid #e5e7eb; border-radius:10px; background:#fff; min-height:360px; flex:1; position:relative; overflow:hidden; }
+        #bulk-hot { width:100%; height:100%; min-height:360px; }
+        .bulk-grid-loading { display:flex; align-items:center; justify-content:center; height:100%; min-height:360px; color:#64748b; font-size:13px; font-weight:700; }
         .bulk-progress { height:8px; background:#f3f4f6; border-radius:999px; overflow:hidden; min-width:180px; }
         .bulk-progress span { display:block; height:100%; width:0%; background:var(--md-primary); transition:width .2s ease; }
         .bulk-summary { display:flex; gap:8px; flex-wrap:wrap; }
@@ -98,6 +101,17 @@ const BulkView = (() => {
 
   function _columns() {
     const dataCols = config.map(f => {
+      if (String(f.targetHeader || f.targetColumn || f.fieldName || '').trim().toLowerCase() === 'assigned to') {
+        return {
+          data: f.fieldName,
+          title: f.fieldName,
+          type: 'autocomplete',
+          source: _assignableUserValues(),
+          strict: true,
+          filter: true,
+          width: 170
+        };
+      }
       if (f.allowedValues && f.allowedValues.length) {
         return { data: f.fieldName, title: f.fieldName + (f.required ? ' *' : ''), type: 'autocomplete', source: f.allowedValues, strict: true, filter: true };
       }
@@ -116,12 +130,26 @@ const BulkView = (() => {
     return field ? field.fieldName : '';
   }
 
+  function _assignableUsers() {
+    return (App.config.users || [])
+      .filter(u => String(u.status || u.Status || 'Active') !== 'Inactive')
+      .map(u => ({
+        id: String(u.id || u.ID || u['User ID'] || u['Email Address'] || u.email || '').trim(),
+        name: String(u.name || u.Name || u.email || u['Email Address'] || u.id || '').trim()
+      }))
+      .filter(u => u.id);
+  }
+
+  function _assignableUserValues() {
+    return _assignableUsers().map(u => u.id);
+  }
+
   function _fillAssignUserOptions() {
     const sel = el('bulk-assign-user');
     if (!sel) return;
-    const users = (App.config.users || []).filter(u => String(u.status || u.Status || 'Active') !== 'Inactive');
+    const users = _assignableUsers();
     sel.innerHTML = '<option value="">Assign user...</option>' + users.map(u =>
-      `<option value="${escapeHtml(u.id || '')}">${escapeHtml(u.name || u.email || u.id || '')}</option>`
+      `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name || u.id)}</option>`
     ).join('');
   }
 
@@ -328,6 +356,7 @@ const BulkView = (() => {
       el('bulk-hot').innerHTML = '<div style="padding:24px;color:#991b1b">Handsontable did not load. Check CDN/network access.</div>';
       return;
     }
+    el('bulk-hot').innerHTML = '<div class="bulk-grid-loading">Loading Excel view...</div>';
     config = await api.getBulkConfig();
     _updateModeUI();
     _fillAssignUserOptions();
@@ -337,7 +366,9 @@ const BulkView = (() => {
     const gridWrap = el('bulk-hot')?.closest('.bulk-grid-wrap');
     if (gridWrap) gridWrap.addEventListener('paste', handlePaste);
 
-    hot = new Handsontable(el('bulk-hot'), {
+    const hotEl = el('bulk-hot');
+    const gridHeight = Math.max(360, (gridWrap && gridWrap.clientHeight) || 0);
+    hot = new Handsontable(hotEl, {
       data: _emptyRows(),
       columns: _columns(),
       colHeaders: [...config.map(f => f.fieldName + (f.required ? ' *' : '')), 'Status', 'Lead ID', 'Errors'],
@@ -348,11 +379,17 @@ const BulkView = (() => {
       contextMenu: true,
       manualColumnResize: true,
       copyPaste: true,
-      height: '100%',
+      height: gridHeight,
       afterPaste(data) {
         const count = (data || []).filter(r => r.some(c => String(c ?? '').trim())).length;
         if (count) _setProgress(0, `Pasted ${count} row(s) - click Validate to check`);
       },
+    });
+    requestAnimationFrame(() => {
+      if (!hot) return;
+      const latestHeight = Math.max(360, (gridWrap && gridWrap.clientHeight) || gridHeight);
+      hot.updateSettings({ height: latestHeight });
+      hot.render();
     });
     _renderSummary();
     _setProgress(0, 'Ready');
