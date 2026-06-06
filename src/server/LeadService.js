@@ -30,6 +30,8 @@ function saveLead(data, email) {
     if (!_canWriteLead(existing.lead, user)) return respond(null, 'Permission denied.');
     if (_isLeadPushedToNbd_(existing.lead)) return respond(null, 'Lead is already pushed to NBD and cannot be edited in LQ.');
     if (user.role === 'SALES') data['Assigned To'] = user.id;
+    const updateDuplicate = _leadDuplicateMessage_(data, leadId);
+    if (updateDuplicate) return respond(null, updateDuplicate);
     const prepared = _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped);
     _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']);
     const updatePayload = { ...prepared, 'Updated At': now() };
@@ -41,6 +43,8 @@ function saveLead(data, email) {
   }
   const id = generateUUID();
   if (user.role === 'SALES') data['Assigned To'] = user.id;
+  const duplicate = _leadDuplicateMessage_(data, '');
+  if (duplicate) return respond(null, duplicate);
   const prepared = _prepareLeadPayload(data, data['Stage ID'], {}, skipped);
   _applyLeadStatusFromStage(prepared, prepared['Stage ID']);
   const followupDate = today();
@@ -52,8 +56,11 @@ function saveLead(data, email) {
     'Next Follow-up Date': prepared['Next Follow-up Date'] || followupDate,
     'Created At': now(), 'Updated At': now()
   };
+  let leadInserted = false;
   try {
-    insertRow(SHEET_NAMES.LEADS, pickLeadMasterFields_(leadRow));
+    const insertResult = _insertLeadMasterRowBlockingDuplicates_(leadRow);
+    if (!insertResult.success) return respond(null, insertResult.error);
+    leadInserted = true;
     upsertCustomFieldValues_('Leads', id, prepared, user.id, prepared['Stage ID']);
     const fuTypes = getConfigByType('Follow-up Type');
     ensureFollowupSheets_();
@@ -75,17 +82,36 @@ function saveLead(data, email) {
     _bumpStamp('followups');
     return respond(id);
   } catch (e) {
-    deleteRow(SHEET_NAMES.LEADS, 'Lead ID', id);
+    if (leadInserted) deleteRow(SHEET_NAMES.LEADS, 'Lead ID', id);
     deleteCustomFieldValuesForEntity_('Leads', id);
     deleteAllRowsWhere(SHEET_NAMES.FOLLOWUPS, r => r['Lead ID'] === id);
     throw e;
   }
 }
 
-function checkLeadDuplicates(phone, email, excludeLeadId) {
+function _insertLeadMasterRowBlockingDuplicates_(leadRow) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const duplicate = _leadDuplicateMessage_(leadRow, '');
+    if (duplicate) return { success: false, error: duplicate };
+    const rowObj = pickLeadMasterFields_(leadRow);
+    const sheet = getSheet(SHEET_NAMES.LEADS);
+    const headers = getHeaders(SHEET_NAMES.LEADS);
+    const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
+    sheet.appendRow(row);
+    if (typeof syncIndexRow_ === 'function') syncIndexRow_(SHEET_NAMES.LEADS, rowObj, sheet.getLastRow());
+    return { success: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
   const normPhone = phone ? String(phone).replace(/\D/g, '') : '';
   const normEmail = email ? String(email).trim().toLowerCase() : '';
-  if (!normPhone && !normEmail) return [];
+  const normCompany = _leadNormText_(companyName);
+  if (!normPhone && !normEmail && !normCompany) return [];
   let indexRows = getAllRows(SHEET_NAMES.IDX_LEADS);
   if (!indexRows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
     rebuildIndexForSheet_(SHEET_NAMES.LEADS);
@@ -104,6 +130,10 @@ function checkLeadDuplicates(phone, email, excludeLeadId) {
         const lEmail = String(lead['Email'] || '').trim().toLowerCase();
         if (lEmail && lEmail === normEmail) return true;
       }
+      if (normCompany) {
+        const lCompany = _leadNormText_(lead['Company Name']);
+        if (lCompany && lCompany === normCompany) return true;
+      }
       return false;
     })
     .map(lead => ({
@@ -114,6 +144,56 @@ function checkLeadDuplicates(phone, email, excludeLeadId) {
       'Email':          lead['Email'] || '',
       'Lead Status':    lead['Lead Status'] || '',
     }));
+}
+
+function _leadDuplicateMessage_(data, excludeLeadId) {
+  const existingMap = _leadExistingDuplicateMap_();
+  const phone = _leadNormPhone_(data['Phone']);
+  const altPhone = _leadNormPhone_(data['Alternate No']);
+  const email = _leadNormEmail_(data['Email']);
+  const company = _leadNormText_(data['Company Name']);
+  const exclude = String(excludeLeadId || '').trim();
+  const phoneHit = phone ? existingMap.phone[phone] : '';
+  const altHit = altPhone ? existingMap.phone[altPhone] : '';
+  const emailHit = email ? existingMap.email[email] : '';
+  const companyHit = company ? existingMap.company[company] : '';
+  if (phoneHit && phoneHit !== exclude) return 'Duplicate lead blocked: phone already exists.';
+  if (altHit && altHit !== exclude) return 'Duplicate lead blocked: alternate phone already exists.';
+  if (emailHit && emailHit !== exclude) return 'Duplicate lead blocked: email already exists.';
+  if (companyHit && companyHit !== exclude) return 'Duplicate lead blocked: company already exists.';
+  return '';
+}
+
+function _leadExistingDuplicateMap_() {
+  let rows = getAllRows(SHEET_NAMES.IDX_LEADS);
+  if (!rows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
+    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
+    rows = getAllRows(SHEET_NAMES.IDX_LEADS);
+  }
+  return rows.reduce((m, row) => {
+    const leadId = String(row['Lead ID'] || '').trim();
+    const phone = _leadNormPhone_(row['Phone']);
+    const altPhone = _leadNormPhone_(row['Alternate No']);
+    const email = _leadNormEmail_(row['Email']);
+    const company = _leadNormText_(row['Company Name']);
+    if (phone) m.phone[phone] = leadId;
+    if (altPhone) m.phone[altPhone] = leadId;
+    if (email) m.email[email] = leadId;
+    if (company) m.company[company] = leadId;
+    return m;
+  }, { phone: {}, email: {}, company: {} });
+}
+
+function _leadNormPhone_(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function _leadNormEmail_(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function _leadNormText_(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function _leadIdFromPayload(data) {

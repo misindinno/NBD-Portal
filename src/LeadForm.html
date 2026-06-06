@@ -198,7 +198,7 @@ function _lfInitValidator() {
     try {
       const payload = await collectLeadFormPayload(form);
 
-      const duplicates = await _lfCheckDuplicates(payload['Phone'], payload['Email']);
+      const duplicates = await _lfCheckDuplicates(payload['Phone'], payload['Email'], payload['Company Name']);
       if (duplicates.length) {
         resetButtonLoading(btn);
         const proceed = await _lfShowDuplicateWarning(duplicates);
@@ -255,12 +255,12 @@ function _lfResetForm() {
   if (form) form.reset();
 }
 
-function _lfCheckDuplicates(phone, email) {
+function _lfCheckDuplicates(phone, email, companyName) {
   return new Promise(resolve => {
     google.script.run
       .withSuccessHandler(r => resolve(r && r.success ? (r.data || []) : []))
       .withFailureHandler(() => resolve([]))
-      .apiCheckLeadDuplicates(App.token, phone || '', email || '', '');
+      .apiCheckLeadDuplicates(App.token, phone || '', email || '', '', companyName || '');
   });
 }
 
@@ -281,7 +281,7 @@ function _lfShowDuplicateWarning(duplicates) {
         </h2>
       </div>
       <div style="padding:4px 0 12px">
-        <p style="color:#6b7280;font-size:13.5px;margin-bottom:14px">A lead with the same phone or email already exists. Review before creating a new one.</p>
+        <p style="color:#6b7280;font-size:13.5px;margin-bottom:14px">A lead with the same phone, email, or company already exists. Duplicate creation is blocked.</p>
         <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:10px">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="background:#f9fafb">
@@ -294,13 +294,12 @@ function _lfShowDuplicateWarning(duplicates) {
           </table>
         </div>
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-          <button onclick="this.closest('.modal-overlay').remove()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#374151;font-size:13.5px;font-weight:500;cursor:pointer">Cancel</button>
-          <button id="lf-dup-proceed-btn" style="padding:9px 18px;border-radius:8px;border:none;background:#d97706;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">Create Anyway</button>
+          <button id="lf-dup-close-btn" style="padding:9px 18px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#374151;font-size:13.5px;font-weight:500;cursor:pointer">Close</button>
         </div>
       </div>`);
     renderIcons(overlay);
-    overlay.querySelector('#lf-dup-proceed-btn').onclick = () => { overlay.remove(); resolve(true); };
-    overlay.querySelector('.modal-close').addEventListener('click', () => resolve(false), { once: true });
+    overlay.querySelector('#lf-dup-close-btn').onclick = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector('.modal-close')?.addEventListener('click', () => resolve(false), { once: true });
   });
 }
 

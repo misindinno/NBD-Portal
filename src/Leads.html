@@ -431,7 +431,7 @@
         const isUpdate = !!updateId;
         if (isUpdate) payload['Lead ID'] = updateId;
 
-        const duplicates = await _checkLeadDuplicates(payload['Phone'], payload['Email'], isUpdate ? updateId : '');
+        const duplicates = await _checkLeadDuplicates(payload['Phone'], payload['Email'], isUpdate ? updateId : '', payload['Company Name']);
         if (duplicates.length) {
           resetButtonLoading(btn);
           const proceed = await _showDuplicateWarning(duplicates);

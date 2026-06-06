@@ -212,11 +212,11 @@ function apiUploadFile(token, filePayload, fieldKey) {
   });
 }
 
-function apiCheckLeadDuplicates(token, phone, email, excludeLeadId) {
+function apiCheckLeadDuplicates(token, phone, email, excludeLeadId, companyName) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireAnyModule(['Leads', 'LeadForm', 'BulkEntry']);
-    return respond(checkLeadDuplicates(phone, email, excludeLeadId));
+    return respond(checkLeadDuplicates(phone, email, excludeLeadId, companyName || ''));
   });
 }
 

@@ -195,7 +195,7 @@ function _handleJobError_(requestId, errMsg, attempt, actionType) {
   // update depends on a just-created record, so it follows the retry schedule.
   const isPermanent = (
     /permission denied|not authoris|access denied/i.test(msg) ||
-    /invalid payload|unsupported/i.test(msg)
+    /invalid payload|unsupported|duplicate lead blocked/i.test(msg)
   );
 
   if (isPermanent) {
