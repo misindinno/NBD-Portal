@@ -134,6 +134,7 @@ function _installConfigRouteFallback() {
             <option value="" ${!data['Stage Outcome'] ? 'selected' : ''}>None</option>
             <option value="Won" ${data['Stage Outcome'] === 'Won' ? 'selected' : ''}>Won</option>
             <option value="Lost" ${data['Stage Outcome'] === 'Lost' ? 'selected' : ''}>Lost</option>
+            <option value="Disqualified" ${data['Stage Outcome'] === 'Disqualified' ? 'selected' : ''}>Disqualified</option>
           </select></div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:12px 0">

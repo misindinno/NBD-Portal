@@ -429,7 +429,7 @@ function _fuNextStageOptionsHTML(leadId, leads = []) {
 function _fuIsLostOrDisqualifiedStage(stage) {
   const outcome = String(stage?.['Stage Outcome'] || '').trim().toLowerCase();
   const name = String(stage?.['Stage Name'] || '').trim().toLowerCase();
-  return outcome === 'lost' || /lost|disqualif/.test(name);
+  return outcome === 'lost' || outcome.includes('disqualif') || /lost|disqualif/.test(name);
 }
 
 function _clearSelectedLead() {

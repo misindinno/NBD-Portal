@@ -516,7 +516,7 @@ function _leadStageIsFinal_(stage) {
 function _leadStageIsLostOrDisqualified_(stage) {
   const outcome = String(stage && stage['Stage Outcome'] || '').trim().toLowerCase();
   const name = String(stage && stage['Stage Name'] || '').trim().toLowerCase();
-  return outcome === 'lost' || /lost|disqualif/.test(name);
+  return outcome === 'lost' || outcome.includes('disqualif') || /lost|disqualif/.test(name);
 }
 
 function _leadStatusForStage(stage) {

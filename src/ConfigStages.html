@@ -33,6 +33,7 @@ async function loadStagesConfig() {
             ${s['Is Skippable'] === true || s['Is Skippable'] === 'TRUE' ? '<span class="badge" style="background:#F3E5F5;color:#6A1B9A;margin-left:6px">Skippable</span>' : ''}
             ${s['Stage Outcome'] === 'Won'  ? '<span class="badge" style="background:#D1FAE5;color:#065F46;margin-left:6px">Won</span>'  : ''}
             ${s['Stage Outcome'] === 'Lost' ? '<span class="badge" style="background:#FEE2E2;color:#991B1B;margin-left:6px">Lost</span>' : ''}
+            ${s['Stage Outcome'] === 'Disqualified' ? '<span class="badge" style="background:#F3F4F6;color:#374151;margin-left:6px">Disqualified</span>' : ''}
           </div>
           <button class="btn btn-sm btn-outlined" onclick="openStageForm(${JSON.stringify(s).replace(/"/g,'&quot;')})">Edit</button>
         </div>`).join('')}
@@ -96,6 +97,7 @@ function openStageForm(data = {}) {
             <option value="" ${!data['Stage Outcome']?'selected':''}>None (stays Open)</option>
             <option value="Won"  ${data['Stage Outcome']==='Won' ?'selected':''}>Won — marks lead as Won</option>
             <option value="Lost" ${data['Stage Outcome']==='Lost'?'selected':''}>Lost — marks lead as Lost</option>
+            <option value="Disqualified" ${data['Stage Outcome']==='Disqualified'?'selected':''}>Disqualified - marks lead as Disqualified</option>
           </select>
         </div>
       </div>

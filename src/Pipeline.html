@@ -389,10 +389,7 @@ async function loadPipeline() {
         }
         const destStage    = _stages.find(s => s['Stage ID'] === newStageId);
         const isFinal      = destStage ? _isFinalStage(destStage) : false;
-        const stageName    = String(destStage?.['Stage Name'] || '').toLowerCase();
-        const optStatus    = isFinal
-          ? (stageName.includes('lost') || stageName.includes('disqualif') ? 'Lost' : 'Won')
-          : 'Open';
+        const optStatus    = isFinal ? _pipelineStatusForStage(destStage) : 'Open';
         _applyPipelineStageResult(leadId, newStageId, { leadStatus: optStatus });
         if (isFinal) evt.item.remove();
         _updatePipelineCounts();
@@ -437,7 +434,20 @@ function _isValidPipelineMove(fromIdx, toIdx, lastRegularIdx, stages) {
 function _isLostOrDisqualifiedStage(stage) {
   const outcome = String(stage?.['Stage Outcome'] || '').trim().toLowerCase();
   const name = String(stage?.['Stage Name'] || '').trim().toLowerCase();
-  return outcome === 'lost' || /lost|disqualif/.test(name);
+  return outcome === 'lost' || outcome.includes('disqualif') || /lost|disqualif/.test(name);
+}
+
+function _pipelineStatusForStage(stage) {
+  const outcome = String(stage?.['Stage Outcome'] || '').trim();
+  const outcomeLower = outcome.toLowerCase();
+  const name = String(stage?.['Stage Name'] || '').trim().toLowerCase();
+  if (outcomeLower.includes('disqualif') || name.includes('disqualif')) return 'Disqualified';
+  if (outcome === 'Won' || outcome === 'Lost') return outcome;
+  if (_isFinalStage(stage)) {
+    if (name.includes('lost')) return 'Lost';
+    return 'Won';
+  }
+  return 'Open';
 }
 
 function _pipelineStageFields(stageId) {
@@ -472,7 +482,7 @@ function _applyPipelineStageResult(leadId, stageId, result, extraPatch = {}) {
     'Lead Status': status,
     'Updated At': _nowStr()
   };
-  if (status === 'Won' || status === 'Lost') patch['Next Follow-up Date'] = '';
+  if (status === 'Won' || status === 'Lost' || status === 'Disqualified') patch['Next Follow-up Date'] = '';
   AppCache.patchRow('leads', 'Lead ID', leadId, patch);
   if (window.pipelineLeadMap?.[leadId]) {
     window.pipelineLeadMap[leadId] = { ...window.pipelineLeadMap[leadId], ...patch };
@@ -531,10 +541,7 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
         if (payload[key] !== undefined) fieldPayload[key] = payload[key];
       });
       const isFinal = _isFinalStage(stage);
-      const stageName = String(stage['Stage Name'] || '').toLowerCase();
-      const leadStatus = isFinal
-        ? (stageName.includes('lost') || stageName.includes('disqualif') ? 'Lost' : 'Won')
-        : 'Open';
+      const leadStatus = isFinal ? _pipelineStatusForStage(stage) : 'Open';
       _applyPipelineStageResult(leadId, stageId, { leadStatus }, fieldPayload);
       overlay.remove();
       loadPipeline();
