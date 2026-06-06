@@ -103,6 +103,12 @@ async function openFollowupForm(leadId = '', leadName = '') {
       payload['Status'] = 'Open';
       const snapshotLead = payload['Lead ID'] ? AppCache.getRows('leads').find(l => l['Lead ID'] === payload['Lead ID']) : null;
       payload['Stage ID'] = snapshotLead ? (snapshotLead['Stage ID'] || '') : '';
+      const confirmed = await _confirmFollowupCreateReview(payload, snapshotLead);
+      if (!confirmed) {
+        resetButtonLoading(btn);
+        fuForm.dataset.submitting = '';
+        return;
+      }
 
       const tempId = 'temp-fu-' + Date.now();
       AppCache.addRow('followups', {
@@ -141,6 +147,38 @@ async function openFollowupForm(leadId = '', leadName = '') {
   initFollowupCustomFields(overlay);
   const leadInput = overlay.querySelector('#fu-lead-id');
   if (leadInput) leadInput.addEventListener('input', () => _toggleFUStageField(!!leadInput.value.trim()));
+}
+
+async function _confirmFollowupCreateReview(payload, lead) {
+  const stage = payload['Updated Stage ID']
+    ? (App.config.allStages || App.config.stages || []).find(s => s['Stage ID'] === payload['Updated Stage ID'])
+    : null;
+  const rows = [
+    ['Lead', lead ? _fuLeadLabel(lead) : 'Standalone follow-up'],
+    ['Planned Date', formatDate(payload['Planned Date']) || payload['Planned Date'] || '-'],
+    ['Follow-up Type', payload['Follow-up Type'] || '-'],
+    ['Move Stage', stage ? (stage['Stage Name'] || '-') : 'No Change'],
+    ['Next Action', payload['Next Action'] || '-'],
+    ['Remarks', payload['Discussion'] || payload['Remark'] || '-']
+  ];
+  const html = `
+    <div style="text-align:left;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-top:8px">
+      ${rows.map(([label, value]) => `
+        <div style="display:grid;grid-template-columns:120px 1fr;border-bottom:1px solid #f1f5f9;min-height:34px">
+          <div style="background:#f8fafc;color:#64748b;font-size:11px;font-weight:800;text-transform:uppercase;padding:9px 10px">${escapeHtml(label)}</div>
+          <div style="color:#111827;font-size:12.5px;font-weight:600;padding:9px 10px;white-space:pre-wrap">${escapeHtml(value)}</div>
+        </div>`).join('')}
+    </div>`;
+  const result = await Swal.fire({
+    title: 'Review Follow-up',
+    html,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Confirm & Save',
+    cancelButtonText: 'Edit',
+    width: 560
+  });
+  return result.isConfirmed;
 }
 
 async function openMarkFollowupDoneForm(followupId) {
