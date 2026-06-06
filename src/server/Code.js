@@ -78,6 +78,7 @@ function onOpen() {
     .addSeparator()
     .addItem('🔄 Push Update to All Clients', 'pushUpdate')
     .addItem('🧭 Rebuild Indexes', 'rebuildAllIndexes')
+    .addItem('📅 Reopen Closed Non-final Follow-ups', 'reopenClosedNonFinalFollowupsFromMenu')
     .addSeparator()
     .addItem('▶️ Install Queue Trigger', 'setupQueueTrigger')
     .addItem('⏹️ Remove Queue Trigger', 'removeQueueTrigger')

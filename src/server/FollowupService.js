@@ -316,6 +316,104 @@ function deleteFollowup(followupId, email) {
   return respond(true);
 }
 
+function reopenClosedNonFinalFollowupsFromMenu() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const result = reopenClosedNonFinalFollowupsNextMonday();
+    ui.alert(
+      'Reopen Follow-ups Complete',
+      'Next planned date: ' + result.nextMonday + '\n' +
+      'Reopened: ' + result.reopened + '\n' +
+      'Skipped final-stage leads: ' + result.skippedFinalStage + '\n' +
+      'Skipped without linked lead: ' + result.skippedNoLead + '\n' +
+      'Skipped already open: ' + result.skippedOpen,
+      ui.ButtonSet.OK
+    );
+    return result;
+  } catch (e) {
+    ui.alert('Reopen Follow-ups Failed', e.message || String(e), ui.ButtonSet.OK);
+    throw e;
+  }
+}
+
+function reopenClosedNonFinalFollowupsNextMonday() {
+  return withServerContext_(() => _reopenClosedNonFinalFollowupsNextMonday_());
+}
+
+function _reopenClosedNonFinalFollowupsNextMonday_() {
+  ensureFollowupSheets_();
+
+  const nextMonday = _nextMondayDateString_();
+  const ts = now();
+  const finalStageIds = getAllRows(SHEET_NAMES.STAGES).reduce((map, stage) => {
+    const isFinal = stage['Is Final Stage'] === true ||
+      String(stage['Is Final Stage'] || '').trim().toLowerCase() === 'true';
+    if (isFinal && stage['Stage ID']) map[String(stage['Stage ID'])] = true;
+    return map;
+  }, {});
+  const leadsById = getAllRows(SHEET_NAMES.LEADS).reduce((map, lead) => {
+    if (lead['Lead ID']) map[String(lead['Lead ID'])] = lead;
+    return map;
+  }, {});
+
+  let reopened = 0;
+  let skippedFinalStage = 0;
+  let skippedNoLead = 0;
+  let skippedOpen = 0;
+
+  getAllRows(SHEET_NAMES.FOLLOWUPS).forEach(followup => {
+    const followupId = String(followup['Follow-up ID'] || '').trim();
+    const leadId = String(followup['Lead ID'] || '').trim();
+    if (!followupId) return;
+    if (String(followup['Status'] || '').trim().toLowerCase() !== 'closed') {
+      skippedOpen++;
+      return;
+    }
+
+    const lead = leadId ? leadsById[leadId] : null;
+    if (!lead) {
+      skippedNoLead++;
+      return;
+    }
+    if (finalStageIds[String(lead['Stage ID'] || '').trim()]) {
+      skippedFinalStage++;
+      return;
+    }
+
+    updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId, {
+      'Status': 'Open',
+      'Planned Date': nextMonday,
+      'Follow-up Date': nextMonday,
+      'Next Follow-up Date': nextMonday,
+      'Outcome': '',
+      'Done Date': '',
+      'Done By': '',
+      'Updated At': ts
+    });
+    updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
+      'Next Follow-up Date': nextMonday,
+      'Updated At': ts
+    });
+    reopened++;
+  });
+
+  if (reopened) {
+    _bumpStamp('followups');
+    _bumpStamp('leads');
+  }
+
+  return { nextMonday, reopened, skippedFinalStage, skippedNoLead, skippedOpen };
+}
+
+function _nextMondayDateString_() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  let daysUntilMonday = (8 - date.getDay()) % 7;
+  if (daysUntilMonday === 0) daysUntilMonday = 7;
+  date.setDate(date.getDate() + daysUntilMonday);
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
 function _followupRows() {
   return getRowsWithCustomFieldValues_('Followups', getAllRows(SHEET_NAMES.FOLLOWUPS))
     .filter(_isFollowupTaskRow)
