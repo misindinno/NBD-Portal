@@ -109,6 +109,7 @@ const BulkView = (() => {
           source: _assignableUserValues(),
           strict: true,
           filter: true,
+          renderer: _assignedToRenderer,
           width: 170
         };
       }
@@ -142,6 +143,30 @@ const BulkView = (() => {
 
   function _assignableUserValues() {
     return _assignableUsers().map(u => u.id);
+  }
+
+  function _userNameById(userId) {
+    const id = String(userId || '').trim();
+    if (!id) return '';
+    const user = _assignableUsers().find(u => u.id === id);
+    return user ? (user.name || user.id) : id;
+  }
+
+  function _userIdByName(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const users = _assignableUsers();
+    const byId = users.find(u => u.id.toLowerCase() === text.toLowerCase());
+    if (byId) return byId.id;
+    const byName = users.find(u => String(u.name || '').trim().toLowerCase() === text.toLowerCase());
+    return byName ? byName.id : text;
+  }
+
+  function _assignedToRenderer(instance, td, row, col, prop, value, cellProperties) {
+    const display = _userNameById(value);
+    Handsontable.renderers.TextRenderer(instance, td, row, col, prop, display, cellProperties);
+    td.title = value && display !== String(value) ? `${display} (${value})` : display;
+    return td;
   }
 
   function _fillAssignUserOptions() {
@@ -189,11 +214,14 @@ const BulkView = (() => {
 
   function _gridRows() {
     if (!hot) return [];
+    const assignedField = _assignedToFieldName();
     return hot.getSourceData()
       .map((row, i) => ({
         rowNumber: i + 1,
         data: Object.keys(row || {}).reduce((m, key) => {
-          if (!String(key).startsWith('__')) m[key] = row[key];
+          if (!String(key).startsWith('__')) {
+            m[key] = key === assignedField ? _userIdByName(row[key]) : row[key];
+          }
           return m;
         }, {})
       }))
@@ -380,6 +408,13 @@ const BulkView = (() => {
       manualColumnResize: true,
       copyPaste: true,
       height: gridHeight,
+      beforeChange(changes) {
+        const assignedField = _assignedToFieldName();
+        if (!assignedField || !Array.isArray(changes)) return;
+        changes.forEach(change => {
+          if (change && change[1] === assignedField) change[3] = _userIdByName(change[3]);
+        });
+      },
       afterPaste(data) {
         const count = (data || []).filter(r => r.some(c => String(c ?? '').trim())).length;
         if (count) _setProgress(0, `Pasted ${count} row(s) - click Validate to check`);
@@ -887,7 +922,7 @@ const BulkView = (() => {
       <td title="${escapeHtml(row.contact || '')}">${escapeHtml(row.contact || '-')}</td>
       <td title="${escapeHtml(row.phone || '')}">${escapeHtml(row.phone || '-')}</td>
       <td title="${escapeHtml(row.email || '')}">${escapeHtml(row.email || '-')}</td>
-      <td title="${escapeHtml(row.assignedTo || '')}">${escapeHtml(row.assignedTo || '-')}</td>
+      <td title="${escapeHtml(row.assignedTo || '')}">${escapeHtml(_userNameById(row.assignedTo) || '-')}</td>
       <td title="${escapeHtml(resultText || '')}">${escapeHtml(resultText || '-')}</td>
     </tr>`;
   }
