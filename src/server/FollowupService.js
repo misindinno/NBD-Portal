@@ -154,6 +154,14 @@ function markFollowupDone(followupId, data, email) {
     preparedLeadForStage = _prepareLeadPayload(data, data['Updated Stage ID'], lead, skipped);
   }
 
+  const currentStage = lead
+    ? queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === lead['Stage ID'])[0]
+    : null;
+  const finalStageAfterSave = Boolean(lead && _leadStageIsFinal_(stage || currentStage));
+  if (!finalStageAfterSave && !nextDate) {
+    return respond(null, 'Next planned date is required until the lead reaches a final stage.');
+  }
+
   const statusAfter = nextDate ? 'Open' : 'Closed';
   const history = {
     'History ID': generateUUID(),
