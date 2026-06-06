@@ -21,6 +21,8 @@ async function openFollowupForm(leadId = '', leadName = '') {
   const formData = await _getFollowupFormData();
   const leads = formData.leads || [];
   const selectedLead = leads.find(l => l['Lead ID'] === leadId);
+  const selectedLeadNbdLocked = !!(selectedLead && (selectedLead['NBD Lead ID'] || selectedLead['Pushed To NBD At']));
+  const canMoveSelectedLead = !!leadId && !selectedLeadNbdLocked;
   const selectedLeadLabel = leadName || (selectedLead ? _fuLeadLabel(selectedLead) : '');
   const followupFields = cfg.followupFields || [];
   const configOptions = _configOptionsMap(cfg._allConfigs || []);
@@ -63,10 +65,10 @@ async function openFollowupForm(leadId = '', leadName = '') {
         <input class="form-control" name="City" placeholder="City">
       </div>
 
-      <div class="form-group" id="fu-stage-wrap" style="${leadId ? '' : 'display:none'}">
+      <div class="form-group" id="fu-stage-wrap" style="${canMoveSelectedLead ? '' : 'display:none'}">
         <label>Move to Next Stage</label>
-        <select class="form-control" name="Updated Stage ID" ${leadId ? '' : 'disabled'}>
-          ${_fuNextStageOptionsHTML(leadId, leads)}
+        <select class="form-control" name="Updated Stage ID" ${canMoveSelectedLead ? '' : 'disabled'}>
+          ${canMoveSelectedLead ? _fuNextStageOptionsHTML(leadId, leads) : '<option value="">No Change</option>'}
         </select>
       </div>
 
@@ -379,11 +381,13 @@ function _filterLeadPicker(q) {
 function _selectLead(leadId, leadName) {
   const leadInput   = el('fu-lead-id');
   const leadDisplay = el('fu-lead-display');
+  const lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
+  const isNbdLocked = !!(lead && (lead['NBD Lead ID'] || lead['Pushed To NBD At']));
   if (leadInput)   leadInput.value   = leadId;
   if (leadDisplay) leadDisplay.value = leadName || '';
   const stageSelect = el('fu-stage-wrap')?.querySelector('[name="Updated Stage ID"]');
-  if (stageSelect) stageSelect.innerHTML = _fuNextStageOptionsHTML(leadId, AppCache.getRows('leads'));
-  _toggleFUStageField(!!leadId);
+  if (stageSelect) stageSelect.innerHTML = isNbdLocked ? '<option value="">No Change</option>' : _fuNextStageOptionsHTML(leadId, AppCache.getRows('leads'));
+  _toggleFUStageField(!!leadId && !isNbdLocked);
   document.querySelectorAll('.modal-overlay')[1]?.remove();
 }
 

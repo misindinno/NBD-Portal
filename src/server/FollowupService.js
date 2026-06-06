@@ -51,12 +51,12 @@ function saveFollowup(data, email) {
     lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', data['Lead ID']);
     if (!lead) return respond(null, 'Lead not found.');
     if (!_canWriteFollowupForLead(lead, user)) return respond(null, 'Permission denied.');
-    if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and follow-ups are locked in LQ.');
   }
   const id = generateUUID();
   const payload = _prepareFollowupPayload(data);
   const skipped = payload['__stage_skipped'] === 'true' || payload['__stage_skipped'] === true;
   if (lead && payload['Updated Stage ID'] && payload['Updated Stage ID'] !== lead['Stage ID']) {
+    if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and cannot be moved in LQ.');
     stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === payload['Updated Stage ID'])[0];
     if (!stage) return respond(null, 'Selected stage not found.');
     const moveCheck = _validateLeadStageMove_(lead['Stage ID'], payload['Updated Stage ID']);
@@ -135,7 +135,6 @@ function markFollowupDone(followupId, data, email) {
     : null;
   if (row['Lead ID'] && !lead) return respond(null, 'Linked lead not found.');
   if (!_canWriteFollowupRow(row, lead, user)) return respond(null, 'Permission denied.');
-  if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and follow-ups are locked in LQ.');
 
   const doneDate = formatDate(data['Done Date'] || today());
   const nextDate = formatDate(data['Next Follow-up Date'] || data['Next Planned Date'] || '');
@@ -147,6 +146,7 @@ function markFollowupDone(followupId, data, email) {
   let stage = null;
   let preparedLeadForStage = null;
   if (lead && data['Updated Stage ID'] && data['Updated Stage ID'] !== lead['Stage ID']) {
+    if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and cannot be moved in LQ.');
     stage = queryRows(SHEET_NAMES.STAGES, r => r['Stage ID'] === data['Updated Stage ID'])[0];
     if (!stage) return respond(null, 'Selected stage not found.');
     const moveCheck = _validateLeadStageMove_(lead['Stage ID'], data['Updated Stage ID']);

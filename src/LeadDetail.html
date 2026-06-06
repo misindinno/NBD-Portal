@@ -88,7 +88,8 @@ async function openLeadDetail(leadId) {
         ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead</button>`}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : (_canAddFollowup() ? _addFollowupButtonHTML(lead['Lead ID'] || '', lead['Client Description'] || '', 'sm') : (_isNBDPortal() ? _nbdEscalateBtn('sm') : ''))}
+        ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : ''}
+        ${_canAddFollowup() ? _addFollowupButtonHTML(lead['Lead ID'] || '', lead['Client Description'] || '', 'sm') : (!isNbdLocked && _isNBDPortal() ? _nbdEscalateBtn('sm') : '')}
         ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
           ${icon('send', 14)} Push to NBD
         </button>` : ''}
