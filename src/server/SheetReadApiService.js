@@ -67,3 +67,48 @@ function getTodayActivitySnapshotFast_(user) {
     fetchedAt: now()
   };
 }
+
+function runSheetsApiSampleWrite_(user, payload) {
+  assertServerContext_();
+  if (!canEditConfigPermission(user)) throw new Error('Permission denied.');
+  if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {
+    throw new Error('Google Sheets advanced service is not enabled.');
+  }
+
+  const totalStart = Date.now();
+  const sheetName = 'SHEETS_API_WRITE_TEST';
+  safeInitHeaders(sheetName, [
+    'Test ID','Portal','Run By','Client Timestamp','Server Timestamp','Write Method','Note'
+  ]);
+  const note = String(payload && payload.note || 'Sample config-page Sheets API write test').slice(0, 300);
+  const row = [
+    generateUUID(),
+    CLIENT_CONFIG.APP_TITLE || '',
+    user.email || user.id || '',
+    String(payload && payload.clientTimestamp || ''),
+    now(),
+    'Sheets API values.append',
+    note
+  ];
+
+  const apiStart = Date.now();
+  const response = Sheets.Spreadsheets.Values.append(
+    { values: [row] },
+    SPREADSHEET_ID,
+    "'" + sheetName.replace(/'/g, "''") + "'!A:G",
+    {
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS'
+    }
+  );
+
+  return {
+    sheetName,
+    testId: row[0],
+    updatedRange: response.updates && response.updates.updatedRange || '',
+    updatedRows: response.updates && response.updates.updatedRows || 0,
+    apiWriteMs: Date.now() - apiStart,
+    totalMs: Date.now() - totalStart,
+    serverTimestamp: row[4]
+  };
+}

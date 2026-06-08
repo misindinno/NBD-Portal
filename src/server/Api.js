@@ -268,6 +268,14 @@ function apiGetTodayActivitySnapshot(token) {
   });
 }
 
+function apiRunSheetsApiSampleWrite(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireConfigReader();
+    return respond(runSheetsApiSampleWrite_(user, payload || {}));
+  });
+}
+
 function apiGetFollowupFormData(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

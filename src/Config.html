@@ -114,6 +114,54 @@ async function loadPortalSettings() {
     toast('Saving settings…', 'info');
   });
 
+  const writeTestCard = document.createElement('div');
+  writeTestCard.className = 'card';
+  writeTestCard.style.cssText = 'padding:18px;max-width:760px;margin-top:18px';
+  writeTestCard.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+      <div>
+        <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Sheets API Write Speed Test</h3>
+        <p style="color:#666;font-size:13px">Writes one harmless sample row to <b>SHEETS_API_WRITE_TEST</b> using Google Sheets API append, then shows timing.</p>
+      </div>
+      <button id="btn-sheets-api-write-test" class="btn btn-outlined" style="white-space:nowrap">${icon('zap',14)} Test Update Speed</button>
+    </div>
+    <div id="sheets-api-write-results" style="display:none;font-size:13px;margin-top:6px"></div>`;
+  el('cfg-settings').appendChild(writeTestCard);
+  renderIcons(writeTestCard);
+
+  el('btn-sheets-api-write-test').addEventListener('click', async () => {
+    const btn = el('btn-sheets-api-write-test');
+    const resultBox = el('sheets-api-write-results');
+    setButtonLoading(btn, 'Testing...');
+    resultBox.style.display = 'none';
+    try {
+      const result = await api.runSheetsApiSampleWrite({
+        clientTimestamp: new Date().toISOString(),
+        note: 'Config settings tab sample write speed test'
+      });
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
+          ${_settingsMetric('API write', (result.apiWriteMs || 0) + ' ms')}
+          ${_settingsMetric('Total server', (result.totalMs || 0) + ' ms')}
+          ${_settingsMetric('Rows', result.updatedRows || 0)}
+          ${_settingsMetric('Sheet', result.sheetName || '-')}
+        </div>
+        <div style="margin-top:10px;padding:9px 11px;border-radius:8px;background:#f8fafc;color:#475569;border:1px solid #e5e7eb">
+          <div><b>Updated range:</b> ${escapeHtml(result.updatedRange || '-')}</div>
+          <div><b>Test ID:</b> ${escapeHtml(result.testId || '-')}</div>
+          <div><b>Server time:</b> ${escapeHtml(result.serverTimestamp || '-')}</div>
+        </div>`;
+      toast('Sheets API write test complete!', 'success');
+    } catch (err) {
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `<div style="padding:10px;border-radius:8px;background:#fee2e2;color:#991b1b">${escapeHtml(err.message || String(err))}</div>`;
+      toast('Write test failed: ' + (err.message || err), 'error');
+    } finally {
+      resetButtonLoading(btn);
+    }
+  });
+
   // ── Update Permissions card ──────────────────────────────────────────────
   const permCard = document.createElement('div');
   permCard.className = 'card';
@@ -159,6 +207,13 @@ async function loadPortalSettings() {
       resetButtonLoading(btn);
     }
   });
+}
+
+function _settingsMetric(label, value) {
+  return `<div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff">
+    <div style="font-size:11px;color:#64748b;font-weight:800;text-transform:uppercase">${escapeHtml(label)}</div>
+    <div style="font-size:18px;color:#111827;font-weight:800;margin-top:3px">${escapeHtml(value)}</div>
+  </div>`;
 }
 
 function _installConfigFieldsFallback() {
