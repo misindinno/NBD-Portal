@@ -72,6 +72,47 @@ function getAllRows(sheetName) {
   );
 }
 
+// ─── Cross-portal aggregation (dashboard-portal only) ──────────────────────
+// When CLIENT_CONFIG.AGGREGATE_SOURCES is set, reads the same sheet from every
+// listed spreadsheet and concatenates the rows, tagging each row with
+// _source and _sourceName for downstream filtering.
+function getAggregatedRows(sheetName) {
+  assertServerContext_();
+  const sources = (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.AGGREGATE_SOURCES) || [];
+  if (!Array.isArray(sources) || !sources.length) return getAllRows(sheetName);
+
+  const resolved = normalizeSheetName(sheetName);
+  const merged = [];
+  sources.forEach(src => {
+    if (!src || !src.spreadsheetId) return;
+    let ss;
+    try {
+      ss = SpreadsheetApp.openById(src.spreadsheetId);
+    } catch (e) {
+      Logger.log('[Aggregate] open failed for ' + (src.key || src.spreadsheetId) + ': ' + e.message);
+      return;
+    }
+    const sheet = ss.getSheetByName(resolved);
+    if (!sheet) return;
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) return;
+    const headers = data[0];
+    data.slice(1).forEach(row => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = normalizeSheetValue(row[i]); });
+      obj._source = src.key || '';
+      obj._sourceName = src.name || src.key || '';
+      merged.push(obj);
+    });
+  });
+  return merged;
+}
+
+function isAggregatePortal() {
+  const sources = (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.AGGREGATE_SOURCES) || [];
+  return Array.isArray(sources) && sources.length > 0;
+}
+
 function normalizeSheetValue(value) {
   if (value instanceof Date) {
     return Utilities.formatDate(

@@ -30,6 +30,9 @@ function _dbHtml() {
       <div class="fu-filter-card-grid">
         <label class="fu-filter"><span>From</span><input type="date" id="db-f-from" value="${monthAgo}"></label>
         <label class="fu-filter"><span>To</span><input type="date" id="db-f-to" value="${todayStr}"></label>
+        ${(typeof PORTAL_KIND !== 'undefined' && PORTAL_KIND === 'dashboard') ? `<label class="fu-filter"><span>Portal</span><select id="db-f-portal">
+          <option value="">All Portals</option>
+        </select></label>` : ''}
         ${canAssign ? `<label class="fu-filter"><span>Salesperson</span><select id="db-f-user">
           <option value="">All Salespeople</option>
           ${(cfg.users||[]).map(u=>`<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}
@@ -195,10 +198,24 @@ function _dbHtml() {
 // ─── Filters ──────────────────────────────────────────────────────────────────
 function _dbInitFilters() {
   _dbRefreshCityFilterOptions();
+  _dbRefreshPortalFilterOptions();
   const stateEl = el('db-f-state');
   if (stateEl) stateEl.addEventListener('change', () => { _dbRefreshCityFilterOptions(); _dbRenderAll(); });
-  ['db-f-from','db-f-to','db-f-user','db-f-stage','db-f-source','db-f-priority','db-f-status','db-f-city']
+  ['db-f-from','db-f-to','db-f-user','db-f-stage','db-f-source','db-f-priority','db-f-status','db-f-city','db-f-portal']
     .forEach(id => { const e = el(id); if (e) e.addEventListener('change', _dbRenderAll); });
+}
+
+function _dbRefreshPortalFilterOptions() {
+  const sel = el('db-f-portal');
+  if (!sel) return;
+  const seen = new Set();
+  const opts = ['<option value="">All Portals</option>'];
+  AppCache.getRows('leads').forEach(l => {
+    const key = String(l._source || '').trim();
+    const name = String(l._sourceName || key || '').trim();
+    if (key && !seen.has(key)) { seen.add(key); opts.push(`<option value="${escapeHtml(key)}">${escapeHtml(name)}</option>`); }
+  });
+  sel.innerHTML = opts.join('');
 }
 
 function _dbGetFilters() {
@@ -211,16 +228,18 @@ function _dbGetFilters() {
     priority: el('db-f-priority')?.value || '',
     status:   el('db-f-status')?.value   || '',
     state:    el('db-f-state')?.value    || '',
-    city:     el('db-f-city')?.value     || ''
+    city:     el('db-f-city')?.value     || '',
+    portal:   el('db-f-portal')?.value   || ''
   };
 }
 
 function _dbClearFilters() {
   if (el('db-f-from')) el('db-f-from').value = localDateInputValue(new Date(Date.now() - 30 * 86400000));
   if (el('db-f-to'))   el('db-f-to').value   = localDateInputValue();
-  ['db-f-user','db-f-stage','db-f-source','db-f-priority','db-f-status','db-f-state','db-f-city']
+  ['db-f-user','db-f-stage','db-f-source','db-f-priority','db-f-status','db-f-state','db-f-city','db-f-portal']
     .forEach(id => { if (el(id)) el(id).value = ''; });
   _dbRefreshCityFilterOptions();
+  _dbRefreshPortalFilterOptions();
   _dbRenderAll();
 }
 
@@ -247,6 +266,7 @@ function _dbFilteredData() {
   if (f.status)   leads = leads.filter(l => l['Lead Status'] === f.status);
   if (f.state)    leads = leads.filter(l => String(l['State'] || '') === f.state);
   if (f.city)     leads = leads.filter(l => String(l['City'] || '') === f.city);
+  if (f.portal)   leads = leads.filter(l => String(l._source || '') === f.portal);
 
   const leadIds = new Set(leads.map(l => l['Lead ID']));
   fus = fus.filter(fu => leadIds.has(fu['Lead ID']));
@@ -309,6 +329,7 @@ function _dbRenderAll() {
   const { leads, fus } = _dbFilteredData();
   const s = _dbStats(leads, fus);
 
+  _dbRefreshPortalFilterOptions();
   _dbRenderKPIs(s);
   _dbRenderFunnel(leads);
   _dbRenderFollowupDonut(s);

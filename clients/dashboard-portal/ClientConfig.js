@@ -10,6 +10,13 @@ const CLIENT_CONFIG = {
   PORTAL_KIND:                  'dashboard',
   APP_TITLE:                    'Dashboard Portal',
   UPLOAD_FOLDER_NAME:           'Dashboard Portal Uploads',
+  // Read-only sources to aggregate for cross-portal analytics
+  AGGREGATE_SOURCES: [
+    { key: 'LQ',           name: 'LQ Portal',      spreadsheetId: '1LeALluP02bd37clVesulu1JY7HeJjVNA4J067-QUM5w' },
+    { key: 'NBD',          name: 'NBD Portal',     spreadsheetId: '1X3ltwu9Etf9FjG2gxoCSHfw8sEDQcvXtWJTugEcUz8U' },
+    { key: 'LQ_LAM',       name: 'LQ Lamination',  spreadsheetId: '1EKUMWJ_zyoPQ9tbV-PGySMFBm-jsbx6NWO9x6R6slK8' },
+    { key: 'NBD_LAM',      name: 'NBD Lamination', spreadsheetId: '1_INBusaKi3TdGe-1MjlOdnTL-XdRdhWnBxwE5_3HBpw' }
+  ],
   THEME: {
     PRIMARY:         '#4F46E5',
     PRIMARY_LIGHT:   '#6366F1',

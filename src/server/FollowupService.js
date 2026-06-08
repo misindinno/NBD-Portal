@@ -415,17 +415,26 @@ function _nextMondayDateString_() {
 }
 
 function _followupRows() {
+  if (isAggregatePortal()) {
+    return getAggregatedRows(SHEET_NAMES.FOLLOWUPS)
+      .filter(_isFollowupTaskRow)
+      .map(_normalizeFollowupRow);
+  }
   return getRowsWithCustomFieldValues_('Followups', getAllRows(SHEET_NAMES.FOLLOWUPS))
     .filter(_isFollowupTaskRow)
     .map(_normalizeFollowupRow);
 }
 
 function _followupHistoryRows() {
-  return getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY);
+  return isAggregatePortal()
+    ? getAggregatedRows(SHEET_NAMES.FOLLOWUP_HISTORY)
+    : getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY);
 }
 
 function _leadActivityRows() {
-  return getAllRows(SHEET_NAMES.LEAD_ACTIVITY_LOGS);
+  return isAggregatePortal()
+    ? getAggregatedRows(SHEET_NAMES.LEAD_ACTIVITY_LOGS)
+    : getAllRows(SHEET_NAMES.LEAD_ACTIVITY_LOGS);
 }
 
 function _normalizeFollowupRow(row) {

@@ -3,6 +3,7 @@
 let CUSTOM_FIELD_UPLOAD_FOLDER_CACHE = null;
 
 function getLeads() {
+  if (isAggregatePortal()) return getAggregatedRows(SHEET_NAMES.LEADS);
   return getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS));
 }
 
