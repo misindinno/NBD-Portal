@@ -6,18 +6,28 @@ function sheetApiBatchGetRows_(sheetNames) {
   if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {
     throw new Error('Google Sheets advanced service is not enabled.');
   }
-  const names = (sheetNames || []).map(normalizeSheetName).filter(Boolean);
-  if (!names.length) return {};
+  const specs = (sheetNames || [])
+    .map(item => {
+      if (typeof item === 'object') {
+        return {
+          sheetName: normalizeSheetName(item.sheetName || item.name || ''),
+          range: String(item.range || 'A:ZZ')
+        };
+      }
+      return { sheetName: normalizeSheetName(item), range: 'A:ZZ' };
+    })
+    .filter(spec => spec.sheetName);
+  if (!specs.length) return {};
 
-  const ranges = names.map(name => "'" + String(name).replace(/'/g, "''") + "'!A:ZZ");
+  const ranges = specs.map(spec => "'" + String(spec.sheetName).replace(/'/g, "''") + "'!" + spec.range);
   const result = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {
     ranges,
     valueRenderOption: 'FORMATTED_VALUE',
     dateTimeRenderOption: 'FORMATTED_STRING'
   });
   const valueRanges = result.valueRanges || [];
-  return names.reduce((map, sheetName, i) => {
-    map[sheetName] = _sheetApiValuesToRows_(valueRanges[i] && valueRanges[i].values);
+  return specs.reduce((map, spec, i) => {
+    map[spec.sheetName] = _sheetApiValuesToRows_(valueRanges[i] && valueRanges[i].values);
     return map;
   }, {});
 }
@@ -36,13 +46,13 @@ function _sheetApiValuesToRows_(values) {
 
 function getTodayActivitySnapshotFast_(user) {
   const rows = sheetApiBatchGetRows_([
-    SHEET_NAMES.LEADS,
-    SHEET_NAMES.FOLLOWUPS,
-    SHEET_NAMES.FOLLOWUP_HISTORY,
-    SHEET_NAMES.LEAD_ACTIVITY_LOGS
+    { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+    { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
+    { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' },
+    { sheetName: SHEET_NAMES.LEAD_ACTIVITY_LOGS, range: 'A:H' }
   ]);
-  const leads = getRowsWithCustomFieldValues_('Leads', rows[SHEET_NAMES.LEADS] || []);
-  const followups = getRowsWithCustomFieldValues_('Followups', rows[SHEET_NAMES.FOLLOWUPS] || [])
+  const leads = rows[SHEET_NAMES.LEADS] || [];
+  const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
     .map(_normalizeFollowupRow);
   const followupHistory = (rows[SHEET_NAMES.FOLLOWUP_HISTORY] || []).filter(_isFollowupHistoryRow);
