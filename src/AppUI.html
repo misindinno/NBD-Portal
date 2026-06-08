@@ -586,8 +586,8 @@ function defaultPageForUser() {
     return 'queue';
   }
   const ordered = [
-    ['leads', 'Leads'], ['pipeline', 'Pipeline'],
-    ['followups', 'Followups'], ['today', 'Today'], ['leadform', 'LeadForm']
+    ['today', 'Today'], ['followups', 'Followups'], ['pipeline', 'Pipeline'],
+    ['leads', 'Leads'], ['leadform', 'LeadForm']
   ];
   const match = ordered.find(([page]) => canNavigate(page));
   if (match) return match[0];
