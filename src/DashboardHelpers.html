@@ -12,8 +12,8 @@ function _dbHtml() {
       <div class="fu-topbar-left">
         <div class="fu-hero-icon" style="background:linear-gradient(135deg,#DBEAFE,#93C5FD);color:#1D4ED8">${icon('layout-dashboard',16)}</div>
         <div class="fu-topbar-titles">
-          <div class="fu-hero-title">Dashboard</div>
-          <div class="fu-hero-sub">Performance, pipeline, and geography at a glance.</div>
+          <div class="fu-hero-title">Growth Engine</div>
+          <div class="fu-hero-sub">Plan vs Actual on the only lever that grows sales — additions, drops, and net.</div>
         </div>
       </div>
       <div class="fu-topbar-right">
@@ -21,6 +21,7 @@ function _dbHtml() {
           ${icon('sliders-horizontal', 14)} <span>Filters</span>
           ${icon(_dbFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
         </button>
+        <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_dbOpenPlanEditor()" title="Edit monthly plan targets">${icon('target', 13)}<span class="fu-btn-text"> Plan</span></button>
         <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_dbClearFilters()" title="Reset filters">${icon('x', 13)}<span class="fu-btn-text"> Reset</span></button>
         <button class="btn btn-primary btn-sm fu-topbar-btn" onclick="_dbRenderAll()" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
       </div>
@@ -66,131 +67,8 @@ function _dbHtml() {
       </div>
     </div>
 
-    <div id="db-kpi1" class="fu-kpis db-kpis"></div>
-    <div id="db-kpi2" class="fu-kpis db-kpis"></div>
-
-    <!-- Pipeline Funnel + Follow-up Donut -->
-    <div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;margin-bottom:16px;min-width:0">
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('git-branch-plus',15)} Lead Pipeline Funnel</div>
-        <div id="db-funnel"></div>
-      </div>
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('phone-call',15)} Follow-up Status</div>
-        <div style="position:relative;max-width:220px;margin:0 auto">
-          <canvas id="db-fu-donut"></canvas>
-          <div id="db-fu-center" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none"></div>
-        </div>
-        <div id="db-fu-legend" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
-      </div>
-    </div>
-
-    <!-- Geography Analytics -->
-    <div class="card" style="padding:22px;margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:7px;color:#333">${icon('map-pinned',15)} India State Lead Heat Map</div>
-      <div style="font-size:11px;color:#777;margin-bottom:14px">States are colored by lead count from the current dashboard filters.</div>
-      <div id="db-india-map"></div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('map',15)} State Wise Lead Count</div>
-        <canvas id="db-state-chart" style="max-width:100%"></canvas>
-      </div>
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('building-2',15)} Top Cities by Lead Count</div>
-        <canvas id="db-city-chart" style="max-width:100%"></canvas>
-      </div>
-    </div>
-
-    <div class="card" style="padding:22px;margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('layers-3',15)} Stage by State</div>
-      <canvas id="db-stage-state-chart" style="max-height:340px"></canvas>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('table-2',15)} State Summary</div>
-        <div id="db-state-summary" style="overflow-x:auto;max-height:320px"></div>
-      </div>
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('table-2',15)} City Summary</div>
-        <div id="db-city-summary" style="overflow-x:auto;max-height:320px"></div>
-      </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('grid-3x3',15)} Stage x State Matrix</div>
-        <div id="db-stage-state-matrix" style="overflow:auto;max-height:360px"></div>
-      </div>
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('grid-3x3',15)} Stage x City Matrix</div>
-        <div id="db-stage-city-matrix" style="overflow:auto;max-height:360px"></div>
-      </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#2E7D32">${icon('flame',15)} Hot Cities</div>
-        <div id="db-hot-cities" style="overflow-x:auto;max-height:300px"></div>
-      </div>
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#C62828">${icon('triangle-alert',15)} Problem Cities</div>
-        <div id="db-problem-cities" style="overflow-x:auto;max-height:300px"></div>
-      </div>
-    </div>
-
-    <!-- Source Chart + Team Chart -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('bar-chart-2',15)} Lead Source Analytics</div>
-        <canvas id="db-source-chart" style="max-width:100%"></canvas>
-      </div>
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('users',15)} Team Performance</div>
-        <canvas id="db-team-chart" style="max-width:100%"></canvas>
-      </div>
-    </div>
-
-    <!-- Lead Health Score -->
-    <div class="card" style="padding:22px;margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;color:#333">${icon('heart-pulse',15)} Lead Health Score</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px;align-items:start">
-        <div id="db-health-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;min-width:0"></div>
-        <div id="db-health-list" style="max-height:150px;overflow-y:auto;border-left:1px solid #f0f0f0;padding-left:18px"></div>
-      </div>
-    </div>
-
-    <!-- Overdue Follow-ups + Leads Without Follow-up -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;margin-bottom:16px;min-width:0">
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#C62828">${icon('triangle-alert',15)} Overdue Follow-ups</div>
-        <div id="db-overdue-table" style="max-height:300px;overflow-y:auto;overflow-x:auto"></div>
-      </div>
-      <div class="db-section">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#E65100">${icon('flame',15)} Leads Without Follow-up</div>
-        <div id="db-nofollowup-table" style="max-height:300px;overflow-y:auto;overflow-x:auto"></div>
-      </div>
-    </div>
-
-    <!-- Source Conversion Table -->
-    <div class="card" style="padding:22px;margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('table-2',15)} Source-wise Conversion</div>
-      <div id="db-source-table" style="overflow-x:auto"></div>
-    </div>
-
-    <!-- Team Leaderboard -->
-    <div class="card" style="padding:22px;margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px;color:#333">${icon('trophy',15)} Team Leaderboard</div>
-      <div id="db-leaderboard" style="overflow-x:auto"></div>
-    </div>
-
-    <!-- Activity Timeline -->
-    <div class="db-section">
-      <div style="font-size:13px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:7px;color:#333">${icon('activity',15)} Recent Activity</div>
-      <div id="db-activity"></div>
-    </div>
+    ${_dbTabsHTML(_dbActiveTab)}
+    ${_dbScorecardSections()}
 
   </div>`;
 }
@@ -324,24 +202,11 @@ function _dbStats(leads, fus) {
 function _dbRenderAll() {
   Object.values(_dbCharts).forEach(c => { try { c.destroy(); } catch(e) {} });
   _dbCharts = {};
-  _dbActivityPage.current = 0; // reset to first page on any filter/refresh
-
-  const { leads, fus } = _dbFilteredData();
-  const s = _dbStats(leads, fus);
-
+  _dbActivityPage.current = 0;
   _dbRefreshPortalFilterOptions();
-  _dbRenderKPIs(s);
-  _dbRenderFunnel(leads);
-  _dbRenderFollowupDonut(s);
-  _dbRenderSourceChart(leads);
-  _dbRenderTeamChart(leads, fus);
-  _dbRenderGeoAnalytics(leads, fus);
-  _dbRenderHealth(leads, fus);
-  _dbRenderOverdueTable(s.overdueFusList, leads);
-  _dbRenderNoFollowupTable(leads, fus);
-  _dbRenderSourceTable(leads);
-  _dbRenderLeaderboard(leads, fus);
-  _dbRenderActivity(leads);
+  // Ensure the current tab's panels are visible (in case of fresh shell render)
+  document.querySelectorAll('.db-tab-section').forEach(s => { s.style.display = s.dataset.tab === _dbActiveTab ? '' : 'none'; });
+  if (typeof _dbRenderActiveTab === 'function') _dbRenderActiveTab();
 }
 
 // ─── KPI Cards ────────────────────────────────────────────────────────────────
