@@ -185,18 +185,23 @@
   <?!= include('Queue'); ?>
   <?!= include('QueuePage'); ?>
   <?!= include('AppAuth'); ?>
-  <?!= include('Dashboard'); ?>
-  <?!= include('DashboardHelpers'); ?>
-  <?!= include('DashboardGeo'); ?>
-  <?!= include('DashboardTables'); ?>
-  <?!= include('Leads'); ?>
-  <?!= include('LeadDetail'); ?>
-  <?!= include('LeadFormShared'); ?>
-  <?!= include('LeadCustomFields'); ?>
-  <?!= include('Pipeline'); ?>
-  <?!= include('Followups'); ?>
-  <?!= include('FollowupQuery'); ?>
-  <?!= include('FollowupForms'); ?>
+  <? if (CLIENT_CONFIG.PORTAL_KIND === 'dashboard') { ?>
+    <?!= include('Dashboard'); ?>
+    <?!= include('DashboardHelpers'); ?>
+    <?!= include('DashboardGeo'); ?>
+    <?!= include('DashboardTables'); ?>
+  <? } else { ?>
+    <?!= include('Leads'); ?>
+    <?!= include('LeadDetail'); ?>
+    <?!= include('LeadFormShared'); ?>
+    <?!= include('LeadCustomFields'); ?>
+    <?!= include('Pipeline'); ?>
+    <?!= include('Followups'); ?>
+    <?!= include('FollowupQuery'); ?>
+    <?!= include('FollowupForms'); ?>
+    <?!= include('LeadForm'); ?>
+    <?!= include('BulkView'); ?>
+  <? } ?>
   <?!= include('Today'); ?>
   <?!= include('Config'); ?>
   <?!= include('ConfigStages'); ?>
@@ -204,8 +209,6 @@
   <?!= include('ConfigFields'); ?>
   <?!= include('ConfigUserHelpers'); ?>
   <?!= include('ConfigUsers'); ?>
-  <?!= include('LeadForm'); ?>
-  <?!= include('BulkView'); ?>
   <?!= include('AppUI'); ?>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
