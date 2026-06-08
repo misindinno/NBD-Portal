@@ -149,7 +149,29 @@ function _dbFilteredData() {
   const leadIds = new Set(leads.map(l => l['Lead ID']));
   fus = fus.filter(fu => leadIds.has(fu['Lead ID']));
 
-  return { leads, fus };
+  // Filtered follow-up history (used by Connection / Conversion rate KPIs).
+  let history = AppCache.getRows('followupHistory') || [];
+  history = history.filter(h => leadIds.has(h['Lead ID']));
+  if (f.from) history = history.filter(h => (_fmtDate(h['Done Date'] || h['Created At']) || '') >= f.from);
+  if (f.to)   history = history.filter(h => (_fmtDate(h['Done Date'] || h['Created At']) || '') <= f.to);
+  if (f.userId) history = history.filter(h => h['Done By'] === f.userId || h['Created By'] === f.userId);
+
+  return { leads, fus, history, filters: f };
+}
+
+// Returns the active period window — from/to filters override month-to-date defaults.
+function _dbActiveWindow(filters) {
+  filters = filters || _dbGetFilters();
+  let from = filters && filters.from ? filters.from : '';
+  let to   = filters && filters.to   ? filters.to   : '';
+  if (!from) {
+    const d = new Date(); d.setDate(1); d.setHours(0,0,0,0);
+    from = _fmtDate(d.toISOString());
+  }
+  if (!to) to = localDateInputValue();
+  // toExclusive = to + 1 day (so date <= to inclusive in lever metrics that use strict <)
+  const dEnd = new Date(to + 'T00:00:00'); dEnd.setDate(dEnd.getDate() + 1);
+  return { from, to, toExclusive: _fmtDate(dEnd.toISOString()) };
 }
 
 function _dbStats(leads, fus) {

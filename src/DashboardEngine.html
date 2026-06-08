@@ -287,30 +287,27 @@ function _dbScorecardSections() {
 
 // ── Render the active tab ────────────────────────────────────────────────────
 function _dbRenderActiveTab() {
-  const { leads, fus } = _dbFilteredData();
-  if (_dbActiveTab === 'engine')         _dbRenderGrowthEngineTab(leads, fus);
-  else if (_dbActiveTab === 'otp')       _dbRenderOTPTab(leads, fus);
-  else if (_dbActiveTab === 'cs')        _dbRenderCSTab(leads, fus);
-  else if (_dbActiveTab === 'analytics') _dbRenderAnalyticsTab(leads, fus);
+  const data = _dbFilteredData();
+  if (_dbActiveTab === 'engine')         _dbRenderGrowthEngineTab(data);
+  else if (_dbActiveTab === 'otp')       _dbRenderOTPTab(data);
+  else if (_dbActiveTab === 'cs')        _dbRenderCSTab(data);
+  else if (_dbActiveTab === 'analytics') _dbRenderAnalyticsTab(data.leads, data.fus);
 }
 window._dbRenderActiveTab = _dbRenderActiveTab;
 
 // ── Growth Engine (Supervisor master) ────────────────────────────────────────
-function _dbRenderGrowthEngineTab(leads, fus) {
+function _dbRenderGrowthEngineTab(data) {
+  const leads = data.leads, fus = data.fus, history = data.history || [];
   const plan = _dbGetPlan();
   const { active } = _dbActiveContext(leads);
-  const monthStart = _dbMonthStartISO();
-  const next = new Date(); next.setMonth(next.getMonth() + 1); next.setDate(1);
-  const monthEnd   = _dbMonthStartISO(next);
-  const m = _dbLeverMetricsForWindow(leads, monthStart, monthEnd);
-  const onTimePct = _dbOnTimeReorderPct(AppCache.getRows('followupHistory'), monthStart);
+  const win = _dbActiveWindow(data.filters);
+  const m = _dbLeverMetricsForWindow(leads, win.from, win.toExclusive);
+  const onTimePct = _dbOnTimeReorderPct(history, win.from);
   const avgSale = _dbAvgSalePerPair(leads);
   const opening = active.length - m.net;
   const monthlySales = active.length * avgSale;
   const monthlySalesPlan = plan.monthlyAdds * avgSale + opening * avgSale;
-  const _fuHistAll = AppCache.getRows('followupHistory') || [];
-  const _monthHist = _fuHistAll.filter(r => _fmtDate(r['Done Date'] || r['Created At']) >= monthStart);
-  const _rates = computeCallRates(_monthHist);
+  const _rates = computeCallRates(history);
 
   const kpis = [
     { label: 'Active Pairs',   value: active.length,                 sub: `opening ${opening}`,            icon: 'layers',         cls: 'blue' },
@@ -413,14 +410,13 @@ function _dbRenderGrowthEngineTab(leads, fus) {
 }
 
 // ── OTP Retention Scorecard ──────────────────────────────────────────────────
-function _dbRenderOTPTab(leads, fus) {
+function _dbRenderOTPTab(data) {
+  const leads = data.leads, fus = data.fus, history = data.history || [];
   const plan = _dbGetPlan();
   const stageMap = _dbStageMap();
-  const monthStart = _dbMonthStartISO();
-  const next = new Date(); next.setMonth(next.getMonth() + 1); next.setDate(1);
-  const monthEnd = _dbMonthStartISO(next);
-  const m = _dbLeverMetricsForWindow(leads, monthStart, monthEnd);
-  const onTimePct = _dbOnTimeReorderPct(AppCache.getRows('followupHistory'), monthStart) || 0;
+  const win = _dbActiveWindow(data.filters);
+  const m = _dbLeverMetricsForWindow(leads, win.from, win.toExclusive);
+  const onTimePct = _dbOnTimeReorderPct(history, win.from) || 0;
   const avgSale = _dbAvgSalePerPair(leads);
 
   const { active } = _dbActiveContext(leads);
@@ -428,9 +424,7 @@ function _dbRenderOTPTab(leads, fus) {
   const openFus = fus.filter(f => _isOpenFollowupRow(f));
   const overdueFus = openFus.filter(f => { const d = _fmtDate(_fuPlannedDate(f)); return d && d < todayStr; });
 
-  const _fuHistAll = AppCache.getRows('followupHistory') || [];
-  const _monthHist = _fuHistAll.filter(r => _fmtDate(r['Done Date'] || r['Created At']) >= monthStart);
-  const _rates = computeCallRates(_monthHist);
+  const _rates = computeCallRates(history);
 
   const kpis = [
     { label: 'Active Pairs Defended', value: active.length,           sub: 'on cycle + amber',           icon: 'shield',         cls: 'blue' },
@@ -530,13 +524,12 @@ function _dbRenderOTPTab(leads, fus) {
 }
 
 // ── CS Growth Scorecard ──────────────────────────────────────────────────────
-function _dbRenderCSTab(leads, fus) {
+function _dbRenderCSTab(data) {
+  const leads = data.leads, fus = data.fus, history = data.history || [];
   const plan = _dbGetPlan();
   const stageMap = _dbStageMap();
-  const monthStart = _dbMonthStartISO();
-  const next = new Date(); next.setMonth(next.getMonth() + 1); next.setDate(1);
-  const monthEnd = _dbMonthStartISO(next);
-  const m = _dbLeverMetricsForWindow(leads, monthStart, monthEnd);
+  const win = _dbActiveWindow(data.filters);
+  const m = _dbLeverMetricsForWindow(leads, win.from, win.toExclusive);
   const avgSale = _dbAvgSalePerPair(leads);
 
   const inPipeline = leads.filter(l => {
@@ -547,7 +540,7 @@ function _dbRenderCSTab(leads, fus) {
   const completedThisMonth = leads.filter(l => {
     const fin = _dbStageFinality(l['Stage ID'], stageMap);
     const movedAt = _fmtDate(l['Stage Updated At'] || l['Updated At']);
-    return fin.isFinal && movedAt >= monthStart && movedAt < monthEnd;
+    return fin.isFinal && movedAt >= win.from && movedAt < win.toExclusive;
   });
   const wonThisMonth = completedThisMonth.filter(l => String(l['Lead Status'] || '') === 'Won');
   const winRate = completedThisMonth.length ? Math.round(wonThisMonth.length / completedThisMonth.length * 100) : 0;
@@ -565,9 +558,7 @@ function _dbRenderCSTab(leads, fus) {
     ? (Array.from(clientGroups.values()).reduce((s, set) => s + set.size, 0) / clientGroups.size).toFixed(1)
     : '0.0';
 
-  const _fuHistAllCS = AppCache.getRows('followupHistory') || [];
-  const _monthHistCS = _fuHistAllCS.filter(r => _fmtDate(r['Done Date'] || r['Created At']) >= monthStart);
-  const _ratesCS = computeCallRates(_monthHistCS);
+  const _ratesCS = computeCallRates(history);
 
   const kpis = [
     { label: 'New Pairs Added', value: `${m.additions} / ${plan.monthlyAdds}`, sub: m.additions < plan.monthlyAdds ? 'behind ▼' : 'on plan', icon: 'plus-circle', cls: m.additions >= plan.monthlyAdds ? 'success' : 'warning' },
