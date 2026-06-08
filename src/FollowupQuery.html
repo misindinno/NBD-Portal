@@ -54,12 +54,9 @@ async function _runCustomQuery() {
 
   el('query-results').innerHTML = skeletonPage('table');
   try {
-    await Promise.all([
-      _ensureCached('followups', () => api.getFollowups({})),
-      _ensureCached('leads',     () => api.getFollowupLeads())
-    ]);
-    const ctx = _buildFollowupContext(AppCache.getRows('leads'));
-    let data = AppCache.getRows('followups')
+    const snapshot = await _getFollowupPageSnapshot();
+    const ctx = _buildFollowupContext(snapshot.leads, snapshot);
+    let data = snapshot.followups
       .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
       .filter(_isOpenFollowupRow)
       .map(r => _decorateFollowup(r, ctx))

@@ -293,6 +293,14 @@ function apiGetTodayActivitySnapshot(token) {
   });
 }
 
+function apiGetFollowupPageSnapshot(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Followups');
+    return respond(getFollowupPageSnapshotFast_(user));
+  });
+}
+
 function apiRunSheetsApiSampleWrite(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

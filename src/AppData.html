@@ -253,7 +253,7 @@ async function _refreshFollowupsCache() {
   try { renderSidebar(); } catch (e) {}
   const pg = App.currentPage;
   if (pg && pg.startsWith('followups')) {
-    _renderFUTab(window.currentFollowupTab || 'all');
+    _renderFUTab(window.currentFollowupTab || 'all', true);
   } else if (pg === 'dashboard') {
     loadDashboard();
   }
@@ -353,7 +353,7 @@ async function _refreshFollowupHistoryCache() {
   const rows = await api.getFollowupHistory({});
   AppCache.setRows('followupHistory', rows);
   const pg = App.currentPage;
-  if (pg && pg.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+  if (pg && pg.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all', true);
 }
 
 async function _refreshActivityLogsCache() {

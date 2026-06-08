@@ -68,6 +68,39 @@ function getTodayActivitySnapshotFast_(user) {
   };
 }
 
+function getFollowupPageSnapshotFast_(user) {
+  const started = Date.now();
+  const rows = sheetApiBatchGetRows_([
+    { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+    { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
+    { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' }
+  ]);
+  const leads = rows[SHEET_NAMES.LEADS] || [];
+  const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
+    .filter(_isFollowupTaskRow)
+    .map(_normalizeFollowupRow);
+  const scopedFollowups = _scopeFollowupRows(followups, user);
+  const linkedLeadIds = scopedFollowups.reduce((map, row) => {
+    if (row['Lead ID']) map[row['Lead ID']] = true;
+    return map;
+  }, {});
+  const visibleLeads = leads.filter(lead =>
+    _canReadAssignedRow(lead, user) || linkedLeadIds[lead['Lead ID']]
+  );
+
+  return {
+    leads: visibleLeads,
+    followups: scopedFollowups,
+    followupHistory: _scopeFollowupHistoryRows(
+      _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY]),
+      user
+    ),
+    source: 'sheets-api',
+    fetchMs: Date.now() - started,
+    fetchedAt: now()
+  };
+}
+
 function _sheetApiFollowupHistoryRows_(rows) {
   return (rows || []).filter(row =>
     String(row['History ID'] || row['Follow-up ID'] || row['Lead ID'] || '').trim()

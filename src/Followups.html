@@ -6,9 +6,11 @@ let _fuPage = 1;
 let _fuPageSize = 25;
 let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_fuDensity')) || 'compact';
 let _fuFiltersOpen = false;
+let _fuPageSnapshot = null;
 
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
+  _fuPageSnapshot = null;
   el('page-title').textContent = 'Follow-ups';
   _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
   _fuPage = 1;
@@ -41,7 +43,7 @@ function _fuShellHTML(tab) {
           </div>
         </div>
         <div class="fu-topbar-right">
-          <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_renderFUTab(window.currentFollowupTab || 'all')" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
+          <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_renderFUTab(window.currentFollowupTab || 'all', true)" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
           ${_canAddFollowup() ? `<button class="btn btn-primary btn-sm fu-topbar-btn" onclick="openFollowupForm()">${icon('plus', 14)}<span class="fu-btn-text"> Add Follow-up</span></button>` : (_isNBDPortal() ? _nbdEscalateBtn('sm') : '')}
         </div>
       </div>
@@ -256,46 +258,26 @@ function _fuApplyFilters(rows, ctx) {
   });
 }
 
-async function _renderFUTab(tab) {
+async function _renderFUTab(tab, force = false) {
   const body = el('fu-body');
   if (!body) return;
 
-  // Closed tab uses followupHistory plus no-next-date master followups; all others use scheduled followups.
-  if (tab === 'closed') {
-    if (!AppCache.isLoaded('followupHistory') || !AppCache.isLoaded('followups') || !AppCache.isLoaded('leads')) {
-      body.innerHTML = skeletonPage('table');
-      await Promise.all([
-        _ensureCached('followupHistory', () => api.getFollowupHistory({})),
-        _ensureCached('followups',       () => api.getFollowups({})),
-        _ensureCached('leads',           () => api.getFollowupLeads())
-      ]);
-    }
-  } else {
-    if (!AppCache.isLoaded('followups') || !AppCache.isLoaded('leads') || !AppCache.isLoaded('followupHistory')) {
-      body.innerHTML = skeletonPage('table');
-      await Promise.all([
-        _ensureCached('followups', () => api.getFollowups({})),
-        _ensureCached('leads',     () => api.getFollowupLeads()),
-        _ensureCached('followupHistory', () => api.getFollowupHistory({}))
-      ]);
-    }
-  }
-
   try {
+    const snapshot = await _getFollowupPageSnapshot(force);
     const todayStr = localDateInputValue();
     let rows;
     if (tab === 'closed') {
-      const historyRows = AppCache.getRows('followupHistory')
+      const historyRows = snapshot.followupHistory
         .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
       const historyFollowupIds = new Set(historyRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
-      const noNextRows = AppCache.getRows('followups')
+      const noNextRows = snapshot.followups
         .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
         .filter(_isNoNextPlannedFollowup)
         .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || '')))
         .map(r => ({ ...r, _closedNoNext: true }));
       rows = historyRows.concat(noNextRows);
     } else {
-      rows = AppCache.getRows('followups')
+      rows = snapshot.followups
         .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
         .filter(_isOpenFollowupRow)
         .filter(r => !_isNoNextPlannedFollowup(r));
@@ -307,10 +289,10 @@ async function _renderFUTab(tab) {
         rows = rows.filter(r => { const d = _fmtDate(_fuPlannedDate(r)); return d && d > todayStr; });
       }
     }
-    const ctx = _buildFollowupContext(AppCache.getRows('leads'));
+    const ctx = _buildFollowupContext(snapshot.leads, snapshot);
     const tabsEl = el('fu-tabs');
     if (tabsEl) { tabsEl.innerHTML = _fuTabsHTML(window.currentFollowupTab || 'all'); renderIcons(tabsEl); }
-    _fuRenderOverview(ctx);
+    _fuRenderOverview(ctx, snapshot);
     rows = _fuApplyFilters(rows, ctx);
     const inlineChips = el('fu-filter-chips-inline'); if (inlineChips) { inlineChips.innerHTML = _fuFilterChipsHTML(); renderIcons(inlineChips); }
     const hasFilter = Object.values(_fuFilterState).some(Boolean);
@@ -320,7 +302,24 @@ async function _renderFUTab(tab) {
     body.innerHTML = _fuTable(rows, emptyMsg, ctx);
     renderIcons(body);
     _fuAttachScrollCollapse();
-  } catch(e) { body.innerHTML = `<p style="color:red">${e}</p>`; }
+  } catch(e) { body.innerHTML = `<p style="color:red">${escapeHtml(e.message || String(e))}</p>`; }
+}
+
+async function _getFollowupPageSnapshot(force = false) {
+  if (!force && _fuPageSnapshot) return _fuPageSnapshot;
+  const started = performance.now();
+  const data = await api.getFollowupPageSnapshot();
+  const browserMs = Math.round(performance.now() - started);
+  _fuPageSnapshot = {
+    leads: data.leads || [],
+    followups: data.followups || [],
+    followupHistory: data.followupHistory || [],
+    source: data.source || 'api',
+    fetchMs: data.fetchMs || 0,
+    browserMs,
+    fetchedAt: data.fetchedAt || ''
+  };
+  return _fuPageSnapshot;
 }
 
 function _fuAttachScrollCollapse() {
@@ -343,15 +342,15 @@ async function _loadFollowupContext() {
   return _buildFollowupContext(data.leads || []);
 }
 
-function _fuRenderOverview(ctx) {
-  const openRows = (AppCache.getRows('followups') || [])
+function _fuRenderOverview(ctx, snapshot = _fuPageSnapshot || {}) {
+  const openRows = (snapshot.followups || [])
     .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
     .filter(_isOpenFollowupRow)
     .filter(r => !!_fmtDate(_fuPlannedDate(r)));
-  const historyRows = (AppCache.getRows('followupHistory') || [])
+  const historyRows = (snapshot.followupHistory || [])
     .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
   const historyFollowupIds = new Set(historyRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
-  const noNextClosedRows = (AppCache.getRows('followups') || [])
+  const noNextClosedRows = (snapshot.followups || [])
     .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
     .filter(_isNoNextPlannedFollowup)
     .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || '')));
@@ -397,8 +396,20 @@ function _fuRenderOverview(ctx) {
       <span class="fu-kpi-value">${escapeHtml(k.value)}</span>
       <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
       <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
-    </button>`).join('');
+    </button>`).join('') + _fuFetchBadge(snapshot);
   renderIcons(kpiEl);
+}
+
+function _fuFetchBadge(snapshot) {
+  if (!snapshot) return '';
+  const serverMs = Number(snapshot.fetchMs || 0);
+  const browserMs = Number(snapshot.browserMs || 0);
+  return `<div class="fu-kpi fu-kpi-neutral" title="Server Sheets API fetch: ${serverMs} ms. Browser roundtrip: ${browserMs} ms.">
+    <span class="fu-kpi-icon">${icon('gauge', 17)}</span>
+    <span class="fu-kpi-value">${escapeHtml(browserMs || serverMs || '-')} ms</span>
+    <span class="fu-kpi-label">API Fetch</span>
+    <span class="fu-kpi-sub">${escapeHtml(snapshot.source || 'api')} / server ${serverMs || '-'} ms</span>
+  </div>`;
 }
 
 function _fuKpiAction(key) {
@@ -419,18 +430,16 @@ function _fuKpiAction(key) {
 }
 
 async function _getFollowupFormData(force = false) {
-  // Serve open leads from cache if available; only hit the API when forced
-  // (e.g. lead picker refresh) or when cache is not yet loaded.
-  if (!force && AppCache.isLoaded('leads')) {
-    return { leads: AppCache.getRows('leads').filter(l => l['Lead Status'] === 'Open') };
+  if (!force && _fuPageSnapshot) {
+    return { leads: (_fuPageSnapshot.leads || []).filter(l => l['Lead Status'] === 'Open') };
   }
   return api.getFollowupFormData();
 }
 
-function _buildFollowupContext(leads = []) {
+function _buildFollowupContext(leads = [], snapshot = _fuPageSnapshot || {}) {
   const allFuRows = [
-    ...(AppCache.getRows('followups') || []),
-    ...(AppCache.getRows('followupHistory') || [])
+    ...(snapshot.followups || []),
+    ...(snapshot.followupHistory || [])
   ];
   const lastDiscussionMap = {};
   const lastDoneMap = {};
