@@ -331,6 +331,24 @@ function apiGetFollowupLeads(token) {
   });
 }
 
+function apiSaveFollowupDirect(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanEnqueueJob_(user, 'followups', 'saveFollowup');
+    return saveFollowup(payload || {}, user.email);
+  });
+}
+
+function apiMarkFollowupDoneDirect(token, followupId, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanEnqueueJob_(user, 'followups', 'markFollowupDone');
+    return markFollowupDone(followupId || '', payload || {}, user.email);
+  });
+}
+
 // Users
 function apiGetUsers(token) {
   _currentApiToken_ = token || '';

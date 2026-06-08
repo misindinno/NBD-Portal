@@ -281,6 +281,15 @@ function requireRole(allowedRoles) {
   return result.data;
 }
 
+function requireRoleForEmail_(allowedRoles, email) {
+  const norm = String(email || '').trim().toLowerCase();
+  if (!norm) return requireRole(allowedRoles);
+  const result = getCurrentUserByEmail_(norm);
+  if (!result.success) throw new Error(result.error);
+  if (!allowedRoles.includes(result.data.role)) throw new Error('Permission denied.');
+  return result.data;
+}
+
 
 // ─── Custom session auth (email + password) ───────────────────────────────────
 const AUTH_SESSION_TTL = 21600; // 6 hours (Apps Script CacheService maximum)

@@ -101,7 +101,8 @@ async function openFollowupForm(leadId = '', leadName = '') {
       payload['Follow-up Date'] = payload['Follow-up Date'] || payload['Planned Date'];
       payload['Next Follow-up Date'] = payload['Planned Date'];
       payload['Status'] = 'Open';
-      const snapshotLead = payload['Lead ID'] ? AppCache.getRows('leads').find(l => l['Lead ID'] === payload['Lead ID']) : null;
+      const snapshot = await _getFollowupPageSnapshot();
+      const snapshotLead = payload['Lead ID'] ? (snapshot.leads || []).find(l => l['Lead ID'] === payload['Lead ID']) : null;
       payload['Stage ID'] = snapshotLead ? (snapshotLead['Stage ID'] || '') : '';
       const confirmed = await _confirmFollowupCreateReview(payload, snapshotLead);
       if (!confirmed) {
@@ -110,36 +111,14 @@ async function openFollowupForm(leadId = '', leadName = '') {
         return;
       }
 
-      const tempId = 'temp-fu-' + Date.now();
-      AppCache.addRow('followups', {
-        ...payload, 'Follow-up ID': tempId, '_queueTemp': true,
-        'Created By': App.user.id,
-        'Created At': _nowStr(), 'Updated At': _nowStr()
-      });
-      if (payload['Lead ID']) {
-        const patch = { 'Next Follow-up Date': payload['Planned Date'], 'Updated At': _nowStr() };
-        if (payload['Updated Stage ID']) patch['Stage ID'] = payload['Updated Stage ID'];
-        AppCache.patchRow('leads', 'Lead ID', payload['Lead ID'], patch);
-      }
+      const saveResult = await api.saveFollowupDirect(payload);
       overlay.remove();
-      if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
-      QueueManager.enqueue({
-        module: 'followups', actionType: 'saveFollowup', payload, tempId,
-        flushNow: true,
-        onDone: j => {
-          if (j.finalRecordId) AppCache.patchRow('followups', 'Follow-up ID', tempId, { 'Follow-up ID': j.finalRecordId, '_queueTemp': false });
-          toast('Follow-up saved!');
-        },
-        onFail: j => {
-          AppCache.removeRow('followups', 'Follow-up ID', tempId);
-          if (payload['Lead ID']) _refreshLeadsCache().catch(() => {});
-          if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
-          toast('Save failed: ' + (j.error || 'Error'), 'error');
-        }
-      });
-      toast('Saving follow-up…', 'info');
+      _fuPageSnapshot = null;
+      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all', true);
+      if (App.currentPage === 'dashboard') loadDashboard();
+      toast('Follow-up saved' + (saveResult ? ': ' + saveResult : '') + '!');
     } catch (err) {
-      toast(err, 'error');
+      toast(err.message || String(err), 'error');
       resetButtonLoading(btn);
       fuForm.dataset.submitting = '';
     }
@@ -182,15 +161,16 @@ async function _confirmFollowupCreateReview(payload, lead) {
 }
 
 async function openMarkFollowupDoneForm(followupId) {
-  const row = AppCache.getRows('followups').find(f => f['Follow-up ID'] === followupId);
+  const snapshot = await _getFollowupPageSnapshot();
+  const row = (snapshot.followups || []).find(f => f['Follow-up ID'] === followupId);
   if (!row) return toast('Follow-up not found in the current view.', 'error');
-  const lead = row['Lead ID'] ? AppCache.getRows('leads').find(l => l['Lead ID'] === row['Lead ID']) : null;
-  const ctx = _buildFollowupContext(lead ? [lead] : AppCache.getRows('leads'));
+  const lead = row['Lead ID'] ? (snapshot.leads || []).find(l => l['Lead ID'] === row['Lead ID']) : null;
+  const ctx = _buildFollowupContext(snapshot.leads || [], snapshot);
   const decorated = _decorateFollowup(row, ctx);
   const issueOptions = (App.config._allConfigs || [])
     .filter(c => c['Config Type'] === 'Issues' && c['Status'] === 'Active')
     .map(c => '<option>' + escapeHtml(c['Value']) + '</option>').join('');
-  const stageOptionsHTML = lead ? _fuNextStageOptionsHTML(lead['Lead ID'], AppCache.getRows('leads')) : '<option value="">No Change</option>';
+  const stageOptionsHTML = lead ? _fuNextStageOptionsHTML(lead['Lead ID'], snapshot.leads || []) : '<option value="">No Change</option>';
   const todayStr = localDateInputValue();
   const _maxD = new Date(); _maxD.setDate(_maxD.getDate() + 7);
   const maxNextDate = _maxD.toISOString().split('T')[0];
@@ -338,24 +318,14 @@ async function openMarkFollowupDoneForm(followupId) {
       if (!payload['Issues'])           delete payload['Issues'];
       const closesFollowup = _markDoneClosesFollowup(form);
       if (closesFollowup) delete payload['Next Follow-up Date'];
-      AppCache.removeRow('followups', 'Follow-up ID', followupId);
+      await api.markFollowupDoneDirect(followupId, payload);
       overlay.remove();
-      if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+      _fuPageSnapshot = null;
+      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all', true);
       if (App.currentPage === 'dashboard') loadDashboard();
-      QueueManager.enqueue({
-        module: 'followups', actionType: 'markFollowupDone',
-        payload: { id: followupId, data: payload },
-        flushNow: true,
-        onDone: () => toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.'),
-        onFail: j => {
-          AppCache.addRow('followups', row);
-          if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
-          toast('Save failed: ' + (j.error || 'Error'), 'error');
-        }
-      });
-      toast('Saving…', 'info');
+      toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
     } catch (err) {
-      toast(err, 'error');
+      toast(err.message || String(err), 'error');
       resetButtonLoading(btn);
       form.dataset.submitting = '';
     }
@@ -365,15 +335,8 @@ async function openMarkFollowupDoneForm(followupId) {
 
 function _applyFollowupDoneResult(result) {
   if (!result) return;
-  const followup = result.followup;
-  if (followup) {
-    if (_isOpenFollowupRow(followup)) AppCache.patchRow('followups', 'Follow-up ID', followup['Follow-up ID'], followup);
-    else AppCache.removeRow('followups', 'Follow-up ID', followup['Follow-up ID']);
-  }
-  if (result.history) AppCache.addRow('followupHistory', result.history);
-  if (result.activityLog) AppCache.addRow('activityLogs', result.activityLog);
-  if (result.leadId && result.leadPatch) AppCache.patchRow('leads', 'Lead ID', result.leadId, result.leadPatch);
-  if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all');
+  _fuPageSnapshot = null;
+  if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all', true);
   if (App.currentPage === 'dashboard') loadDashboard();
 }
 
@@ -381,6 +344,7 @@ function _applyFollowupDoneResult(result) {
 async function _fuPickLead() {
   const formData = await _getFollowupFormData(true);
   const leads = formData.leads || [];
+  _fuPageSnapshot = { ...(_fuPageSnapshot || {}), leads };
   const open  = leads.filter(l => l['Lead Status'] === 'Open');
   const overlay = showModal(`
     <div class="modal-header">
@@ -419,12 +383,13 @@ function _filterLeadPicker(q) {
 function _selectLead(leadId, leadName) {
   const leadInput   = el('fu-lead-id');
   const leadDisplay = el('fu-lead-display');
-  const lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
+  const leadRows = (_fuPageSnapshot && _fuPageSnapshot.leads) || [];
+  const lead = leadRows.find(l => l['Lead ID'] === leadId);
   const isNbdLocked = !!(lead && (lead['NBD Lead ID'] || lead['Pushed To NBD At']));
   if (leadInput)   leadInput.value   = leadId;
   if (leadDisplay) leadDisplay.value = leadName || '';
   const stageSelect = el('fu-stage-wrap')?.querySelector('[name="Updated Stage ID"]');
-  if (stageSelect) stageSelect.innerHTML = isNbdLocked ? '<option value="">No Change</option>' : _fuNextStageOptionsHTML(leadId, AppCache.getRows('leads'));
+  if (stageSelect) stageSelect.innerHTML = isNbdLocked ? '<option value="">No Change</option>' : _fuNextStageOptionsHTML(leadId, leadRows);
   _toggleFUStageField(!!leadId && !isNbdLocked);
   document.querySelectorAll('.modal-overlay')[1]?.remove();
 }

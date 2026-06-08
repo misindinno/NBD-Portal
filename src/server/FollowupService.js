@@ -43,7 +43,7 @@ function getLeadActivityLogs(filters) {
 
 function saveFollowup(data, email) {
   ensureFollowupSheets_();
-  const user = requireRole(['ADMIN']);
+  const user = requireRoleForEmail_(['ADMIN'], email);
   let lead = null;
   let stage = null;
   let preparedLeadForStage = null;
@@ -126,7 +126,7 @@ function saveFollowup(data, email) {
 
 function markFollowupDone(followupId, data, email) {
   ensureFollowupSheets_();
-  const user = requireRole(['ADMIN', 'MANAGER', 'SALES', 'USER']);
+  const user = requireRoleForEmail_(['ADMIN', 'MANAGER', 'SALES', 'USER'], email);
   const row = getRowByIndexedId_(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
   if (!row) return respond(null, 'Follow-up not found.');
 
