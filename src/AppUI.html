@@ -421,7 +421,7 @@ function renderInitialLoading() {
         <span class="skeleton-nav-line"></span>
       </div>`).join('');
   }
-  setContentLoading('dashboard');
+  setContentLoading(_isDashboardPortal() ? 'dashboard' : 'table');
 }
 
 function renderSidebar() {
