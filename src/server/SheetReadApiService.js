@@ -55,7 +55,7 @@ function getTodayActivitySnapshotFast_(user) {
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
     .map(_normalizeFollowupRow);
-  const followupHistory = (rows[SHEET_NAMES.FOLLOWUP_HISTORY] || []).filter(_isFollowupHistoryRow);
+  const followupHistory = _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY]);
   const activityLogs = rows[SHEET_NAMES.LEAD_ACTIVITY_LOGS] || [];
 
   return {
@@ -66,6 +66,12 @@ function getTodayActivitySnapshotFast_(user) {
     source: 'sheets-api',
     fetchedAt: now()
   };
+}
+
+function _sheetApiFollowupHistoryRows_(rows) {
+  return (rows || []).filter(row =>
+    String(row['History ID'] || row['Follow-up ID'] || row['Lead ID'] || '').trim()
+  );
 }
 
 function runSheetsApiSampleWrite_(user, payload) {
