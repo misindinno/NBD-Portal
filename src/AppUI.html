@@ -4,6 +4,11 @@ function _isNBDPortal() {
 }
 window._isNBDPortal = _isNBDPortal;
 
+function _isDashboardPortal() {
+  return (typeof PORTAL_KIND !== 'undefined' ? String(PORTAL_KIND) : 'main').toLowerCase() === 'dashboard';
+}
+window._isDashboardPortal = _isDashboardPortal;
+
 function _nbdEscalateBtn(size) {
   const url = String(App?.config?.settings?.escalateFormUrl || '').trim();
   const cls  = size === 'sm' ? 'btn btn-primary btn-sm' : 'btn btn-primary';
@@ -479,21 +484,31 @@ function renderSidebar() {
     </a>`;
 
   let html = '';
+  const dashboardOnly = _isDashboardPortal();
 
-  const mainItems = [
-    show('Dashboard') ? navItem('dashboard', 'layout-dashboard', 'Dashboard') : '',
-    show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : '',
-    show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount, 'Overdue + Today + New leads without follow-up'))   : '',
-    show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
-  ].filter(Boolean).join('');
-  if (mainItems) html += `<div class="nav-section">Main</div>${mainItems}`;
+  if (dashboardOnly) {
+    // Dashboard-only client: only analytics nav + system items
+    const analyticsItems = [
+      show('Dashboard') ? navItem('dashboard', 'layout-dashboard', 'Dashboard') : '',
+      show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : ''
+    ].filter(Boolean).join('');
+    if (analyticsItems) html += `<div class="nav-section">Analytics</div>${analyticsItems}`;
+  } else {
+    // Main portals: hide Dashboard (now lives in its own client) but keep Today's Activity
+    const mainItems = [
+      show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : '',
+      show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount, 'Overdue + Today + New leads without follow-up'))   : '',
+      show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
+    ].filter(Boolean).join('');
+    if (mainItems) html += `<div class="nav-section">Main</div>${mainItems}`;
 
-  const leadItems = [
-    show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master', badge(leadsCount, 'Pending (not in final stage)')) : '',
-    show('LeadForm')  ? navItem('leadform', 'file-plus',  'Lead Form')   : '',
-    canUseBulkEntry ? navItem('bulkview', 'table-2',    'Bulk Entry')  : '',
-  ].filter(Boolean).join('');
-  if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
+    const leadItems = [
+      show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master', badge(leadsCount, 'Pending (not in final stage)')) : '',
+      show('LeadForm')  ? navItem('leadform', 'file-plus',  'Lead Form')   : '',
+      canUseBulkEntry ? navItem('bulkview', 'table-2',    'Bulk Entry')  : '',
+    ].filter(Boolean).join('');
+    if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
+  }
 
   // Queue — visible to all authenticated users
   html += `<div class="nav-section">System</div>`;
@@ -542,11 +557,16 @@ function hasModule(name) {
 
 function canNavigate(page) {
   if (!App.user) return false;
+  const dashboardOnly = _isDashboardPortal();
   const moduleMap = {
     dashboard: 'Dashboard', leads: 'Leads', pipeline: 'Pipeline',
     followups: 'Followups', 'followups-today': 'Followups',
     'followups-overdue': 'Followups', 'followups-custom': 'Followups', 'followups-new': 'Followups'
   };
+  // Dashboard page only reachable from the dashboard-only portal
+  if (page === 'dashboard') return dashboardOnly && hasModule('Dashboard');
+  // In the dashboard-only portal, restrict to dashboard + today + queue + config
+  if (dashboardOnly && !['today','queue','config'].includes(page)) return false;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
   if (page === 'bulkview') {
@@ -559,14 +579,20 @@ function canNavigate(page) {
 }
 
 function defaultPageForUser() {
+  if (_isDashboardPortal()) {
+    if (canNavigate('dashboard')) return 'dashboard';
+    if (canNavigate('today')) return 'today';
+    if (App.user?.canEditConfig || App.user?.canManageUsers) return 'config';
+    return 'queue';
+  }
   const ordered = [
-    ['dashboard', 'Dashboard'], ['leads', 'Leads'], ['pipeline', 'Pipeline'],
-    ['followups', 'Followups'], ['leadform', 'LeadForm']
+    ['leads', 'Leads'], ['pipeline', 'Pipeline'],
+    ['followups', 'Followups'], ['today', 'Today'], ['leadform', 'LeadForm']
   ];
   const match = ordered.find(([page]) => canNavigate(page));
   if (match) return match[0];
   if (App.user?.canEditConfig || App.user?.canManageUsers) return 'config';
-  return 'dashboard';
+  return 'queue';
 }
 
 function toggleSidebar() {

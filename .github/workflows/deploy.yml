@@ -40,6 +40,15 @@ jobs:
         run: |
           for client_dir in clients/*/; do
             client_name=$(basename "$client_dir")
+            if [ ! -f "${client_dir}.clasp.json" ]; then
+              echo "==> SKIP: $client_name (no .clasp.json)"
+              continue
+            fi
+            script_id=$(node -e "try{console.log(require('./${client_dir}.clasp.json').scriptId||'')}catch(e){}")
+            if [ -z "$script_id" ]; then
+              echo "==> SKIP: $client_name (scriptId not configured)"
+              continue
+            fi
             echo "==> Pushing: $client_name"
             cp "${client_dir}ClientConfig.js" src/server/ClientConfig.js
             cp "${client_dir}.clasp.json"     .clasp.json

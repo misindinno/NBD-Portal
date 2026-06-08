@@ -24,8 +24,24 @@ foreach ($client in $clients) {
     Write-Host ""
     Write-Host "--> Pushing: $($client.Name)" -ForegroundColor Yellow
 
+    $claspPath = Join-Path $client.FullName ".clasp.json"
+    if (-not (Test-Path $claspPath)) {
+        Write-Host "SKIP: $($client.Name) — no .clasp.json (not yet wired up)" -ForegroundColor DarkYellow
+        continue
+    }
+    try {
+        $claspJson = Get-Content $claspPath -Raw | ConvertFrom-Json
+    } catch {
+        Write-Host "SKIP: $($client.Name) — invalid .clasp.json" -ForegroundColor DarkYellow
+        continue
+    }
+    if (-not $claspJson.scriptId) {
+        Write-Host "SKIP: $($client.Name) — scriptId not configured (see SETUP.md if present)" -ForegroundColor DarkYellow
+        continue
+    }
+
     Copy-Item "$($client.FullName)\ClientConfig.js" "$root\src\server\ClientConfig.js" -Force
-    Copy-Item "$($client.FullName)\.clasp.json"     "$root\.clasp.json"                -Force
+    Copy-Item $claspPath "$root\.clasp.json" -Force
 
     clasp push --force
 
