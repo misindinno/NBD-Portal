@@ -26,6 +26,7 @@ async function loadToday() {
     AppCache.setRows('followups', snapshot.followups || []);
     AppCache.setRows('followupHistory', snapshot.followupHistory || []);
     AppCache.setRows('activityLogs', snapshot.activityLogs || []);
+    if (App.currentPage !== 'today') return;
     _renderToday();
     return;
   } catch (e) {
@@ -39,14 +40,19 @@ async function loadToday() {
   if (!AppCache.isLoaded('followups'))      loads.push(_ensureCached('followups',       () => api.getFollowups({})));
   if (loads.length) await Promise.all(loads);
 
+  if (App.currentPage !== 'today') return;
   _renderToday();
 }
 
 function _renderToday() {
+  const wrap = el('today-wrap');
+  // Bail silently if the user already navigated away (DOM was replaced
+  // by another page mid-flight). Prevents "Cannot set innerHTML on null".
+  if (!wrap) return;
   const isAdminOrManager = ['ADMIN', 'MANAGER'].includes(App.user.role);
   const users = App.config.users || [];
 
-  el('today-wrap').innerHTML = `
+  wrap.innerHTML = `
     <div class="fu-page td-page fu-density-${_todayDensity}" id="today-page">
       <div class="fu-topbar">
         <div class="fu-topbar-left">
