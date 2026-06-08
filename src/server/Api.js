@@ -456,7 +456,12 @@ function apiGetQueueHistory(token, limit) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
-    return respond(getQueueHistory_(user.email, Number(limit) || 50));
+    try {
+      return respond(getQueueHistoryFast_(user.email, Number(limit) || 50));
+    } catch (e) {
+      Logger.log('[QueuePage] Sheets API history fallback: ' + e.message);
+      return respond(getQueueHistory_(user.email, Number(limit) || 50));
+    }
   });
 }
 
@@ -464,7 +469,12 @@ function apiGetQueueHealth(token, filterEmail) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
-    return respond(getQueueHealth_(user.email, user, filterEmail || ''));
+    try {
+      return respond(getQueueHealthFast_(user.email, user, filterEmail || ''));
+    } catch (e) {
+      Logger.log('[QueuePage] Sheets API health fallback: ' + e.message);
+      return respond(getQueueHealth_(user.email, user, filterEmail || ''));
+    }
   });
 }
 
@@ -474,7 +484,12 @@ function apiGetAllQueueHistory(token, filterEmail, limit) {
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
     if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
-    return respond(getAllQueueHistory_(filterEmail || '', Number(limit) || 100));
+    try {
+      return respond(getAllQueueHistoryFast_(filterEmail || '', Number(limit) || 100));
+    } catch (e) {
+      Logger.log('[QueuePage] Sheets API admin history fallback: ' + e.message);
+      return respond(getAllQueueHistory_(filterEmail || '', Number(limit) || 100));
+    }
   });
 }
 

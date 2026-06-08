@@ -9,6 +9,7 @@ let _qpAdminJobs = [];
 let _qpHealth = null;
 let _qpBulkQueue = null;
 let _qpLastRefreshAt = null;
+let _qpLastFetchMs = null;
 let _qpAutoRefresh = true;
 let _qpFilters = { status: '', module: '', query: '' };
 let _qpPage = 1;
@@ -23,6 +24,7 @@ async function loadQueuePage() {
   _qpHealth = null;
   _qpBulkQueue = null;
   _qpLastRefreshAt = null;
+  _qpLastFetchMs = null;
   _qpAutoRefresh = true;
   _qpFilters = { status: '', module: '', query: '' };
   _qpPage = 1;
@@ -149,27 +151,45 @@ async function _refreshQueuePage(showSpinner = false) {
   _stopQueuePageRefresh();
 
   try {
+    const fetchStart = performance.now();
     let serverJobs = [];
     let displayJobs = [];
     const isAdmin = _qpIsAdmin();
 
     if (isAdmin) {
-      try { serverJobs = await api.getAllQueueHistory('', 500); } catch (e) { console.warn('[QueuePage] Admin history load failed', e); }
-      try { _qpHealth = await api.getQueueHealth(_qpAdminFilter); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
-      try { _qpBulkQueue = await api.getBulkQueueSummary(30, false); } catch (e) { console.warn('[QueuePage] Bulk queue load failed', e); _qpBulkQueue = null; }
+      const [historyResult, healthResult, bulkResult] = await Promise.allSettled([
+        api.getAllQueueHistory('', 500),
+        api.getQueueHealth(_qpAdminFilter),
+        api.getBulkQueueSummary(30, false)
+      ]);
+      if (historyResult.status === 'fulfilled') serverJobs = historyResult.value || [];
+      else console.warn('[QueuePage] Admin history load failed', historyResult.reason);
+      if (healthResult.status === 'fulfilled') _qpHealth = healthResult.value;
+      else { console.warn('[QueuePage] Health load failed', healthResult.reason); _qpHealth = null; }
+      if (bulkResult.status === 'fulfilled') _qpBulkQueue = bulkResult.value;
+      else { console.warn('[QueuePage] Bulk queue load failed', bulkResult.reason); _qpBulkQueue = null; }
       _qpAdminJobs = serverJobs;
       _qpAllUserEmails = [...new Set(serverJobs.map(j => j.userEmail).filter(Boolean))].sort();
       displayJobs = _qpApplyUserFilter(serverJobs);
     } else {
       const localJobs = QueueManager.getAllJobs();
-      try { serverJobs = await api.getQueueHistory(150); } catch (e) { console.warn('[QueuePage] History load failed', e); }
-      try { _qpHealth = await api.getQueueHealth(); } catch (e) { console.warn('[QueuePage] Health load failed', e); _qpHealth = null; }
-      try { _qpBulkQueue = await api.getBulkQueueSummary(30, false); } catch (e) { _qpBulkQueue = null; }
+      const [historyResult, healthResult, bulkResult] = await Promise.allSettled([
+        api.getQueueHistory(150),
+        api.getQueueHealth(),
+        api.getBulkQueueSummary(30, false)
+      ]);
+      if (historyResult.status === 'fulfilled') serverJobs = historyResult.value || [];
+      else console.warn('[QueuePage] History load failed', historyResult.reason);
+      if (healthResult.status === 'fulfilled') _qpHealth = healthResult.value;
+      else { console.warn('[QueuePage] Health load failed', healthResult.reason); _qpHealth = null; }
+      if (bulkResult.status === 'fulfilled') _qpBulkQueue = bulkResult.value;
+      else _qpBulkQueue = null;
       displayJobs = _mergeQueueJobs(localJobs, serverJobs);
     }
 
     _qpJobs = displayJobs;
     _qpLastRefreshAt = new Date();
+    _qpLastFetchMs = Math.round(performance.now() - fetchStart);
     _renderQueueHealth(_qpHealth);
     _renderQueueStats(displayJobs);
     _renderQueueFilters(displayJobs, isAdmin);
@@ -248,6 +268,7 @@ function _renderQueueHealth(health) {
         <div class="qp-health-main">
           <span class="q-badge ${triggerOk ? 'q-done' : 'q-dead'}">${triggerOk ? 'Trigger active' : 'Trigger missing'}</span>
           <span class="qp-muted">${escapeHtml(health.triggerStatus || '')}</span>
+          ${_qpLastFetchMs !== null ? `<span class="q-badge q-processing" title="Queue page API fetch time">Fetch ${escapeHtml(_qpLastFetchMs)} ms</span>` : ''}
         </div>
         <div class="qp-last-refresh">Last refresh: ${_qpLastRefreshAt ? escapeHtml(_qpFmtDate(_qpLastRefreshAt)) : 'Never'}</div>
       </div>
