@@ -20,6 +20,18 @@ window._todayCardClick = _todayCardClick;
 async function loadToday() {
   el('content').innerHTML = `<div id="today-wrap">${skeletonPage('table')}</div>`;
 
+  try {
+    const snapshot = await api.getTodayActivitySnapshot();
+    AppCache.setRows('leads', snapshot.leads || []);
+    AppCache.setRows('followups', snapshot.followups || []);
+    AppCache.setRows('followupHistory', snapshot.followupHistory || []);
+    AppCache.setRows('activityLogs', snapshot.activityLogs || []);
+    _renderToday();
+    return;
+  } catch (e) {
+    console.warn('[Today] Sheets API snapshot failed; falling back to standard cache loads.', e);
+  }
+
   const loads = [];
   if (!AppCache.isLoaded('followupHistory')) loads.push(_ensureCached('followupHistory', () => api.getFollowupHistory({})));
   if (!AppCache.isLoaded('activityLogs'))   loads.push(_ensureCached('activityLogs',   () => api.getLeadActivityLogs({})));
