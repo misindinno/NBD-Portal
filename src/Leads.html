@@ -15,6 +15,12 @@
       setContentLoading('table');
       await _ensureCached('leads', () => api.getLeads());
     }
+    // Load followup history in background to drive Connection / Conversion rate cards
+    if (!AppCache.isLoaded('followupHistory')) {
+      _ensureCached('followupHistory', () => api.getFollowupHistory({}))
+        .then(() => { if (App.currentPage === 'leads') _renderLeadKpis(AppCache.getRows('leads')); })
+        .catch(() => {});
+    }
     _renderLeadsTable(AppCache.getRows('leads'));
   }
 
@@ -111,6 +117,9 @@
     const wrap = el('lead-kpis');
     if (!wrap) return;
     const c = _leadKpiCounts(leads);
+    const rates = (typeof computeCallRates === 'function')
+      ? computeCallRates(AppCache.getRows('followupHistory'))
+      : { connectionRate: 0, conversionRate: 0, connects: 0, conversions: 0 };
     const cards = [
       { key: '',     label: 'Total Leads', value: c.total,  sub: 'all leads',     icon: 'users',          cls: 'neutral' },
       { key: 'open', label: 'Open',        value: c.open,   sub: 'in progress',   icon: 'circle-dot',     cls: 'blue' },
@@ -118,7 +127,9 @@
       { key: 'warm', label: 'Warm',        value: c.warm,   sub: 'mid priority',  icon: 'thermometer',    cls: 'warning' },
       { key: 'cold', label: 'Cold',        value: c.cold,   sub: 'low priority',  icon: 'snowflake',      cls: 'blue' },
       { key: 'closed', label: 'Closed',    value: c.closed, sub: 'final stage',   icon: 'check-circle-2', cls: 'success' },
-      { key: 'nbd',  label: 'NBD Pushed',  value: c.nbd,    sub: 'sent to NBD',   icon: 'send',           cls: 'purple' }
+      { key: 'nbd',  label: 'NBD Pushed',  value: c.nbd,    sub: 'sent to NBD',   icon: 'send',           cls: 'purple' },
+      { key: '',     label: 'Connection Call Rate', value: `${rates.connectionRate}%`, sub: `${rates.connects} connects`, icon: 'activity',     cls: 'blue' },
+      { key: '',     label: 'Conversion Rate',      value: `${rates.conversionRate}%`, sub: `${rates.conversions} converted`, icon: 'trending-up', cls: 'success' }
     ];
     wrap.innerHTML = cards.map(k => `
       <button type="button" class="fu-kpi fu-kpi-${k.cls} ${_leadKpiFilter === k.key && k.key ? 'active' : ''}"

@@ -390,11 +390,14 @@ function _todayApply() {
       cls: meta.cls
     };
   });
+  const _todayRates = (typeof computeCallRates === 'function') ? computeCallRates(history) : { connectionRate: 0, conversionRate: 0, connects: 0, conversions: 0 };
   const activityCards = [
     { key: 'newleads',  label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
     { key: 'stage',     label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
     { key: 'calls',     label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
-    { key: 'wa',        label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' }
+    { key: 'wa',        label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' },
+    { key: 'connrate',  label: 'Connection Call Rate', value: `${_todayRates.connectionRate}%`, sub: `${_todayRates.connects} connects`, icon: 'activity', cls: 'blue' },
+    { key: 'convrate',  label: 'Conversion Rate', value: `${_todayRates.conversionRate}%`, sub: `${_todayRates.conversions} converted`, icon: 'trending-up', cls: 'success' }
   ];
   const cardHTML = k => `
     <button type="button" class="fu-kpi fu-kpi-${k.cls} ${_todayCardFilter === k.key ? 'active' : ''}" onclick="_todayCardClick('${_todayEscapeAttr(k.key)}')">

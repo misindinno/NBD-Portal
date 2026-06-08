@@ -116,6 +116,30 @@ function setContentLoading(type = 'table') {
   renderIcons();
 }
 
+// Shared call-rate computation used by every dashboard / followups / today / leads KPI grid.
+//   connectionRate = connects / (connects + missed)
+//   conversionRate = conversions / connects   (conversion = stage moved OR positive Won outcome)
+function computeCallRates(historyRows) {
+  const CONNECTED = { 'Call Connected': true, 'WhatsApp Chat': true };
+  const MISSED    = { 'Not Picked': true };
+  let connects = 0, missed = 0, conversions = 0;
+  (historyRows || []).forEach(r => {
+    const mode = String(r['Contact Mode'] || '').trim();
+    if (CONNECTED[mode]) connects++;
+    else if (MISSED[mode]) missed++;
+    const movedStage = !!r['Updated Stage ID'];
+    const wonOutcome = /won|order|payment/i.test(String(r['Outcome'] || r['Status After'] || ''));
+    if (CONNECTED[mode] && (movedStage || wonOutcome)) conversions++;
+  });
+  const attempts = connects + missed;
+  return {
+    connects, missed, attempts, conversions,
+    connectionRate: attempts ? Math.round(connects / attempts * 100) : 0,
+    conversionRate: connects ? Math.round(conversions / connects * 100) : 0
+  };
+}
+window.computeCallRates = computeCallRates;
+
 function setButtonLoading(btn, label = 'Saving...') {
   if (!btn) return;
   btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;

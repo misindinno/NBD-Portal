@@ -395,6 +395,7 @@ function _fuRenderOverview(ctx, snapshot = _fuPageSnapshot || {}) {
   const notPicked = historyRows.filter(r => String(r['Contact Mode'] || '') === 'Not Picked').length;
   const connected = historyRows.filter(r => ['Call Connected', 'WhatsApp Chat'].includes(String(r['Contact Mode'] || ''))).length;
   const rate = connected + notPicked ? Math.round((connected / (connected + notPicked)) * 100) : 0;
+  const _rates = (typeof computeCallRates === 'function') ? computeCallRates(historyRows) : { conversionRate: 0, conversions: 0 };
   const activeTab = window.currentFollowupTab || 'all';
   const tabCounts = {
     all: openRows.length,
@@ -416,7 +417,8 @@ function _fuRenderOverview(ctx, snapshot = _fuPageSnapshot || {}) {
     { key: 'future', label: 'Upcoming', value: counts.future, sub: 'Future follow-ups', icon: 'calendar-clock', cls: 'blue' },
     { key: 'closed', label: 'Closed', value: closedRows.length, sub: `${closedToday} closed today`, icon: 'check-circle-2', cls: 'neutral' },
     { key: 'notpicked', label: 'Not Picked', value: notPicked, sub: 'Contact attempts', icon: 'phone-missed', cls: 'warning' },
-    { key: 'rate', label: 'Connection Rate', value: `${rate}%`, sub: `${connected} connected`, icon: 'activity', cls: 'purple' }
+    { key: 'rate', label: 'Connection Call Rate', value: `${rate}%`, sub: `${connected} connected`, icon: 'activity', cls: 'purple' },
+    { key: 'conv', label: 'Conversion Rate', value: `${_rates.conversionRate}%`, sub: `${_rates.conversions} converted`, icon: 'trending-up', cls: 'success' }
   ];
   kpiEl.innerHTML = kpis.map(k => `
     <button type="button" class="fu-kpi fu-kpi-${k.cls} ${activeTab === k.key ? 'active' : ''}" onclick="_fuKpiAction('${k.key}')">
@@ -539,6 +541,7 @@ function _decorateFollowup(row, ctx) {
     _companyName: lead ? (lead['Company Name'] || '') : '',
     _contactPerson: lead ? (lead['Contact Person'] || '') : '',
     _city: lead ? (lead['City'] || '') : '',
+    _leadSource: lead ? (lead['Source'] || '') : '',
     _lastDoneDate: ctx?.lastDoneMap?.[row['Lead ID']] || ''
   };
 }
@@ -601,8 +604,8 @@ function _fuTable(rows, emptyMsg, ctx) {
           ${densityToggle}
         </div>
         <div class="fu-table-scroll"><table class="fu-table">
-          <thead><tr><th>Due</th><th>Lead Details</th><th>Last Remark</th><th>Remark Date</th><th>Stage</th><th>Owner</th><th>Action</th></tr></thead>
-          <tbody><tr><td colspan="7" class="empty-table-cell">${emptyMsg}</td></tr></tbody>
+          <thead><tr><th>Due</th><th>Lead Details</th><th>Source</th><th>Last Remark</th><th>Remark Date</th><th>Stage</th><th>Owner</th><th>Action</th></tr></thead>
+          <tbody><tr><td colspan="8" class="empty-table-cell">${emptyMsg}</td></tr></tbody>
         </table></div>
       </div>`;
   }
@@ -631,6 +634,7 @@ function _fuTable(rows, emptyMsg, ctx) {
           <tr>
             <th>Due</th>
             <th>Lead Details</th>
+            <th>Source</th>
             <th>Last Remark</th>
             <th>Remark Date</th>
             <th>Stage</th>
@@ -713,6 +717,7 @@ function _fuTableRow(r) {
       ${(r._contactPerson || r._city) ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson || '-')}${r._city ? ` <span class="fu-lead-dot">•</span> ${icon('map-pin', 12)} ${escapeHtml(r._city)}` : ''}</div>` : ''}
       ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
     </td>
+    <td>${r._leadSource ? `<span class="fu-source-chip" title="${escapeHtml(r._leadSource)}">${escapeHtml(r._leadSource)}</span>` : '<span class="muted-text">—</span>'}</td>
     <td>${(() => {
       const sys = (t) => { const v = String(t || '').trim().toLowerCase(); return !v || v === 'new lead created' || v === 'lead created' || v === 'stage change'; };
       const own = (!sys(r['Discussion']) && r['Discussion']) || (!sys(r['Remark']) && r['Remark']) || '';

@@ -308,6 +308,9 @@ function _dbRenderGrowthEngineTab(leads, fus) {
   const opening = active.length - m.net;
   const monthlySales = active.length * avgSale;
   const monthlySalesPlan = plan.monthlyAdds * avgSale + opening * avgSale;
+  const _fuHistAll = AppCache.getRows('followupHistory') || [];
+  const _monthHist = _fuHistAll.filter(r => _fmtDate(r['Done Date'] || r['Created At']) >= monthStart);
+  const _rates = computeCallRates(_monthHist);
 
   const kpis = [
     { label: 'Active Pairs',   value: active.length,                 sub: `opening ${opening}`,            icon: 'layers',         cls: 'blue' },
@@ -315,7 +318,9 @@ function _dbRenderGrowthEngineTab(leads, fus) {
     { label: 'Avg Sale / Pair',value: `₹${_dbFmtMoney(avgSale)}`,    sub: '/month',                         icon: 'tag',            cls: 'neutral' },
     { label: 'Monthly Sales',  value: `₹${_dbFmtMoney(monthlySales)}`, sub: `plan ₹${_dbFmtMoney(monthlySalesPlan)}`, icon: 'wallet', cls: 'purple' },
     { label: 'Additions',      value: `${m.additions} / ${plan.monthlyAdds}`,  sub: m.additions >= plan.monthlyAdds ? 'on plan' : 'behind ▼', icon: 'plus-circle',  cls: 'success' },
-    { label: 'Drops',          value: `${m.drops} / ${plan.monthlyDrops}`,     sub: m.drops <= plan.monthlyDrops ? 'on plan' : 'over ▲',     icon: 'minus-circle', cls: 'danger' }
+    { label: 'Drops',          value: `${m.drops} / ${plan.monthlyDrops}`,     sub: m.drops <= plan.monthlyDrops ? 'on plan' : 'over ▲',     icon: 'minus-circle', cls: 'danger' },
+    { label: 'Connection Call Rate', value: `${_rates.connectionRate}%`, sub: `${_rates.connects} connects / ${_rates.attempts} attempts`, icon: 'activity',     cls: 'blue' },
+    { label: 'Conversion Rate',      value: `${_rates.conversionRate}%`, sub: `${_rates.conversions} stage-moves`,                          icon: 'trending-up', cls: 'success' }
   ];
   _dbRenderKpiGrid('db-engine-kpis', kpis);
 
@@ -423,13 +428,19 @@ function _dbRenderOTPTab(leads, fus) {
   const openFus = fus.filter(f => _isOpenFollowupRow(f));
   const overdueFus = openFus.filter(f => { const d = _fmtDate(_fuPlannedDate(f)); return d && d < todayStr; });
 
+  const _fuHistAll = AppCache.getRows('followupHistory') || [];
+  const _monthHist = _fuHistAll.filter(r => _fmtDate(r['Done Date'] || r['Created At']) >= monthStart);
+  const _rates = computeCallRates(_monthHist);
+
   const kpis = [
     { label: 'Active Pairs Defended', value: active.length,           sub: 'on cycle + amber',           icon: 'shield',         cls: 'blue' },
     { label: 'Drops This Month',      value: m.drops,                 sub: `plan ≤${plan.monthlyDrops}`, icon: 'trending-down',  cls: m.drops > plan.monthlyDrops ? 'danger' : 'neutral' },
     { label: 'Recoveries',            value: m.additions,             sub: 'wins this month',            icon: 'rotate-cw',      cls: 'success' },
     { label: 'On-Time Reorder',       value: `${onTimePct}%`,         sub: `plan ${plan.ontimeReorder}%`,icon: 'clock',          cls: onTimePct >= plan.ontimeReorder ? 'success' : 'warning' },
     { label: 'Avg Sale / Pair',       value: `₹${_dbFmtMoney(avgSale)}`, sub: '/month',                  icon: 'tag',            cls: 'neutral' },
-    { label: 'Net Base Change',       value: (m.net >= 0 ? '+' : '') + m.net, sub: `${m.additions} won − ${m.drops} lost`, icon: 'arrow-up-down', cls: m.net >= 0 ? 'success' : 'danger' }
+    { label: 'Net Base Change',       value: (m.net >= 0 ? '+' : '') + m.net, sub: `${m.additions} won − ${m.drops} lost`, icon: 'arrow-up-down', cls: m.net >= 0 ? 'success' : 'danger' },
+    { label: 'Connection Call Rate',  value: `${_rates.connectionRate}%`, sub: `${_rates.connects} / ${_rates.attempts}`, icon: 'activity',     cls: 'blue' },
+    { label: 'Conversion Rate',       value: `${_rates.conversionRate}%`, sub: `${_rates.conversions} converted`,         icon: 'trending-up',  cls: 'success' }
   ];
   _dbRenderKpiGrid('db-otp-kpis', kpis);
 
@@ -554,13 +565,19 @@ function _dbRenderCSTab(leads, fus) {
     ? (Array.from(clientGroups.values()).reduce((s, set) => s + set.size, 0) / clientGroups.size).toFixed(1)
     : '0.0';
 
+  const _fuHistAllCS = AppCache.getRows('followupHistory') || [];
+  const _monthHistCS = _fuHistAllCS.filter(r => _fmtDate(r['Done Date'] || r['Created At']) >= monthStart);
+  const _ratesCS = computeCallRates(_monthHistCS);
+
   const kpis = [
     { label: 'New Pairs Added', value: `${m.additions} / ${plan.monthlyAdds}`, sub: m.additions < plan.monthlyAdds ? 'behind ▼' : 'on plan', icon: 'plus-circle', cls: m.additions >= plan.monthlyAdds ? 'success' : 'warning' },
     { label: 'In Pipeline',     value: inPipeline.length,             sub: 'sample / negotiation',   icon: 'list-checks',  cls: 'blue' },
     { label: 'Win Rate',        value: `${winRate}%`,                 sub: `plan ${plan.winRate}%`,  icon: 'target',       cls: winRate >= plan.winRate ? 'success' : 'warning' },
     { label: 'Revivals Won',    value: 0,                              sub: 'dormant → active',       icon: 'rotate-ccw',   cls: 'purple' },
     { label: 'Avg Sale / Pair', value: `₹${_dbFmtMoney(avgSale)}`,    sub: `plan ₹${_dbFmtMoney(plan.avgSalePerPair)}`, icon: 'tag', cls: 'neutral' },
-    { label: 'Penetration',     value: `${penetration} → ${plan.penetrationTarget}`, sub: 'avg products / client', icon: 'pie-chart', cls: 'success' }
+    { label: 'Penetration',     value: `${penetration} → ${plan.penetrationTarget}`, sub: 'avg products / client', icon: 'pie-chart', cls: 'success' },
+    { label: 'Connection Call Rate', value: `${_ratesCS.connectionRate}%`, sub: `${_ratesCS.connects} / ${_ratesCS.attempts}`, icon: 'activity',     cls: 'blue' },
+    { label: 'Conversion Rate',      value: `${_ratesCS.conversionRate}%`, sub: `${_ratesCS.conversions} converted`,           icon: 'trending-up',  cls: 'success' }
   ];
   _dbRenderKpiGrid('db-cs-kpis', kpis);
 
