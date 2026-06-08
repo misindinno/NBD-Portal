@@ -7,10 +7,11 @@ let _fuPageSize = 25;
 let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_fuDensity')) || 'compact';
 let _fuFiltersOpen = false;
 let _fuPageSnapshot = null;
+let _fuShellReady = false;
+let _fuStateStale = false;
 
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
-  _fuPageSnapshot = null;
   el('page-title').textContent = 'Follow-ups';
   _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
   _fuPage = 1;
@@ -28,6 +29,23 @@ async function loadFollowups(tab = 'all') {
   else if (tab === 'closed')  await _renderFUTab('closed');
   else if (tab === 'custom')  _renderCustomQuery();
   else                        await _renderFUTab('all');
+  _fuShellReady = true;
+}
+
+async function _fuSwitchTab(tab) {
+  window.currentFollowupTab = tab;
+  _fuPage = 1;
+  if (!_fuShellReady || !el('fu-body')) {
+    await loadFollowups(tab);
+    return;
+  }
+  const showFilters = tab !== 'custom';
+  const tabsEl = el('fu-tabs');
+  if (tabsEl) { tabsEl.innerHTML = _fuTabsHTML(tab); renderIcons(tabsEl); }
+  const filterBar = el('fu-filter-bar');
+  if (filterBar) filterBar.style.display = showFilters && _fuFiltersOpen ? 'block' : 'none';
+  if (tab === 'custom') _renderCustomQuery();
+  else await _renderFUTab(tab);
 }
 
 function _fuShellHTML(tab) {
@@ -69,7 +87,7 @@ function _fuTabsHTML(active) {
   ];
   const count = _fuActiveFilterCount();
   const tabBtns = tabs.map(([id, label, ic]) => `
-    <button class="fu-tab ${active === id ? 'active' : ''}" onclick="loadFollowups('${id}')">
+    <button class="fu-tab ${active === id ? 'active' : ''}" onclick="_fuSwitchTab('${id}')">
       ${icon(ic, 14)} <span>${label}</span><span class="fu-tab-count" id="fu-tab-count-${id}">-</span>
     </button>`).join('');
   const filterToggle = active === 'custom' ? '' : `
@@ -321,8 +339,16 @@ async function _getFollowupPageSnapshot(force = false, options = {}) {
     browserMs,
     fetchedAt: data.fetchedAt || ''
   };
+  _fuStateStale = false;
   return _fuPageSnapshot;
 }
+
+function _fuMarkStateStale() {
+  _fuStateStale = true;
+  const badge = el('fu-state-stale-badge');
+  if (badge) badge.style.display = '';
+}
+window._fuMarkStateStale = _fuMarkStateStale;
 
 function _fuAttachScrollCollapse() {
   const scroll = document.querySelector('.fu-table-scroll');
@@ -410,13 +436,13 @@ function _fuFetchBadge(snapshot) {
     <span class="fu-kpi-icon">${icon('gauge', 17)}</span>
     <span class="fu-kpi-value">${escapeHtml(browserMs || serverMs || '-')} ms</span>
     <span class="fu-kpi-label">API Fetch</span>
-    <span class="fu-kpi-sub">${escapeHtml(snapshot.source || 'api')} / server ${serverMs || '-'} ms</span>
+    <span class="fu-kpi-sub">${escapeHtml(snapshot.source || 'api')} / server ${serverMs || '-'} ms <span id="fu-state-stale-badge" style="display:${_fuStateStale ? '' : 'none'};color:#b45309"> stale</span></span>
   </div>`;
 }
 
 function _fuKpiAction(key) {
   if (['overdue', 'today', 'future', 'closed'].includes(key)) {
-    loadFollowups(key);
+    _fuSwitchTab(key);
     return;
   }
   if (key === 'notpicked') {
@@ -432,10 +458,8 @@ function _fuKpiAction(key) {
 }
 
 async function _getFollowupFormData(force = false) {
-  if (!force && _fuPageSnapshot) {
-    return { leads: (_fuPageSnapshot.leads || []).filter(l => l['Lead Status'] === 'Open') };
-  }
-  return api.getFollowupFormData();
+  const snapshot = await _getFollowupPageSnapshot(force);
+  return { leads: (snapshot.leads || []).filter(l => l['Lead Status'] === 'Open') };
 }
 
 function _buildFollowupContext(leads = [], snapshot = _fuPageSnapshot || {}) {

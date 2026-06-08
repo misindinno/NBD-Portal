@@ -113,8 +113,8 @@ async function openFollowupForm(leadId = '', leadName = '') {
 
       const saveResult = await api.saveFollowupDirect(payload);
       overlay.remove();
-      _fuPageSnapshot = null;
-      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all', true);
+      _applyFollowupSaveResult(payload, saveResult);
+      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
       if (App.currentPage === 'dashboard') loadDashboard();
       toast('Follow-up saved' + (saveResult ? ': ' + saveResult : '') + '!');
     } catch (err) {
@@ -318,10 +318,10 @@ async function openMarkFollowupDoneForm(followupId) {
       if (!payload['Issues'])           delete payload['Issues'];
       const closesFollowup = _markDoneClosesFollowup(form);
       if (closesFollowup) delete payload['Next Follow-up Date'];
-      await api.markFollowupDoneDirect(followupId, payload);
+      const result = await api.markFollowupDoneDirect(followupId, payload);
       overlay.remove();
-      _fuPageSnapshot = null;
-      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all', true);
+      _applyFollowupDoneResult(result);
+      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
       if (App.currentPage === 'dashboard') loadDashboard();
       toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
     } catch (err) {
@@ -333,11 +333,59 @@ async function openMarkFollowupDoneForm(followupId) {
   renderIcons(overlay);
 }
 
+function _applyFollowupSaveResult(payload, followupId) {
+  if (!_fuPageSnapshot) return;
+  _fuStateStale = false;
+  const id = String(followupId || '').trim();
+  const nowStr = _nowStr();
+  const row = {
+    ...payload,
+    'Follow-up ID': id || ('local-fu-' + Date.now()),
+    'Planned Date': payload['Planned Date'] || payload['Next Follow-up Date'] || payload['Follow-up Date'] || '',
+    'Follow-up Date': payload['Follow-up Date'] || payload['Planned Date'] || '',
+    'Next Follow-up Date': payload['Next Follow-up Date'] || payload['Planned Date'] || '',
+    'Status': payload['Status'] || 'Open',
+    'Created By': App?.user?.id || '',
+    'Created At': nowStr,
+    'Updated At': nowStr
+  };
+  _fuPageSnapshot.followups = [row].concat((_fuPageSnapshot.followups || []).filter(f => f['Follow-up ID'] !== row['Follow-up ID']));
+  if (payload['Lead ID']) {
+    _fuPatchSnapshotLead(payload['Lead ID'], {
+      'Next Follow-up Date': row['Next Follow-up Date'],
+      'Updated At': nowStr,
+      ...(payload['Updated Stage ID'] ? { 'Stage ID': payload['Updated Stage ID'], 'Stage Updated At': nowStr } : {})
+    });
+  }
+}
+
 function _applyFollowupDoneResult(result) {
   if (!result) return;
-  _fuPageSnapshot = null;
-  if (App.currentPage.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all', true);
-  if (App.currentPage === 'dashboard') loadDashboard();
+  if (!_fuPageSnapshot) return;
+  _fuStateStale = false;
+  const followup = result.followup || {};
+  const followupId = followup['Follow-up ID'] || result.followupId || '';
+  if (followupId) {
+    if (_isOpenFollowupRow(followup) && !_isNoNextPlannedFollowup(followup)) {
+      _fuPageSnapshot.followups = (_fuPageSnapshot.followups || []).map(row =>
+        row['Follow-up ID'] === followupId ? { ...row, ...followup } : row
+      );
+    } else {
+      _fuPageSnapshot.followups = (_fuPageSnapshot.followups || []).filter(row => row['Follow-up ID'] !== followupId);
+    }
+  }
+  if (result.history) {
+    _fuPageSnapshot.followupHistory = [result.history].concat((_fuPageSnapshot.followupHistory || []).filter(h => h['History ID'] !== result.history['History ID']));
+    _fuPageSnapshot.includeHistory = true;
+  }
+  if (result.leadId && result.leadPatch) _fuPatchSnapshotLead(result.leadId, result.leadPatch);
+}
+
+function _fuPatchSnapshotLead(leadId, patch) {
+  if (!_fuPageSnapshot || !leadId || !patch) return;
+  _fuPageSnapshot.leads = (_fuPageSnapshot.leads || []).map(lead =>
+    lead['Lead ID'] === leadId ? { ...lead, ...patch } : lead
+  );
 }
 
 // Lead picker — shows a quick searchable list of open leads

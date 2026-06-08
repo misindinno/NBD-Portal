@@ -56,8 +56,12 @@ async function _checkCacheStamps() {
     const _stamp = key => { const n = Number(stamps[key]); return n > 0 ? n : null; };
     const _stale = (key, col) => { const s = _stamp(key); return s !== null && s > AppCache.getLoadedAt(col); };
     if (_stale('leads',          'leads'))          await _refreshLeadsCache();
-    if (_stale('followups',      'followups'))      await _refreshFollowupsCache();
-    if (_stale('followupHistory','followupHistory')) await _refreshFollowupHistoryCache();
+    if (_stale('followups',      'followups') && !String(App.currentPage || '').startsWith('followups')) {
+      await _refreshFollowupsCache();
+    }
+    if (_stale('followupHistory','followupHistory') && !String(App.currentPage || '').startsWith('followups')) {
+      await _refreshFollowupHistoryCache();
+    }
     if (_stale('activityLogs',   'activityLogs'))   await _refreshActivityLogsCache();
     const configStamp = Math.max(_stamp('stages') || 0, _stamp('fields') || 0, _stamp('config') || 0);
     if (configStamp > 0 && configStamp > AppCache.getLoadedAt('config')) await _refreshAppConfig();
@@ -121,11 +125,13 @@ function _applyChangeLog(changes) {
   }
   if (modules['followups'] || collections.followups) {
     QueueManager.onServerChange('followups');
-    if (App.currentPage?.startsWith('followups') || App.currentPage === 'dashboard') {
+    if (App.currentPage?.startsWith('followups')) {
+      if (typeof _fuMarkStateStale === 'function') _fuMarkStateStale();
+    } else if (App.currentPage === 'dashboard') {
       _refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed', e));
     }
   }
-  if (collections.followupHistory && AppCache.isLoaded('followupHistory')) {
+  if (collections.followupHistory && AppCache.isLoaded('followupHistory') && !App.currentPage?.startsWith('followups')) {
     _refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed', e));
   }
   if (collections.activityLogs && AppCache.isLoaded('activityLogs')) {
@@ -179,8 +185,16 @@ function _collectionsForQueueAction(actionType, moduleName) {
 function _refreshAfterQueueJob(job) {
   const collections = _collectionsForQueueAction(job?.actionType, job?.module);
   if (collections.includes('leads')) _refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed after queue job', e));
-  if (collections.includes('followups')) _refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed after queue job', e));
-  if (collections.includes('followupHistory') && AppCache.isLoaded('followupHistory')) _refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed after queue job', e));
+  if (collections.includes('followups')) {
+    if (App.currentPage?.startsWith('followups')) {
+      if (typeof _fuMarkStateStale === 'function') _fuMarkStateStale();
+    } else {
+      _refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed after queue job', e));
+    }
+  }
+  if (collections.includes('followupHistory') && AppCache.isLoaded('followupHistory') && !App.currentPage?.startsWith('followups')) {
+    _refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed after queue job', e));
+  }
   if (collections.includes('activityLogs') && AppCache.isLoaded('activityLogs')) _refreshActivityLogsCache().catch(e => console.warn('[AppData] Activity log refresh failed after queue job', e));
   if (collections.includes('config')) _refreshAppConfig().catch(e => console.warn('[AppData] Config refresh failed after queue job', e));
   if (App.currentPage === 'queue' && typeof _refreshQueuePage === 'function') _refreshQueuePage();
