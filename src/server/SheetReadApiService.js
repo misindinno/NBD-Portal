@@ -235,3 +235,123 @@ function _queueHealthFromRows_(rows, isAdmin, filter) {
     stats
   };
 }
+
+function getAllConfigsFast_() {
+  return _configRowsFromSheetsApi_();
+}
+
+function getAllStagesFast_() {
+  return _stageRowsFromSheetsApi_().sort(_stageOrderSort_);
+}
+
+function getActiveStagesFast_() {
+  return _stageRowsFromSheetsApi_()
+    .filter(stage => stage['Is Active'] === true || stage['Is Active'] === 'TRUE' || String(stage['Is Active']).toLowerCase() === 'true')
+    .sort(_stageOrderSort_);
+}
+
+function getConfigByTypeFast_(type) {
+  return _configRowsFromSheetsApi_()
+    .filter(row => row['Config Type'] === type && row['Status'] === 'Active')
+    .map(row => row['Value']);
+}
+
+function getFieldConfigFast_(sheetName) {
+  return _fieldConfigRowsFast_(sheetName, false);
+}
+
+function getAllFieldConfigsFast_(sheetName) {
+  return _fieldConfigRowsFast_(sheetName, true);
+}
+
+function _fieldConfigRowsFast_(sheetName, includeHidden) {
+  return _fieldRowsFromSheetsApi_()
+    .filter(row =>
+      (!sheetName || (row['Sheet Name'] || 'Leads') === sheetName) &&
+      (includeHidden || (row['Is Visible'] !== false && row['Is Visible'] !== 'FALSE'))
+    )
+    .sort((a, b) => Number(a['Display Order'] || 0) - Number(b['Display Order'] || 0));
+}
+
+function _configRowsFromSheetsApi_() {
+  return sheetApiBatchGetRows_([{ sheetName: SHEET_NAMES.CONFIG, range: 'A:D' }])[SHEET_NAMES.CONFIG] || [];
+}
+
+function _stageRowsFromSheetsApi_() {
+  return sheetApiBatchGetRows_([{ sheetName: SHEET_NAMES.STAGES, range: 'A:K' }])[SHEET_NAMES.STAGES] || [];
+}
+
+function _fieldRowsFromSheetsApi_() {
+  return sheetApiBatchGetRows_([{ sheetName: SHEET_NAMES.FIELD_CONFIG, range: 'A:U' }])[SHEET_NAMES.FIELD_CONFIG] || [];
+}
+
+function _stageOrderSort_(a, b) {
+  return Number(a['Stage Order'] || 0) - Number(b['Stage Order'] || 0);
+}
+
+function getAppConfigFast_() {
+  const rows = sheetApiBatchGetRows_([
+    { sheetName: SHEET_NAMES.CONFIG, range: 'A:D' },
+    { sheetName: SHEET_NAMES.STAGES, range: 'A:K' },
+    { sheetName: SHEET_NAMES.FIELD_CONFIG, range: 'A:U' }
+  ]);
+  const configRows = rows[SHEET_NAMES.CONFIG] || [];
+  const stageRows = rows[SHEET_NAMES.STAGES] || [];
+  const fieldRows = rows[SHEET_NAMES.FIELD_CONFIG] || [];
+  const byType = type => configRows
+    .filter(row => row['Config Type'] === type && row['Status'] === 'Active')
+    .map(row => row['Value']);
+  const fieldsFor = (sheetName, includeHidden) => fieldRows
+    .filter(row =>
+      (!sheetName || (row['Sheet Name'] || 'Leads') === sheetName) &&
+      (includeHidden || (row['Is Visible'] !== false && row['Is Visible'] !== 'FALSE'))
+    )
+    .sort((a, b) => Number(a['Display Order'] || 0) - Number(b['Display Order'] || 0));
+  const outcomes = byType('Outcome');
+  const settings = getPortalSettings_();
+  const allStages = stageRows.sort(_stageOrderSort_);
+  return {
+    stages: allStages.filter(stage => stage['Is Active'] === true || stage['Is Active'] === 'TRUE' || String(stage['Is Active']).toLowerCase() === 'true'),
+    sources: byType('Lead Source'),
+    priorities: byType('Priority'),
+    followupTypes: byType('Follow-up Type'),
+    outcomes: outcomes.length ? outcomes : [
+      'Interested',
+      'Not Interested',
+      'Call Again',
+      'Order Received',
+      'Payment Received',
+      'No Response'
+    ],
+    productInterests: byType('Product Interest'),
+    categories: byType('Category'),
+    statuses: byType('Lead Status'),
+    states: byType('State'),
+    settings,
+    leadFields: fieldsFor('Leads', false),
+    followupFields: fieldsFor('Followups', false),
+    _allConfigs: configRows,
+    users: getUsersWithPortalAccess_()
+      .filter(user => isActiveUserValue(user['Is Active']) && _userMatchesDepartmentSettings_(user, settings))
+      .map(user => {
+        const email = String(user['Email Address'] || '').trim().toLowerCase();
+        const role = normalizeStaffPermission(user['Permission'] || user['Role']);
+        return {
+          id: getStaffUserId(user, email),
+          name: user['Name'],
+          title: user['Title'] || user['Name'],
+          role,
+          department: user['Department'] || ''
+        };
+      }),
+    departments: _activeUserDepartments_(),
+    allStages,
+    userNameMap: getAllRows(SHEET_NAMES.USERS).reduce((map, user) => {
+      const email = String(user['Email Address'] || '').trim().toLowerCase();
+      const id = getStaffUserId(user, email);
+      if (id) map[id] = user['Name'] || email;
+      if (email && id !== email) map[email] = user['Name'] || email;
+      return map;
+    }, {})
+  };
+}
