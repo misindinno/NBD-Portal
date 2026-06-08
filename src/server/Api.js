@@ -293,11 +293,11 @@ function apiGetTodayActivitySnapshot(token) {
   });
 }
 
-function apiGetFollowupPageSnapshot(token) {
+function apiGetFollowupPageSnapshot(token, options) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    return respond(getFollowupPageSnapshotFast_(user));
+    return respond(getFollowupPageSnapshotFast_(user, options || {}));
   });
 }
 

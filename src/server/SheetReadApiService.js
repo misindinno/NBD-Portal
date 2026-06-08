@@ -68,37 +68,83 @@ function getTodayActivitySnapshotFast_(user) {
   };
 }
 
-function getFollowupPageSnapshotFast_(user) {
+function getFollowupPageSnapshotFast_(user, options) {
   const started = Date.now();
-  const rows = sheetApiBatchGetRows_([
+  const includeHistory = !!(options && options.includeHistory);
+  const specs = [
     { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
-    { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
-    { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' }
-  ]);
+    { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' }
+  ];
+  if (includeHistory) specs.push({ sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' });
+  const rows = sheetApiBatchGetRows_(specs);
   const leads = rows[SHEET_NAMES.LEADS] || [];
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
     .map(_normalizeFollowupRow);
-  const scopedFollowups = _scopeFollowupRows(followups, user);
-  const linkedLeadIds = scopedFollowups.reduce((map, row) => {
+  const visibleLeads = _sheetApiScopeLeadRows_(leads, user);
+  const visibleLeadMap = _rowsByKey_(visibleLeads, 'Lead ID');
+  const scopedFollowups = _sheetApiScopeLinkedRows_(followups, user, visibleLeadMap, ['Created By', 'Done By']);
+  const linkedLeadMap = scopedFollowups.reduce((map, row) => {
     if (row['Lead ID']) map[row['Lead ID']] = true;
     return map;
   }, {});
-  const visibleLeads = leads.filter(lead =>
-    _canReadAssignedRow(lead, user) || linkedLeadIds[lead['Lead ID']]
-  );
 
   return {
-    leads: visibleLeads,
+    leads: leads.filter(lead => visibleLeadMap[lead['Lead ID']] || linkedLeadMap[lead['Lead ID']]),
     followups: scopedFollowups,
-    followupHistory: _scopeFollowupHistoryRows(
-      _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY]),
-      user
-    ),
+    followupHistory: includeHistory
+      ? _sheetApiScopeLinkedRows_(
+          _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY]),
+          user,
+          visibleLeadMap,
+          ['Done By']
+        )
+      : [],
     source: 'sheets-api',
     fetchMs: Date.now() - started,
     fetchedAt: now()
   };
+}
+
+function _sheetApiScopeLeadRows_(leads, user) {
+  if (!_hasGlobalRead(user)) return (leads || []).filter(lead => _sheetApiUserValueMatches_(lead['Assigned To'], user));
+  const scope = _portalDepartmentScopeSet_();
+  if (!scope) return leads || [];
+  const userMap = _buildUserMapById_();
+  return (leads || []).filter(lead => _rowMatchesDepartmentScope_(lead, userMap, scope));
+}
+
+function _sheetApiScopeLinkedRows_(rows, user, leadMap, actorFields) {
+  if (!_hasGlobalRead(user)) {
+    return (rows || []).filter(row =>
+      !!leadMap[row['Lead ID']] || actorFields.some(field => _sheetApiUserValueMatches_(row[field], user))
+    );
+  }
+  const scope = _portalDepartmentScopeSet_();
+  if (!scope) return rows || [];
+  const userMap = _buildUserMapById_();
+  return (rows || []).filter(row =>
+    leadMap[row['Lead ID']]
+      ? _rowMatchesDepartmentScope_(leadMap[row['Lead ID']], userMap, scope)
+      : actorFields.some(field => {
+          const department = _departmentForUserId_(row[field], userMap);
+          return !!scope[String(department || '').trim().toLowerCase()];
+        })
+  );
+}
+
+function _sheetApiUserValueMatches_(value, user) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return false;
+  return raw === String(user.id || '').trim().toLowerCase() ||
+    raw === String(user.email || '').trim().toLowerCase();
+}
+
+function _rowsByKey_(rows, key) {
+  return (rows || []).reduce((map, row) => {
+    if (row && row[key]) map[row[key]] = row;
+    return map;
+  }, {});
 }
 
 function _sheetApiFollowupHistoryRows_(rows) {

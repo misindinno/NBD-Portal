@@ -263,7 +263,7 @@ async function _renderFUTab(tab, force = false) {
   if (!body) return;
 
   try {
-    const snapshot = await _getFollowupPageSnapshot(force);
+    const snapshot = await _getFollowupPageSnapshot(force, { includeHistory: tab === 'closed' });
     const todayStr = localDateInputValue();
     let rows;
     if (tab === 'closed') {
@@ -305,15 +305,17 @@ async function _renderFUTab(tab, force = false) {
   } catch(e) { body.innerHTML = `<p style="color:red">${escapeHtml(e.message || String(e))}</p>`; }
 }
 
-async function _getFollowupPageSnapshot(force = false) {
-  if (!force && _fuPageSnapshot) return _fuPageSnapshot;
+async function _getFollowupPageSnapshot(force = false, options = {}) {
+  const includeHistory = !!options.includeHistory;
+  if (!force && _fuPageSnapshot && (!includeHistory || _fuPageSnapshot.includeHistory)) return _fuPageSnapshot;
   const started = performance.now();
-  const data = await api.getFollowupPageSnapshot();
+  const data = await api.getFollowupPageSnapshot({ includeHistory });
   const browserMs = Math.round(performance.now() - started);
   _fuPageSnapshot = {
     leads: data.leads || [],
     followups: data.followups || [],
     followupHistory: data.followupHistory || [],
+    includeHistory,
     source: data.source || 'api',
     fetchMs: data.fetchMs || 0,
     browserMs,
