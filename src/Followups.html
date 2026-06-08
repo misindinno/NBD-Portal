@@ -371,17 +371,20 @@ async function _loadFollowupContext() {
 }
 
 function _fuRenderOverview(ctx, snapshot = _fuPageSnapshot || {}) {
-  const openRows = (snapshot.followups || [])
+  // Apply user filters (search, type, owner, contact mode, stage, from/to)
+  // so the upper KPI cards always reflect what the user is looking at.
+  const _applyKpiFilters = (rows) => _fuApplyFilters(rows, ctx);
+  const openRows = _applyKpiFilters((snapshot.followups || [])
     .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
     .filter(_isOpenFollowupRow)
-    .filter(r => !!_fmtDate(_fuPlannedDate(r)));
-  const historyRows = (snapshot.followupHistory || [])
-    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+    .filter(r => !!_fmtDate(_fuPlannedDate(r))));
+  const historyRows = _applyKpiFilters((snapshot.followupHistory || [])
+    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change'));
   const historyFollowupIds = new Set(historyRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
-  const noNextClosedRows = (snapshot.followups || [])
+  const noNextClosedRows = _applyKpiFilters((snapshot.followups || [])
     .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
     .filter(_isNoNextPlannedFollowup)
-    .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || '')));
+    .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || ''))));
   const closedRows = historyRows.concat(noNextClosedRows);
   const todayStr = localDateInputValue();
   const counts = openRows.reduce((m, row) => {

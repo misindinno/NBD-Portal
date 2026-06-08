@@ -117,8 +117,11 @@
     const wrap = el('lead-kpis');
     if (!wrap) return;
     const c = _leadKpiCounts(leads);
+    const leadIds = new Set((leads || []).map(l => l['Lead ID']).filter(Boolean));
+    const allHist = AppCache.getRows('followupHistory') || [];
+    const scopedHist = leadIds.size ? allHist.filter(h => leadIds.has(h['Lead ID'])) : allHist;
     const rates = (typeof computeCallRates === 'function')
-      ? computeCallRates(AppCache.getRows('followupHistory'))
+      ? computeCallRates(scopedHist)
       : { connectionRate: 0, conversionRate: 0, connects: 0, conversions: 0 };
     const cards = [
       { key: '',     label: 'Total Leads', value: c.total,  sub: 'all leads',     icon: 'users',          cls: 'neutral' },
@@ -377,43 +380,54 @@
     leadTable.on('dataSorted', refreshIcons);
   }
 
-  function applyLeadFilters() {
-    if (!leadTable) return;
+  // Shared filter predicate: used both by Tabulator (to filter rows) and by
+  // _renderLeadKpis (so the upper KPI cards always reflect what the user sees).
+  function _leadFilterPredicate() {
     const q = String(el('lead-search')?.value || '').trim().toLowerCase();
     const status = el('lead-status-f')?.value || '';
     const priority = el('lead-priority-f')?.value || '';
     const stage = el('lead-stage-f')?.value || '';
     const stageMap = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
-
-    const noFilters = !q && !status && !priority && !stage && !_leadKpiFilter && _leadStatusTab === 'all';
-    if (noFilters) { leadTable.clearFilter(); return; }
-
-    leadTable.setFilter(function (data) {
-      if (q) {
-        const hay = [data['Company Name'], data['Contact Person'], data['Client Description'], data['Phone'], data['City'], remarkSearchText(data)]
-          .map(v => String(v || '').toLowerCase()).join(' ');
-        if (!hay.includes(q)) return false;
+    const hasAny = !!(q || status || priority || stage || _leadKpiFilter || _leadStatusTab !== 'all');
+    return {
+      hasAny,
+      test(data) {
+        if (q) {
+          const hay = [data['Company Name'], data['Contact Person'], data['Client Description'], data['Phone'], data['City'], remarkSearchText(data)]
+            .map(v => String(v || '').toLowerCase()).join(' ');
+          if (!hay.includes(q)) return false;
+        }
+        if (status && data['Lead Status'] !== status) return false;
+        if (priority && data['Priority'] !== priority) return false;
+        if (stage && data['Stage ID'] !== stage) return false;
+        const stg = stageMap[data['Stage ID']] || {};
+        const isFinal = stg['Is Final Stage'] === true || stg['Is Final Stage'] === 'TRUE';
+        const isNbd = !!(data['NBD Lead ID'] || data['Pushed To NBD At']);
+        if (_leadStatusTab === 'closed' && !isFinal) return false;
+        if (_leadStatusTab === 'nbd'    && !isNbd) return false;
+        if (_leadStatusTab === 'active' && (isFinal || isNbd)) return false;
+        if (_leadKpiFilter === 'open'  && String(data['Lead Status'] || 'Open').toLowerCase() !== 'open') return false;
+        if (_leadKpiFilter === 'hot'   && String(data['Priority'] || '').toLowerCase() !== 'hot')  return false;
+        if (_leadKpiFilter === 'warm'  && String(data['Priority'] || '').toLowerCase() !== 'warm') return false;
+        if (_leadKpiFilter === 'cold'  && String(data['Priority'] || '').toLowerCase() !== 'cold') return false;
+        if (_leadKpiFilter === 'closed' && !isFinal) return false;
+        if (_leadKpiFilter === 'nbd'    && !isNbd)   return false;
+        return true;
       }
-      if (status && data['Lead Status'] !== status) return false;
-      if (priority && data['Priority'] !== priority) return false;
-      if (stage && data['Stage ID'] !== stage) return false;
+    };
+  }
+  window._leadFilterPredicate = _leadFilterPredicate;
 
-      const stg = stageMap[data['Stage ID']] || {};
-      const isFinal = stg['Is Final Stage'] === true || stg['Is Final Stage'] === 'TRUE';
-      const isNbd = !!(data['NBD Lead ID'] || data['Pushed To NBD At']);
-
-      if (_leadStatusTab === 'closed' && !isFinal) return false;
-      if (_leadStatusTab === 'nbd'    && !isNbd) return false;
-      if (_leadStatusTab === 'active' && (isFinal || isNbd)) return false;
-
-      if (_leadKpiFilter === 'open'  && String(data['Lead Status'] || 'Open').toLowerCase() !== 'open') return false;
-      if (_leadKpiFilter === 'hot'   && String(data['Priority'] || '').toLowerCase() !== 'hot')  return false;
-      if (_leadKpiFilter === 'warm'  && String(data['Priority'] || '').toLowerCase() !== 'warm') return false;
-      if (_leadKpiFilter === 'cold'  && String(data['Priority'] || '').toLowerCase() !== 'cold') return false;
-      if (_leadKpiFilter === 'closed' && !isFinal) return false;
-      if (_leadKpiFilter === 'nbd'    && !isNbd)   return false;
-      return true;
-    });
+  function applyLeadFilters() {
+    const pred = _leadFilterPredicate();
+    if (leadTable) {
+      if (pred.hasAny) leadTable.setFilter(pred.test);
+      else leadTable.clearFilter();
+    }
+    // Recompute upper KPI cards from the filtered lead set
+    const allLeads = AppCache.getRows('leads') || [];
+    const visible = pred.hasAny ? allLeads.filter(pred.test) : allLeads;
+    _renderLeadKpis(visible);
   }
   window.applyLeadFilters = applyLeadFilters;
 
