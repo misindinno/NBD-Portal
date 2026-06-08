@@ -111,6 +111,7 @@ function skeletonPage(type = 'table') {
 
 function setContentLoading(type = 'table') {
   const c = el('content');
+  if (!c) return;
   c.removeAttribute('style');
   c.innerHTML = skeletonPage(type);
   renderIcons();

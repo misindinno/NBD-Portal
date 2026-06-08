@@ -426,18 +426,24 @@ async function _runPageLoader(page, loaderName, args = []) {
 window._runPageLoader = _runPageLoader;
 
 async function navigate(page) {
+  const contentEl = el('content');
+  const titleEl = el('page-title');
+  if (!contentEl) {
+    console.warn('[navigate] #content missing; the app shell is not mounted yet.');
+    return;
+  }
   if (!canNavigate(page)) {
-    el('page-title').textContent = 'Access Denied';
-    el('content').innerHTML = `<div class="card" style="padding:24px;color:#666">You do not have permission to open this module.</div>`;
+    if (titleEl) titleEl.textContent = 'Access Denied';
+    contentEl.innerHTML = `<div class="card" style="padding:24px;color:#666">You do not have permission to open this module.</div>`;
     return;
   }
   Store.dispatch('SET_PAGE', page);
-  el('content').setAttribute('data-page', page);
+  contentEl.setAttribute('data-page', page);
   document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.remove('active'));
   const link = document.querySelector(`#sidebar nav a[data-page="${page}"]`);
   if (link) link.classList.add('active');
   const meta = _PAGE_META[page] || { title: page.charAt(0).toUpperCase() + page.slice(1), crumb: page };
-  el('page-title').textContent = meta.title;
+  if (titleEl) titleEl.textContent = meta.title;
   const crumbEl = el('tb-breadcrumb-page');
   if (crumbEl) crumbEl.textContent = meta.crumb;
   setContentLoading(pageSkeletonType(page));
@@ -461,7 +467,8 @@ async function navigate(page) {
     else if (page === 'queue')             await _runPageLoader(page, 'loadQueuePage');
     else el('content').innerHTML = '<p>Page not found.</p>';
   } catch(err) {
-    el('content').innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(err.message)}</p>`;
+    console.error('[navigate] page loader threw for "' + page + '":', err);
+    if (contentEl) contentEl.innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(err.message || String(err))}</p>`;
   }
 }
 

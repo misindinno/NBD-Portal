@@ -283,6 +283,9 @@ function _todayDateRange() {
 }
 
 function _todayApply() {
+  // Bail early if the Today page is no longer in the DOM (user navigated away
+  // while async work was still in flight) — prevents null.innerHTML crashes.
+  if (!el('today-page')) return;
   const { from, to } = _todayDateRange();
   const userFilter = el('td-user')?.value || '';
   const typeFilter = el('td-type')?.value || '';
@@ -412,14 +415,16 @@ function _todayApply() {
       <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
       <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
     </button>`;
-  el('td-cards').innerHTML = [
+  const _cardsEl = el('td-cards');
+  if (!_cardsEl) return;  // page was replaced while async work was in flight
+  _cardsEl.innerHTML = [
     ...coreCards.map(cardHTML),
     statusCards.length ? '<div class="td-card-break"><span>Lead status changes</span></div>' : '',
     ...statusCards.map(cardHTML),
     activityCards.length ? '<div class="td-card-break"><span>Other activity</span></div>' : '',
     ...activityCards.map(cardHTML)
   ].join('');
-  renderIcons(el('td-cards'));
+  renderIcons(_cardsEl);
 
   _todayDestroyCharts();
   _todayChartType(history);
@@ -507,7 +512,8 @@ function _todayApply() {
     default:
       allRows = [...history, ...logRows];
   }
-  el('td-row-count').textContent = allRows.length;
+  const _rcEl = el('td-row-count');
+  if (_rcEl) _rcEl.textContent = allRows.length;
 
   const chipEl = el('td-card-filter-chip');
   if (chipEl) {
@@ -522,6 +528,7 @@ function _todayApply() {
       chipEl.innerHTML = '';
     }
   }
+  if (!tbody) return;
   if (!allRows.length) {
     tbody.innerHTML = `<tr><td colspan="7" class="empty-table-cell">No activity found for the selected period.</td></tr>`;
   } else {
