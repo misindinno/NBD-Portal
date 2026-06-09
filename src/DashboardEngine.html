@@ -39,10 +39,6 @@ function _dbUpdatePageHeading() {
       title: 'Growth Engine',
       sub: 'Plan vs Actual on the only lever that grows sales - additions, drops, and net.'
     },
-    leadmanager: {
-      title: 'Lead Manager Dashboard',
-      sub: 'Portal-wise pending and today follow-up lead counts by salesperson.'
-    },
     otp: {
       title: 'Retention Dashboard',
       sub: 'Track overdue recovery, on-time follow-ups, and retention risk.'
@@ -62,7 +58,7 @@ function _dbUpdatePageHeading() {
 }
 
 function _dbSetTab(tab) {
-  _dbActiveTab = ['engine','leadmanager','otp','cs','analytics'].includes(tab) ? tab : 'engine';
+  _dbActiveTab = ['engine','otp','cs','analytics'].includes(tab) ? tab : 'engine';
   try { localStorage.setItem('_dbActiveTab_v1', _dbActiveTab); } catch(e) {}
   _dbUpdatePageHeading();
   const tabsEl = el('db-tabs');
@@ -75,7 +71,6 @@ window._dbSetTab = _dbSetTab;
 function _dbTabsHTML(active) {
   const tabs = [
     ['engine',    'Growth Engine',  'gauge'],
-    ['leadmanager','Lead Manager',   'users-round'],
     ['otp',       'Retention (OTP)','shield'],
     ['cs',        'Growth (CS)',    'trending-up'],
     ['analytics', 'Detailed',       'bar-chart-2']
@@ -310,10 +305,6 @@ function _dbScorecardSections() {
       </div>
     </div>
 
-    <div class="db-tab-section" data-tab="leadmanager" style="display:none">
-      <div id="db-lead-manager"></div>
-    </div>
-
     <div class="db-tab-section" data-tab="analytics" style="display:none" id="db-analytics-shell">
       <!-- detailed analytics injected by _dbRenderAnalyticsTab -->
     </div>`;
@@ -324,7 +315,6 @@ function _dbRenderActiveTab() {
   const data = _dbFilteredData();
   _dbUpdatePageHeading();
   if (_dbActiveTab === 'engine')         _dbRenderGrowthEngineTab(data);
-  else if (_dbActiveTab === 'leadmanager') _dbRenderLeadManagerDashboard(data);
   else if (_dbActiveTab === 'otp')       _dbRenderOTPTab(data);
   else if (_dbActiveTab === 'cs')        _dbRenderCSTab(data);
   else if (_dbActiveTab === 'analytics') _dbRenderAnalyticsTab(data.leads, data.fus);
