@@ -5,9 +5,9 @@
   .query-row .form-control { width: auto; flex: 1; min-width: 120px; }
   .query-add-btn { background: none; border: 1px dashed var(--md-primary); color: var(--md-primary); border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   .fu-card {
-    background: #fff; border-radius: 6px; padding: 12px 14px; margin-bottom: 8px;
+    background: #fff; border-radius: 6px; padding: 16px 18px; margin-bottom: 10px;
     border-left: 3px solid var(--md-primary); box-shadow: 0 1px 3px rgba(0,0,0,.07);
-    font-size: 13px;
+    font-size: 13px; min-height: 124px;
   }
   .activity-log-card { background: #FAFBFC; }
   .fu-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
@@ -502,6 +502,20 @@
     font-size: 11px; font-weight: 700; border: 1px solid rgba(134,25,143,.12);
     white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis;
   }
+  .fu-source-chip svg { flex-shrink: 0; }
+  .fu-source-chip-muted {
+    background: linear-gradient(135deg, #F8FAFC, #E2E8F0); color: #475569;
+    border-color: rgba(71,85,105,.14);
+  }
+  .fu-source-cell {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 130px;
+  }
+  .fu-source-portal {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 150px;
+    color: #64748B; font-size: 10.5px; font-weight: 650;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .fu-source-portal svg { flex-shrink: 0; opacity: .72; }
   .fu-owner-cell { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
   .fu-owner-avatar {
     width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;

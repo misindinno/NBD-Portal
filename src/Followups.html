@@ -545,6 +545,7 @@ function _decorateFollowup(row, ctx) {
     _contactPerson: lead ? (lead['Contact Person'] || '') : '',
     _city: lead ? (lead['City'] || '') : '',
     _leadSource: lead ? (lead['Source'] || '') : '',
+    _sourcePortal: lead ? (lead['Source Portal'] || lead._sourceName || lead._source || '') : '',
     _lastDoneDate: ctx?.lastDoneMap?.[row['Lead ID']] || ''
   };
 }
@@ -555,7 +556,7 @@ function _fuCards(rows, emptyMsg, ctx) {
     const r = ctx ? _decorateFollowup(row, ctx) : row;
     const typeColor = { Call:'#1565C0', WhatsApp:'#2E7D32', Visit:'#6A1B9A', Email:'#E65100', Payment:'#B71C1C' };
     const color = typeColor[r['Follow-up Type']] || '#555555';
-    return `<div class="fu-card" style="border-left-color:${color};padding:14px 16px">
+    return `<div class="fu-card" style="border-left-color:${color}">
       <div class="fu-card-header" style="margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="badge" style="background:${color}20;color:${color}">${escapeHtml(r['Follow-up Type']||'')}</span>
@@ -568,6 +569,8 @@ function _fuCards(rows, emptyMsg, ctx) {
       ${r._remarkLabel ? `<div style="font-size:12px;color:#555;background:#F5F5F5;border-radius:4px;padding:5px 8px;margin-bottom:8px" title="${escapeHtml(r._remarkLabel)}">${icon('message-square', 12)} <em>${escapeHtml(r._remarkLabel)}</em></div>` : ''}
       <div class="fu-card-meta" style="margin-bottom:${r['Next Follow-up Date'] ? '8px' : '0'}">
         ${r._clientLabel ? `<span>${icon('building-2', 12)} ${escapeHtml(r._clientLabel)}</span>` : (r._leadLabel ? `<span style="color:#aaa">${icon('target', 12)} ${escapeHtml(r._leadLabel)}</span>` : '<span style="color:#aaa">Standalone</span>')}
+        ${r._leadSource ? `<span class="fu-source-chip" title="${escapeHtml(r._leadSource)}">${icon('git-branch', 12)} ${escapeHtml(r._leadSource)}</span>` : ''}
+        ${r._sourcePortal && r._sourcePortal !== r._leadSource ? `<span class="fu-source-chip fu-source-chip-muted" title="${escapeHtml(r._sourcePortal)}">${icon('layers', 12)} ${escapeHtml(r._sourcePortal)}</span>` : ''}
         ${_followupCustomFieldMeta(r)}
       </div>
       ${r['Next Follow-up Date'] ? `<div style="display:flex;align-items:center;gap:12px;background:#EEF2FF;border-radius:4px;padding:6px 10px;font-size:12px">
@@ -720,7 +723,7 @@ function _fuTableRow(r) {
       ${(r._contactPerson || r._city) ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson || '-')}${r._city ? ` <span class="fu-lead-dot">•</span> ${icon('map-pin', 12)} ${escapeHtml(r._city)}` : ''}</div>` : ''}
       ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
     </td>
-    <td>${r._leadSource ? `<span class="fu-source-chip" title="${escapeHtml(r._leadSource)}">${escapeHtml(r._leadSource)}</span>` : '<span class="muted-text">—</span>'}</td>
+    <td>${_fuSourceCell(r)}</td>
     <td>${(() => {
       const sys = (t) => { const v = String(t || '').trim().toLowerCase(); return !v || v === 'new lead created' || v === 'lead created' || v === 'stage change'; };
       const own = (!sys(r['Discussion']) && r['Discussion']) || (!sys(r['Remark']) && r['Remark']) || '';
@@ -740,6 +743,16 @@ function _fuTableRow(r) {
     <td><div class="fu-owner-cell"><span class="fu-owner-avatar">${escapeHtml((r._assignedToLabel || r._createdByLabel || '?').trim().charAt(0).toUpperCase())}</span><span class="fu-owner-name">${escapeHtml(r._assignedToLabel || r._createdByLabel || '-')}</span></div></td>
     <td>${action}</td>
   </tr>`;
+}
+
+function _fuSourceCell(r) {
+  const source = String(r._leadSource || '').trim();
+  const portal = String(r._sourcePortal || '').trim();
+  if (!source && !portal) return '<span class="muted-text">—</span>';
+  return `<div class="fu-source-cell">
+    ${source ? `<span class="fu-source-chip" title="${escapeHtml(source)}">${icon('git-branch', 12)} ${escapeHtml(source)}</span>` : ''}
+    ${portal && portal !== source ? `<span class="fu-source-portal" title="${escapeHtml(portal)}">${icon('layers', 11)} ${escapeHtml(portal)}</span>` : ''}
+  </div>`;
 }
 
 function _fuDueCell(row) {
