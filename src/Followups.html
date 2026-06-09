@@ -543,6 +543,7 @@ function _decorateFollowup(row, ctx) {
     _leadStageLabel: leadCurrentStage ? leadCurrentStage['Stage Name'] : '',
     _companyName: lead ? (lead['Company Name'] || '') : '',
     _contactPerson: lead ? (lead['Contact Person'] || '') : '',
+    _leadDescription: lead ? (lead['Client Description'] || '') : '',
     _city: lead ? (lead['City'] || '') : '',
     _leadSource: lead ? (lead['Source'] || '') : '',
     _sourcePortal: lead ? (lead['Source Portal'] || lead._sourceName || lead._source || '') : '',
@@ -565,8 +566,8 @@ function _fuCards(rows, emptyMsg, ctx) {
         </div>
         ${r._createdByLabel ? `<span style="font-size:12px;color:#999;white-space:nowrap">${icon('user', 12)} ${escapeHtml(r._createdByLabel)}</span>` : ''}
       </div>
-      <div style="font-weight:600;font-size:13px;margin-bottom:${r._remarkLabel ? '4px' : '8px'};line-height:1.4" title="${escapeHtml(r['Discussion'] || '')}">${escapeHtml(r['Discussion']||'')}</div>
-      ${r._remarkLabel ? `<div style="font-size:12px;color:#555;background:#F5F5F5;border-radius:4px;padding:5px 8px;margin-bottom:8px" title="${escapeHtml(r._remarkLabel)}">${icon('message-square', 12)} <em>${escapeHtml(r._remarkLabel)}</em></div>` : ''}
+      <div style="font-weight:600;font-size:13px;margin-bottom:${(r._remarkLabel || r._leadDescription) ? '4px' : '8px'};line-height:1.4" title="${escapeHtml(r['Discussion'] || '')}">${escapeHtml(r['Discussion']||'')}</div>
+      ${(r._remarkLabel || r._leadDescription) ? `<div style="font-size:12px;color:#555;background:#F5F5F5;border-radius:4px;padding:5px 8px;margin-bottom:8px" title="${escapeHtml(r._remarkLabel || r._leadDescription)}">${icon('message-square', 12)} <em>${escapeHtml(r._remarkLabel || r._leadDescription)}</em></div>` : ''}
       <div class="fu-card-meta" style="margin-bottom:${r['Next Follow-up Date'] ? '8px' : '0'}">
         ${r._clientLabel ? `<span>${icon('building-2', 12)} ${escapeHtml(r._clientLabel)}</span>` : (r._leadLabel ? `<span style="color:#aaa">${icon('target', 12)} ${escapeHtml(r._leadLabel)}</span>` : '<span style="color:#aaa">Standalone</span>')}
         ${r._leadSource ? `<span class="fu-source-chip" title="${escapeHtml(r._leadSource)}">${icon('git-branch', 12)} ${escapeHtml(r._leadSource)}</span>` : ''}
@@ -727,7 +728,7 @@ function _fuTableRow(r) {
     <td>${(() => {
       const sys = (t) => { const v = String(t || '').trim().toLowerCase(); return !v || v === 'new lead created' || v === 'lead created' || v === 'stage change'; };
       const own = (!sys(r['Discussion']) && r['Discussion']) || (!sys(r['Remark']) && r['Remark']) || '';
-      const text = r._remarkLabel || own || '';
+      const text = r._remarkLabel || own || r._leadDescription || '';
       if (!text) return '<span class="muted-text" style="font-style:italic">No remarks yet</span>';
       return `<div class="fu-discussion" title="${escapeHtml(text)}">${escapeHtml(text)}</div>`;
     })()}</td>
