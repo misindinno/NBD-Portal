@@ -33,9 +33,38 @@ window._dbSavePlan = _dbSavePlan;
 // ── Tab state ────────────────────────────────────────────────────────────────
 let _dbActiveTab = (typeof localStorage !== 'undefined' && localStorage.getItem('_dbActiveTab_v1')) || 'engine';
 
+function _dbUpdatePageHeading() {
+  const copy = {
+    engine: {
+      title: 'Growth Engine',
+      sub: 'Plan vs Actual on the only lever that grows sales - additions, drops, and net.'
+    },
+    leadmanager: {
+      title: 'Lead Manager Dashboard',
+      sub: 'Portal-wise pending and today follow-up lead counts by salesperson.'
+    },
+    otp: {
+      title: 'Retention Dashboard',
+      sub: 'Track overdue recovery, on-time follow-ups, and retention risk.'
+    },
+    cs: {
+      title: 'Growth Dashboard',
+      sub: 'Track won movement, active opportunities, and closing focus.'
+    },
+    analytics: {
+      title: 'Detailed Dashboard',
+      sub: 'Detailed lead, follow-up, source, city, and activity analytics.'
+    }
+  };
+  const meta = copy[_dbActiveTab] || copy.engine;
+  if (el('db-page-title')) el('db-page-title').textContent = meta.title;
+  if (el('db-page-sub')) el('db-page-sub').textContent = meta.sub;
+}
+
 function _dbSetTab(tab) {
-  _dbActiveTab = ['engine','otp','cs','analytics'].includes(tab) ? tab : 'engine';
+  _dbActiveTab = ['engine','leadmanager','otp','cs','analytics'].includes(tab) ? tab : 'engine';
   try { localStorage.setItem('_dbActiveTab_v1', _dbActiveTab); } catch(e) {}
+  _dbUpdatePageHeading();
   const tabsEl = el('db-tabs');
   if (tabsEl) tabsEl.querySelectorAll('.db-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === _dbActiveTab));
   document.querySelectorAll('.db-tab-section').forEach(s => { s.style.display = s.dataset.tab === _dbActiveTab ? '' : 'none'; });
@@ -46,6 +75,7 @@ window._dbSetTab = _dbSetTab;
 function _dbTabsHTML(active) {
   const tabs = [
     ['engine',    'Growth Engine',  'gauge'],
+    ['leadmanager','Lead Manager',   'users-round'],
     ['otp',       'Retention (OTP)','shield'],
     ['cs',        'Growth (CS)',    'trending-up'],
     ['analytics', 'Detailed',       'bar-chart-2']
@@ -280,6 +310,10 @@ function _dbScorecardSections() {
       </div>
     </div>
 
+    <div class="db-tab-section" data-tab="leadmanager" style="display:none">
+      <div id="db-lead-manager"></div>
+    </div>
+
     <div class="db-tab-section" data-tab="analytics" style="display:none" id="db-analytics-shell">
       <!-- detailed analytics injected by _dbRenderAnalyticsTab -->
     </div>`;
@@ -288,7 +322,9 @@ function _dbScorecardSections() {
 // ── Render the active tab ────────────────────────────────────────────────────
 function _dbRenderActiveTab() {
   const data = _dbFilteredData();
+  _dbUpdatePageHeading();
   if (_dbActiveTab === 'engine')         _dbRenderGrowthEngineTab(data);
+  else if (_dbActiveTab === 'leadmanager') _dbRenderLeadManagerDashboard(data);
   else if (_dbActiveTab === 'otp')       _dbRenderOTPTab(data);
   else if (_dbActiveTab === 'cs')        _dbRenderCSTab(data);
   else if (_dbActiveTab === 'analytics') _dbRenderAnalyticsTab(data.leads, data.fus);
