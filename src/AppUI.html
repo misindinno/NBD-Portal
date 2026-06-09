@@ -400,6 +400,7 @@ _installConfigRouteFallback();
 // ─── Page meta ────────────────────────────────────────────────────────────────
 const _PAGE_META = {
   dashboard: { title: 'Dashboard',        crumb: 'Dashboard' },
+  leadmanager:{ title: 'Lead Manager Dashboard', crumb: 'Lead Manager Dashboard' },
   today:     { title: "Today's Activity", crumb: "Today's Activity" },
   leads:     { title: 'Lead Master',      crumb: 'Lead Master' },
   pipeline:  { title: 'Pipeline',         crumb: 'Pipeline' },
@@ -448,7 +449,16 @@ async function navigate(page) {
   if (crumbEl) crumbEl.textContent = meta.crumb;
   setContentLoading(pageSkeletonType(page));
   try {
-    if      (page === 'dashboard')         await _runPageLoader(page, 'loadDashboard');
+    if      (page === 'dashboard')         {
+      await _runPageLoader(page, 'loadDashboard');
+      if (typeof _dbSetTab === 'function') _dbSetTab('engine');
+    }
+    else if (page === 'leadmanager')       {
+      await _runPageLoader(page, 'loadDashboard');
+      if (typeof _dbSetTab === 'function') _dbSetTab('leadmanager');
+      if (titleEl) titleEl.textContent = 'Lead Manager Dashboard';
+      if (crumbEl) crumbEl.textContent = 'Lead Manager Dashboard';
+    }
     else if (page === 'today')             await _runPageLoader(page, 'loadToday');
     else if (page === 'leads')             await _runPageLoader(page, 'loadLeads');
     else if (page === 'pipeline')          await _runPageLoader(page, 'loadPipeline');
@@ -551,6 +561,7 @@ function renderSidebar() {
     // Dashboard-only client: only analytics nav + system items
     const analyticsItems = [
       show('Dashboard') ? navItem('dashboard', 'layout-dashboard', 'Dashboard') : '',
+      show('Dashboard') ? navItem('leadmanager', 'users-round', 'Lead Manager') : '',
       show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : ''
     ].filter(Boolean).join('');
     if (analyticsItems) html += `<div class="nav-section">Analytics</div>${analyticsItems}`;
@@ -625,9 +636,9 @@ function canNavigate(page) {
     'followups-overdue': 'Followups', 'followups-custom': 'Followups', 'followups-new': 'Followups'
   };
   // Dashboard page only reachable from the dashboard-only portal
-  if (page === 'dashboard') return dashboardOnly && hasModule('Dashboard');
+  if (page === 'dashboard' || page === 'leadmanager') return dashboardOnly && hasModule('Dashboard');
   // In the dashboard-only portal, restrict to dashboard + today + queue + config
-  if (dashboardOnly && !['today','queue','config'].includes(page)) return false;
+  if (dashboardOnly && !['today','queue','config','leadmanager'].includes(page)) return false;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
   if (page === 'bulkview') {
@@ -642,6 +653,7 @@ function canNavigate(page) {
 function defaultPageForUser() {
   if (_isDashboardPortal()) {
     if (canNavigate('dashboard')) return 'dashboard';
+    if (canNavigate('leadmanager')) return 'leadmanager';
     if (canNavigate('today')) return 'today';
     if (App.user?.canEditConfig || App.user?.canManageUsers) return 'config';
     return 'queue';
