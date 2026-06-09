@@ -281,7 +281,7 @@ async function _renderFUTab(tab, force = false) {
   if (!body) return;
 
   try {
-    const snapshot = await _getFollowupPageSnapshot(force, { includeHistory: tab === 'closed' });
+    const snapshot = await _getFollowupPageSnapshot(force, { includeHistory: true });
     const todayStr = localDateInputValue();
     let rows;
     if (tab === 'closed') {
