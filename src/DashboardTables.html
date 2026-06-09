@@ -1,4 +1,12 @@
 <script>
+function _mapRowsBy(rows, key) {
+  return (rows || []).reduce((map, row) => {
+    const id = row && row[key];
+    if (id) map[id] = row;
+    return map;
+  }, {});
+}
+
 function _dbLeadManagerPortalLabel(lead) {
   const fallback = (typeof APP_TITLE !== 'undefined' && APP_TITLE) ? APP_TITLE : 'Current Portal';
   return String((lead && (lead._sourceName || lead._source || lead['Source Portal'])) || fallback).trim() || fallback;
