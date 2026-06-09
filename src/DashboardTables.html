@@ -20,13 +20,37 @@ function _dbLeadManagerCellTotal(cell) {
   return new Set([...(cell?.pending || []), ...(cell?.today || [])]).size;
 }
 
+function _dbLeadManagerScopedRows(filters) {
+  const f = filters || _dbGetFilters();
+  const scopedRoles = ['SALES', 'USER'];
+  const isScoped = scopedRoles.includes(App.user.role);
+  const uid = App.user.id;
+  let leads = AppCache.getRows('leads') || [];
+  let fus = AppCache.getRows('followups') || [];
+
+  if (isScoped) leads = leads.filter(l => l['Assigned To'] === uid);
+  if (f.userId)   leads = leads.filter(l => l['Assigned To'] === f.userId);
+  if (f.stageId)  leads = leads.filter(l => l['Stage ID'] === f.stageId);
+  if (f.source)   leads = leads.filter(l => l['Source'] === f.source);
+  if (f.priority) leads = leads.filter(l => l['Priority'] === f.priority);
+  if (f.status)   leads = leads.filter(l => l['Lead Status'] === f.status);
+  if (f.state)    leads = leads.filter(l => String(l['State'] || '') === f.state);
+  if (f.city)     leads = leads.filter(l => String(l['City'] || '') === f.city);
+  if (f.portal)   leads = leads.filter(l => String(l._source || '') === f.portal);
+
+  const leadIds = new Set(leads.map(l => l['Lead ID']).filter(Boolean));
+  fus = fus.filter(fu => leadIds.has(fu['Lead ID']));
+  return { leads, fus, filters: f };
+}
+
 function _dbRenderLeadManagerDashboard(data) {
   const wrap = el('db-lead-manager');
   if (!wrap) return;
 
-  const leads = data.leads || [];
-  const fus = data.fus || [];
-  const filters = data.filters || {};
+  const scoped = _dbLeadManagerScopedRows(data && data.filters);
+  const leads = scoped.leads || [];
+  const fus = scoped.fus || [];
+  const filters = scoped.filters || {};
   const todayStr = localDateInputValue();
   const leadMap = _mapRowsBy(leads, 'Lead ID');
   const portals = new Set();
