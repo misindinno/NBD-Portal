@@ -653,12 +653,18 @@ function _hasGlobalRead(user) {
   return ['ADMIN', 'MANAGER', 'VIEWER'].includes(user.role);
 }
 
+function _hasAdminFullRead(user) {
+  return user && user.role === 'ADMIN';
+}
+
 function _canReadAssignedRow(row, user) {
+  if (_hasAdminFullRead(user)) return true;
   if (!_hasGlobalRead(user)) return row['Assigned To'] === user.id;
   return _rowMatchesDepartmentScope_(row, _buildUserMapById_(), _portalDepartmentScopeSet_());
 }
 
 function _scopeAssignedRows(rows, user) {
+  if (_hasAdminFullRead(user)) return rows || [];
   if (!_hasGlobalRead(user)) return rows.filter(r => r['Assigned To'] === user.id);
   const userMap = _buildUserMapById_();
   const scope = _portalDepartmentScopeSet_();
@@ -678,6 +684,7 @@ function _scopeActivityLogRows(rows, user) {
 }
 
 function _scopeLeadLinkedRows(rows, user, actorFields) {
+  if (_hasAdminFullRead(user)) return rows || [];
   if (_hasGlobalRead(user)) {
     const userMap = _buildUserMapById_();
     const leadMap = _buildLeadMapById_();

@@ -107,6 +107,7 @@ function getFollowupPageSnapshotFast_(user, options) {
 }
 
 function _sheetApiScopeLeadRows_(leads, user) {
+  if (_hasAdminFullRead(user)) return leads || [];
   if (!_hasGlobalRead(user)) return (leads || []).filter(lead => _sheetApiUserValueMatches_(lead['Assigned To'], user));
   const scope = _portalDepartmentScopeSet_();
   if (!scope) return leads || [];
@@ -115,6 +116,7 @@ function _sheetApiScopeLeadRows_(leads, user) {
 }
 
 function _sheetApiScopeLinkedRows_(rows, user, leadMap, actorFields) {
+  if (_hasAdminFullRead(user)) return rows || [];
   if (!_hasGlobalRead(user)) {
     return (rows || []).filter(row =>
       !!leadMap[row['Lead ID']] || actorFields.some(field => _sheetApiUserValueMatches_(row[field], user))
