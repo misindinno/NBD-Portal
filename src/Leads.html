@@ -450,6 +450,7 @@
       if (!validateCfMultiselects(form)) return;
       const btn = form.querySelector('[type=submit]');
       setButtonLoading(btn);
+      _clearLeadFormError(form);
       try {
         const payload = await collectLeadFormPayload(form);
         const updateId = _leadRowId(data) || _leadRowId(payload);
@@ -464,37 +465,24 @@
           setButtonLoading(btn);
         }
 
-        const tempId = isUpdate ? updateId : ('temp-' + Date.now());
-        if (isUpdate) {
-          AppCache.patchRow('leads', 'Lead ID', updateId, { ...payload, 'Updated At': _nowStr() });
-        } else {
+        const savedId = await api.mutate('leads', 'saveLead', payload, 'lead-' + Date.now());
+        const finalId = savedId || updateId || payload['Lead ID'] || '';
+        if (isUpdate && AppCache.isLoaded('leads')) {
+          AppCache.patchRow('leads', 'Lead ID', updateId, { ...payload, 'Lead ID': finalId, 'Updated At': _nowStr() });
+        } else if (!isUpdate && AppCache.isLoaded('leads')) {
           AppCache.addRow('leads', {
-            ...payload, 'Lead ID': tempId, '_queueTemp': true,
+            ...payload, 'Lead ID': finalId, '_queueTemp': false,
             'Lead Status': payload['Lead Status'] || 'Open',
             'Created At': _nowStr(), 'Updated At': _nowStr()
           });
         }
         overlay.remove();
         _refreshLeadViewsAfterLocalChange();
-        QueueManager.enqueue({
-          module: 'leads', actionType: 'saveLead', payload, tempId,
-          onDone: j => {
-            if (!isUpdate && j.finalRecordId) {
-              AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': j.finalRecordId, '_queueTemp': false });
-              if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
-              _refreshLeadViewsAfterLocalChange();
-            }
-            toast('Lead saved!');
-          },
-          onFail: j => {
-            if (!isUpdate) AppCache.removeRow('leads', 'Lead ID', tempId);
-            _refreshLeadsCache().catch(() => {});
-            toast('Save failed: ' + (j.error || 'Error'), 'error');
-          }
-        });
-        toast(isUpdate ? 'Saving…' : 'Lead queued for saving…', 'info');
+        toast('Lead saved!');
+        return;
+
       } catch (err) {
-        toast(err, 'error');
+        _showLeadFormError(form, err && err.message ? err.message : String(err || 'Save failed.'));
         resetButtonLoading(btn);
       }
     });
