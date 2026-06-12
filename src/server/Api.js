@@ -313,7 +313,8 @@ function apiGetFollowupFormData(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    const leads = _scopeAssignedRows(_leadRows(), user)
+    const snapshot = getFollowupPageSnapshotFast_(user, { includeHistory: false });
+    const leads = (snapshot.leads || [])
       .filter(l => l['Lead Status'] === 'Open');
     return respond({ leads });
   });
@@ -323,11 +324,8 @@ function apiGetFollowupLeads(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    const visibleFollowups = _scopeFollowupRows(getFollowups({ includeClosed: true }), user);
-    const linked = {};
-    visibleFollowups.forEach(f => { if (f['Lead ID']) linked[f['Lead ID']] = true; });
-    const leads = _leadRows().filter(l => _canReadAssignedRow(l, user) || linked[l['Lead ID']]);
-    return respond(leads);
+    const snapshot = getFollowupPageSnapshotFast_(user, { includeHistory: false });
+    return respond(snapshot.leads || []);
   });
 }
 
