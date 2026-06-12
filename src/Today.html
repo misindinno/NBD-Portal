@@ -72,6 +72,7 @@ function _renderToday() {
       <div class="fu-tabs" id="td-tabs">
         <div class="fu-tabs-left" id="td-range-tabs"></div>
         <div class="fu-tabs-right">
+          <div class="td-rate-pills" id="td-rate-pills"></div>
           <button class="fu-filter-toggle ${_todayFiltersOpen ? 'open' : ''}" id="td-filter-toggle" onclick="_todayToggleFilters()">
             ${icon('sliders-horizontal', 14)} <span>Filters</span>
             ${icon(_todayFiltersOpen ? 'chevron-up' : 'chevron-down', 13)}
@@ -400,6 +401,17 @@ function _todayApply() {
     };
   });
   const _todayRates = (typeof computeCallRates === 'function') ? computeCallRates(history) : { connectionRate: 0, conversionRate: 0, connects: 0, conversions: 0 };
+  const ratePillsEl = el('td-rate-pills');
+  if (ratePillsEl) {
+    ratePillsEl.innerHTML = `
+      <span class="td-rate-pill td-rate-pill-blue" title="${escapeHtml(_todayRates.connects || 0)} connected calls in selected range">
+        ${icon('activity', 12)} Connection ${escapeHtml(_todayRates.connectionRate || 0)}%
+      </span>
+      <span class="td-rate-pill td-rate-pill-green" title="${escapeHtml(_todayRates.conversions || 0)} conversions in selected range">
+        ${icon('trending-up', 12)} Conversion ${escapeHtml(_todayRates.conversionRate || 0)}%
+      </span>`;
+    renderIcons(ratePillsEl);
+  }
   const activityCards = [
     { key: 'newleads',  label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
     { key: 'stage',     label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
