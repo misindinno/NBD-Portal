@@ -52,24 +52,57 @@ function isUserDatabaseSheet(sheetName) {
     normalized === SHEET_NAMES.IDX_USERS;
 }
 
+function spreadsheetIdForSheet_(sheetName) {
+  return isUserDatabaseSheet(sheetName) ? USER_DATABASE_SPREADSHEET_ID : SPREADSHEET_ID;
+}
+
+function assertSheetsApiAvailable_() {
+  if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {
+    throw new Error('Google Sheets advanced service is not enabled.');
+  }
+}
+
+function sheetApiRange_(sheetName, range) {
+  const escaped = String(normalizeSheetName(sheetName)).replace(/'/g, "''");
+  return "'" + escaped + "'!" + (range || 'A:ZZ');
+}
+
+function sheetApiGetValues_(sheetName, range, spreadsheetId) {
+  assertServerContext_();
+  assertSheetsApiAvailable_();
+  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
+  try {
+    const res = Sheets.Spreadsheets.Values.get(id, sheetApiRange_(sheetName, range), {
+      valueRenderOption: 'FORMATTED_VALUE',
+      dateTimeRenderOption: 'FORMATTED_STRING'
+    });
+    return res.values || [];
+  } catch (e) {
+    const message = String(e && e.message || e);
+    if (message.includes('Unable to parse range') || message.includes('not found')) return [];
+    throw e;
+  }
+}
+
+function sheetApiValuesToRows_(values) {
+  const data = values || [];
+  if (data.length < 2) return [];
+  const headers = (data[0] || []).map(String);
+  return data.slice(1)
+    .filter(row => (row || []).some(v => String(v || '').trim() !== ''))
+    .map(row => headers.reduce((obj, h, i) => {
+      if (h) obj[h] = normalizeSheetValue(row[i] !== undefined ? row[i] : '');
+      return obj;
+    }, {}));
+}
+
 function getHeaders(sheetName) {
-  const sheet = getSheet(sheetName);
-  const lastCol = sheet.getLastColumn();
-  if (lastCol === 0) return [];
-  return sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const values = sheetApiGetValues_(sheetName, '1:1');
+  return values.length ? (values[0] || []).map(String).filter(Boolean) : [];
 }
 
 function getAllRows(sheetName) {
-  const sheet = getSheet(sheetName);
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) return [];
-  const headers = data[0];
-  return data.slice(1).map((row) =>
-    headers.reduce((obj, h, i) => {
-      obj[h] = normalizeSheetValue(row[i]);
-      return obj;
-    }, {}),
-  );
+  return sheetApiValuesToRows_(sheetApiGetValues_(sheetName, 'A:ZZ'));
 }
 
 // ─── Cross-portal aggregation (dashboard-portal only) ──────────────────────
@@ -85,21 +118,9 @@ function getAggregatedRows(sheetName) {
   const merged = [];
   sources.forEach(src => {
     if (!src || !src.spreadsheetId) return;
-    let ss;
-    try {
-      ss = SpreadsheetApp.openById(src.spreadsheetId);
-    } catch (e) {
-      Logger.log('[Aggregate] open failed for ' + (src.key || src.spreadsheetId) + ': ' + e.message);
-      return;
-    }
-    const sheet = ss.getSheetByName(resolved);
-    if (!sheet) return;
-    const data = sheet.getDataRange().getValues();
-    if (data.length < 2) return;
-    const headers = data[0];
-    data.slice(1).forEach(row => {
-      const obj = {};
-      headers.forEach((h, i) => { obj[h] = normalizeSheetValue(row[i]); });
+    const rows = sheetApiValuesToRows_(sheetApiGetValues_(resolved, 'A:ZZ', src.spreadsheetId));
+    rows.forEach(row => {
+      const obj = { ...row };
       obj._source = src.key || '';
       obj._sourceName = src.name || src.key || '';
       merged.push(obj);
@@ -129,8 +150,8 @@ function findRowIndex(sheetName, idColumn, idValue) {
     ? findIndexedRowNumber_(sheetName, idColumn, idValue)
     : -1;
   if (indexedRow > 1) return indexedRow;
-  const sheet = getSheet(sheetName);
-  const data = sheet.getDataRange().getValues();
+  const data = sheetApiGetValues_(sheetName, 'A:ZZ');
+  if (data.length < 2) return -1;
   const headers = data[0];
   const col = headers.indexOf(idColumn);
   if (col === -1) return -1;
@@ -164,7 +185,8 @@ function updateRow(sheetName, idColumn, idValue, updates) {
   let syncedRow = null;
   let syncedRowNumber = 0;
   try {
-    const data = sheet.getDataRange().getValues();
+    const data = sheetApiGetValues_(sheetName, 'A:ZZ');
+    if (data.length < 2) return false;
     const headers = data[0];
     const col = headers.indexOf(idColumn);
     if (col === -1) return false;
@@ -202,7 +224,8 @@ function deleteRow(sheetName, idColumn, idValue) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const data = sheet.getDataRange().getValues();
+    const data = sheetApiGetValues_(sheetName, 'A:ZZ');
+    if (data.length < 2) return false;
     const col = data[0].indexOf(idColumn);
     if (col === -1) return false;
     for (let i = 1; i < data.length; i++) {
@@ -225,7 +248,7 @@ function deleteAllRowsWhere(sheetName, filterFn) {
   lock.waitLock(10000);
   let deleted = 0;
   try {
-    const data = sheet.getDataRange().getValues();
+    const data = sheetApiGetValues_(sheetName, 'A:ZZ');
     if (data.length < 2) return 0;
     const headers = data[0];
     for (let i = data.length - 1; i >= 1; i--) {
@@ -248,9 +271,10 @@ function queryRows(sheetName, filterFn) {
 function safeInitHeaders(sheetName, requiredHeaders) {
   const sheet = getSheet(sheetName);
   const lastCol = sheet.getLastColumn();
+  const existingHeaders = getHeaders(sheetName);
 
   // Sheet is brand new — write full header row
-  if (lastCol === 0 || sheet.getRange(1, 1).getValue() === "") {
+  if (lastCol === 0 || !existingHeaders.length) {
     sheet
       .getRange(1, 1, 1, requiredHeaders.length)
       .setValues([requiredHeaders]);
@@ -259,10 +283,6 @@ function safeInitHeaders(sheetName, requiredHeaders) {
   }
 
   // Sheet already has headers — find and append only missing columns
-  const existingHeaders = sheet
-    .getRange(1, 1, 1, lastCol)
-    .getValues()[0]
-    .map(String);
   const missing = requiredHeaders.filter((h) => !existingHeaders.includes(h));
   if (missing.length === 0) return; // nothing to do
 

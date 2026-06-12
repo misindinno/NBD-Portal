@@ -213,7 +213,7 @@ function claimJobs_(workerOwner, batchSize, options) {
   const claimed = [];
   try {
     const sheet = getSheet(SHEET_NAMES.QUEUE);
-    const data  = sheet.getDataRange().getValues();
+    const data  = sheetApiGetValues_(SHEET_NAMES.QUEUE, 'A:ZZ');
     if (data.length < 2) return [];
 
     const headers = data[0].map(String);

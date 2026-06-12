@@ -95,8 +95,7 @@ function rebuildIndexForSheet_(sheetName) {
   if (!def) return 0;
   safeInitHeaders(def.indexSheet, def.headers);
 
-  const sourceSheet = getSheet(sheetName);
-  const sourceData = sourceSheet.getDataRange().getValues();
+  const sourceData = sheetApiGetValues_(sheetName, 'A:ZZ');
   const indexSheet = getSheet(def.indexSheet);
   _clearIndexBody_(indexSheet);
   if (sourceData.length < 2) return 0;
@@ -139,8 +138,7 @@ function getRowsByIndexedColumn_(sheetName, columnName, value) {
   const def = _indexDefinitionForSheet_(sheetName);
   if (!def || !columnName) return getAllRows(sheetName).filter(r => String(r[columnName]) === String(value));
   safeInitHeaders(def.indexSheet, def.headers);
-  const indexSheet = getSheet(def.indexSheet);
-  const data = indexSheet.getDataRange().getValues();
+  const data = sheetApiGetValues_(def.indexSheet, 'A:ZZ');
   if (data.length < 2) return [];
   const headers = data[0].map(String);
   const col = headers.indexOf(String(columnName));
@@ -181,8 +179,7 @@ function rebuildIndexAfterDelete_(sheetName) {
 }
 
 function findRowIndexWithoutIndex_(sheetName, idColumn, idValue) {
-  const sheet = getSheet(sheetName);
-  const data = sheet.getDataRange().getValues();
+  const data = sheetApiGetValues_(sheetName, 'A:ZZ');
   if (data.length < 2) return -1;
   const col = data[0].map(String).indexOf(String(idColumn));
   if (col === -1) return -1;
@@ -203,8 +200,7 @@ function _isIndexSheet_(sheetName) {
 }
 
 function _findIndexRecord_(def, columnName, value) {
-  const sheet = getSheet(def.indexSheet);
-  const data = sheet.getDataRange().getValues();
+  const data = sheetApiGetValues_(def.indexSheet, 'A:ZZ');
   if (data.length < 2) return null;
   const headers = data[0].map(String);
   const col = headers.indexOf(String(columnName));
@@ -223,10 +219,10 @@ function _findIndexRecord_(def, columnName, value) {
 function _getRowObjectAt_(sheetName, rowNumber) {
   const sheet = getSheet(sheetName);
   const lastRow = sheet.getLastRow();
-  const lastCol = sheet.getLastColumn();
-  if (rowNumber < 2 || rowNumber > lastRow || lastCol < 1) return null;
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
-  const values = sheet.getRange(rowNumber, 1, 1, lastCol).getValues()[0];
+  if (rowNumber < 2 || rowNumber > lastRow) return null;
+  const headers = getHeaders(sheetName);
+  if (!headers.length) return null;
+  const values = (sheetApiGetValues_(sheetName, rowNumber + ':' + rowNumber)[0] || []);
   return _rowObjectFromValues_(headers, values, rowNumber);
 }
 
