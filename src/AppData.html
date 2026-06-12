@@ -206,7 +206,7 @@ function _recoverFailedQueueJob(job) {
 }
 
 async function _refreshLeadsCache() {
-  const rows = await api.getLeads().catch(() => api.getFollowupLeads());
+  const rows = await api.getLeads();
   AppCache.setRows('leads', await _applyPendingLeadQueueOverlay(rows));
   try { renderSidebar(); } catch (e) {}
   const pg = App.currentPage;
@@ -232,26 +232,6 @@ async function _applyPendingLeadQueueOverlay(rows) {
 
   if (typeof QueueManager !== 'undefined' && typeof QueueManager.getPendingLeadPatches === 'function') {
     Object.entries(QueueManager.getPendingLeadPatches()).forEach(([leadId, patch]) => applyPatch(leadId, patch));
-  }
-
-  try {
-    const jobs = await api.getQueueHistory(100);
-    (jobs || []).forEach(job => {
-      const status = String(job.status || '');
-      if (!['QUEUED', 'PROCESSING', 'FAILED'].includes(status)) return;
-      if (!['updateLeadStage', 'moveLeadStageWithFields'].includes(job.actionType)) return;
-      const payload = job.pendingPayload || {};
-      const fields = payload.fields && typeof payload.fields === 'object' ? payload.fields : {};
-      applyPatch(payload.leadId, {
-        ...fields,
-        'Stage ID': payload.stageId,
-        'Stage Updated At': job.createdAt || _nowStr(),
-        'Updated At': job.updatedAt || job.createdAt || _nowStr(),
-        '_queuePendingStage': true
-      });
-    });
-  } catch (e) {
-    console.warn('[AppData] Pending queue overlay failed', e);
   }
 
   if (!Object.keys(patches).length) return list;
@@ -383,8 +363,8 @@ async function _refreshAppConfig() {
 }
 
 function startCacheRevalidation() {
-  window.addEventListener('focus', _checkCacheStamps);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkCacheStamps(); });
-  setInterval(_checkCacheStamps, 15_000);
+  // Automatic polling is intentionally disabled. Pages load their own snapshot
+  // on demand, and mutations patch/mark the current state instead of triggering
+  // repeated background reads.
 }
 </script>

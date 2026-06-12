@@ -35,10 +35,7 @@ async function _continueAppInit(token) {
 
   const requestedPage = _initialRequestedPage();
   const defaultPage = requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser();
-  _ensureCached('leads',          () => api.getLeads().catch(() => api.getFollowupLeads())).then(() => { try { renderSidebar(); } catch(e) {} }).catch(() => {});
-  // History and activity logs are large; pages that need them load them on demand.
   navigate(defaultPage);
-  startCacheRevalidation();
 }
 
 function _initialRequestedPage() {

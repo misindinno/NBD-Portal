@@ -179,6 +179,9 @@ function getAppConfig() {
   try {
     const outcomes = getConfigByType("Outcome");
     const settings = getPortalSettings_();
+    const portalUsers = getUsersWithPortalAccess_();
+    const activePortalUsers = portalUsers
+      .filter((u) => isActiveUserValue(u["Is Active"]) && _userMatchesDepartmentSettings_(u, settings));
     const config = {
       stages: getActiveStages(),
       sources: getConfigByType("Lead Source"),
@@ -202,8 +205,7 @@ function getAppConfig() {
       leadFields: getFieldConfig("Leads"),
       followupFields: getFieldConfig("Followups"),
       _allConfigs: getAllRows(SHEET_NAMES.CONFIG),
-      users: getUsersWithPortalAccess_()
-        .filter((u) => isActiveUserValue(u["Is Active"]) && _userMatchesDepartmentSettings_(u, settings))
+      users: activePortalUsers
         .map((u) => {
         const email = String(u["Email Address"] || "")
           .trim()
@@ -217,9 +219,13 @@ function getAppConfig() {
           department: u["Department"] || "",
         };
       }),
-      departments: _activeUserDepartments_(),
+      departments: activePortalUsers
+        .map((u) => String(u["Department"] || "").trim())
+        .filter(Boolean)
+        .filter((d, i, arr) => arr.indexOf(d) === i)
+        .sort(),
       allStages: getAllStages(),
-      userNameMap: getAllRows(SHEET_NAMES.USERS).reduce((m, u) => {
+      userNameMap: portalUsers.reduce((m, u) => {
         const email = String(u["Email Address"] || "").trim().toLowerCase();
         const id = getStaffUserId(u, email);
         if (id) m[id] = u["Name"] || email;

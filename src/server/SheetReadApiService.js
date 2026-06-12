@@ -397,6 +397,9 @@ function getAppConfigFast_() {
   const outcomes = byType('Outcome');
   const settings = getPortalSettings_();
   const allStages = stageRows.sort(_stageOrderSort_);
+  const portalUsers = getUsersWithPortalAccess_();
+  const activePortalUsers = portalUsers
+    .filter(user => isActiveUserValue(user['Is Active']) && _userMatchesDepartmentSettings_(user, settings));
   return {
     stages: allStages.filter(stage => stage['Is Active'] === true || stage['Is Active'] === 'TRUE' || String(stage['Is Active']).toLowerCase() === 'true'),
     sources: byType('Lead Source'),
@@ -418,8 +421,7 @@ function getAppConfigFast_() {
     leadFields: fieldsFor('Leads', false),
     followupFields: fieldsFor('Followups', false),
     _allConfigs: configRows,
-    users: getUsersWithPortalAccess_()
-      .filter(user => isActiveUserValue(user['Is Active']) && _userMatchesDepartmentSettings_(user, settings))
+    users: activePortalUsers
       .map(user => {
         const email = String(user['Email Address'] || '').trim().toLowerCase();
         const role = normalizeStaffPermission(user['Permission'] || user['Role']);
@@ -431,9 +433,13 @@ function getAppConfigFast_() {
           department: user['Department'] || ''
         };
       }),
-    departments: _activeUserDepartments_(),
+    departments: activePortalUsers
+      .map(user => String(user['Department'] || '').trim())
+      .filter(Boolean)
+      .filter((department, i, arr) => arr.indexOf(department) === i)
+      .sort(),
     allStages,
-    userNameMap: getAllRows(SHEET_NAMES.USERS).reduce((map, user) => {
+    userNameMap: portalUsers.reduce((map, user) => {
       const email = String(user['Email Address'] || '').trim().toLowerCase();
       const id = getStaffUserId(user, email);
       if (id) map[id] = user['Name'] || email;

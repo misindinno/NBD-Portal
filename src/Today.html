@@ -30,18 +30,11 @@ async function loadToday() {
     _renderToday();
     return;
   } catch (e) {
-    console.warn('[Today] Sheets API snapshot failed; falling back to standard cache loads.', e);
+    console.warn('[Today] Snapshot load failed.', e);
+    if (App.currentPage === 'today') {
+      el('today-wrap').innerHTML = `<div class="card" style="padding:24px;color:#D32F2F">${escapeHtml(e.message || String(e))}</div>`;
+    }
   }
-
-  const loads = [];
-  if (!AppCache.isLoaded('followupHistory')) loads.push(_ensureCached('followupHistory', () => api.getFollowupHistory({})));
-  if (!AppCache.isLoaded('activityLogs'))   loads.push(_ensureCached('activityLogs',   () => api.getLeadActivityLogs({})));
-  if (!AppCache.isLoaded('leads'))          loads.push(_ensureCached('leads',           () => api.getLeads()));
-  if (!AppCache.isLoaded('followups'))      loads.push(_ensureCached('followups',       () => api.getFollowups({})));
-  if (loads.length) await Promise.all(loads);
-
-  if (App.currentPage !== 'today') return;
-  _renderToday();
 }
 
 function _renderToday() {
