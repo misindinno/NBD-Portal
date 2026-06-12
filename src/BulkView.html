@@ -32,21 +32,11 @@ const BulkView = (() => {
         .bulk-cell-status { font-weight:700 !important; }
         .bulk-cell-status-saved { background:#dcfce7 !important; color:#166534 !important; }
         .bulk-cell-status-saving { background:#dbeafe !important; color:#1d4ed8 !important; }
-        .bulk-cell-status-queued { background:#f3f4f6 !important; color:#4b5563 !important; }
         .bulk-cell-status-error { background:#fee2e2 !important; color:#991b1b !important; }
         .bulk-mode, .bulk-tabs { display:inline-flex; align-items:center; gap:4px; padding:3px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; }
         .bulk-mode-btn, .bulk-tab { border:0; background:transparent; color:#4b5563; height:28px; padding:0 9px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
         .bulk-mode-btn.active, .bulk-tab.active { background:#fff; color:#111827; box-shadow:0 1px 2px rgba(15,23,42,.08); }
         .bulk-tabs { width:max-content; }
-        .bulk-queue-card { border:1px solid #e5e7eb; border-radius:10px; background:#fff; overflow:hidden; }
-        .bulk-queue-head { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid #e5e7eb; }
-        .bulk-queue-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:10px; }
-        .bulk-queue-stat { background:#fff; border:1px solid #e5e7eb; border-radius:9px; padding:10px; }
-        .bulk-queue-stat strong { display:block; font-size:20px; color:#111827; line-height:1; }
-        .bulk-queue-stat span { font-size:11px; color:#6b7280; font-weight:700; }
-        .bulk-queue-table { width:100%; border-collapse:collapse; font-size:12px; }
-        .bulk-queue-table th { text-align:left; padding:9px 10px; background:#f8fafc; color:#64748b; font-size:10px; text-transform:uppercase; }
-        .bulk-queue-table td { padding:9px 10px; border-top:1px solid #f1f5f9; vertical-align:top; }
         .bulk-row-detail { background:#f8fafc; padding:10px; border-radius:8px; border:1px solid #e5e7eb; }
         .bulk-row-detail-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
         .bulk-row-detail-title { font-size:12px; font-weight:800; color:#111827; }
@@ -266,13 +256,9 @@ const BulkView = (() => {
   async function switchTab(tab) {
     bulkTab = 'entry';
     const entry = el('bulk-entry-panel');
-    const queue = el('bulk-queue-panel');
     const entryTab = el('bulk-tab-entry');
-    const queueTab = el('bulk-tab-queue');
     if (entry) entry.style.display = bulkTab === 'entry' ? '' : 'none';
-    if (queue) queue.style.display = bulkTab === 'queue' ? '' : 'none';
     if (entryTab) entryTab.classList.toggle('active', bulkTab === 'entry');
-    if (queueTab) queueTab.classList.toggle('active', bulkTab === 'queue');
     renderIcons(el('content'));
   }
 
@@ -327,7 +313,6 @@ const BulkView = (() => {
           if (status === 'saved') return { className: 'bulk-cell-status bulk-cell-status-saved' };
           if (status === 'follow-up created') return { className: 'bulk-cell-status bulk-cell-status-saved' };
           if (status === 'saving' || status === 'processing') return { className: 'bulk-cell-status bulk-cell-status-saving' };
-          if (status === 'queued') return { className: 'bulk-cell-status bulk-cell-status-queued' };
           if (status === 'error') return { className: 'bulk-cell-status bulk-cell-status-error' };
           return { className: 'bulk-cell-status' };
         }
@@ -458,130 +443,14 @@ const BulkView = (() => {
   }
 
   async function save() {
-    return saveQueued();
-    const gridRows = _gridRows();
-    if (!gridRows.length) {
-      Swal.fire('No rows', 'Paste at least one row before saving.', 'info');
-      return;
-    }
-    if (gridRows.length > 500) {
-      Swal.fire('Too many rows', 'Please import 500 rows or fewer at a time.', 'warning');
-      return;
-    }
-    _setBusy(true);
-    _setProgress(5, 'Validating before save...');
-    try {
-      const validation = await api.validateBulkRows(_rows(), bulkMode);
-      _markErrors(validation.errorRows || []);
-      const invalidRows = new Set((validation.errorRows || []).map(r => Number(r.rowNumber)));
-
-      if (invalidRows.size === gridRows.length) {
-        _setProgress(0, 'All rows have errors — fix before saving');
-        Swal.fire('Validation failed', `All ${gridRows.length} row(s) have errors.`, 'error');
-        return;
-      }
-
-      const initialStageId = _getBulkInitialStageId();
-      const jobMap = {}; // requestId → rowNumber
-      errors = [...(validation.errorRows || [])];
-      lastBatchId = Date.now().toString();
-      let validIdx = 0;
-
-      for (let i = 0; i < gridRows.length; i++) {
-        const item = gridRows[i];
-        if (invalidRows.has(item.rowNumber)) continue;
-        const normalizedRow = (validation.validRows || [])[validIdx++];
-        if (!normalizedRow) continue;
-
-        const payload = { ...normalizedRow };
-        if (!payload['Stage ID']) payload['Stage ID'] = initialStageId;
-
-        const requestId = 'blk-' + lastBatchId + '-r' + item.rowNumber;
-        _setRowMeta(item.rowNumber, { __status__: 'Queued', __errors__: '', __recordId__: '' });
-        _setProgress(Math.round((i / gridRows.length) * 60) + 5, `Queueing row ${item.rowNumber}...`);
-
-        try {
-          await api.enqueueJob('leads', 'saveLead', payload, requestId);
-          jobMap[requestId] = item.rowNumber;
-        } catch (e) {
-          _setRowMeta(item.rowNumber, { __status__: 'Error', __errors__: e.message || 'Queue failed' });
-          errors.push({ rowNumber: item.rowNumber, errors: e.message || 'Queue failed', fieldErrors: [], ...item.data });
-        }
-      }
-
-      const totalQueued = Object.keys(jobMap).length;
-      _setProgress(65, `${totalQueued} job(s) queued — waiting for processing...`);
-      _renderSummary({ total: gridRows.length, valid: 0, errors: invalidRows.size + (gridRows.length - invalidRows.size - totalQueued) });
-
-      if (totalQueued > 0) {
-        await _pollBulkJobs(jobMap);
-        await _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
-      }
-
-      const saved = Object.entries(jobMap).filter(([, rn]) => {
-        const row = hot?.getSourceDataAtRow(rn - 1);
-        return row && String(row.__status__ || '').toLowerCase() === 'saved';
-      }).length;
-      const failed = gridRows.length - saved;
-
-      _renderSummary({ total: gridRows.length, valid: saved, errors: failed });
-      _markErrors(errors);
-      _setProgress(100, failed ? `Done — ${failed} row(s) failed` : 'All leads saved');
-      Swal.fire(failed ? 'Completed with errors' : 'Bulk save complete',
-        `${saved} lead(s) saved. ${failed} failed.`,
-        failed ? 'warning' : 'success');
-    } catch (err) {
-      _setProgress(0, 'Save failed');
-      Swal.fire('Save failed', err.message || String(err), 'error');
-    } finally {
-      _setBusy(false);
-    }
+    return saveBulkDirect();
   }
-
   function _getBulkInitialStageId() {
     const stages = (App.config.stages || [])
       .filter(s => s['Is Active'] !== false && s['Is Active'] !== 'FALSE')
       .sort((a, b) => Number(a['Stage Order'] || 0) - Number(b['Stage Order'] || 0));
     const initial = stages.find(s => s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE') || stages[0];
     return initial ? (initial['Stage ID'] || '') : '';
-  }
-
-  async function _pollBulkJobs(jobMap) {
-    const allIds = Object.keys(jobMap);
-    const pending = new Set(allIds);
-    const maxWaitMs = 5 * 60 * 1000; // 5-minute ceiling
-
-    while (pending.size > 0 && Date.now() - (_pollBulkJobs._start || (_pollBulkJobs._start = Date.now())) < maxWaitMs) {
-      await new Promise(r => setTimeout(r, 4000));
-      try {
-        const statuses = await api.getJobStatuses([...pending]);
-        for (const [rid, info] of Object.entries(statuses || {})) {
-          const rowNumber = jobMap[rid];
-          if (!rowNumber) continue;
-          const st = String(info.status || '');
-          if (st === 'DONE') {
-            _setRowMeta(rowNumber, { __status__: 'Saved', __recordId__: info.finalRecordId || '', __errors__: '' });
-            pending.delete(rid);
-          } else if (st === 'DEAD') {
-            const errMsg = info.error || 'Job failed permanently';
-            _setRowMeta(rowNumber, { __status__: 'Error', __errors__: errMsg });
-            errors.push({ rowNumber, errors: errMsg, fieldErrors: [] });
-            pending.delete(rid);
-          } else if (st === 'PROCESSING' || st === 'FAILED') {
-            _setRowMeta(rowNumber, { __status__: 'Processing', __errors__: '' });
-          }
-        }
-        const done = allIds.length - pending.size;
-        _setProgress(65 + Math.round(done / allIds.length * 34), `${done}/${allIds.length} processed...`);
-      } catch (e) {
-        console.warn('[BulkView] Poll error:', e);
-      }
-    }
-    _pollBulkJobs._start = null;
-    // Anything still pending — leave as Queued, worker will pick it up
-    for (const rid of pending) {
-      _setRowMeta(jobMap[rid], { __status__: 'Queued', __errors__: 'Still processing — refresh to check' });
-    }
   }
 
   async function createFollowupsOnly() {
@@ -639,7 +508,7 @@ const BulkView = (() => {
     }
   }
 
-  async function saveQueued() {
+  async function saveBulkDirect() {
     const gridRows = _gridRows();
     if (!gridRows.length) {
       Swal.fire('No rows', 'Paste at least one row before saving.', 'info');
@@ -754,47 +623,6 @@ const BulkView = (() => {
     });
   }
 
-  async function _pollBulkChunkJobs(chunkMap, rowByNumber) {
-    const allIds = Object.keys(chunkMap || {});
-    const pending = new Set(allIds);
-    const startedAt = Date.now();
-    const maxWaitMs = 5 * 60 * 1000;
-    while (pending.size > 0 && Date.now() - startedAt < maxWaitMs) {
-      await new Promise(r => setTimeout(r, 4000));
-      try {
-        const statuses = await api.getJobStatuses([...pending]);
-        for (const [requestId, info] of Object.entries(statuses || {})) {
-          const chunk = chunkMap[requestId];
-          if (!chunk) continue;
-          const status = String(info.status || '');
-          if (status === 'DONE') {
-            await _applyBulkChunkProgress(chunk, rowByNumber);
-            pending.delete(requestId);
-          } else if (status === 'DEAD') {
-            const errMsg = info.error || 'Job failed permanently';
-            chunk.rowNumbers.forEach(rowNumber => {
-              const original = rowByNumber[rowNumber] || {};
-              _setRowMeta(rowNumber, { __status__: 'Error', __errors__: errMsg });
-              errors.push({ rowNumber, errors: errMsg, fieldErrors: [], ...(original.data || {}) });
-            });
-            pending.delete(requestId);
-          } else if (status === 'PROCESSING' || status === 'FAILED') {
-            chunk.rowNumbers.forEach(rowNumber => _setRowMeta(rowNumber, { __status__: 'Processing', __errors__: '' }));
-          }
-        }
-        const done = allIds.length - pending.size;
-        _setProgress(60 + Math.round(done / allIds.length * 39), `${done}/${allIds.length} chunks processed...`);
-      } catch (e) {
-        console.warn('[BulkView] Chunk poll error:', e);
-      }
-    }
-    pending.forEach(requestId => {
-      const chunk = chunkMap[requestId];
-      if (!chunk) return;
-      chunk.rowNumbers.forEach(rowNumber => _setRowMeta(rowNumber, { __status__: 'Queued', __errors__: 'Still processing - refresh to check' }));
-    });
-  }
-
   async function _applyBulkChunkProgress(chunk, rowByNumber) {
     let progress = null;
     try {
@@ -808,7 +636,7 @@ const BulkView = (() => {
       chunk.rowNumbers.forEach(rowNumber => {
         if (hasChunkErrors) {
           const original = rowByNumber[rowNumber] || {};
-          const errMsg = 'Chunk completed with errors, but row details were unavailable. Check queue/audit log.';
+          const errMsg = 'Chunk completed with errors, but row details were unavailable. Check bulk audit log.';
           _setRowMeta(rowNumber, { __status__: 'Error', __errors__: errMsg });
           errors.push({ rowNumber, errors: errMsg, fieldErrors: [], ...(original.data || {}) });
         } else {
@@ -829,129 +657,6 @@ const BulkView = (() => {
         errors.push({ rowNumber, errors: errMsg, fieldErrors: result.fieldErrors || [], ...(original.data || {}) });
       }
     });
-  }
-
-  async function loadBulkQueue() {
-    const panel = el('bulk-queue-panel');
-    if (!panel) return;
-    panel.innerHTML = '<div class="bulk-queue-card" style="padding:18px;color:#6b7280">Loading bulk queue...</div>';
-    try {
-      const data = await api.getBulkQueueSummary(100, true);
-      const jobs = data.jobs || [];
-      const stats = data.stats || {};
-      panel.innerHTML = `
-        <div class="bulk-queue-stats">
-          ${_bulkQueueStat('Total Chunks', stats.total || 0)}
-          ${_bulkQueueStat('Pending', stats.pending || 0)}
-          ${_bulkQueueStat('Processed', stats.done || 0)}
-          ${_bulkQueueStat('Retrying', stats.failed || 0)}
-          ${_bulkQueueStat('Failed', stats.dead || 0)}
-        </div>
-        <div class="bulk-queue-card">
-          <div class="bulk-queue-head">
-            <div>
-              <div style="font-size:13px;font-weight:800;color:#111827">Bulk Queue Detail</div>
-              <div class="bulk-meta">Chunk-wise progress, saved rows, failed rows, and pending processing.</div>
-            </div>
-            <button class="btn btn-outlined btn-sm" onclick="BulkView.loadBulkQueue()">${icon('refresh-cw', 13)} Refresh</button>
-          </div>
-          <div style="overflow:auto;max-height:calc(100vh - 330px)">
-            <table class="bulk-queue-table">
-              <thead><tr><th>Status</th><th>Mode</th><th>Batch / Request</th><th>Rows</th><th>Saved</th><th>Errors</th><th>Queued</th><th>Processed</th><th>Error Detail</th></tr></thead>
-              <tbody>
-                ${jobs.length ? jobs.map(_bulkQueueJobHTML).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:28px">No bulk queue jobs found.</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-        </div>`;
-      renderIcons(panel);
-    } catch (e) {
-      panel.innerHTML = `<div class="bulk-queue-card" style="padding:18px;color:#991b1b">${escapeHtml(e.message || String(e))}</div>`;
-    }
-  }
-
-  function _bulkQueueStat(label, value) {
-    return `<div class="bulk-queue-stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
-  }
-
-  function _bulkQueueJobHTML(job) {
-    const progress = job.progress || {};
-    const total = Number(progress.total || job.totalRows || 0);
-    const rowStats = job.rowStats || {};
-    const saved = Number(rowStats.saved || progress.saved || 0);
-    const errCount = Number(rowStats.errors || progress.errors || 0);
-    const pending = Number(rowStats.pending || Math.max(0, total - saved - errCount));
-    const rowResults = Array.isArray(progress.rowResults) ? progress.rowResults : [];
-    const errPreview = rowResults
-      .filter(r => !r.saved && r.errors)
-      .slice(0, 3)
-      .map(r => `Row ${r.rowNumber}: ${r.errors}`)
-      .join('; ');
-    const mode = job.mode === 'update' ? 'Update' : 'Create';
-    return `<tr>
-      <td><span class="q-badge ${_bulkQueueBadge(job.status)}">${escapeHtml(job.status || '')}</span></td>
-      <td>${escapeHtml(mode)}</td>
-      <td><div style="font-weight:700">${escapeHtml(job.batchId || '-')}</div><div class="bulk-meta">${escapeHtml(job.requestId || '')}</div></td>
-      <td>${total || '-'}</td>
-      <td style="color:#166534;font-weight:800">${saved || 0}</td>
-      <td style="color:#991b1b;font-weight:800">${errCount || 0}</td>
-      <td>${escapeHtml(job.createdAt || '-')}</td>
-      <td>${escapeHtml(job.processedAt || '-')}</td>
-      <td title="${escapeHtml(errPreview || job.lastError || '')}">${escapeHtml(errPreview || job.lastError || '-')}</td>
-    </tr>
-    <tr>
-      <td colspan="9">${_bulkQueueDetailHTML(job, { total, saved, errCount, pending })}</td>
-    </tr>`;
-  }
-
-  function _bulkQueueDetailHTML(job, counts) {
-    const rows = Array.isArray(job.rows) ? job.rows : [];
-    return `<details>
-      <summary style="cursor:pointer;font-weight:800;color:#2563eb">Show full row detail (${escapeHtml(rows.length)} rows)</summary>
-      <div class="bulk-row-detail">
-        <div class="bulk-row-detail-head">
-          <div class="bulk-row-detail-title">Processed and Pending Rows</div>
-          <div class="bulk-row-mini-stats">
-            <span class="bulk-row-mini-stat saved">Saved ${escapeHtml(counts.saved || 0)}</span>
-            <span class="bulk-row-mini-stat error">Errors ${escapeHtml(counts.errCount || 0)}</span>
-            <span class="bulk-row-mini-stat pending">Needs Processing ${escapeHtml(counts.pending || 0)}</span>
-          </div>
-        </div>
-        <div style="overflow:auto;max-height:260px">
-          <table class="bulk-row-table">
-            <thead><tr><th>Row</th><th>Status</th><th>Lead ID</th><th>Company</th><th>Contact</th><th>Phone</th><th>Email</th><th>Assigned To</th><th>Result / Error</th></tr></thead>
-            <tbody>
-              ${rows.length ? rows.map(_bulkQueueDetailRowHTML).join('') : '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:18px">No row payload detail available for this job.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </details>`;
-  }
-
-  function _bulkQueueDetailRowHTML(row) {
-    const statusClass = row.status === 'Saved' ? 'saved' : (row.status === 'Error' ? 'error' : 'pending');
-    const resultText = row.errors || row.recordId || (row.status === 'Pending' ? 'Waiting for queue worker' : row.status);
-    return `<tr>
-      <td>${escapeHtml(row.rowNumber || '')}</td>
-      <td><span class="bulk-row-status ${statusClass}">${escapeHtml(row.status || '')}</span></td>
-      <td title="${escapeHtml(row.leadId || '')}">${escapeHtml(row.leadId || '-')}</td>
-      <td title="${escapeHtml(row.company || '')}">${escapeHtml(row.company || '-')}</td>
-      <td title="${escapeHtml(row.contact || '')}">${escapeHtml(row.contact || '-')}</td>
-      <td title="${escapeHtml(row.phone || '')}">${escapeHtml(row.phone || '-')}</td>
-      <td title="${escapeHtml(row.email || '')}">${escapeHtml(row.email || '-')}</td>
-      <td title="${escapeHtml(row.assignedTo || '')}">${escapeHtml(_userNameById(row.assignedTo) || '-')}</td>
-      <td title="${escapeHtml(resultText || '')}">${escapeHtml(resultText || '-')}</td>
-    </tr>`;
-  }
-
-  function _bulkQueueBadge(status) {
-    const st = String(status || '').toUpperCase();
-    if (st === 'DONE') return 'q-done';
-    if (st === 'DEAD') return 'q-dead';
-    if (st === 'FAILED') return 'q-failed';
-    if (st === 'PROCESSING') return 'q-processing';
-    return 'q-queued';
   }
 
   async function downloadErrors() {
@@ -979,7 +684,7 @@ const BulkView = (() => {
     _setProgress(0, 'Ready');
   }
 
-  return { load, validate, save: saveQueued, createFollowupsOnly, downloadErrors, clear, handlePaste, setMode, switchTab, loadBulkQueue, assignUser };
+  return { load, validate, save: saveBulkDirect, createFollowupsOnly, downloadErrors, clear, handlePaste, setMode, switchTab, assignUser };
 })();
 
 async function loadBulkView() {

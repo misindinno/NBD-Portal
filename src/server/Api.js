@@ -216,6 +216,14 @@ function apiGetLeads(token) {
   });
 }
 
+function apiQueryLeadsPage(token, query) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Leads');
+    return respond(queryLeadsPage_(query || {}, user));
+  });
+}
+
 function apiUploadFile(token, filePayload, fieldKey) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -266,6 +274,14 @@ function apiGetFollowups(token, filters) {
     const user = _requireModule('Followups');
     const rows = _scopeFollowupRows(getFollowups(filters || {}), user);
     return respond(rows.sort((a, b) => new Date(b['Created At']) - new Date(a['Created At'])));
+  });
+}
+
+function apiQueryFollowupsPage(token, query) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Followups');
+    return respond(queryFollowupsPage_(query || {}, user));
   });
 }
 
@@ -333,7 +349,7 @@ function apiSaveFollowupDirect(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _apiUser();
-    _assertCanEnqueueJob_(user, 'followups', 'saveFollowup');
+    _assertCanMutate_(user, 'followups', 'saveFollowup');
     return saveFollowup(payload || {}, user.email);
   });
 }
@@ -342,7 +358,7 @@ function apiMarkFollowupDoneDirect(token, followupId, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _apiUser();
-    _assertCanEnqueueJob_(user, 'followups', 'markFollowupDone');
+    _assertCanMutate_(user, 'followups', 'markFollowupDone');
     return markFollowupDone(followupId || '', payload || {}, user.email);
   });
 }
@@ -426,22 +442,6 @@ function apiGetBulkProgress(token, batchId) {
   });
 }
 
-function apiGetBulkQueueSummary(token, limit, includeRows) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireBulkEntry_();
-    return respond(getBulkQueueSummary(user.email, user.role === 'ADMIN', Number(limit) || 100, includeRows !== false));
-  });
-}
-
-function apiGetBulkQueueJobDetail(token, requestId) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireBulkEntry_();
-    return respond(getBulkQueueJobDetail(user.email, user.role === 'ADMIN', requestId || ''));
-  });
-}
-
 function apiCreateErrorCsv(token, errorRows) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -450,8 +450,8 @@ function apiCreateErrorCsv(token, errorRows) {
   });
 }
 
-// ── Queue endpoints ───────────────────────────────────────────────────────────
-// Fast enqueue — validates auth + writes ONE queue row. Returns in < 500ms.
+// ── Direct mutation endpoint ───────────────────────────────────────────────────────────
+// Direct mutation - validates auth and writes immediately.
 function apiMutate(token, moduleName, actionType, payload, requestId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -470,7 +470,7 @@ function apiMutate(token, moduleName, actionType, payload, requestId) {
       'saveFieldConfig', 'savePortalSettings', 'saveUser',
     ];
     if (!allowedActions.includes(action)) throw new Error('Invalid action.');
-    _assertCanEnqueueJob_(user, mod, action);
+    _assertCanMutate_(user, mod, action);
 
     const payloadStr = JSON.stringify(payload || {});
     if (payloadStr.length > 200000) throw new Error('Payload too large (max 200 KB).');
@@ -480,99 +480,6 @@ function apiMutate(token, moduleName, actionType, payload, requestId) {
       if (result && typeof result === 'object' && Object.prototype.hasOwnProperty.call(result, 'success')) return result;
       return respond(result || true);
     });
-  });
-}
-
-function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
-  return apiMutate(token, moduleName, actionType, payload, requestId);
-}
-
-// Poll status for up to 20 requestIds at once.
-function apiGetJobStatuses(token, requestIds) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    _requireAuthToken_(token);
-    if (!Array.isArray(requestIds)) throw new Error('requestIds must be an array.');
-    if (requestIds.length > 20) throw new Error('Max 20 IDs per request.');
-    return respond(getJobStatuses_(requestIds));
-  });
-}
-
-// Incremental change log — returns only entries after lastSeq.
-function apiGetChanges(token, lastSeq) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    _requireAuthToken_(token);
-    return respond(getChangesAfter_(Number(lastSeq) || 0));
-  });
-}
-
-// Queue history for the current user — newest first, max 100 rows.
-function apiGetQueueHistory(token, limit) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireAuthToken_(token);
-    try {
-      return respond(getQueueHistoryFast_(user.email, Number(limit) || 50));
-    } catch (e) {
-      Logger.log('[QueuePage] Sheets API history fallback: ' + e.message);
-      return respond(getQueueHistory_(user.email, Number(limit) || 50));
-    }
-  });
-}
-
-function apiGetQueueHealth(token, filterEmail) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireAuthToken_(token);
-    try {
-      return respond(getQueueHealthFast_(user.email, user, filterEmail || ''));
-    } catch (e) {
-      Logger.log('[QueuePage] Sheets API health fallback: ' + e.message);
-      return respond(getQueueHealth_(user.email, user, filterEmail || ''));
-    }
-  });
-}
-
-// Admin-only: returns queue history for all users (or a specific email filter).
-function apiGetAllQueueHistory(token, filterEmail, limit) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireAuthToken_(token);
-    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
-    try {
-      return respond(getAllQueueHistoryFast_(filterEmail || '', Number(limit) || 100));
-    } catch (e) {
-      Logger.log('[QueuePage] Sheets API admin history fallback: ' + e.message);
-      return respond(getAllQueueHistory_(filterEmail || '', Number(limit) || 100));
-    }
-  });
-}
-
-function apiProcessQueueNow(token) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireAuthToken_(token);
-    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
-    processQueue();
-    return respond(getQueueHealth_(user.email, user, ''));
-  });
-}
-
-function apiKickQueue(token) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    _requireAuthToken_(token);
-    return respond(processQueueFast_());
-  });
-}
-
-function apiRetryQueueJob(token, requestId) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireAuthToken_(token);
-    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
-    return respond(retryQueueJob_(requestId));
   });
 }
 
@@ -620,7 +527,7 @@ function _requireBulkEntry_() {
   throw new Error('Permission denied.');
 }
 
-function _assertCanEnqueueJob_(user, moduleName, actionType) {
+function _assertCanMutate_(user, moduleName, actionType) {
   const isAdmin = user.role === 'ADMIN';
   const has = name => isAdmin || userHasModule(user, name);
   const canWriteLead = ['ADMIN', 'MANAGER', 'SALES'].includes(user.role) && (has('Leads') || has('LeadForm'));

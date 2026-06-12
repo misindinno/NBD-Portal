@@ -100,7 +100,7 @@ async function loadPortalSettings() {
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
     resetButtonLoading(btn);
-    QueueManager.enqueue({
+    runAsyncMutation({
       module: 'config', actionType: 'savePortalSettings',
       payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
       onDone: async () => {
@@ -364,7 +364,7 @@ function _installConfigFieldsFallback() {
       payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
       if (isEdit) payload['Field ID'] = data['Field ID'];
       overlay.remove();
-      QueueManager.enqueue({
+      runAsyncMutation({
         module: 'fields', actionType: 'saveFieldConfig', payload,
         onDone: () => { toast('Custom field saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadFieldConfig(); },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')

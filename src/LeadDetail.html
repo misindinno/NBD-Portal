@@ -127,7 +127,7 @@ async function openLeadDetail(leadId) {
           AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
           overlay.remove();
           _refreshLeadViewsAfterLocalChange();
-          QueueManager.enqueue({
+          runAsyncMutation({
             module: 'leads', actionType: 'saveLead', payload,
             onDone: () => toast('Lead saved!'),
             onFail: j  => {
@@ -203,8 +203,8 @@ async function openLeadDetail(leadId) {
       if (choice.mapToNbdLeadId) {
         // Map mode: link to existing NBD lead without creating a new one
         if (btn) setButtonLoading(btn, 'Mapping...');
-        _showNbdPushStatus('queued');
-        QueueManager.enqueue({
+        _showNbdPushStatus('processing');
+        runAsyncMutation({
           module: 'leads',
           actionType: 'pushLeadToNbd',
           payload: { leadId, mapToNbdLeadId: choice.mapToNbdLeadId },
@@ -284,9 +284,9 @@ async function openLeadDetail(leadId) {
 
     // Lock button and show inline status bar in the lead detail modal
     if (btn) setButtonLoading(btn, 'Pushing...');
-    _showNbdPushStatus('queued');
+    _showNbdPushStatus('processing');
 
-    QueueManager.enqueue({
+    runAsyncMutation({
       module: 'leads',
       actionType: 'pushLeadToNbd',
       payload: { leadId, nbdAssignedTo: confirmed.value.user, qualifiedRemark: confirmed.value.remark },
@@ -378,40 +378,16 @@ async function openLeadDetail(leadId) {
       else modal.querySelector('.modal-content')?.appendChild(bar);
     }
     const cfg = {
-      queued:     { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Queued — processing in background…' },
-      processing: { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Processing — almost there…' },
+            processing: { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Saving directly - almost there...' },
       done:       { bg:'#f0fdf4', color:'#15803d', border:'#bbf7d0', icon:'check-circle',  iconCls:'',          text:'Successfully pushed to NBD!' },
       failed:     { bg:'#fef2f2', color:'#b91c1c', border:'#fecaca', icon:'alert-circle',  iconCls:'',          text:'Push failed: ' + (errorMsg || 'Unknown error') },
     }[state] || {};
     bar.style.background = cfg.bg;
     bar.style.color      = cfg.color;
     bar.style.border     = '1px solid ' + cfg.border;
-    const checkBtn = (state === 'queued' || state === 'processing')
-      ? `<button onclick="_checkNbdPushStatus(this)" style="margin-left:auto;padding:3px 10px;border:1px solid currentColor;border-radius:5px;background:none;color:inherit;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0">${icon('refresh-cw',12)} Check Now</button>`
-      : '';
+    const checkBtn = '';
     bar.innerHTML = `<span style="flex-shrink:0">${icon(cfg.icon, 15, cfg.iconCls)}</span><span style="flex:1">${cfg.text}</span>${checkBtn}`;
     renderIcons(bar);
   }
 
-  async function _checkNbdPushStatus(btn) {
-    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
-    try {
-      // Find the most recent pushLeadToNbd job in the local queue
-      const jobs = Object.values(QueueManager.jobs()).filter(j => j.actionType === 'pushLeadToNbd');
-      if (!jobs.length) { _showNbdPushStatus('queued'); return; }
-      const job = jobs.sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0))[0];
-      // Force-poll the server for latest status
-      await QueueManager.pollNow([job.requestId]);
-      const fresh = QueueManager.jobs()[job.requestId];
-      if (!fresh) return;
-      if (fresh.status === 'DONE')    _showNbdPushStatus('done');
-      else if (fresh.status === 'DEAD') _showNbdPushStatus('failed', fresh.error);
-      else if (fresh.status === 'PROCESSING') _showNbdPushStatus('processing');
-      else _showNbdPushStatus('queued');
-    } catch (e) {
-      toast('Status check failed: ' + e.message, 'error');
-    } finally {
-      if (btn) { btn.disabled = false; renderIcons(btn.closest('#nbd-push-status-bar')); }
-    }
-  }
 </script>

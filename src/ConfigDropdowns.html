@@ -72,7 +72,7 @@ function openConfigForm() {
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn, 'Adding...');
     overlay.remove();
-    QueueManager.enqueue({
+    runAsyncMutation({
       module: 'config', actionType: 'addConfig',
       payload: { type: fd.get('type'), value: fd.get('value') },
       onDone: () => {
@@ -87,7 +87,7 @@ function openConfigForm() {
 }
 
 function toggleConfigStatus(id, newStatus) {
-  QueueManager.enqueue({
+  runAsyncMutation({
     module: 'config', actionType: 'updateConfigStatus',
     payload: { id, status: newStatus },
     onDone: () => {

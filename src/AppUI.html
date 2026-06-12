@@ -111,7 +111,7 @@ function _installConfigRouteFallback() {
     el('portal-settings-form').addEventListener('submit', e => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      QueueManager.enqueue({
+      runAsyncMutation({
         module: 'config',
         actionType: 'savePortalSettings',
         payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
@@ -162,7 +162,7 @@ function _installConfigRouteFallback() {
         handle: '.drag-handle',
         onEnd: evt => {
           const orderedIds = Array.from(evt.to.children).map(node => node.dataset.stageId);
-          QueueManager.enqueue({
+          runAsyncMutation({
             module: 'stages',
             actionType: 'reorderStages',
             payload: { ids: orderedIds },
@@ -225,7 +225,7 @@ function _installConfigRouteFallback() {
       };
       if (isEdit) payload['Stage ID'] = data['Stage ID'];
       overlay.remove();
-      QueueManager.enqueue({
+      runAsyncMutation({
         module: 'stages',
         actionType: 'saveStage',
         payload,
@@ -348,7 +348,7 @@ function _installConfigRouteFallback() {
       payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
       if (isEdit) payload['Field ID'] = data['Field ID'];
       overlay.remove();
-      QueueManager.enqueue({
+      runAsyncMutation({
         module: 'fields', actionType: 'saveFieldConfig', payload,
         onDone: () => { toast('Custom field saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadFieldConfig(); },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
@@ -567,8 +567,6 @@ function renderSidebar() {
     ].filter(Boolean).join('');
     if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
   }
-
-  // Queue — visible to all authenticated users
   html += `<div class="nav-section">System</div>`;
   if (u.canEditConfig || u.canManageUsers) {
     html += navItem('config', 'settings-2', 'Config');
@@ -622,7 +620,7 @@ function canNavigate(page) {
   };
   // Dashboard page only reachable from the dashboard-only portal
   if (page === 'dashboard') return dashboardOnly && hasModule('Dashboard');
-  // In the dashboard-only portal, restrict to dashboard + today + queue + config
+  // In the dashboard-only portal, restrict to dashboard + today + config
   if (dashboardOnly && !['today','config'].includes(page)) return false;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');

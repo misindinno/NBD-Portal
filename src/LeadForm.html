@@ -213,7 +213,6 @@ function _lfInitValidator() {
       if (AppCache.isLoaded('leads')) {
         AppCache.addRow('leads', {
           ...payload, 'Lead ID': leadId || payload['Lead ID'] || '',
-          '_queueTemp': false,
           'Lead Status': 'Open',
           'Created At': _nowStr(), 'Updated At': _nowStr()
         });

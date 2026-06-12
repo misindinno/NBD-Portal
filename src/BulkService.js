@@ -567,89 +567,6 @@ function getBulkProgress(batchId) {
   }
 }
 
-function getBulkQueueSummary(userEmail, isAdmin, limit, includeRows) {
-  assertServerContext_();
-  const maxRows = Math.min(Number(limit) || 100, 300);
-  includeRows = includeRows !== false;
-  const email = String(userEmail || '').trim().toLowerCase();
-  const rows = getAllRows(SHEET_NAMES.QUEUE)
-    .filter(r => String(r['Action Type'] || '') === 'saveBulkRows')
-    .filter(r => isAdmin || String(r['User Email'] || '').trim().toLowerCase() === email)
-    .sort((a, b) => _bulkDateMs_(b['Created At']) - _bulkDateMs_(a['Created At']))
-    .slice(0, maxRows);
-  const stats = { total: rows.length, pending: 0, done: 0, failed: 0, dead: 0 };
-  const jobs = rows.map(r => {
-    const status = String(r['Status'] || '');
-    if (status === 'DONE') stats.done++;
-    else if (status === 'FAILED') stats.failed++;
-    else if (status === 'DEAD') stats.dead++;
-    else stats.pending++;
-    const payload = _bulkParseJson_(r['Payload JSON']);
-    const batchId = String(payload.batchId || r['Final Record ID'] || '').trim();
-    const job = {
-      requestId: String(r['Request ID'] || ''),
-      status,
-      userEmail: String(r['User Email'] || ''),
-      batchId,
-      mode: _bulkMode_(payload.mode),
-      totalRows: Array.isArray(payload.rows) ? payload.rows.length : 0,
-      createdAt: String(r['Created At'] || ''),
-      updatedAt: String(r['Updated At'] || ''),
-      processedAt: String(r['Processed At'] || ''),
-      lastError: String(r['Last Error'] || ''),
-      progress: batchId ? getBulkProgress(batchId) : null
-    };
-    job.rowStats = _bulkQueueRowStats_(payload, job.progress, status);
-    job.rows = includeRows ? _bulkQueueDetailRows_(payload, job.progress, status) : [];
-    return job;
-  });
-  return { stats, jobs };
-}
-
-function getBulkQueueJobDetail(userEmail, isAdmin, requestId) {
-  assertServerContext_();
-  const email = String(userEmail || '').trim().toLowerCase();
-  const id = String(requestId || '').trim();
-  if (!id) throw new Error('Request ID is required.');
-  const row = getAllRows(SHEET_NAMES.QUEUE).find(r =>
-    String(r['Request ID'] || '') === id &&
-    String(r['Action Type'] || '') === 'saveBulkRows'
-  );
-  if (!row) throw new Error('Bulk queue job not found.');
-  if (!isAdmin && String(row['User Email'] || '').trim().toLowerCase() !== email) {
-    throw new Error('Permission denied.');
-  }
-  const payload = _bulkParseJson_(row['Payload JSON']);
-  const batchId = String(payload.batchId || row['Final Record ID'] || '').trim();
-  const progress = batchId ? getBulkProgress(batchId) : null;
-  const status = String(row['Status'] || '');
-  return {
-    requestId: id,
-    batchId,
-    status,
-    rows: _bulkQueueDetailRows_(payload, progress, status),
-    rowStats: _bulkQueueRowStats_(payload, progress, status),
-    progress
-  };
-}
-
-function _bulkQueueRowStats_(payload, progress, queueStatus) {
-  const payloadRows = Array.isArray(payload && payload.rows) ? payload.rows : [];
-  const resultRows = Array.isArray(progress && progress.rowResults) ? progress.rowResults : [];
-  const total = Number(progress && progress.total || payloadRows.length || 0);
-  if (resultRows.length) {
-    return resultRows.reduce((m, row) => {
-      if (row.saved) m.saved++;
-      else m.errors++;
-      return m;
-    }, { saved: 0, errors: 0, pending: Math.max(0, total - resultRows.length) });
-  }
-  const st = String(queueStatus || '').toUpperCase();
-  if (st === 'DONE') return { saved: Number(progress && progress.saved || 0), errors: Number(progress && progress.errors || 0), pending: 0 };
-  if (st === 'DEAD') return { saved: 0, errors: 0, pending: total };
-  return { saved: Number(progress && progress.saved || 0), errors: Number(progress && progress.errors || 0), pending: Math.max(0, total - Number(progress && progress.saved || 0) - Number(progress && progress.errors || 0)) };
-}
-
 function _bulkPublicRowResults_(rowResults) {
   return (Array.isArray(rowResults) ? rowResults : []).map(r => ({
     rowNumber: r.rowNumber,
@@ -659,33 +576,6 @@ function _bulkPublicRowResults_(rowResults) {
     errors: r.errors || '',
     fieldErrors: r.fieldErrors || []
   }));
-}
-
-function _bulkQueueDetailRows_(payload, progress, queueStatus) {
-  const payloadRows = Array.isArray(payload && payload.rows) ? payload.rows : [];
-  const results = Array.isArray(progress && progress.rowResults) ? progress.rowResults : [];
-  const byRow = results.reduce((m, r) => {
-    m[String(r.rowNumber || '')] = r;
-    return m;
-  }, {});
-  return payloadRows.map((row, i) => {
-    const rowNumber = Number(row && row.__rowNumber) || i + 1;
-    const result = byRow[String(rowNumber)];
-    const isTerminalQueue = ['DONE', 'DEAD'].includes(String(queueStatus || '').toUpperCase());
-    const status = result ? (result.saved ? 'Saved' : 'Error') : (isTerminalQueue ? 'Not Processed' : 'Pending');
-    return {
-      rowNumber,
-      status,
-      recordId: result ? String(result.recordId || '') : '',
-      errors: result ? String(result.errors || '') : '',
-      company: String(row && row['Company Name'] || ''),
-      contact: String(row && row['Contact Person'] || ''),
-      phone: String(row && row['Phone'] || ''),
-      email: String(row && row['Email'] || ''),
-      assignedTo: String(row && row['Assigned To'] || ''),
-      leadId: String(row && row['Lead ID'] || '')
-    };
-  });
 }
 
 function _bulkParseJson_(text) {

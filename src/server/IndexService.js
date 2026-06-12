@@ -8,23 +8,15 @@ function _indexDefinitions_() {
       indexSheet: SHEET_NAMES.IDX_LEADS,
       idColumn: 'Lead ID',
       headers: [
-        'Lead ID','Phone','Alternate No','Email','Assigned To','Stage ID','Lead Status',
-        'Next Follow-up Date','Company Name','Contact Person','City','State','Updated At','Row Number'
+        'Lead ID','Assigned To','Stage ID','Lead Status','Next Follow-up Date','Updated At','Row Number'
       ],
       build(row, rowNumber) {
         return {
           'Lead ID': row['Lead ID'] || '',
-          'Phone': _idxDigits_(row['Phone']),
-          'Alternate No': _idxDigits_(row['Alternate No']),
-          'Email': _idxLower_(row['Email']),
           'Assigned To': row['Assigned To'] || '',
           'Stage ID': row['Stage ID'] || '',
           'Lead Status': row['Lead Status'] || '',
           'Next Follow-up Date': row['Next Follow-up Date'] || '',
-          'Company Name': row['Company Name'] || '',
-          'Contact Person': row['Contact Person'] || '',
-          'City': row['City'] || '',
-          'State': row['State'] || '',
           'Updated At': row['Updated At'] || '',
           'Row Number': rowNumber || ''
         };
@@ -36,7 +28,7 @@ function _indexDefinitions_() {
       idColumn: 'Follow-up ID',
       headers: [
         'Follow-up ID','Lead ID','Status','Next Follow-up Date','Planned Date',
-        'Created By','Done By','Stage ID','Updated Stage ID','Updated At','Row Number'
+        'Created By','Done By','Updated At','Row Number'
       ],
       build(row, rowNumber) {
         return {
@@ -47,8 +39,6 @@ function _indexDefinitions_() {
           'Planned Date': row['Planned Date'] || row['Follow-up Date'] || '',
           'Created By': row['Created By'] || '',
           'Done By': row['Done By'] || '',
-          'Stage ID': row['Stage ID'] || '',
-          'Updated Stage ID': row['Updated Stage ID'] || '',
           'Updated At': row['Updated At'] || '',
           'Row Number': rowNumber || ''
         };
@@ -93,11 +83,9 @@ function rebuildIndexForSheet_(sheetName) {
   assertServerContext_();
   const def = _indexDefinitionForSheet_(sheetName);
   if (!def) return 0;
-  safeInitHeaders(def.indexSheet, def.headers);
-
-  const sourceData = sheetApiGetValues_(sheetName, 'A:ZZ');
   const indexSheet = getSheet(def.indexSheet);
-  _clearIndexBody_(indexSheet);
+  _resetIndexSheet_(indexSheet, def.headers);
+  const sourceData = sheetApiGetValues_(sheetName, 'A:ZZ');
   if (sourceData.length < 2) return 0;
 
   const sourceHeaders = sourceData[0].map(String);
@@ -153,6 +141,155 @@ function getRowsByIndexedColumn_(sheetName, columnName, value) {
     if (row && String(row[columnName]) === target) rows.push(row);
   });
   return rows;
+}
+
+function queryLeadsPage_(query, user) {
+  assertServerContext_();
+  const q = _normalizePageQuery_(query);
+  const def = _indexDefinitionForSheet_(SHEET_NAMES.LEADS);
+  const indexRows = _dbIndexRows_(def);
+  const filters = q.filters || {};
+  let rows = indexRows.filter(r => {
+    if (filters.assignedTo && String(r['Assigned To'] || '') !== String(filters.assignedTo)) return false;
+    if (filters.stageId && String(r['Stage ID'] || '') !== String(filters.stageId)) return false;
+    if (filters.status && String(r['Lead Status'] || '') !== String(filters.status)) return false;
+    if (filters.dueBefore && _idxDateValue_(r['Next Follow-up Date']) > _idxDateValue_(filters.dueBefore)) return false;
+    if (filters.dueOn && String(r['Next Follow-up Date'] || '').slice(0, 10) !== String(filters.dueOn).slice(0, 10)) return false;
+    if (!_dbIndexRowReadable_(r, user)) return false;
+    return true;
+  });
+  rows = _sortIndexRows_(rows, q.sortBy || 'Updated At', q.sortDir || 'desc');
+  const total = rows.length;
+  const pageRefs = rows.slice(q.offset, q.offset + q.pageSize);
+  let hydrated = _hydrateIndexedRows_(SHEET_NAMES.LEADS, pageRefs);
+  hydrated = getRowsWithCustomFieldValues_('Leads', hydrated);
+  return _pageResponse_(hydrated, total, q);
+}
+
+function queryFollowupsPage_(query, user) {
+  assertServerContext_();
+  const q = _normalizePageQuery_(query);
+  const def = _indexDefinitionForSheet_(SHEET_NAMES.FOLLOWUPS);
+  const indexRows = _dbIndexRows_(def);
+  const filters = q.filters || {};
+  const canReadIndexRow = _dbFollowupIndexReadableChecker_(user);
+  let rows = indexRows.filter(r => {
+    if (filters.leadId && String(r['Lead ID'] || '') !== String(filters.leadId)) return false;
+    if (filters.status && String(r['Status'] || '') !== String(filters.status)) return false;
+    if (filters.createdBy && String(r['Created By'] || '') !== String(filters.createdBy)) return false;
+    if (filters.doneBy && String(r['Done By'] || '') !== String(filters.doneBy)) return false;
+    if (filters.nextOn && String(r['Next Follow-up Date'] || '').slice(0, 10) !== String(filters.nextOn).slice(0, 10)) return false;
+    if (filters.nextBefore && _idxDateValue_(r['Next Follow-up Date']) > _idxDateValue_(filters.nextBefore)) return false;
+    if (!canReadIndexRow(r)) return false;
+    return true;
+  });
+  rows = _sortIndexRows_(rows, q.sortBy || 'Updated At', q.sortDir || 'desc');
+  const total = rows.length;
+  const pageRefs = rows.slice(q.offset, q.offset + q.pageSize);
+  const hydrated = _hydrateIndexedRows_(SHEET_NAMES.FOLLOWUPS, pageRefs);
+  return _pageResponse_(hydrated, total, q);
+}
+
+function _normalizePageQuery_(query) {
+  const q = query && typeof query === 'object' ? query : {};
+  const pageSize = Math.max(1, Math.min(Number(q.pageSize) || 50, 200));
+  const page = Math.max(1, Number(q.page) || 1);
+  return {
+    page,
+    pageSize,
+    offset: (page - 1) * pageSize,
+    sortBy: q.sortBy || '',
+    sortDir: String(q.sortDir || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc',
+    filters: q.filters && typeof q.filters === 'object' ? q.filters : {}
+  };
+}
+
+function _dbIndexRows_(def) {
+  safeInitHeaders(def.indexSheet, def.headers);
+  let rows = getAllRows(def.indexSheet);
+  if (!rows.length && getSheet(def.sourceSheet).getLastRow() > 1) {
+    rebuildIndexForSheet_(def.sourceSheet);
+    rows = getAllRows(def.indexSheet);
+  }
+  return rows;
+}
+
+function _dbIndexRowReadable_(row, user) {
+  if (!user || user.role === 'ADMIN') return true;
+  if (!_hasGlobalRead(user)) return String(row['Assigned To'] || '') === String(user.id || '');
+  return true;
+}
+
+function _dbFollowupIndexReadableChecker_(user) {
+  if (!user || user.role === 'ADMIN') return () => true;
+  const leadDef = _indexDefinitionForSheet_(SHEET_NAMES.LEADS);
+  const leadIndexRows = _dbIndexRows_(leadDef);
+  const leadById = leadIndexRows.reduce((map, row) => {
+    map[String(row['Lead ID'] || '')] = row;
+    return map;
+  }, {});
+
+  if (!_hasGlobalRead(user)) {
+    const allowedLeadIds = {};
+    leadIndexRows.forEach(row => {
+      if (String(row['Assigned To'] || '') === String(user.id || '')) {
+        allowedLeadIds[String(row['Lead ID'] || '')] = true;
+      }
+    });
+    return row => {
+      const leadId = String(row['Lead ID'] || '');
+      return !!allowedLeadIds[leadId]
+        || String(row['Created By'] || '') === String(user.id || '')
+        || String(row['Done By'] || '') === String(user.id || '');
+    };
+  }
+
+  const userMap = _buildUserMapById_();
+  const scope = _portalDepartmentScopeSet_();
+  if (!scope) return () => true;
+  return row => {
+    const lead = leadById[String(row['Lead ID'] || '')];
+    if (lead) {
+      const department = _departmentForUserId_(lead['Assigned To'], userMap);
+      return !!scope[String(department || '').trim().toLowerCase()];
+    }
+    return ['Created By', 'Done By'].some(field => {
+      const department = _departmentForUserId_(row[field], userMap);
+      return !!scope[String(department || '').trim().toLowerCase()];
+    });
+  };
+}
+
+function _sortIndexRows_(rows, sortBy, sortDir) {
+  const key = sortBy || 'Updated At';
+  const dir = sortDir === 'asc' ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const av = key.toLowerCase().includes('date') || key.toLowerCase().includes('at') ? _idxDateValue_(a[key]) : String(a[key] || '');
+    const bv = key.toLowerCase().includes('date') || key.toLowerCase().includes('at') ? _idxDateValue_(b[key]) : String(b[key] || '');
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+}
+
+function _hydrateIndexedRows_(sheetName, indexRows) {
+  return (indexRows || []).map(r => _getRowObjectAt_(sheetName, Number(r['Row Number'] || 0))).filter(Boolean);
+}
+
+function _pageResponse_(rows, total, q) {
+  return {
+    rows,
+    total,
+    page: q.page,
+    pageSize: q.pageSize,
+    hasMore: q.offset + rows.length < total
+  };
+}
+
+function _idxDateValue_(value) {
+  if (!value) return 0;
+  const ms = new Date(String(value).replace(' ', 'T')).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
 function syncIndexRow_(sheetName, rowObj, rowNumber) {
@@ -239,6 +376,15 @@ function _clearIndexBody_(sheet) {
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
   if (lastRow > 1 && lastCol > 0) sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+}
+
+function _resetIndexSheet_(sheet, headers) {
+  const maxRows = sheet.getMaxRows();
+  const maxCols = sheet.getMaxColumns();
+  if (maxRows > 0 && maxCols > 0) sheet.getRange(1, 1, maxRows, maxCols).clearContent();
+  if (sheet.getMaxColumns() < headers.length) sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  _styleHeaderRow(sheet, 1, headers.length);
 }
 
 function _idxLower_(value) {

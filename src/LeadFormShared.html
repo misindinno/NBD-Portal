@@ -134,7 +134,7 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
     _removeLeadRelatedRowsFromCache(leadId);
     if (overlay) overlay.remove();
     _refreshLeadViewsAfterLocalChange();
-    QueueManager.enqueue({
+    runAsyncMutation({
       module: 'leads', actionType: 'deleteLead',
       payload: { id: leadId },
       onDone: () => toast('Lead deleted!'),

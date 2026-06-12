@@ -350,7 +350,7 @@
             if (typeof _removeLeadRelatedRowsFromCache === 'function') _removeLeadRelatedRowsFromCache(leadId);
             else AppCache.removeRow('leads', 'Lead ID', leadId);
             cell.getRow().delete();
-            QueueManager.enqueue({
+            runAsyncMutation({
               module: 'leads', actionType: 'deleteLead',
               payload: { id: leadId },
               onDone: () => toast('Lead deleted!'),
@@ -471,7 +471,7 @@
           AppCache.patchRow('leads', 'Lead ID', updateId, { ...payload, 'Lead ID': finalId, 'Updated At': _nowStr() });
         } else if (!isUpdate && AppCache.isLoaded('leads')) {
           AppCache.addRow('leads', {
-            ...payload, 'Lead ID': finalId, '_queueTemp': false,
+            ...payload, 'Lead ID': finalId,
             'Lead Status': payload['Lead Status'] || 'Open',
             'Created At': _nowStr(), 'Updated At': _nowStr()
           });

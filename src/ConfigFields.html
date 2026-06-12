@@ -178,7 +178,7 @@ function openFieldForm(data = {}) {
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
     overlay.remove();
-    QueueManager.enqueue({
+    runAsyncMutation({
       module: 'fields', actionType: 'saveFieldConfig',
       payload,
       onDone: () => {

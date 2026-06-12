@@ -45,7 +45,7 @@ async function loadStagesConfig() {
     handle: '.drag-handle',
     onEnd: async (evt) => {
       const orderedIds = Array.from(evt.to.children).map(el => el.dataset.stageId);
-      QueueManager.enqueue({
+      runAsyncMutation({
         module: 'stages', actionType: 'reorderStages',
         payload: { ids: orderedIds },
         onDone: () => { toast('Stages reordered!'); _refreshAppConfig().catch(() => {}); },
@@ -161,7 +161,7 @@ function openStageForm(data = {}) {
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
     overlay.remove();
-    QueueManager.enqueue({
+    runAsyncMutation({
       module: 'stages', actionType: 'saveStage',
       payload,
       onDone: () => {

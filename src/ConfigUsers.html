@@ -265,7 +265,7 @@ function openUserForm(data = {}) {
     }
     if (pw) payload['Password'] = pw;
     overlay.remove();
-    QueueManager.enqueue({
+    runAsyncMutation({
       module: 'config', actionType: 'saveUser',
       payload,
       onDone: async () => {

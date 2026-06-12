@@ -394,7 +394,7 @@ async function loadPipeline() {
         if (isFinal) evt.item.remove();
         _updatePipelineCounts();
         _updatePipelineEmptyStates();
-        QueueManager.enqueue({
+        runAsyncMutation({
           module: 'leads', actionType: 'updateLeadStage',
           payload: { leadId, stageId: newStageId, fromStageId: oldStageId, note: '' },
           onDone: () => toast('Stage updated!'),
@@ -545,7 +545,7 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
       _applyPipelineStageResult(leadId, stageId, { leadStatus }, fieldPayload);
       overlay.remove();
       loadPipeline();
-      QueueManager.enqueue({
+      runAsyncMutation({
         module: 'leads', actionType: 'moveLeadStageWithFields',
         payload: { leadId, stageId, fromStageId: lead?.['Stage ID'] || '', fields: { ...(fieldPayload || {}), __stage_skipped: skipped ? 'true' : '' }, note: '' },
         onDone: () => {
