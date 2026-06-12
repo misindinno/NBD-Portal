@@ -454,7 +454,7 @@ function apiCreateErrorCsv(token, errorRows) {
 
 // ── Queue endpoints ───────────────────────────────────────────────────────────
 // Fast enqueue — validates auth + writes ONE queue row. Returns in < 500ms.
-function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
+function apiMutate(token, moduleName, actionType, payload, requestId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
@@ -477,9 +477,16 @@ function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
     const payloadStr = JSON.stringify(payload || {});
     if (payloadStr.length > 200000) throw new Error('Payload too large (max 200 KB).');
 
-    const result = enqueueJob_(user.email, mod, action, payload || {}, requestId || '');
-    return respond(result);
+    return withTrustedWriteUser_(user.email, () => {
+      const result = _dispatchWrite(action, user.email, payload || {});
+      if (result && typeof result === 'object' && Object.prototype.hasOwnProperty.call(result, 'success')) return result;
+      return respond(result || true);
+    });
   });
+}
+
+function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
+  return apiMutate(token, moduleName, actionType, payload, requestId);
 }
 
 // Poll status for up to 20 requestIds at once.

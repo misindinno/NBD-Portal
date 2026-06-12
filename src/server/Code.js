@@ -1,8 +1,7 @@
 // ─── Code.gs ─────────────────────────────────────────────────────────────────
 // Runtime setup:
 //   - doGet serves the portal UI.
-//   - google.script.run API calls read data and enqueue write jobs.
-//   - processQueue runs from the installed time trigger and performs writes
+//   - google.script.run API calls read data and execute authenticated mutations
 //     through trusted user context.
 
 function doGet(e) {
@@ -80,11 +79,6 @@ function onOpen() {
     .addItem('🧭 Rebuild Indexes', 'rebuildAllIndexes')
     .addItem('📅 Reopen Closed Non-final Follow-ups', 'reopenClosedNonFinalFollowupsFromMenu')
     .addSeparator()
-    .addItem('▶️ Install Queue Trigger', 'setupQueueTrigger')
-    .addItem('⏹️ Remove Queue Trigger', 'removeQueueTrigger')
-    .addItem('📋 Queue Trigger Status', '_showQueueStatus')
-    .addItem('⚡ Process Queue Now', 'processQueue')
-    .addSeparator()
     .addItem('🔗 Open Portal', 'openPortal');
   if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq')) {
     menu.addItem('Bulk Entry', 'openBulkEntry');
@@ -144,11 +138,6 @@ function updatePermissions() {
   ui.alert(title, body + note, ui.ButtonSet.OK);
 }
 
-function _showQueueStatus() {
-  const status = getQueueTriggerStatus();
-  SpreadsheetApp.getUi().alert('Queue Trigger Status', status, SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
 // Bumps APP_VERSION so every open browser tab detects the change and reloads.
 function pushUpdate() {
   const ui = SpreadsheetApp.getUi();
@@ -183,6 +172,10 @@ function _dispatchWrite(fn, email, payload) {
     case 'updateLeadStage':   return updateLeadStage(payload.leadId, payload.stageId, payload.note, email, payload.fromStageId || '');
     case 'moveLeadStageWithFields':
       return moveLeadStageWithFields(payload.leadId, payload.stageId, payload.fields || {}, payload.note, email, payload.fromStageId || '');
+    case 'pushLeadToNbd':
+      return pushLeadToNbd(payload.leadId, email, payload.nbdAssignedTo, payload.mapToNbdLeadId || '', payload.qualifiedRemark || '');
+    case 'saveBulkRows':
+      return respond(saveBulkRows(payload.rows || [], email, payload.batchId || '', payload.mode || 'create'));
     // ── Follow-ups
     case 'saveFollowup':      return saveFollowup(payload, email);
     case 'markFollowupDone':  return markFollowupDone(payload.id, payload.data || {}, email);
