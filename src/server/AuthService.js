@@ -79,16 +79,20 @@ function getPortalAccessForUser_(user, email, portalKey) {
   const normEmail = String(email || user['Email Address'] || '').trim().toLowerCase();
   try {
     ensureUserPortalAccessSheet_();
-    return getAllRows(SHEET_NAMES.USER_PORTAL_ACCESS).find(r =>
-      String(r['Portal Key'] || '').trim().toUpperCase() === key &&
-      (
-        (userId && String(r['User ID'] || '') === String(userId)) ||
-        (normEmail && String(r['Email Address'] || '').trim().toLowerCase() === normEmail)
-      )
-    ) || null;
+    return _findPortalAccessRow_(getAllRows(SHEET_NAMES.USER_PORTAL_ACCESS), key, userId, normEmail);
   } catch (e) {
     return null;
   }
+}
+
+function _findPortalAccessRow_(accessRows, key, userId, normEmail) {
+  return (accessRows || []).find(r =>
+    String(r['Portal Key'] || '').trim().toUpperCase() === key &&
+    (
+      (userId && String(r['User ID'] || '') === String(userId)) ||
+      (normEmail && String(r['Email Address'] || '').trim().toLowerCase() === normEmail)
+    )
+  ) || null;
 }
 
 function mergeUserPortalAccess_(user, access) {
@@ -118,11 +122,12 @@ function mergeUserPortalAccess_(user, access) {
 function getUsersWithPortalAccess_(portalKey, includeInactive) {
   const key = String(portalKey || currentPortalKey_()).trim().toUpperCase();
   ensureUserPortalAccessSheet_();
+  const accessRows = getAllRows(SHEET_NAMES.USER_PORTAL_ACCESS);
   return getAllRows(SHEET_NAMES.USERS)
     .filter(u => includeInactive || isActiveUserValue(u['Is Active']))
     .map(u => {
       const email = String(u['Email Address'] || '').trim().toLowerCase();
-      const access = getPortalAccessForUser_(u, email, key);
+      const access = _findPortalAccessRow_(accessRows, key, getStaffUserId(u, email), email);
       return mergeUserPortalAccess_(u, access);
     })
     .filter(u => includeInactive || isActiveUserValue(u['Is Active']));

@@ -19,17 +19,32 @@ function sheetApiBatchGetRows_(sheetNames) {
     .filter(spec => spec.sheetName);
   if (!specs.length) return {};
 
-  const ranges = specs.map(spec => "'" + String(spec.sheetName).replace(/'/g, "''") + "'!" + spec.range);
+  const out = {};
+  const misses = [];
+  specs.forEach(spec => {
+    const cacheKey = sheetApiCacheKey_(SPREADSHEET_ID, spec.sheetName, spec.range);
+    const cached = sheetApiReadCached_(cacheKey);
+    if (cached) {
+      out[spec.sheetName] = _sheetApiValuesToRows_(cached);
+    } else {
+      misses.push({ ...spec, cacheKey });
+    }
+  });
+  if (!misses.length) return out;
+
+  const ranges = misses.map(spec => "'" + String(spec.sheetName).replace(/'/g, "''") + "'!" + spec.range);
   const result = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {
     ranges,
     valueRenderOption: 'FORMATTED_VALUE',
     dateTimeRenderOption: 'FORMATTED_STRING'
   });
   const valueRanges = result.valueRanges || [];
-  return specs.reduce((map, spec, i) => {
-    map[spec.sheetName] = _sheetApiValuesToRows_(valueRanges[i] && valueRanges[i].values);
-    return map;
-  }, {});
+  misses.forEach((spec, i) => {
+    const values = valueRanges[i] && valueRanges[i].values || [];
+    sheetApiWriteCache_(spec.cacheKey, values, sheetApiShouldScriptCache_(spec.sheetName, spec.range));
+    out[spec.sheetName] = _sheetApiValuesToRows_(values);
+  });
+  return out;
 }
 
 function _sheetApiValuesToRows_(values) {
