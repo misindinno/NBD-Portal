@@ -4,8 +4,6 @@ const SPREADSHEET_ID               = CLIENT_CONFIG.SPREADSHEET_ID;
 const USER_DATABASE_SPREADSHEET_ID = CLIENT_CONFIG.USER_DATABASE_SPREADSHEET_ID;
 const USER_DATABASE_SHEET_NAME     = CLIENT_CONFIG.USER_DATABASE_SHEET_NAME;
 let SERVER_CONTEXT_DEPTH = 0;
-let SHEETS_API_VALUE_CACHE_ = {};
-let SHEETS_API_CACHE_VERSION_ = '';
 
 function withServerContext_(fn) {
   SERVER_CONTEXT_DEPTH++;
@@ -69,96 +67,16 @@ function sheetApiRange_(sheetName, range) {
   return "'" + escaped + "'!" + (range || 'A:ZZ');
 }
 
-function sheetApiCacheKey_(spreadsheetId, sheetName, range) {
-  return [
-    'SAPI',
-    sheetApiCacheVersion_(),
-    String(spreadsheetId || ''),
-    String(normalizeSheetName(sheetName) || ''),
-    String(range || 'A:ZZ')
-  ].join('|');
-}
-
-function sheetApiCacheVersion_() {
-  if (SHEETS_API_CACHE_VERSION_) return SHEETS_API_CACHE_VERSION_;
-  try {
-    SHEETS_API_CACHE_VERSION_ = PropertiesService.getScriptProperties().getProperty('SHEETS_API_CACHE_VERSION') || '0';
-  } catch (e) {
-    SHEETS_API_CACHE_VERSION_ = '0';
-  }
-  return SHEETS_API_CACHE_VERSION_;
-}
-
-function sheetApiCachePropKey_(key) {
-  return 'SAPI:' + Utilities.base64EncodeWebSafe(key).slice(0, 180);
-}
-
-function sheetApiShouldScriptCache_(sheetName, range) {
-  const normalized = normalizeSheetName(sheetName);
-  const r = String(range || 'A:ZZ');
-  if (r === '1:1' || /^\d+:\d+$/.test(r)) return true;
-  return [
-    SHEET_NAMES.CONFIG,
-    SHEET_NAMES.FIELD_CONFIG,
-    SHEET_NAMES.STAGES,
-    SHEET_NAMES.USERS,
-    SHEET_NAMES.USER_PORTAL_ACCESS,
-    SHEET_NAMES.IDX_USERS
-  ].includes(normalized);
-}
-
-function sheetApiReadCached_(key) {
-  if (Object.prototype.hasOwnProperty.call(SHEETS_API_VALUE_CACHE_, key)) {
-    return SHEETS_API_VALUE_CACHE_[key];
-  }
-  try {
-    const raw = CacheService.getScriptCache().get(sheetApiCachePropKey_(key));
-    if (!raw) return null;
-    const values = JSON.parse(raw);
-    SHEETS_API_VALUE_CACHE_[key] = values;
-    return values;
-  } catch (e) {
-    return null;
-  }
-}
-
-function sheetApiWriteCache_(key, values, useScriptCache) {
-  SHEETS_API_VALUE_CACHE_[key] = values || [];
-  if (!useScriptCache) return;
-  try {
-    const json = JSON.stringify(values || []);
-    if (json.length < 90000) CacheService.getScriptCache().put(sheetApiCachePropKey_(key), json, 30);
-  } catch (e) {}
-}
-
-function invalidateSheetsApiCacheForSheet_(sheetName) {
-  const normalized = normalizeSheetName(sheetName);
-  Object.keys(SHEETS_API_VALUE_CACHE_).forEach(key => {
-    if (key.split('|')[3] === normalized) delete SHEETS_API_VALUE_CACHE_[key];
-  });
-  if (!sheetApiShouldScriptCache_(sheetName, 'A:ZZ')) return;
-  try {
-    SHEETS_API_CACHE_VERSION_ = String(Date.now());
-    PropertiesService.getScriptProperties().setProperty('SHEETS_API_CACHE_VERSION', SHEETS_API_CACHE_VERSION_);
-  } catch (e) {}
-}
-
 function sheetApiGetValues_(sheetName, range, spreadsheetId) {
   assertServerContext_();
   assertSheetsApiAvailable_();
   const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
-  const cacheKey = sheetApiCacheKey_(id, sheetName, range || 'A:ZZ');
-  const useScriptCache = sheetApiShouldScriptCache_(sheetName, range || 'A:ZZ');
-  const cached = useScriptCache ? sheetApiReadCached_(cacheKey) : SHEETS_API_VALUE_CACHE_[cacheKey];
-  if (cached) return cached;
   try {
     const res = Sheets.Spreadsheets.Values.get(id, sheetApiRange_(sheetName, range), {
       valueRenderOption: 'FORMATTED_VALUE',
       dateTimeRenderOption: 'FORMATTED_STRING'
     });
-    const values = res.values || [];
-    sheetApiWriteCache_(cacheKey, values, useScriptCache);
-    return values;
+    return res.values || [];
   } catch (e) {
     const message = String(e && e.message || e);
     if (message.includes('Unable to parse range') || message.includes('not found')) return [];
@@ -244,7 +162,6 @@ function findRowIndex(sheetName, idColumn, idValue) {
 }
 
 function insertRow(sheetName, rowObj) {
-  invalidateSheetsApiCacheForSheet_(sheetName);
   const sheet = getSheet(sheetName);
   const headers = getHeaders(sheetName);
   const row = headers.map((h) => (rowObj[h] !== undefined ? rowObj[h] : ""));
@@ -258,11 +175,9 @@ function insertRow(sheetName, rowObj) {
     lock.releaseLock();
   }
   if (typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, rowObj, rowNumber);
-  invalidateSheetsApiCacheForSheet_(sheetName);
 }
 
 function updateRow(sheetName, idColumn, idValue, updates) {
-  invalidateSheetsApiCacheForSheet_(sheetName);
   const sheet = getSheet(sheetName);
   // Fix #10: acquire lock BEFORE reading row index to prevent race condition
   const lock = LockService.getScriptLock();
@@ -301,12 +216,10 @@ function updateRow(sheetName, idColumn, idValue, updates) {
     lock.releaseLock();
   }
   if (syncedRow && typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, syncedRow, syncedRowNumber);
-  invalidateSheetsApiCacheForSheet_(sheetName);
   return true;
 }
 
 function deleteRow(sheetName, idColumn, idValue) {
-  invalidateSheetsApiCacheForSheet_(sheetName);
   const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -330,7 +243,6 @@ function deleteRow(sheetName, idColumn, idValue) {
 
 // Deletes every row matching filterFn. Iterates bottom-up so row numbers stay valid.
 function deleteAllRowsWhere(sheetName, filterFn) {
-  invalidateSheetsApiCacheForSheet_(sheetName);
   const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -357,7 +269,6 @@ function queryRows(sheetName, filterFn) {
 // Safe: creates sheet if missing, writes header row if empty,
 // or appends only NEW columns to the right — never touches existing data.
 function safeInitHeaders(sheetName, requiredHeaders) {
-  invalidateSheetsApiCacheForSheet_(sheetName);
   const sheet = getSheet(sheetName);
   const lastCol = sheet.getLastColumn();
   const existingHeaders = getHeaders(sheetName);
@@ -378,7 +289,6 @@ function safeInitHeaders(sheetName, requiredHeaders) {
   const startCol = lastCol + 1;
   sheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
   _styleHeaderRow(sheet, startCol, missing.length);
-  invalidateSheetsApiCacheForSheet_(sheetName);
 }
 
 function _styleHeaderRow(sheet, startCol, count) {

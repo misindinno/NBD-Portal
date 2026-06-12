@@ -177,13 +177,6 @@ function _fieldConfigValue(field, key) {
 function getAppConfig() {
   assertServerContext_();
   try {
-    const cache = CacheService.getScriptCache();
-    const cached = cache.get("APP_CONFIG_V9");
-    if (cached) {
-      try {
-        return respond(JSON.parse(cached));
-      } catch (e) {}
-    }
     const outcomes = getConfigByType("Outcome");
     const settings = getPortalSettings_();
     const config = {
@@ -234,9 +227,6 @@ function getAppConfig() {
         return m;
       }, {}),
     };
-    try {
-      cache.put("APP_CONFIG_V9", JSON.stringify(config), 300);
-    } catch (e) {}
     return respond(config);
   } catch (e) {
     return respond(null, "getAppConfig failed: " + e.message);
@@ -292,7 +282,4 @@ function _departmentName_(value) {
 
 function invalidateAppConfigCache() {
   assertServerContext_();
-  try {
-    CacheService.getScriptCache().remove("APP_CONFIG_V9");
-  } catch (e) {}
 }
