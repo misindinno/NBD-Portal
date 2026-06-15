@@ -421,19 +421,24 @@
             const leadId = _leadRowId(cell.getRow().getData());
             if (!leadId) return;
             if (!confirm('Delete this lead and all related follow-ups, history, activity logs, and custom field values? This cannot be undone.')) return;
-            if (typeof _removeLeadRelatedRowsFromCache === 'function') _removeLeadRelatedRowsFromCache(leadId);
-            else AppCache.removeRow('leads', 'Lead ID', leadId);
-            cell.getRow().delete();
+            const btn = e.target.closest('button');
+            if (btn) setButtonLoading(btn, 'Deleting...');
+            toast('Deleting...', 'info');
             runAsyncMutation({
               module: 'leads', actionType: 'deleteLead',
               payload: { id: leadId },
-              onDone: () => toast('Lead deleted!'),
+              onDone: () => {
+                if (typeof _removeLeadRelatedRowsFromCache === 'function') _removeLeadRelatedRowsFromCache(leadId);
+                else AppCache.removeRow('leads', 'Lead ID', leadId);
+                cell.getRow().delete();
+                toast('Lead deleted!');
+              },
               onFail: j => {
                 toast('Delete failed: ' + (j.error || 'Error'), 'error');
                 _refreshLeadsCache().catch(() => {});
+                if (btn) resetButtonLoading(btn);
               }
             });
-            toast('Deleting…', 'info');
           }
         }] : [])
       ]

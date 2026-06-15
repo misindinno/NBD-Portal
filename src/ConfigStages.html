@@ -160,18 +160,19 @@ function openStageForm(data = {}) {
     if (isEdit) payload['Stage ID'] = data['Stage ID'];
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    overlay.remove();
-    runAsyncMutation({
+    toast('Saving stage...', 'info');
+    const result = await runAsyncMutation({
       module: 'stages', actionType: 'saveStage',
       payload,
-      onDone: () => {
+      onDone: async () => {
         toast('Stage saved!');
-        _refreshAppConfig().catch(() => {});
-        if (App.currentPage === 'config') loadStagesConfig();
+        await _refreshAppConfig().catch(() => {});
+        overlay.remove();
+        if (App.currentPage === 'config') await loadStagesConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
-    toast('Saving stage…', 'info');
+    if (!result) resetButtonLoading(btn);
   });
 }
 

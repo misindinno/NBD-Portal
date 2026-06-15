@@ -120,14 +120,14 @@ async function runAsyncMutation(opts = {}) {
   const requestId = opts.requestId || ('mt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
   try {
     const result = await api.mutate(opts.module, opts.actionType, opts.payload || {}, requestId);
-    if (typeof _refreshAfterMutation === 'function') _refreshAfterMutation(opts);
+    if (typeof _refreshAfterMutation === 'function') await _refreshAfterMutation(opts);
     if (typeof opts.onDone === 'function') {
-      opts.onDone({ requestId, status: 'DONE', result, finalRecordId: _mutationResultId(result, opts.payload || {}) });
+      await opts.onDone({ requestId, status: 'DONE', result, finalRecordId: _mutationResultId(result, opts.payload || {}) });
     }
     return result;
   } catch (err) {
     const failed = { requestId, status: 'FAILED', error: err && err.message ? err.message : String(err || 'Save failed') };
-    if (typeof opts.onFail === 'function') opts.onFail(failed);
+    if (typeof opts.onFail === 'function') await opts.onFail(failed);
     else toast('Save failed: ' + failed.error, 'error');
     return null;
   }

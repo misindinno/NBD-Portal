@@ -109,17 +109,20 @@ function _installConfigRouteFallback() {
         </div>
       </form>`;
     renderIcons(el('cfg-settings'));
-    el('portal-settings-form').addEventListener('submit', e => {
+    el('portal-settings-form').addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      runAsyncMutation({
+      const btn = e.target.querySelector('[type=submit]');
+      setButtonLoading(btn);
+      toast('Saving settings...', 'info');
+      await runAsyncMutation({
         module: 'config',
         actionType: 'savePortalSettings',
         payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
         onDone: async () => { await _refreshAppConfig().catch(() => {}); toast('Settings saved!'); },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      toast('Saving settings...', 'info');
+      resetButtonLoading(btn);
     });
     window._appendSettingsWriteSpeedTestCard(el('cfg-settings'));
   };
@@ -210,7 +213,7 @@ function _installConfigRouteFallback() {
           <button type="submit" class="btn btn-primary">Save</button>
         </div>
       </form>`);
-    overlay.querySelector('#stage-form').addEventListener('submit', e => {
+    overlay.querySelector('#stage-form').addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const payload = {
@@ -225,15 +228,22 @@ function _installConfigRouteFallback() {
         'Is Skippable': fd.has('Is Skippable')
       };
       if (isEdit) payload['Stage ID'] = data['Stage ID'];
-      overlay.remove();
-      runAsyncMutation({
+      const btn = e.target.querySelector('[type=submit]');
+      setButtonLoading(btn);
+      toast('Saving stage...', 'info');
+      const result = await runAsyncMutation({
         module: 'stages',
         actionType: 'saveStage',
         payload,
-        onDone: () => { toast('Stage saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadStagesConfig(); },
+        onDone: async () => {
+          toast('Stage saved!');
+          await _refreshAppConfig().catch(() => {});
+          overlay.remove();
+          if (App.currentPage === 'config') await window.loadStagesConfig();
+        },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      toast('Saving stage...', 'info');
+      if (!result) resetButtonLoading(btn);
     });
   };
   if (!window.loadFieldConfig) window.loadFieldConfig = async function() {
@@ -337,7 +347,7 @@ function _installConfigRouteFallback() {
         <div class="form-group"><label>Skip Visibility</label><select class="form-control" name="Skip Visibility"><option value="normal" ${(data['Skip Visibility'] || 'normal') === 'normal' ? 'selected' : ''}>Normal</option><option value="skip_only" ${data['Skip Visibility'] === 'skip_only' ? 'selected' : ''}>Skip Only</option></select></div>
         <div class="modal-footer"><button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
       </form>`);
-    overlay.querySelector('#field-form').addEventListener('submit', e => {
+    overlay.querySelector('#field-form').addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const payload = Object.fromEntries(fd.entries());
@@ -348,13 +358,20 @@ function _installConfigRouteFallback() {
       payload['Per Stage'] = fd.has('Per Stage');
       payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
       if (isEdit) payload['Field ID'] = data['Field ID'];
-      overlay.remove();
-      runAsyncMutation({
+      const btn = e.target.querySelector('[type=submit]');
+      setButtonLoading(btn);
+      toast('Saving field...', 'info');
+      const result = await runAsyncMutation({
         module: 'fields', actionType: 'saveFieldConfig', payload,
-        onDone: () => { toast('Custom field saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadFieldConfig(); },
+        onDone: async () => {
+          toast('Custom field saved!');
+          await _refreshAppConfig().catch(() => {});
+          overlay.remove();
+          if (App.currentPage === 'config') await window.loadFieldConfig();
+        },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      toast('Saving field...', 'info');
+      if (!result) resetButtonLoading(btn);
     });
   };
   window.switchConfigTab = window.switchConfigTab || function(btn, tabId) {

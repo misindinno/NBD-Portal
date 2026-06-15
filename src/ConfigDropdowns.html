@@ -71,18 +71,19 @@ function openConfigForm() {
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn, 'Adding...');
-    overlay.remove();
-    runAsyncMutation({
+    toast('Adding...', 'info');
+    const result = await runAsyncMutation({
       module: 'config', actionType: 'addConfig',
       payload: { type: fd.get('type'), value: fd.get('value') },
-      onDone: () => {
+      onDone: async () => {
         toast('Config added!');
-        _refreshAppConfig().catch(() => {});
-        if (App.currentPage === 'config') loadDropdownsConfig();
+        await _refreshAppConfig().catch(() => {});
+        overlay.remove();
+        if (App.currentPage === 'config') await loadDropdownsConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
-    toast('Adding…', 'info');
+    if (!result) resetButtonLoading(btn);
   });
 }
 

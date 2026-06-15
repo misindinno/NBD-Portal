@@ -124,18 +124,21 @@ async function openLeadDetail(leadId) {
         try {
           const payload = await collectLeadFormPayload(editForm);
           payload['Lead ID'] = lead['Lead ID'];
-          AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
-          overlay.remove();
-          _refreshLeadViewsAfterLocalChange();
-          runAsyncMutation({
+          toast('Saving...', 'info');
+          const result = await runAsyncMutation({
             module: 'leads', actionType: 'saveLead', payload,
-            onDone: () => toast('Lead saved!'),
+            onDone: async () => {
+              AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
+              overlay.remove();
+              await _refreshLeadViewsAfterLocalChange();
+              toast('Lead saved!');
+            },
             onFail: j  => {
               _refreshLeadsCache().catch(() => {});
               toast('Save failed: ' + (j.error || 'Error'), 'error');
             }
           });
-          toast('Saving…', 'info');
+          if (!result) resetButtonLoading(btn);
         } catch (err) {
           toast(err, 'error');
           resetButtonLoading(btn);
@@ -204,7 +207,7 @@ async function openLeadDetail(leadId) {
         // Map mode: link to existing NBD lead without creating a new one
         if (btn) setButtonLoading(btn, 'Mapping...');
         _showNbdPushStatus('processing');
-        runAsyncMutation({
+        const result = await runAsyncMutation({
           module: 'leads',
           actionType: 'pushLeadToNbd',
           payload: { leadId, mapToNbdLeadId: choice.mapToNbdLeadId },
@@ -227,6 +230,7 @@ async function openLeadDetail(leadId) {
             toast('Mapping failed: ' + (j.error || 'Unknown error'), 'error');
           }
         });
+        if (!result && btn) resetButtonLoading(btn);
         return;
       }
       // else: pushAnyway — fall through to normal push flow
@@ -286,7 +290,7 @@ async function openLeadDetail(leadId) {
     if (btn) setButtonLoading(btn, 'Pushing...');
     _showNbdPushStatus('processing');
 
-    runAsyncMutation({
+    const result = await runAsyncMutation({
       module: 'leads',
       actionType: 'pushLeadToNbd',
       payload: { leadId, nbdAssignedTo: confirmed.value.user, qualifiedRemark: confirmed.value.remark },
@@ -310,6 +314,7 @@ async function openLeadDetail(leadId) {
         toast('Push to NBD failed: ' + (j.error || 'Unknown error'), 'error');
       }
     });
+    if (!result && btn) resetButtonLoading(btn);
   }
 
   function _showNbdDuplicateDialog(companyName, duplicates) {

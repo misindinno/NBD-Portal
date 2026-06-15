@@ -264,19 +264,20 @@ function openUserForm(data = {}) {
       return;
     }
     if (pw) payload['Password'] = pw;
-    overlay.remove();
-    runAsyncMutation({
+    toast('Saving user...', 'info');
+    const result = await runAsyncMutation({
       module: 'config', actionType: 'saveUser',
       payload,
       onDone: async () => {
         toast('User saved!');
         await _refreshAppConfig().catch(() => {});
+        overlay.remove();
         renderSidebar();
-        if (App.currentPage === 'config' && canNavigate('config')) loadConfig();
+        if (App.currentPage === 'config' && canNavigate('config')) await loadConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
-    toast('Saving user…', 'info');
+    if (!result) resetButtonLoading(btn);
   });
 }
 

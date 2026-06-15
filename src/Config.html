@@ -100,19 +100,19 @@ async function loadPortalSettings() {
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    resetButtonLoading(btn);
-    runAsyncMutation({
+    toast('Saving settings...', 'info');
+    await runAsyncMutation({
       module: 'config', actionType: 'savePortalSettings',
       payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
       onDone: async () => {
         await _refreshAppConfig().catch(() => {});
         api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
         toast('Settings saved!');
-        if (App.currentPage === 'config') loadPortalSettings();
+        if (App.currentPage === 'config') await loadPortalSettings();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
-    toast('Saving settings…', 'info');
+    resetButtonLoading(btn);
   });
 
   const writeTestCard = document.createElement('div');
@@ -352,7 +352,7 @@ function _installConfigFieldsFallback() {
     const form = overlay.querySelector('#field-form');
     window._toggleFieldTargetOptions(form, true);
     form.querySelector('[name="Stage ID"]')?.addEventListener('change', () => window._toggleFieldTargetOptions(form));
-    form.addEventListener('submit', e => {
+    form.addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const payload = Object.fromEntries(fd.entries());
@@ -364,13 +364,20 @@ function _installConfigFieldsFallback() {
       payload['Allow Multiple'] = fd.has('Allow Multiple');
       payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
       if (isEdit) payload['Field ID'] = data['Field ID'];
-      overlay.remove();
-      runAsyncMutation({
+      const btn = e.target.querySelector('[type=submit]');
+      setButtonLoading(btn);
+      toast('Saving field...', 'info');
+      const result = await runAsyncMutation({
         module: 'fields', actionType: 'saveFieldConfig', payload,
-        onDone: () => { toast('Custom field saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadFieldConfig(); },
+        onDone: async () => {
+          toast('Custom field saved!');
+          await _refreshAppConfig().catch(() => {});
+          overlay.remove();
+          if (App.currentPage === 'config') await window.loadFieldConfig();
+        },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      toast('Saving field...', 'info');
+      if (!result) resetButtonLoading(btn);
     });
   };
   window._toggleFieldTargetOptions = function(form, preserveValues = false) {
