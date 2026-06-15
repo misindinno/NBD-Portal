@@ -112,17 +112,12 @@ function checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
   const normEmail = email ? String(email).trim().toLowerCase() : '';
   const normCompany = _leadNormText_(companyName);
   if (!normPhone && !normEmail && !normCompany) return [];
-  let indexRows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  if (!indexRows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
-    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
-    indexRows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  }
-  return indexRows
+  return getAllRowsSpreadsheet_(SHEET_NAMES.LEADS)
     .filter(lead => {
       if (excludeLeadId && lead['Lead ID'] === excludeLeadId) return false;
       if (normPhone) {
-        const lPhone = String(lead['Phone'] || '');
-        const lAlt   = String(lead['Alternate No'] || '');
+        const lPhone = _leadNormPhone_(lead['Phone']);
+        const lAlt   = _leadNormPhone_(lead['Alternate No']);
         if (lPhone && lPhone === normPhone) return true;
         if (lAlt   && lAlt   === normPhone) return true;
       }
@@ -165,12 +160,7 @@ function _leadDuplicateMessage_(data, excludeLeadId) {
 }
 
 function _leadExistingDuplicateMap_() {
-  let rows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  if (!rows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
-    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
-    rows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  }
-  return rows.reduce((m, row) => {
+  return getAllRowsSpreadsheet_(SHEET_NAMES.LEADS).reduce((m, row) => {
     const leadId = String(row['Lead ID'] || '').trim();
     const phone = _leadNormPhone_(row['Phone']);
     const altPhone = _leadNormPhone_(row['Alternate No']);
@@ -182,6 +172,69 @@ function _leadExistingDuplicateMap_() {
     if (company) m.company[company] = leadId;
     return m;
   }, { phone: {}, email: {}, company: {} });
+}
+
+function findDuplicateLeadsForAdmin() {
+  requireRole(['ADMIN']);
+  const rows = getAllRowsSpreadsheet_(SHEET_NAMES.LEADS)
+    .filter(row => String(row['Lead ID'] || '').trim());
+  const groups = { phone: {}, email: {}, company: {} };
+  rows.forEach(row => {
+    const lead = _leadDuplicateSummaryRow_(row);
+    const phone = _leadNormPhone_(row['Phone']);
+    const altPhone = _leadNormPhone_(row['Alternate No']);
+    const email = _leadNormEmail_(row['Email']);
+    const company = _leadNormText_(row['Company Name']);
+    if (phone) _leadDuplicatePush_(groups.phone, phone, lead);
+    if (altPhone) _leadDuplicatePush_(groups.phone, altPhone, lead);
+    if (email) _leadDuplicatePush_(groups.email, email, lead);
+    if (company) _leadDuplicatePush_(groups.company, company, lead);
+  });
+  const result = [];
+  Object.keys(groups).forEach(type => {
+    Object.keys(groups[type]).forEach(value => {
+      const leads = _leadUniqueDuplicateRows_(groups[type][value]);
+      if (leads.length > 1) {
+        result.push({
+          type: type === 'phone' ? 'Phone / Alternate No' : type.charAt(0).toUpperCase() + type.slice(1),
+          value,
+          count: leads.length,
+          leads
+        });
+      }
+    });
+  });
+  return result.sort((a, b) => b.count - a.count || String(a.type).localeCompare(String(b.type)));
+}
+
+function _leadDuplicatePush_(map, key, lead) {
+  if (!key) return;
+  if (!map[key]) map[key] = [];
+  map[key].push(lead);
+}
+
+function _leadUniqueDuplicateRows_(rows) {
+  const seen = {};
+  return (rows || []).filter(row => {
+    const id = String(row['Lead ID'] || '');
+    if (!id || seen[id]) return false;
+    seen[id] = true;
+    return true;
+  });
+}
+
+function _leadDuplicateSummaryRow_(row) {
+  return {
+    'Lead ID': row['Lead ID'] || '',
+    'Company Name': row['Company Name'] || '',
+    'Contact Person': row['Contact Person'] || '',
+    'Phone': row['Phone'] || '',
+    'Alternate No': row['Alternate No'] || '',
+    'Email': row['Email'] || '',
+    'Lead Status': row['Lead Status'] || '',
+    'Assigned To': row['Assigned To'] || '',
+    'Stage ID': row['Stage ID'] || ''
+  };
 }
 
 function _leadNormPhone_(value) {

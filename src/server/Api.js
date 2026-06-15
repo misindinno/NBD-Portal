@@ -253,6 +253,15 @@ function apiCheckLeadDuplicates(token, phone, email, excludeLeadId, companyName)
   });
 }
 
+function apiFindDuplicateLeads(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
+    return respond(findDuplicateLeadsForAdmin());
+  });
+}
+
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

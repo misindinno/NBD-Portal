@@ -85,6 +85,7 @@ const api = {
   getAllFieldConfigs:   (s)     => api._authedRead('apiGetAllFieldConfigs', s),
   getLeads:            ()      => api._authedRead('apiGetLeads'),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
+  findDuplicateLeads:  ()      => api._authedRead('apiFindDuplicateLeads'),
   getFollowups:        (f)     => api._authedRead('apiGetFollowups', f),
   getFollowupHistory:  (f)     => api._authedRead('apiGetFollowupHistory', f),
   getFollowupPageSnapshot: (o)  => api._authedRead('apiGetFollowupPageSnapshot', o || {}),

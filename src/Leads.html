@@ -94,6 +94,79 @@
   }
   window._leadSetDensity = _leadSetDensity;
 
+  async function openLeadDuplicateFinder() {
+    if (!App.user || App.user.role !== 'ADMIN') {
+      toast('Only admins can run duplicate finder.', 'error');
+      return;
+    }
+    const overlay = showModal(`
+      <div class="modal-header">
+        <h2 style="display:flex;align-items:center;gap:8px">${icon('scan-search', 18)} Duplicate Lead Finder</h2>
+      </div>
+      <div id="lead-dup-body" style="padding:4px 0 8px">
+        <div style="display:flex;align-items:center;gap:10px;color:#64748b;font-size:13px;padding:18px 4px">
+          <span class="spinner" style="width:18px;height:18px"></span>
+          Scanning phone, alternate phone, email, and company name...
+        </div>
+      </div>`);
+    renderIcons(overlay);
+    const body = overlay.querySelector('#lead-dup-body');
+    try {
+      const groups = await api.findDuplicateLeads();
+      body.innerHTML = _leadDuplicateFinderHtml(groups || []);
+      renderIcons(body);
+    } catch (err) {
+      body.innerHTML = `<div class="alert alert-error">${escapeHtml(err && err.message ? err.message : String(err || 'Duplicate scan failed'))}</div>`;
+    }
+  }
+  window.openLeadDuplicateFinder = openLeadDuplicateFinder;
+
+  function _leadDuplicateFinderHtml(groups) {
+    if (!groups.length) {
+      return `
+        <div style="padding:32px 12px;text-align:center;color:#64748b">
+          <div style="width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;background:#dcfce7;color:#15803d">${icon('check-circle-2', 24)}</div>
+          <div style="font-weight:800;color:#111827;margin-bottom:4px">No duplicates found</div>
+          <div style="font-size:13px">Checked phone, alternate phone, email, and company name.</div>
+        </div>`;
+    }
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
+        <div style="font-size:13px;color:#64748b"><b style="color:#111827">${groups.length}</b> duplicate group(s) found</div>
+      </div>
+      <div style="max-height:62vh;overflow:auto;border:1px solid #e5e7eb;border-radius:10px">
+        ${groups.map(group => `
+          <div style="border-bottom:1px solid #eef2f7;padding:12px">
+            <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:8px">
+              <div>
+                <div style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase">${escapeHtml(group.type || 'Duplicate')}</div>
+                <div style="font-size:14px;font-weight:800;color:#111827">${escapeHtml(group.value || '-')}</div>
+              </div>
+              <span style="height:24px;padding:3px 9px;border-radius:999px;background:#fee2e2;color:#991b1b;font-size:12px;font-weight:800">${Number(group.count || 0)} leads</span>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead><tr style="background:#f8fafc;color:#64748b">
+                <th style="text-align:left;padding:7px">Company</th>
+                <th style="text-align:left;padding:7px">Contact</th>
+                <th style="text-align:left;padding:7px">Phone</th>
+                <th style="text-align:left;padding:7px">Email</th>
+                <th style="text-align:left;padding:7px">Status</th>
+              </tr></thead>
+              <tbody>
+                ${(group.leads || []).map(lead => `
+                  <tr style="border-top:1px solid #f1f5f9;cursor:pointer" onclick="this.closest('.modal-overlay').remove();openLeadDetail('${escapeHtml(String(lead['Lead ID'] || '')).replace(/'/g, "\\'")}')">
+                    <td style="padding:7px;font-weight:700;color:#111827">${escapeHtml(lead['Company Name'] || '-')}</td>
+                    <td style="padding:7px;color:#334155">${escapeHtml(lead['Contact Person'] || '-')}</td>
+                    <td style="padding:7px;color:#334155">${escapeHtml(lead['Phone'] || lead['Alternate No'] || '-')}</td>
+                    <td style="padding:7px;color:#334155">${escapeHtml(lead['Email'] || '-')}</td>
+                    <td style="padding:7px;color:#334155">${escapeHtml(lead['Lead Status'] || '-')}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`).join('')}
+      </div>`;
+  }
+
   function _leadKpiCounts(leads) {
     const stageMap = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
     let total = 0, open = 0, hot = 0, warm = 0, cold = 0, closed = 0, nbd = 0;
@@ -183,6 +256,7 @@
         </div>
         <div class="fu-topbar-right">
           <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="loadLeads(true)" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
+          ${App.user && App.user.role === 'ADMIN' ? `<button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="openLeadDuplicateFinder()" title="Find duplicate leads">${icon('scan-search', 13)}<span class="fu-btn-text"> Duplicates</span></button>` : ''}
           ${_isNBDPortal() ? _nbdEscalateBtn('sm') : `<button class="btn btn-primary btn-sm fu-topbar-btn" onclick="openLeadForm()">${icon('plus', 14)}<span class="fu-btn-text"> Add Lead</span></button>`}
         </div>
       </div>

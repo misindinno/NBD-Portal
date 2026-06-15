@@ -423,11 +423,9 @@ function _bulkAppendRows_(sheetName, rowObjects) {
   if (!rowObjects || !rowObjects.length) return;
   if (sheetName === SHEET_NAMES.LEAD_FIELD_VALUES) ensureCustomFieldValueSheets_();
   if (sheetName === SHEET_NAMES.FOLLOWUPS) ensureFollowupSheets_();
-  const sheet = getSheet(sheetName);
   const headers = getHeaders(sheetName);
   const values = rowObjects.map(row => headers.map(h => row[h] !== undefined ? row[h] : ''));
-  const startRow = sheet.getLastRow() + 1;
-  sheet.getRange(startRow, 1, values.length, headers.length).setValues(values);
+  const startRow = sheetApiAppendValues_(sheetName, values) || getSheet(sheetName).getLastRow() - values.length + 1;
   if (typeof syncIndexRow_ === 'function') {
     rowObjects.forEach((row, i) => syncIndexRow_(sheetName, row, startRow + i));
   }
@@ -448,15 +446,14 @@ function _bulkRollbackFastCreate_(leadIds, followupIds) {
 }
 
 function _bulkDeleteRowsNoLock_(sheetName, predicate) {
-  const sheet = getSheet(sheetName);
-  const data = sheet.getDataRange().getValues();
+  const data = sheetApiGetValues_(sheetName, 'A:ZZ');
   if (data.length < 2) return 0;
   const headers = data[0];
   let deleted = 0;
   for (let i = data.length - 1; i >= 1; i--) {
     const row = headers.reduce((m, h, j) => { m[h] = data[i][j]; return m; }, {});
     if (predicate(row)) {
-      sheet.deleteRow(i + 1);
+      sheetApiDeleteRow_(sheetName, i + 1);
       deleted++;
     }
   }
@@ -652,12 +649,15 @@ function _bulkUpdatePayload_(row, leadId) {
 function checkDuplicate(row, existingMap, excludeLeadId) {
   excludeLeadId = String(excludeLeadId || '').trim();
   const phone = _bulkNormPhone_(row['Phone']);
+  const altPhone = _bulkNormPhone_(row['Alternate No']);
   const email = _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
   const phoneHit = phone ? existingMap.phone[phone] : '';
+  const altHit = altPhone ? existingMap.phone[altPhone] : '';
   const emailHit = email ? existingMap.email[email] : '';
   const companyHit = company ? existingMap.company[company] : '';
   if (phoneHit && phoneHit !== excludeLeadId) return 'Duplicate phone already exists.';
+  if (altHit && altHit !== excludeLeadId) return 'Duplicate alternate phone already exists.';
   if (emailHit && emailHit !== excludeLeadId) return 'Duplicate email already exists.';
   if (companyHit && companyHit !== excludeLeadId) return 'Duplicate company already exists.';
   return '';
@@ -666,12 +666,15 @@ function checkDuplicate(row, existingMap, excludeLeadId) {
 function _bulkBatchDuplicate_(row, batchMap, mode) {
   if (_bulkMode_(mode) === 'update') return '';
   const phone = _bulkNormPhone_(row['Phone']);
+  const altPhone = _bulkNormPhone_(row['Alternate No']);
   const email = _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
   if (phone && batchMap.phone[phone]) return 'Duplicate phone in pasted rows.';
+  if (altPhone && batchMap.phone[altPhone]) return 'Duplicate alternate phone in pasted rows.';
   if (email && batchMap.email[email]) return 'Duplicate email in pasted rows.';
   if (company && batchMap.company[company]) return 'Duplicate company in pasted rows.';
   if (phone) batchMap.phone[phone] = true;
+  if (altPhone) batchMap.phone[altPhone] = true;
   if (email) batchMap.email[email] = true;
   if (company) batchMap.company[company] = true;
   return '';
@@ -685,7 +688,6 @@ function logBulkImport(summary, userEmail) {
   safeInitHeaders(SHEET_NAMES.BULK_AUDIT_LOG, [
     'Batch ID','Timestamp','Total Rows','Valid Rows','Saved Rows','Error Rows','Imported By'
   ]);
-  const sheet = getSheet(SHEET_NAMES.BULK_AUDIT_LOG);
   const headers = getHeaders(SHEET_NAMES.BULK_AUDIT_LOG);
   const row = {
     'Batch ID': summary.batchId || '',
@@ -696,8 +698,7 @@ function logBulkImport(summary, userEmail) {
     'Error Rows': summary.errors || 0,
     'Imported By': userEmail || TRUSTED_WRITE_EMAIL || ''
   };
-  sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length)
-    .setValues([headers.map(h => row[h] !== undefined ? row[h] : '')]);
+  sheetApiAppendValues_(SHEET_NAMES.BULK_AUDIT_LOG, [headers.map(h => row[h] !== undefined ? row[h] : '')]);
 }
 
 function _ensureBulkSheets_() {
@@ -723,7 +724,7 @@ function _ensureBulkSheets_() {
       ['Product Interest','No','Text','Product Interest','optional'],
       ['Remark','No','Text','Remark','optional']
     ];
-    configSheet.getRange(2, 1, defaults.length, defaults[0].length).setValues(defaults);
+    sheetApiSetValues_(SHEET_NAMES.BULK_CONFIG, 'A2:' + _columnLetter_(defaults[0].length) + (defaults.length + 1), defaults);
   } else {
     const hasLeadId = getAllRows(SHEET_NAMES.BULK_CONFIG).some(r =>
       String(r['Field Name'] || '').trim().toLowerCase() === 'lead id' ||
@@ -739,8 +740,7 @@ function _ensureBulkSheets_() {
         'Validation Rule': 'optional',
         'Allowed Values': ''
       };
-      configSheet.getRange(configSheet.getLastRow() + 1, 1, 1, headers.length)
-        .setValues([headers.map(h => row[h] !== undefined ? row[h] : '')]);
+      sheetApiAppendValues_(SHEET_NAMES.BULK_CONFIG, [headers.map(h => row[h] !== undefined ? row[h] : '')]);
     }
     const hasAssignedTo = getAllRows(SHEET_NAMES.BULK_CONFIG).some(r =>
       String(r['Field Name'] || '').trim().toLowerCase() === 'assigned to' ||
@@ -756,8 +756,7 @@ function _ensureBulkSheets_() {
         'Validation Rule': 'optional',
         'Allowed Values': ''
       };
-      configSheet.getRange(configSheet.getLastRow() + 1, 1, 1, headers.length)
-        .setValues([headers.map(h => row[h] !== undefined ? row[h] : '')]);
+      sheetApiAppendValues_(SHEET_NAMES.BULK_CONFIG, [headers.map(h => row[h] !== undefined ? row[h] : '')]);
     }
   }
 }
@@ -830,7 +829,7 @@ function _bulkRowErrors_(item, config, existingMap, mode, excludeLeadId) {
 }
 
 function _bulkExistingMap_(leads) {
-  return (Array.isArray(leads) ? leads : getAllRows(SHEET_NAMES.LEADS)).reduce((m, row) => {
+  return (Array.isArray(leads) ? leads : getAllRowsSpreadsheet_(SHEET_NAMES.LEADS)).reduce((m, row) => {
     const phone = _bulkNormPhone_(row['Phone']);
     const altPhone = _bulkNormPhone_(row['Alternate No']);
     const email = _bulkNormEmail_(row['Email']);
@@ -845,12 +844,7 @@ function _bulkExistingMap_(leads) {
 }
 
 function _bulkLeadIndexRows_() {
-  let rows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  if (!rows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
-    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
-    rows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  }
-  return rows;
+  return getAllRowsSpreadsheet_(SHEET_NAMES.LEADS);
 }
 
 function _bulkFindLeadForRow_(row, leads) {
@@ -858,7 +852,7 @@ function _bulkFindLeadForRow_(row, leads) {
   const phone = _bulkNormPhone_(row['Phone']);
   const email = _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
-  return (Array.isArray(leads) ? leads : getAllRows(SHEET_NAMES.LEADS)).find(lead => {
+  return (Array.isArray(leads) ? leads : getAllRowsSpreadsheet_(SHEET_NAMES.LEADS)).find(lead => {
     if (leadId && String(lead['Lead ID'] || '').trim() === leadId) return true;
     if (phone && (_bulkNormPhone_(lead['Phone']) === phone || _bulkNormPhone_(lead['Alternate No']) === phone)) return true;
     if (email && _bulkNormEmail_(lead['Email']) === email) return true;
