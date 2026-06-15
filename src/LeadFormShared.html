@@ -67,7 +67,7 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
             ${cfg.users.map(u => `<option value="${escapeHtml(u.id)}" ${d['Assigned To'] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
           </select></div>` : ''}
       </div>
-    ${buildLeadCustomFieldsHTML(d, customFields, configOptions)}
+    ${buildLeadCustomFieldsHTML(d, customFields, configOptions, { hideAllStagePerStage: true })}
     <div class="lead-form-error" style="display:none;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:#FEF2F2;color:#991B1B;border:1px solid #FECACA;font-size:13px;line-height:1.4"></div>
     <div class="modal-footer">
       <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>

@@ -314,7 +314,7 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
       if (!payload['Stage ID']) payload['Stage ID'] = initialStageId || _bulkInitialStageId_();
       if (user.role === 'SALES') payload['Assigned To'] = user.id;
       const skipped = payload['__stage_skipped'] === 'true' || payload['skipped'] === true;
-      const prepared = _prepareLeadPayload(payload, payload['Stage ID'], {}, skipped);
+      const prepared = _prepareLeadPayload(payload, payload['Stage ID'], {}, skipped, { excludeAllStagePerStage: true });
       _applyLeadStatusFromStage(prepared, prepared['Stage ID']);
       const leadRow = {
         ...prepared,

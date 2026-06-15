@@ -1,5 +1,5 @@
 <script>
-function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}) {
+function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, renderOptions = {}) {
     if (!fields.length) return '';
     const cfg = App.config;
     const allStages = cfg.allStages || cfg.stages || [];
@@ -9,6 +9,7 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}) {
     const isNewLead = !d['Lead ID'];
     const visibleFields = fields.filter(f =>
       (!f['Stage ID'] || f['Stage ID'] === stageId) &&
+      !(renderOptions.hideAllStagePerStage && _isAllStagePerStageLeadField(f)) &&
       !(isNewLead && (f['Skip Visibility'] || 'normal') === 'skip_only')
     );
     if (!visibleFields.length) return '';
@@ -27,6 +28,12 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}) {
     ${skipToggle}
     ${visibleFields.map(f => _customFieldControlHTML(f, d, configOptions)).join('')}
   </div>`;
+  }
+
+  function _isAllStagePerStageLeadField(field) {
+    return field &&
+      !field['Stage ID'] &&
+      (field['Per Stage'] === true || field['Per Stage'] === 'TRUE');
   }
 
   function _customFieldControlHTML(field, d, configOptions) {

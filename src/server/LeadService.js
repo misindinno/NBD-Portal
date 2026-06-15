@@ -33,7 +33,7 @@ function saveLead(data, email) {
     if (user.role === 'SALES') data['Assigned To'] = user.id;
     const updateDuplicate = _leadDuplicateMessage_(data, leadId);
     if (updateDuplicate) return respond(null, updateDuplicate);
-    const prepared = _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped);
+    const prepared = _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped, { excludeAllStagePerStage: true });
     _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']);
     const updatePayload = { ...prepared, 'Updated At': now() };
     const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(updatePayload));
@@ -46,7 +46,7 @@ function saveLead(data, email) {
   if (user.role === 'SALES') data['Assigned To'] = user.id;
   const duplicate = _leadDuplicateMessage_(data, '');
   if (duplicate) return respond(null, duplicate);
-  const prepared = _prepareLeadPayload(data, data['Stage ID'], {}, skipped);
+  const prepared = _prepareLeadPayload(data, data['Stage ID'], {}, skipped, { excludeAllStagePerStage: true });
   _applyLeadStatusFromStage(prepared, prepared['Stage ID']);
   const followupDate = today();
   const leadRow = {
@@ -253,10 +253,12 @@ function _leadIdFromPayload(data) {
   return String(data['Lead ID'] || data['LeadID'] || data['Lead Id'] || data['ID'] || '').trim();
 }
 
-function _prepareLeadPayload(data, stageId, existing, skipped) {
+function _prepareLeadPayload(data, stageId, existing, skipped, options) {
   const payload = { ...data };
+  const opts = options || {};
   const fields = getLeadCustomFieldsForStage(stageId);
   fields.forEach(field => {
+    if (opts.excludeAllStagePerStage && _isAllStagePerStageLeadField_(field)) return;
     const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
     // Per-stage global fields store under {columnKey}__{stageId} so each stage has independent data
     const key = isPerStage ? field['Column Key'] + '__' + stageId : field['Column Key'];
@@ -281,6 +283,12 @@ function _prepareLeadPayload(data, stageId, existing, skipped) {
     if (value !== undefined) payload[key] = value;
   });
   return payload;
+}
+
+function _isAllStagePerStageLeadField_(field) {
+  return field &&
+    !field['Stage ID'] &&
+    (field['Per Stage'] === true || field['Per Stage'] === 'TRUE');
 }
 
 function getLeadCustomFieldsForStage(stageId) {

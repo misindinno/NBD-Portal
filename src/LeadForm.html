@@ -155,6 +155,7 @@ function _lfCustomFieldsHTML(leadFields, configOptions) {
   // Show global fields (no stage) AND fields belonging to the initial stage, excluding skip_only fields
   const visibleFields = leadFields.filter(f =>
     (!f['Stage ID'] || f['Stage ID'] === initialStageId) &&
+    !_lfIsAllStagePerStageField(f) &&
     (f['Skip Visibility'] || 'normal') !== 'skip_only'
   );
   if (!visibleFields.length) return '';
@@ -166,6 +167,12 @@ function _lfCustomFieldsHTML(leadFields, configOptions) {
       ${skipToggle}
       ${visibleFields.map(f => _customFieldControlHTML(f, { 'Stage ID': initialStageId }, configOptions)).join('')}
     </div>`;
+}
+
+function _lfIsAllStagePerStageField(field) {
+  return field &&
+    !field['Stage ID'] &&
+    (field['Per Stage'] === true || field['Per Stage'] === 'TRUE');
 }
 
 function _lfInitValidator() {
