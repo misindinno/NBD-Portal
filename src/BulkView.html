@@ -32,6 +32,7 @@ const BulkView = (() => {
         .bulk-cell-status { font-weight:700 !important; }
         .bulk-cell-status-saved { background:#dcfce7 !important; color:#166534 !important; }
         .bulk-cell-status-saving { background:#dbeafe !important; color:#1d4ed8 !important; }
+        .bulk-cell-status-pending { background:#fef3c7 !important; color:#92400e !important; }
         .bulk-cell-status-error { background:#fee2e2 !important; color:#991b1b !important; }
         .bulk-mode, .bulk-tabs { display:inline-flex; align-items:center; gap:4px; padding:3px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; }
         .bulk-mode-btn, .bulk-tab { border:0; background:transparent; color:#4b5563; height:28px; padding:0 9px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
@@ -270,6 +271,25 @@ const BulkView = (() => {
     hot.render();
   }
 
+  function _setRowsMeta(rowNumbers, patch) {
+    if (!hot || !Array.isArray(rowNumbers) || !rowNumbers.length) return;
+    rowNumbers.forEach(rowNumber => {
+      const row = hot.getSourceDataAtRow(Number(rowNumber) - 1);
+      if (row) Object.assign(row, patch || {});
+    });
+    hot.render();
+  }
+
+  function _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function _rowPaintDelay(count) {
+    if (count > 250) return 2;
+    if (count > 100) return 4;
+    return 8;
+  }
+
   function _setProgress(percent, label) {
     const bar = el('bulk-progress-bar');
     const text = el('bulk-progress-label');
@@ -302,7 +322,7 @@ const BulkView = (() => {
     hot.getSourceData().forEach((row, i) => {
       row.__errors__ = (errorMap[i + 1] || {}).msg || '';
       if (errorMap[i + 1]) row.__status__ = 'Error';
-      else if (!['Saved', 'Saving'].includes(String(row.__status__ || ''))) row.__status__ = '';
+      else if (!['Saved', 'Saving', 'Processing', 'Pending'].includes(String(row.__status__ || ''))) row.__status__ = '';
     });
 
     hot.updateSettings({
@@ -313,6 +333,7 @@ const BulkView = (() => {
           if (status === 'saved') return { className: 'bulk-cell-status bulk-cell-status-saved' };
           if (status === 'follow-up created') return { className: 'bulk-cell-status bulk-cell-status-saved' };
           if (status === 'saving' || status === 'processing') return { className: 'bulk-cell-status bulk-cell-status-saving' };
+          if (status === 'pending') return { className: 'bulk-cell-status bulk-cell-status-pending' };
           if (status === 'error') return { className: 'bulk-cell-status bulk-cell-status-error' };
           return { className: 'bulk-cell-status' };
         }
@@ -546,16 +567,20 @@ const BulkView = (() => {
         payload.__rowNumber = item.rowNumber;
         rowByNumber[item.rowNumber] = item;
         validItems.push({ rowNumber: item.rowNumber, payload });
-        _setRowMeta(item.rowNumber, { __status__: 'Saving', __errors__: '', __recordId__: '' });
+        _setRowMeta(item.rowNumber, { __status__: 'Pending', __errors__: '', __recordId__: '' });
       });
 
       const chunkMap = {};
       const chunks = _chunk(validItems, BULK_CHUNK_SIZE);
+      let savedSoFar = 0;
+      let failedSoFar = invalidRows.size;
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const chunkNo = i + 1;
         const chunkBatchId = 'blk-' + lastBatchId + '-c' + chunkNo;
-        _setProgress(Math.round((i / Math.max(chunks.length, 1)) * 80) + 10, `Saving chunk ${chunkNo}/${chunks.length} (${chunk.length} rows)...`);
+        const chunkRowNumbers = chunk.map(item => item.rowNumber);
+        _setRowsMeta(chunkRowNumbers, { __status__: 'Processing', __errors__: '', __recordId__: '' });
+        _setProgress(Math.round((i / Math.max(chunks.length, 1)) * 80) + 10, `Processing batch ${chunkNo}/${chunks.length}: rows ${chunkRowNumbers[0]}-${chunkRowNumbers[chunkRowNumbers.length - 1]}...`);
         try {
           const result = await api.mutate('bulk', 'saveBulkRows', {
             batchId: chunkBatchId,
@@ -566,13 +591,20 @@ const BulkView = (() => {
             batchId: chunkBatchId,
             rowNumbers: chunk.map(item => item.rowNumber)
           };
-          _applyBulkDirectResult(result, chunkMap[chunkBatchId], rowByNumber);
+          const applied = await _applyBulkDirectResult(result, chunkMap[chunkBatchId], rowByNumber);
+          savedSoFar += applied.saved;
+          failedSoFar += applied.errors;
+          _renderSummary({ total: gridRows.length, valid: savedSoFar, errors: failedSoFar });
         } catch (e) {
-          chunk.forEach(item => {
+          const delay = _rowPaintDelay(chunk.length);
+          for (const item of chunk) {
             const original = rowByNumber[item.rowNumber] || {};
             _setRowMeta(item.rowNumber, { __status__: 'Error', __errors__: e.message || 'Save failed' });
             errors.push({ rowNumber: item.rowNumber, errors: e.message || 'Save failed', fieldErrors: [], ...(original.data || {}) });
-          });
+            failedSoFar++;
+            _renderSummary({ total: gridRows.length, valid: savedSoFar, errors: failedSoFar });
+            await _sleep(delay);
+          }
         }
       }
 
@@ -603,24 +635,35 @@ const BulkView = (() => {
     }
   }
 
-  function _applyBulkDirectResult(result, chunk, rowByNumber) {
+  async function _applyBulkDirectResult(result, chunk, rowByNumber) {
     const rowResults = Array.isArray(result?.rowResults) ? result.rowResults : [];
+    let saved = 0;
+    let errorsCount = 0;
+    const delay = _rowPaintDelay(rowResults.length || chunk.rowNumbers.length);
     if (!rowResults.length) {
-      chunk.rowNumbers.forEach(rowNumber => _setRowMeta(rowNumber, { __status__: 'Saved', __errors__: '' }));
-      return;
+      for (const rowNumber of chunk.rowNumbers) {
+        _setRowMeta(rowNumber, { __status__: 'Saved', __errors__: '' });
+        saved++;
+        await _sleep(delay);
+      }
+      return { saved, errors: errorsCount };
     }
-    rowResults.forEach(rowResult => {
+    for (const rowResult of rowResults) {
       const rowNumber = Number(rowResult.rowNumber);
-      if (!rowNumber) return;
+      if (!rowNumber) continue;
       if (rowResult.saved) {
         _setRowMeta(rowNumber, { __status__: rowResult.status || 'Saved', __recordId__: rowResult.recordId || '', __errors__: '' });
+        saved++;
       } else {
         const original = rowByNumber[rowNumber] || {};
         const errMsg = rowResult.errors || 'Bulk save failed';
         _setRowMeta(rowNumber, { __status__: 'Error', __errors__: errMsg });
         errors.push({ rowNumber, errors: errMsg, fieldErrors: rowResult.fieldErrors || [], ...(original.data || {}) });
+        errorsCount++;
       }
-    });
+      await _sleep(delay);
+    }
+    return { saved, errors: errorsCount };
   }
 
   async function _applyBulkChunkProgress(chunk, rowByNumber) {
