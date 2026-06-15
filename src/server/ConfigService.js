@@ -182,6 +182,7 @@ function getAppConfig() {
     const portalUsers = getUsersWithPortalAccess_();
     const activePortalUsers = portalUsers
       .filter((u) => isActiveUserValue(u["Is Active"]) && _userMatchesDepartmentSettings_(u, settings));
+    const availableDepartments = _portalDepartmentOptions_(portalUsers, settings);
     const config = {
       stages: getActiveStages(),
       sources: getConfigByType("Lead Source"),
@@ -219,11 +220,7 @@ function getAppConfig() {
           department: u["Department"] || "",
         };
       }),
-      departments: activePortalUsers
-        .map((u) => String(u["Department"] || "").trim())
-        .filter(Boolean)
-        .filter((d, i, arr) => arr.indexOf(d) === i)
-        .sort(),
+      departments: availableDepartments,
       allStages: getAllStages(),
       userNameMap: portalUsers.reduce((m, u) => {
         const email = String(u["Email Address"] || "").trim().toLowerCase();
@@ -267,6 +264,23 @@ function _activeUserDepartments_() {
     .filter(Boolean)
     .filter((d, i, arr) => arr.indexOf(d) === i)
     .sort();
+}
+
+function _portalDepartmentOptions_(portalUsers, settings) {
+  const departments = {};
+  (portalUsers || [])
+    .filter((u) => isActiveUserValue(u["Is Active"]))
+    .forEach((u) => {
+      const department = _departmentName_(u["Department"]);
+      if (department) departments[department.toLowerCase()] = department;
+    });
+  (settings && settings.visibleDepartments || []).forEach((department) => {
+    const value = _departmentName_(department);
+    if (value) departments[value.toLowerCase()] = value;
+  });
+  return Object.keys(departments)
+    .map((key) => departments[key])
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function _parseDepartmentList_(value) {

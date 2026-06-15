@@ -64,6 +64,7 @@ async function loadPortalSettings() {
   if (!el('cfg-settings')) return;
   const departments = App.config.departments || [];
   const selected = window._parseDepartmentList(App.config.settings?.visibleDepartments || []);
+  const selectedMap = selected.reduce((m, d) => { m[String(d || '').trim().toLowerCase()] = true; return m; }, {});
   el('cfg-settings').innerHTML = `
     <form id="portal-settings-form" class="card" style="padding:18px;max-width:760px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;flex-wrap:wrap">
@@ -78,7 +79,7 @@ async function loadPortalSettings() {
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-bottom:18px">
         ${departments.map(d => `<label style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <input type="checkbox" name="visibleDepartments" value="${escapeHtml(d)}" ${selected.includes(d)?'checked':''}>
+          <input type="checkbox" name="visibleDepartments" value="${escapeHtml(d)}" ${selectedMap[String(d || '').trim().toLowerCase()]?'checked':''}>
           ${escapeHtml(d)}
         </label>`).join('') || '<div style="font-size:13px;color:#888">No departments found. Add departments on user profiles first.</div>'}
       </div>
