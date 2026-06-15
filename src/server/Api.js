@@ -660,7 +660,7 @@ function _buildLeadMapById_() {
 }
 
 function _leadRows() {
-  return getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS));
+  return getRowsWithCustomFieldValues_('Leads', getAllRowsSpreadsheet_(SHEET_NAMES.LEADS));
 }
 
 function _leadIndexRowsForScope_() {

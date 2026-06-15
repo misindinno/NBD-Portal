@@ -4,7 +4,7 @@ let CUSTOM_FIELD_UPLOAD_FOLDER_CACHE = null;
 
 function getLeads() {
   if (isAggregatePortal()) return getAggregatedRows(SHEET_NAMES.LEADS);
-  return getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS));
+  return getRowsWithCustomFieldValues_('Leads', getAllRowsSpreadsheet_(SHEET_NAMES.LEADS));
 }
 
 function getLead(leadId) {
@@ -97,11 +97,10 @@ function _insertLeadMasterRowBlockingDuplicates_(leadRow) {
     const duplicate = _leadDuplicateMessage_(leadRow, '');
     if (duplicate) return { success: false, error: duplicate };
     const rowObj = pickLeadMasterFields_(leadRow);
-    const sheet = getSheet(SHEET_NAMES.LEADS);
     const headers = getHeaders(SHEET_NAMES.LEADS);
     const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
-    sheet.appendRow(row);
-    if (typeof syncIndexRow_ === 'function') syncIndexRow_(SHEET_NAMES.LEADS, rowObj, sheet.getLastRow());
+    const rowNumber = sheetApiAppendValues_(SHEET_NAMES.LEADS, [row]) || getSheet(SHEET_NAMES.LEADS).getLastRow();
+    if (typeof syncIndexRow_ === 'function') syncIndexRow_(SHEET_NAMES.LEADS, rowObj, rowNumber);
     return { success: true };
   } finally {
     lock.releaseLock();

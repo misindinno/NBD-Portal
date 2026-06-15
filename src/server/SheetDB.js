@@ -84,6 +84,62 @@ function sheetApiGetValues_(sheetName, range, spreadsheetId) {
   }
 }
 
+function sheetApiSetValues_(sheetName, range, values, spreadsheetId) {
+  assertServerContext_();
+  assertSheetsApiAvailable_();
+  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
+  Sheets.Spreadsheets.Values.update(
+    { values: values || [] },
+    id,
+    sheetApiRange_(sheetName, range),
+    { valueInputOption: 'USER_ENTERED' }
+  );
+}
+
+function sheetApiClearValues_(sheetName, range, spreadsheetId) {
+  assertServerContext_();
+  assertSheetsApiAvailable_();
+  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
+  Sheets.Spreadsheets.Values.clear({}, id, sheetApiRange_(sheetName, range));
+}
+
+function sheetApiAppendValues_(sheetName, values, spreadsheetId) {
+  assertServerContext_();
+  assertSheetsApiAvailable_();
+  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
+  const res = Sheets.Spreadsheets.Values.append(
+    { values: values || [] },
+    id,
+    sheetApiRange_(sheetName, 'A:ZZ'),
+    { valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS' }
+  );
+  return _sheetApiStartRowFromRange_(res && res.updates && res.updates.updatedRange);
+}
+
+function sheetApiDeleteRow_(sheetName, rowNumber, spreadsheetId) {
+  assertServerContext_();
+  assertSheetsApiAvailable_();
+  const sheet = getSheet(sheetName);
+  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
+  Sheets.Spreadsheets.batchUpdate({
+    requests: [{
+      deleteDimension: {
+        range: {
+          sheetId: sheet.getSheetId(),
+          dimension: 'ROWS',
+          startIndex: Number(rowNumber) - 1,
+          endIndex: Number(rowNumber)
+        }
+      }
+    }]
+  }, id);
+}
+
+function _sheetApiStartRowFromRange_(range) {
+  const match = String(range || '').match(/[A-Z]+(\d+)/i);
+  return match ? Number(match[1]) : 0;
+}
+
 function sheetApiValuesToRows_(values) {
   const data = values || [];
   if (data.length < 2) return [];
@@ -103,6 +159,20 @@ function getHeaders(sheetName) {
 
 function getAllRows(sheetName) {
   return sheetApiValuesToRows_(sheetApiGetValues_(sheetName, 'A:ZZ'));
+}
+
+function getHeadersSpreadsheet_(sheetName) {
+  const sheet = getSheet(sheetName);
+  const lastCol = sheet.getLastColumn();
+  if (!lastCol) return [];
+  return sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String).filter(Boolean);
+}
+
+function getAllRowsSpreadsheet_(sheetName) {
+  const sheet = getSheet(sheetName);
+  const range = sheet.getDataRange();
+  const values = range ? range.getValues() : [];
+  return sheetApiValuesToRows_(values);
 }
 
 // ─── Cross-portal aggregation (dashboard-portal only) ──────────────────────
@@ -162,15 +232,13 @@ function findRowIndex(sheetName, idColumn, idValue) {
 }
 
 function insertRow(sheetName, rowObj) {
-  const sheet = getSheet(sheetName);
   const headers = getHeaders(sheetName);
   const row = headers.map((h) => (rowObj[h] !== undefined ? rowObj[h] : ""));
   const lock = LockService.getScriptLock();
   let rowNumber = 0;
   lock.waitLock(10000);
   try {
-    sheet.appendRow(row);
-    rowNumber = sheet.getLastRow();
+    rowNumber = sheetApiAppendValues_(sheetName, [row]) || getSheet(sheetName).getLastRow();
   } finally {
     lock.releaseLock();
   }
@@ -178,7 +246,6 @@ function insertRow(sheetName, rowObj) {
 }
 
 function updateRow(sheetName, idColumn, idValue, updates) {
-  const sheet = getSheet(sheetName);
   // Fix #10: acquire lock BEFORE reading row index to prevent race condition
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -206,7 +273,7 @@ function updateRow(sheetName, idColumn, idValue, updates) {
     const updatedRow = headers.map((h, i) =>
       updates[h] !== undefined ? updates[h] : data[rowIndex][i]
     );
-    sheet.getRange(rowIndex + 1, 1, 1, headers.length).setValues([updatedRow]);
+    sheetApiSetValues_(sheetName, 'A' + (rowIndex + 1) + ':' + _columnLetter_(headers.length) + (rowIndex + 1), [updatedRow]);
     syncedRow = headers.reduce((obj, h, i) => {
       obj[h] = normalizeSheetValue(updatedRow[i]);
       return obj;
@@ -220,7 +287,6 @@ function updateRow(sheetName, idColumn, idValue, updates) {
 }
 
 function deleteRow(sheetName, idColumn, idValue) {
-  const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -230,7 +296,7 @@ function deleteRow(sheetName, idColumn, idValue) {
     if (col === -1) return false;
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][col]) === String(idValue)) {
-        sheet.deleteRow(i + 1);
+        sheetApiDeleteRow_(sheetName, i + 1);
         if (typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
         return true;
       }
@@ -243,7 +309,6 @@ function deleteRow(sheetName, idColumn, idValue) {
 
 // Deletes every row matching filterFn. Iterates bottom-up so row numbers stay valid.
 function deleteAllRowsWhere(sheetName, filterFn) {
-  const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   let deleted = 0;
@@ -253,7 +318,7 @@ function deleteAllRowsWhere(sheetName, filterFn) {
     const headers = data[0];
     for (let i = data.length - 1; i >= 1; i--) {
       const row = headers.reduce((obj, h, j) => { obj[h] = data[i][j]; return obj; }, {});
-      if (filterFn(row)) { sheet.deleteRow(i + 1); deleted++; }
+      if (filterFn(row)) { sheetApiDeleteRow_(sheetName, i + 1); deleted++; }
     }
   } finally {
     lock.releaseLock();
@@ -275,9 +340,7 @@ function safeInitHeaders(sheetName, requiredHeaders) {
 
   // Sheet is brand new — write full header row
   if (lastCol === 0 || !existingHeaders.length) {
-    sheet
-      .getRange(1, 1, 1, requiredHeaders.length)
-      .setValues([requiredHeaders]);
+    sheetApiSetValues_(sheetName, 'A1:' + _columnLetter_(requiredHeaders.length) + '1', [requiredHeaders]);
     _styleHeaderRow(sheet, 1, requiredHeaders.length);
     return;
   }
@@ -287,8 +350,23 @@ function safeInitHeaders(sheetName, requiredHeaders) {
   if (missing.length === 0) return; // nothing to do
 
   const startCol = lastCol + 1;
-  sheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
+  sheetApiSetValues_(
+    sheetName,
+    _columnLetter_(startCol) + '1:' + _columnLetter_(startCol + missing.length - 1) + '1',
+    [missing]
+  );
   _styleHeaderRow(sheet, startCol, missing.length);
+}
+
+function _columnLetter_(columnNumber) {
+  let n = Number(columnNumber) || 1;
+  let letter = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter || 'A';
 }
 
 function _styleHeaderRow(sheet, startCol, count) {

@@ -351,7 +351,7 @@ function _reopenClosedNonFinalFollowupsNextMonday_() {
     if (isFinal && stage['Stage ID']) map[String(stage['Stage ID'])] = true;
     return map;
   }, {});
-  const leadsById = getAllRows(SHEET_NAMES.LEADS).reduce((map, lead) => {
+  const leadsById = getAllRowsSpreadsheet_(SHEET_NAMES.LEADS).reduce((map, lead) => {
     if (lead['Lead ID']) map[String(lead['Lead ID'])] = lead;
     return map;
   }, {});

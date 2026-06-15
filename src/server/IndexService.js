@@ -8,7 +8,8 @@ function _indexDefinitions_() {
       indexSheet: SHEET_NAMES.IDX_LEADS,
       idColumn: 'Lead ID',
       headers: [
-        'Lead ID','Assigned To','Stage ID','Lead Status','Next Follow-up Date','Updated At','Row Number'
+        'Lead ID','Assigned To','Stage ID','Lead Status','Next Follow-up Date',
+        'Phone','Alternate No','Email','Company Name','Updated At','Row Number'
       ],
       build(row, rowNumber) {
         return {
@@ -17,6 +18,10 @@ function _indexDefinitions_() {
           'Stage ID': row['Stage ID'] || '',
           'Lead Status': row['Lead Status'] || '',
           'Next Follow-up Date': row['Next Follow-up Date'] || '',
+          'Phone': row['Phone'] || '',
+          'Alternate No': row['Alternate No'] || '',
+          'Email': row['Email'] || '',
+          'Company Name': row['Company Name'] || '',
           'Updated At': row['Updated At'] || '',
           'Row Number': rowNumber || ''
         };
@@ -96,7 +101,7 @@ function rebuildIndexForSheet_(sheetName) {
       const built = def.build(row, row._rowNumber);
       return built[h] !== undefined ? built[h] : '';
     }));
-  if (rows.length) indexSheet.getRange(2, 1, rows.length, def.headers.length).setValues(rows);
+  if (rows.length) sheetApiSetValues_(def.indexSheet, 'A2:' + _columnLetter_(def.headers.length) + (rows.length + 1), rows);
   return rows.length;
 }
 
@@ -146,10 +151,8 @@ function getRowsByIndexedColumn_(sheetName, columnName, value) {
 function queryLeadsPage_(query, user) {
   assertServerContext_();
   const q = _normalizePageQuery_(query);
-  const def = _indexDefinitionForSheet_(SHEET_NAMES.LEADS);
-  const indexRows = _dbIndexRows_(def);
   const filters = q.filters || {};
-  let rows = indexRows.filter(r => {
+  let rows = getAllRowsSpreadsheet_(SHEET_NAMES.LEADS).filter(r => {
     if (filters.assignedTo && String(r['Assigned To'] || '') !== String(filters.assignedTo)) return false;
     if (filters.stageId && String(r['Stage ID'] || '') !== String(filters.stageId)) return false;
     if (filters.status && String(r['Lead Status'] || '') !== String(filters.status)) return false;
@@ -160,8 +163,7 @@ function queryLeadsPage_(query, user) {
   });
   rows = _sortIndexRows_(rows, q.sortBy || 'Updated At', q.sortDir || 'desc');
   const total = rows.length;
-  const pageRefs = rows.slice(q.offset, q.offset + q.pageSize);
-  let hydrated = _hydrateIndexedRows_(SHEET_NAMES.LEADS, pageRefs);
+  let hydrated = rows.slice(q.offset, q.offset + q.pageSize);
   hydrated = getRowsWithCustomFieldValues_('Leads', hydrated);
   return _pageResponse_(hydrated, total, q);
 }
@@ -304,9 +306,9 @@ function syncIndexRow_(sheetName, rowObj, rowNumber) {
   const values = def.headers.map(h => built[h] !== undefined ? built[h] : '');
   const hit = _findIndexRecord_(def, def.idColumn, id);
   if (hit) {
-    indexSheet.getRange(hit.rowNumber, 1, 1, def.headers.length).setValues([values]);
+    sheetApiSetValues_(def.indexSheet, 'A' + hit.rowNumber + ':' + _columnLetter_(def.headers.length) + hit.rowNumber, [values]);
   } else {
-    indexSheet.getRange(indexSheet.getLastRow() + 1, 1, 1, def.headers.length).setValues([values]);
+    sheetApiAppendValues_(def.indexSheet, [values]);
   }
 }
 
@@ -375,15 +377,17 @@ function _rowObjectFromValues_(headers, values, rowNumber) {
 function _clearIndexBody_(sheet) {
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
-  if (lastRow > 1 && lastCol > 0) sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+  if (lastRow > 1 && lastCol > 0) {
+    sheetApiClearValues_(sheet.getName(), 'A2:' + _columnLetter_(lastCol) + lastRow);
+  }
 }
 
 function _resetIndexSheet_(sheet, headers) {
   const maxRows = sheet.getMaxRows();
   const maxCols = sheet.getMaxColumns();
-  if (maxRows > 0 && maxCols > 0) sheet.getRange(1, 1, maxRows, maxCols).clearContent();
+  if (maxRows > 0 && maxCols > 0) sheetApiClearValues_(sheet.getName(), 'A1:' + _columnLetter_(maxCols) + maxRows);
   if (sheet.getMaxColumns() < headers.length) sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheetApiSetValues_(sheet.getName(), 'A1:' + _columnLetter_(headers.length) + '1', [headers]);
   _styleHeaderRow(sheet, 1, headers.length);
 }
 
