@@ -120,7 +120,7 @@ async function runAsyncMutation(opts = {}) {
   const requestId = opts.requestId || ('mt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
   try {
     const result = await api.mutate(opts.module, opts.actionType, opts.payload || {}, requestId);
-    if (typeof _refreshAfterMutation === 'function') await _refreshAfterMutation(opts);
+    if (!opts.skipRefresh && typeof _refreshAfterMutation === 'function') await _refreshAfterMutation(opts);
     if (typeof opts.onDone === 'function') {
       await opts.onDone({ requestId, status: 'DONE', result, finalRecordId: _mutationResultId(result, opts.payload || {}) });
     }

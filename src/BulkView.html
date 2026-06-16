@@ -582,11 +582,20 @@ const BulkView = (() => {
         _setRowsMeta(chunkRowNumbers, { __status__: 'Processing', __errors__: '', __recordId__: '' });
         _setProgress(Math.round((i / Math.max(chunks.length, 1)) * 80) + 10, `Processing batch ${chunkNo}/${chunks.length}: rows ${chunkRowNumbers[0]}-${chunkRowNumbers[chunkRowNumbers.length - 1]}...`);
         try {
-          const result = await api.mutate('bulk', 'saveBulkRows', {
-            batchId: chunkBatchId,
-            mode: bulkMode,
-            rows: chunk.map(item => item.payload)
-          }, chunkBatchId);
+          let batchError = '';
+          const result = await runAsyncMutation({
+            module: 'bulk',
+            actionType: 'saveBulkRows',
+            requestId: chunkBatchId,
+            skipRefresh: true,
+            payload: {
+              batchId: chunkBatchId,
+              mode: bulkMode,
+              rows: chunk.map(item => item.payload)
+            },
+            onFail: failed => { batchError = failed.error || 'Batch save failed'; }
+          });
+          if (!result) throw new Error(batchError || 'Batch save failed');
           chunkMap[chunkBatchId] = {
             batchId: chunkBatchId,
             rowNumbers: chunk.map(item => item.rowNumber)

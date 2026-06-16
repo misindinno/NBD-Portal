@@ -205,8 +205,9 @@ function _lfInitValidator() {
     const btn = form.querySelector('[type=submit]');
     setButtonLoading(btn, 'Submitting...');
     _lfClearSubmitError();
+    let payload;
     try {
-      const payload = await collectLeadFormPayload(form);
+      payload = await collectLeadFormPayload(form);
 
       const duplicates = await _lfCheckDuplicates(payload['Phone'], payload['Email'], payload['Company Name']);
       if (duplicates.length) {
@@ -215,20 +216,23 @@ function _lfInitValidator() {
         if (!proceed) return;
         setButtonLoading(btn, 'Submitting...');
       }
-
-      const leadId = await api.mutate('leads', 'saveLead', payload, 'leadform-' + Date.now());
-      if (AppCache.isLoaded('leads')) {
-        AppCache.addRow('leads', {
-          ...payload, 'Lead ID': leadId || payload['Lead ID'] || '',
-          'Lead Status': 'Open',
-          'Created At': _nowStr(), 'Updated At': _nowStr()
-        });
-      }
-      _lfShowSuccess(payload['Company Name'] || payload['Client Description']);
     } catch (err) {
       _lfShowSubmitError(err && err.message ? err.message : String(err || 'Lead save failed.'));
       resetButtonLoading(btn);
+      return;
     }
+
+    toast('Submitting lead...', 'info');
+    const result = await runAsyncMutation({
+      module: 'leads', actionType: 'saveLead', payload,
+      onDone: async () => {
+        _lfShowSuccess(payload['Company Name'] || payload['Client Description']);
+      },
+      onFail: failed => {
+        _lfShowSubmitError(failed.error || 'Lead save failed.');
+      }
+    });
+    if (!result) resetButtonLoading(btn);
   });
 }
 

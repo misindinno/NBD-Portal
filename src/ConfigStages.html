@@ -40,21 +40,28 @@ async function loadStagesConfig() {
     </div>`;
   renderIcons(c);
 
-  Sortable.create(el('stages-list'), {
+  const stagesList = el('stages-list');
+  const stagesSortable = Sortable.create(stagesList, {
     animation: 150,
     handle: '.drag-handle',
     onEnd: async (evt) => {
       const orderedIds = Array.from(evt.to.children).map(el => el.dataset.stageId);
-      runAsyncMutation({
+      stagesSortable.option('disabled', true);
+      stagesList.style.opacity = '0.6';
+      toast('Saving order...', 'info');
+      const result = await runAsyncMutation({
         module: 'stages', actionType: 'reorderStages',
         payload: { ids: orderedIds },
-        onDone: () => { toast('Stages reordered!'); _refreshAppConfig().catch(() => {}); },
-        onFail: j => {
+        onDone: async () => { toast('Stages reordered!'); await _refreshAppConfig().catch(() => {}); },
+        onFail: async j => {
           toast('Reorder failed: ' + (j.error || 'Error'), 'error');
-          if (App.currentPage === 'config') loadStagesConfig();
+          if (App.currentPage === 'config') await loadStagesConfig();
         }
       });
-      toast('Saving order…', 'info');
+      if (stagesList && stagesList.isConnected) {
+        stagesSortable.option('disabled', false);
+        stagesList.style.opacity = '';
+      }
     }
   });
 }

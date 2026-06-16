@@ -93,7 +93,7 @@ async function openLeadDetail(leadId) {
         ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
           ${icon('send', 14)} Push to NBD
         </button>` : ''}
-        ${canDeleteLead ? `<button class="btn btn-outlined btn-sm" style="color:#D32F2F;border-color:#D32F2F" onclick="deleteLeadConfirm('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'))">
+        ${canDeleteLead ? `<button class="btn btn-outlined btn-sm" style="color:#D32F2F;border-color:#D32F2F" onclick="deleteLeadConfirm('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'), this)">
           ${icon('trash-2', 14)} Delete
         </button>` : ''}
       </div>

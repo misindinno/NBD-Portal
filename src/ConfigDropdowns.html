@@ -37,7 +37,7 @@ function renderConfigList(configs) {
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         ${grouped[type].map(c => `
           <span class="badge" style="background:${c['Status']==='Active'?'#E8F5E9':'#FFEBEE'};color:${c['Status']==='Active'?'#2E7D32':'#C62828'};padding:4px 10px;cursor:pointer"
-            onclick="toggleConfigStatus('${c['Config ID']}','${c['Status']==='Active'?'Inactive':'Active'}')">
+            onclick="toggleConfigStatus('${c['Config ID']}','${c['Status']==='Active'?'Inactive':'Active'}', this)">
             ${escapeHtml(c['Value'])} ${c['Status']==='Active'?'✓':'✕'}
           </span>`).join('')}
       </div>
@@ -87,21 +87,30 @@ function openConfigForm() {
   });
 }
 
-function toggleConfigStatus(id, newStatus) {
-  runAsyncMutation({
+async function toggleConfigStatus(id, newStatus, badge) {
+  if (badge) {
+    if (badge.dataset.busy === '1') return;
+    badge.dataset.busy = '1';
+    setButtonLoading(badge, '');
+  }
+  toast('Updating...', 'info');
+  const result = await runAsyncMutation({
     module: 'config', actionType: 'updateConfigStatus',
     payload: { id, status: newStatus },
-    onDone: () => {
+    onDone: async () => {
       toast('Status updated!');
-      _refreshAppConfig().catch(() => {});
-      if (App.currentPage === 'config') loadDropdownsConfig();
+      await _refreshAppConfig().catch(() => {});
+      if (App.currentPage === 'config') await loadDropdownsConfig();
     },
-    onFail: j => {
+    onFail: async j => {
       toast('Update failed: ' + (j.error || 'Error'), 'error');
-      if (App.currentPage === 'config') loadDropdownsConfig();
+      if (App.currentPage === 'config') await loadDropdownsConfig();
     }
   });
-  toast('Updating…', 'info');
+  if (badge && badge.isConnected) {
+    badge.dataset.busy = '';
+    resetButtonLoading(badge);
+  }
 }
 
 // ── Users Config ─────────────────────────────────────────────────────────────

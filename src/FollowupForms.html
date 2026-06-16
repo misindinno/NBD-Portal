@@ -93,8 +93,9 @@ async function openFollowupForm(leadId = '', leadName = '') {
     fuForm.dataset.submitting = '1';
     const btn = fuForm.querySelector('[type=submit]');
     setButtonLoading(btn, 'Saving...');
+    let payload;
     try {
-      const payload = await collectLeadFormPayload(fuForm);
+      payload = await collectLeadFormPayload(fuForm);
       if (!payload['Lead ID'])          delete payload['Lead ID'];
       if (!payload['Updated Stage ID']) delete payload['Updated Stage ID'];
       if (!payload['Lead ID'])          delete payload['Updated Stage ID'];
@@ -110,15 +111,26 @@ async function openFollowupForm(leadId = '', leadName = '') {
         fuForm.dataset.submitting = '';
         return;
       }
-
-      const saveResult = await api.saveFollowupDirect(payload);
-      overlay.remove();
-      _applyFollowupSaveResult(payload, saveResult);
-      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
-      if (App.currentPage === 'dashboard') loadDashboard();
-      toast('Follow-up saved' + (saveResult ? ': ' + saveResult : '') + '!');
     } catch (err) {
       toast(err.message || String(err), 'error');
+      resetButtonLoading(btn);
+      fuForm.dataset.submitting = '';
+      return;
+    }
+
+    toast('Saving follow-up...', 'info');
+    const result = await runAsyncMutation({
+      module: 'followups', actionType: 'saveFollowup', payload,
+      onDone: async ({ result: saveResult }) => {
+        overlay.remove();
+        _applyFollowupSaveResult(payload, saveResult);
+        if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
+        if (App.currentPage === 'dashboard') loadDashboard();
+        toast('Follow-up saved' + (saveResult ? ': ' + saveResult : '') + '!');
+      },
+      onFail: failed => toast(failed.error || 'Save failed', 'error')
+    });
+    if (!result) {
       resetButtonLoading(btn);
       fuForm.dataset.submitting = '';
     }
@@ -312,20 +324,34 @@ async function openMarkFollowupDoneForm(followupId) {
     form.dataset.submitting = '1';
     const btn = form.querySelector('[type=submit]');
     setButtonLoading(btn, 'Saving...');
+    let payload, closesFollowup;
     try {
-      const payload = await collectLeadFormPayload(form);
+      payload = await collectLeadFormPayload(form);
       if (!payload['Updated Stage ID']) delete payload['Updated Stage ID'];
       if (!payload['Issues'])           delete payload['Issues'];
-      const closesFollowup = _markDoneClosesFollowup(form);
+      closesFollowup = _markDoneClosesFollowup(form);
       if (closesFollowup) delete payload['Next Follow-up Date'];
-      const result = await api.markFollowupDoneDirect(followupId, payload);
-      overlay.remove();
-      _applyFollowupDoneResult(result);
-      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
-      if (App.currentPage === 'dashboard') loadDashboard();
-      toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
     } catch (err) {
       toast(err.message || String(err), 'error');
+      resetButtonLoading(btn);
+      form.dataset.submitting = '';
+      return;
+    }
+
+    toast(closesFollowup ? 'Closing follow-up...' : 'Saving follow-up result...', 'info');
+    const mutationResult = await runAsyncMutation({
+      module: 'followups', actionType: 'markFollowupDone',
+      payload: { id: followupId, data: payload },
+      onDone: async ({ result }) => {
+        overlay.remove();
+        _applyFollowupDoneResult(result);
+        if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
+        if (App.currentPage === 'dashboard') loadDashboard();
+        toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
+      },
+      onFail: failed => toast(failed.error || 'Save failed', 'error')
+    });
+    if (!mutationResult) {
       resetButtonLoading(btn);
       form.dataset.submitting = '';
     }

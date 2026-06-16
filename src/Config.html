@@ -101,18 +101,16 @@ async function loadPortalSettings() {
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
     toast('Saving settings...', 'info');
-    await runAsyncMutation({
+    const result = await runAsyncMutation({
       module: 'config', actionType: 'savePortalSettings',
       payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
       onDone: async () => {
-        await _refreshAppConfig().catch(() => {});
-        api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
         toast('Settings saved!');
         if (App.currentPage === 'config') await loadPortalSettings();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
-    resetButtonLoading(btn);
+    if (!result) resetButtonLoading(btn);
   });
 
   const writeTestCard = document.createElement('div');

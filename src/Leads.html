@@ -416,7 +416,7 @@
           formatter: function() {
             return '<button class="fu-icon-action danger" title="Delete lead">' + iconSvg('trash-2', 14) + '</button>';
           },
-          cellClick: function(e, cell) {
+          cellClick: async function(e, cell) {
             e.stopPropagation();
             const leadId = _leadRowId(cell.getRow().getData());
             if (!leadId) return;
@@ -424,7 +424,7 @@
             const btn = e.target.closest('button');
             if (btn) setButtonLoading(btn, 'Deleting...');
             toast('Deleting...', 'info');
-            runAsyncMutation({
+            const result = await runAsyncMutation({
               module: 'leads', actionType: 'deleteLead',
               payload: { id: leadId },
               onDone: () => {
@@ -436,9 +436,9 @@
               onFail: j => {
                 toast('Delete failed: ' + (j.error || 'Error'), 'error');
                 _refreshLeadsCache().catch(() => {});
-                if (btn) resetButtonLoading(btn);
               }
             });
+            if (!result && btn) resetButtonLoading(btn);
           }
         }] : [])
       ]
@@ -530,10 +530,11 @@
       const btn = form.querySelector('[type=submit]');
       setButtonLoading(btn);
       _clearLeadFormError(form);
+      let payload, updateId, isUpdate;
       try {
-        const payload = await collectLeadFormPayload(form);
-        const updateId = _leadRowId(data) || _leadRowId(payload);
-        const isUpdate = !!updateId;
+        payload = await collectLeadFormPayload(form);
+        updateId = _leadRowId(data) || _leadRowId(payload);
+        isUpdate = !!updateId;
         if (isUpdate) payload['Lead ID'] = updateId;
 
         const duplicates = await _checkLeadDuplicates(payload['Phone'], payload['Email'], isUpdate ? updateId : '', payload['Company Name']);
@@ -543,27 +544,33 @@
           if (!proceed) return;
           setButtonLoading(btn);
         }
-
-        const savedId = await api.mutate('leads', 'saveLead', payload, 'lead-' + Date.now());
-        const finalId = savedId || updateId || payload['Lead ID'] || '';
-        if (isUpdate && AppCache.isLoaded('leads')) {
-          AppCache.patchRow('leads', 'Lead ID', updateId, { ...payload, 'Lead ID': finalId, 'Updated At': _nowStr() });
-        } else if (!isUpdate && AppCache.isLoaded('leads')) {
-          AppCache.addRow('leads', {
-            ...payload, 'Lead ID': finalId,
-            'Lead Status': payload['Lead Status'] || 'Open',
-            'Created At': _nowStr(), 'Updated At': _nowStr()
-          });
-        }
-        overlay.remove();
-        _refreshLeadViewsAfterLocalChange();
-        toast('Lead saved!');
-        return;
-
       } catch (err) {
         _showLeadFormError(form, err && err.message ? err.message : String(err || 'Save failed.'));
         resetButtonLoading(btn);
+        return;
       }
+
+      toast(isUpdate ? 'Updating lead...' : 'Saving lead...', 'info');
+      const result = await runAsyncMutation({
+        module: 'leads', actionType: 'saveLead', payload,
+        onDone: async ({ result: savedId }) => {
+          const finalId = savedId || updateId || payload['Lead ID'] || '';
+          if (isUpdate && AppCache.isLoaded('leads')) {
+            AppCache.patchRow('leads', 'Lead ID', updateId, { ...payload, 'Lead ID': finalId, 'Updated At': _nowStr() });
+          } else if (!isUpdate && AppCache.isLoaded('leads')) {
+            AppCache.addRow('leads', {
+              ...payload, 'Lead ID': finalId,
+              'Lead Status': payload['Lead Status'] || 'Open',
+              'Created At': _nowStr(), 'Updated At': _nowStr()
+            });
+          }
+          overlay.remove();
+          _refreshLeadViewsAfterLocalChange();
+          toast('Lead saved!');
+        },
+        onFail: failed => _showLeadFormError(form, failed.error || 'Save failed.')
+      });
+      if (!result) resetButtonLoading(btn);
     });
     initLeadCustomFields(overlay);
     _initStateCityDropdowns(overlay, data['State'] || '', data['City'] || '');

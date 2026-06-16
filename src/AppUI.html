@@ -115,14 +115,14 @@ function _installConfigRouteFallback() {
       const btn = e.target.querySelector('[type=submit]');
       setButtonLoading(btn);
       toast('Saving settings...', 'info');
-      await runAsyncMutation({
+      const result = await runAsyncMutation({
         module: 'config',
         actionType: 'savePortalSettings',
         payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
-        onDone: async () => { await _refreshAppConfig().catch(() => {}); toast('Settings saved!'); },
+        onDone: async () => { toast('Settings saved!'); },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      resetButtonLoading(btn);
+      if (!result) resetButtonLoading(btn);
     });
     window._appendSettingsWriteSpeedTestCard(el('cfg-settings'));
   };
@@ -161,19 +161,26 @@ function _installConfigRouteFallback() {
       </div>`;
     renderIcons(container);
     if (window.Sortable && el('stages-list')) {
-      Sortable.create(el('stages-list'), {
+      const stagesList = el('stages-list');
+      const stagesSortable = Sortable.create(stagesList, {
         animation: 150,
         handle: '.drag-handle',
-        onEnd: evt => {
+        onEnd: async evt => {
           const orderedIds = Array.from(evt.to.children).map(node => node.dataset.stageId);
-          runAsyncMutation({
+          stagesSortable.option('disabled', true);
+          stagesList.style.opacity = '0.6';
+          toast('Saving order...', 'info');
+          const result = await runAsyncMutation({
             module: 'stages',
             actionType: 'reorderStages',
             payload: { ids: orderedIds },
-            onDone: () => { toast('Stages reordered!'); _refreshAppConfig().catch(() => {}); },
-            onFail: j => { toast('Reorder failed: ' + (j.error || 'Error'), 'error'); window.loadStagesConfig(); }
+            onDone: async () => { toast('Stages reordered!'); await _refreshAppConfig().catch(() => {}); },
+            onFail: async j => { toast('Reorder failed: ' + (j.error || 'Error'), 'error'); await window.loadStagesConfig(); }
           });
-          toast('Saving order...', 'info');
+          if (stagesList && stagesList.isConnected) {
+            stagesSortable.option('disabled', false);
+            stagesList.style.opacity = '';
+          }
         }
       });
     }
