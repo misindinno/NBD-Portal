@@ -126,8 +126,6 @@ async function loadLeadForm() {
 
           ${_lfCustomFieldsHTML(leadFields, configOptions)}
 
-          <div id="lf-submit-error" style="display:none;margin:16px 0 0;padding:11px 13px;border-radius:8px;background:#FEF2F2;color:#991B1B;border:1px solid #FECACA;font-size:13px;line-height:1.45"></div>
-
           <div style="margin-top:28px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <button type="submit" class="btn btn-primary" style="min-width:160px;padding:10px 24px;font-size:15px">
               ${icon('send', 16)} Submit Lead
@@ -155,7 +153,6 @@ function _lfCustomFieldsHTML(leadFields, configOptions) {
   // Show global fields (no stage) AND fields belonging to the initial stage, excluding skip_only fields
   const visibleFields = leadFields.filter(f =>
     (!f['Stage ID'] || f['Stage ID'] === initialStageId) &&
-    !_lfIsAllStagePerStageField(f) &&
     (f['Skip Visibility'] || 'normal') !== 'skip_only'
   );
   if (!visibleFields.length) return '';
@@ -167,12 +164,6 @@ function _lfCustomFieldsHTML(leadFields, configOptions) {
       ${skipToggle}
       ${visibleFields.map(f => _customFieldControlHTML(f, { 'Stage ID': initialStageId }, configOptions)).join('')}
     </div>`;
-}
-
-function _lfIsAllStagePerStageField(field) {
-  return field &&
-    !field['Stage ID'] &&
-    (field['Per Stage'] === true || field['Per Stage'] === 'TRUE');
 }
 
 function _lfInitValidator() {
@@ -204,10 +195,8 @@ function _lfInitValidator() {
     if (!validateCfMultiselects(form)) return;
     const btn = form.querySelector('[type=submit]');
     setButtonLoading(btn, 'Submitting...');
-    _lfClearSubmitError();
-    let payload;
     try {
-      payload = await collectLeadFormPayload(form);
+      const payload = await collectLeadFormPayload(form);
 
       const duplicates = await _lfCheckDuplicates(payload['Phone'], payload['Email'], payload['Company Name']);
       if (duplicates.length) {
@@ -216,42 +205,31 @@ function _lfInitValidator() {
         if (!proceed) return;
         setButtonLoading(btn, 'Submitting...');
       }
+
+      const tempId  = 'temp-' + Date.now();
+      AppCache.addRow('leads', {
+        ...payload, 'Lead ID': tempId, '_queueTemp': true,
+        'Lead Status': 'Open',
+        'Created At': _nowStr(), 'Updated At': _nowStr()
+      });
+      QueueManager.enqueue({
+        module: 'leads', actionType: 'saveLead', payload, tempId,
+        onDone: j => {
+          if (j.finalRecordId) AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': j.finalRecordId, '_queueTemp': false });
+          if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+        },
+        onFail: j => {
+          AppCache.removeRow('leads', 'Lead ID', tempId);
+          if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+          toast('Lead save failed: ' + (j.error || 'Error'), 'error');
+        }
+      });
+      _lfShowSuccess(payload['Company Name'] || payload['Client Description']);
     } catch (err) {
-      _lfShowSubmitError(err && err.message ? err.message : String(err || 'Lead save failed.'));
+      toast(err, 'error');
       resetButtonLoading(btn);
-      return;
     }
-
-    toast('Submitting lead...', 'info');
-    const result = await runAsyncMutation({
-      module: 'leads', actionType: 'saveLead', payload,
-      onDone: async () => {
-        _lfShowSuccess(payload['Company Name'] || payload['Client Description']);
-      },
-      onFail: failed => {
-        _lfShowSubmitError(failed.error || 'Lead save failed.');
-      }
-    });
-    if (!result) resetButtonLoading(btn);
   });
-}
-
-function _lfShowSubmitError(message) {
-  const box = el('lf-submit-error');
-  if (!box) return;
-  box.innerHTML = `${icon('circle-alert', 14)} <span>${escapeHtml(message || 'Lead save failed. Please check details and try again.')}</span>`;
-  box.style.display = 'flex';
-  box.style.alignItems = 'flex-start';
-  box.style.gap = '8px';
-  renderIcons(box);
-  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function _lfClearSubmitError() {
-  const box = el('lf-submit-error');
-  if (!box) return;
-  box.style.display = 'none';
-  box.innerHTML = '';
 }
 
 function _lfShowSuccess(label) {

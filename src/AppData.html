@@ -6,6 +6,11 @@ function _ensureCached(col, fetchFn) {
   if (AppCache.isLoaded(col)) return Promise.resolve();
   if (_fetching[col]) return _fetching[col];
   _fetching[col] = fetchFn()
+    .then(rows => col === 'leads'
+      ? _applyPendingLeadQueueOverlay(rows)
+      : col === 'followups'
+        ? _applyPendingFollowupQueueOverlay(rows)
+        : rows)
     .then(rows => AppCache.setRows(col, rows))
     .finally(() => delete _fetching[col]);
   return _fetching[col];
@@ -61,6 +66,13 @@ async function _checkCacheStamps() {
     const configStamp = Math.max(_stamp('stages') || 0, _stamp('fields') || 0, _stamp('config') || 0);
     if (configStamp > 0 && configStamp > AppCache.getLoadedAt('config')) await _refreshAppConfig();
 
+    // Change-log incremental sync (queue worker writes here after each job)
+    const changes = await api.getChanges(_lastChangeSeq);
+    if (changes && changes.length) {
+      const seqs = changes.map(c => c.sequence).filter(s => s > 0);
+      if (seqs.length) _lastChangeSeq = Math.max(...seqs);
+      _applyChangeLog(changes);
+    }
   } catch(e) {
     console.warn('[AppData] Cache revalidation failed', e);
   }
@@ -104,13 +116,15 @@ function _applyChangeLog(changes) {
   const collections = {};
   changes.forEach(c => {
     if (c.module) modules[c.module] = true;
-    _collectionsForMutationAction(c.actionType, c.module).forEach(col => { collections[col] = true; });
+    _collectionsForQueueAction(c.actionType, c.module).forEach(col => { collections[col] = true; });
   });
 
   if (modules['leads'] || collections.leads) {
+    QueueManager.onServerChange('leads');
     if (['leads', 'pipeline', 'dashboard'].includes(App.currentPage)) _refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed', e));
   }
   if (modules['followups'] || collections.followups) {
+    QueueManager.onServerChange('followups');
     if (App.currentPage?.startsWith('followups')) {
       if (typeof _fuMarkStateStale === 'function') _fuMarkStateStale();
     } else if (App.currentPage === 'dashboard') {
@@ -126,6 +140,12 @@ function _applyChangeLog(changes) {
   if (collections.config) {
     _refreshAppConfig().catch(e => console.warn('[AppData] Config refresh failed', e));
   }
+  // Refresh queue page if it's open and any module changed
+  const anyModule = modules['leads'] || modules['followups'] || modules['config'] || modules['stages'] || modules['fields'];
+  if (anyModule && App.currentPage === 'queue') {
+    if (typeof _refreshQueuePage === 'function') _refreshQueuePage();
+  }
+
   // Re-render config tabs that read from App.config when config data changes
   if ((modules['config'] || modules['stages'] || modules['fields']) && App.currentPage === 'config') {
     if (typeof loadStagesConfig === 'function') loadStagesConfig();
@@ -133,7 +153,7 @@ function _applyChangeLog(changes) {
   }
 }
 
-function _collectionsForMutationAction(actionType, moduleName) {
+function _collectionsForQueueAction(actionType, moduleName) {
   const map = {
     saveLead:                ['leads', 'followups'],
     saveBulkRows:            ['leads', 'followups'],
@@ -162,34 +182,32 @@ function _collectionsForMutationAction(actionType, moduleName) {
   }[moduleName] || [];
 }
 
-async function _refreshAfterMutation(mutation) {
-  const collections = _collectionsForMutationAction(mutation?.actionType, mutation?.module);
-  const jobs = [];
-  if (collections.includes('leads')) {
-    jobs.push(_refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed after mutation', e)));
-  }
+function _refreshAfterQueueJob(job) {
+  const collections = _collectionsForQueueAction(job?.actionType, job?.module);
+  if (collections.includes('leads')) _refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed after queue job', e));
   if (collections.includes('followups')) {
     if (App.currentPage?.startsWith('followups')) {
       if (typeof _fuMarkStateStale === 'function') _fuMarkStateStale();
     } else {
-      jobs.push(_refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed after mutation', e)));
+      _refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed after queue job', e));
     }
   }
   if (collections.includes('followupHistory') && AppCache.isLoaded('followupHistory') && !App.currentPage?.startsWith('followups')) {
-    jobs.push(_refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed after mutation', e)));
+    _refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed after queue job', e));
   }
-  if (collections.includes('activityLogs') && AppCache.isLoaded('activityLogs')) {
-    jobs.push(_refreshActivityLogsCache().catch(e => console.warn('[AppData] Activity log refresh failed after mutation', e)));
-  }
-  if (collections.includes('config')) {
-    jobs.push(_refreshAppConfig().catch(e => console.warn('[AppData] Config refresh failed after mutation', e)));
-  }
-  await Promise.all(jobs);
+  if (collections.includes('activityLogs') && AppCache.isLoaded('activityLogs')) _refreshActivityLogsCache().catch(e => console.warn('[AppData] Activity log refresh failed after queue job', e));
+  if (collections.includes('config')) _refreshAppConfig().catch(e => console.warn('[AppData] Config refresh failed after queue job', e));
+  if (App.currentPage === 'queue' && typeof _refreshQueuePage === 'function') _refreshQueuePage();
+}
+
+function _recoverFailedQueueJob(job) {
+  toast('Queued save failed: ' + (job?.error || 'Unknown error'), 'error');
+  _refreshAfterQueueJob(job);
 }
 
 async function _refreshLeadsCache() {
-  const rows = await api.getLeads();
-  AppCache.setRows('leads', rows);
+  const rows = await api.getLeads().catch(() => api.getFollowupLeads());
+  AppCache.setRows('leads', await _applyPendingLeadQueueOverlay(rows));
   try { renderSidebar(); } catch (e) {}
   const pg = App.currentPage;
   if (pg === 'leads') {
@@ -204,9 +222,48 @@ async function _refreshLeadsCache() {
   }
 }
 
+async function _applyPendingLeadQueueOverlay(rows) {
+  const list = (rows || []).map(r => ({ ...r }));
+  const patches = {};
+  const applyPatch = (leadId, patch) => {
+    if (!leadId || !patch || !patch['Stage ID']) return;
+    patches[leadId] = { ...(patches[leadId] || {}), ...patch };
+  };
+
+  if (typeof QueueManager !== 'undefined' && typeof QueueManager.getPendingLeadPatches === 'function') {
+    Object.entries(QueueManager.getPendingLeadPatches()).forEach(([leadId, patch]) => applyPatch(leadId, patch));
+  }
+
+  try {
+    const jobs = await api.getQueueHistory(100);
+    (jobs || []).forEach(job => {
+      const status = String(job.status || '');
+      if (!['QUEUED', 'PROCESSING', 'FAILED'].includes(status)) return;
+      if (!['updateLeadStage', 'moveLeadStageWithFields'].includes(job.actionType)) return;
+      const payload = job.pendingPayload || {};
+      const fields = payload.fields && typeof payload.fields === 'object' ? payload.fields : {};
+      applyPatch(payload.leadId, {
+        ...fields,
+        'Stage ID': payload.stageId,
+        'Stage Updated At': job.createdAt || _nowStr(),
+        'Updated At': job.updatedAt || job.createdAt || _nowStr(),
+        '_queuePendingStage': true
+      });
+    });
+  } catch (e) {
+    console.warn('[AppData] Pending queue overlay failed', e);
+  }
+
+  if (!Object.keys(patches).length) return list;
+  return list.map(row => {
+    const patch = patches[row['Lead ID']];
+    return patch ? { ...row, ...patch } : row;
+  });
+}
+
 async function _refreshFollowupsCache() {
   const rows = await api.getFollowups({});
-  AppCache.setRows('followups', rows);
+  AppCache.setRows('followups', await _applyPendingFollowupQueueOverlay(rows));
   try { renderSidebar(); } catch (e) {}
   const pg = App.currentPage;
   if (pg && pg.startsWith('followups')) {
@@ -214,6 +271,96 @@ async function _refreshFollowupsCache() {
   } else if (pg === 'dashboard') {
     loadDashboard();
   }
+}
+
+async function _applyPendingFollowupQueueOverlay(rows) {
+  let list = (rows || []).map(r => ({ ...r }));
+  if (typeof QueueManager === 'undefined' || typeof QueueManager.getPendingFollowupOps !== 'function') return list;
+  const ops = QueueManager.getPendingFollowupOps() || [];
+  if (!ops.length) return list;
+
+  const byId = list.reduce((m, row) => {
+    const id = String(row['Follow-up ID'] || '');
+    if (id) m[id] = row;
+    return m;
+  }, {});
+
+  ops.forEach(op => {
+    const followupId = String(op.followupId || '');
+    if (!followupId) return;
+
+    if (op.type === 'save') {
+      const payload = { ...(op.payload || {}) };
+      const row = {
+        ...payload,
+        'Follow-up ID': followupId,
+        'Planned Date': payload['Planned Date'] || payload['Next Follow-up Date'] || payload['Follow-up Date'] || '',
+        'Follow-up Date': payload['Follow-up Date'] || payload['Planned Date'] || payload['Next Follow-up Date'] || '',
+        'Next Follow-up Date': payload['Next Follow-up Date'] || payload['Planned Date'] || '',
+        'Status': payload['Status'] || 'Open',
+        'Created By': payload['Created By'] || App?.user?.id || '',
+        'Created At': payload['Created At'] || _queueIsoToLocal_(op.enqueuedAt),
+        'Updated At': payload['Updated At'] || _queueIsoToLocal_(op.enqueuedAt),
+        '_queueTemp': true,
+        '_queuePending': true,
+        '_queueRequestId': op.requestId || ''
+      };
+      byId[followupId] = { ...(byId[followupId] || {}), ...row };
+      return;
+    }
+
+    if (op.type === 'delete') {
+      delete byId[followupId];
+      return;
+    }
+
+    if (op.type === 'done') {
+      const row = byId[followupId];
+      if (!row) return;
+      const data = op.data || {};
+      const nextDate = data['Next Follow-up Date'] || data['Next Planned Date'] || '';
+      if (nextDate) {
+        byId[followupId] = {
+          ...row,
+          'Status': 'Open',
+          'Planned Date': nextDate,
+          'Next Follow-up Date': nextDate,
+          'Next Action': data['Next Action'] || row['Next Action'] || '',
+          'Updated Stage ID': data['Updated Stage ID'] || row['Updated Stage ID'] || '',
+          'Stage ID': data['Updated Stage ID'] || row['Stage ID'] || '',
+          'Done Date': '',
+          'Done By': '',
+          'Updated At': _queueIsoToLocal_(op.enqueuedAt),
+          '_queuePending': true,
+          '_queueRequestId': op.requestId || ''
+        };
+      } else {
+        delete byId[followupId];
+      }
+    }
+  });
+
+  return Object.values(byId).sort((a, b) => _queueTimeValue_(b['Created At'] || b['Updated At']) - _queueTimeValue_(a['Created At'] || a['Updated At']));
+}
+
+function _queueIsoToLocal_(value) {
+  if (!value) return _nowStr();
+  try {
+    const d = typeof value === 'number' ? new Date(value) : new Date(String(value));
+    if (isNaN(d)) return _nowStr();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 19).replace('T', ' ');
+  } catch (_) {
+    return _nowStr();
+  }
+}
+
+function _queueTimeValue_(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  const time = new Date(normalized).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 async function _refreshFollowupHistoryCache() {
@@ -236,8 +383,8 @@ async function _refreshAppConfig() {
 }
 
 function startCacheRevalidation() {
-  // Automatic polling is intentionally disabled. Pages load their own snapshot
-  // on demand, and mutations patch/mark the current state instead of triggering
-  // repeated background reads.
+  window.addEventListener('focus', _checkCacheStamps);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkCacheStamps(); });
+  setInterval(_checkCacheStamps, 15_000);
 }
 </script>

@@ -24,7 +24,7 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
     // Patch the NBD lead so it knows its LQ source
     try {
       const targetSheet  = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
-      const targetHeaders = _externalHeaders_(targetSpreadsheetId, SHEET_NAMES.LEADS);
+      const targetHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0].map(String);
       _updateExternalRow_(targetSheet, targetHeaders, 'Lead ID', mapToNbdLeadId, {
         'Source Lead ID': leadId,
         'Source Portal':  CLIENT_CONFIG.APP_TITLE || 'LQ Portal',
@@ -47,7 +47,7 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
 
   const targetSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
   _ensureExternalHeaders_(targetSheet, LEAD_MASTER_FIELDS);
-  const targetHeaders = _externalHeaders_(targetSpreadsheetId, SHEET_NAMES.LEADS);
+  const targetHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0].map(String);
   const existing = _findExternalLeadBySource_(targetSheet, targetHeaders, leadId);
   if (existing) {
     updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
@@ -104,8 +104,8 @@ function checkNbdDuplicates(leadId) {
   if (!lead) return [];
 
   const targetSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
-  const data = _externalValues_(targetSpreadsheetId, SHEET_NAMES.LEADS, 'A:ZZ');
-  if (data.length < 2) return [];
+  if (targetSheet.getLastRow() < 2) return [];
+  const data = targetSheet.getDataRange().getValues();
   const headers = data[0].map(String);
 
   const col = h => headers.indexOf(h);
@@ -239,7 +239,7 @@ function _nbdFieldNameKey_(value) {
 function _createNbdInitialFollowup_(spreadsheetId, nbdLeadId, sourceLead, sourceStage, user, targetUser, followupDate, ts, qualifiedRemark) {
   const followupSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.FOLLOWUPS);
   _ensureExternalHeaders_(followupSheet, FOLLOWUP_MASTER_FIELDS);
-  const headers = _externalHeaders_(spreadsheetId, SHEET_NAMES.FOLLOWUPS);
+  const headers = followupSheet.getRange(1, 1, 1, followupSheet.getLastColumn()).getValues()[0].map(String);
   const followupId = generateUUID();
   const row = {
     'Follow-up ID': followupId,
@@ -293,15 +293,6 @@ function _nbdAssignableUsers_(spreadsheetId) {
     .filter(user => user.id);
 }
 
-function _externalValues_(spreadsheetId, sheetName, range) {
-  return sheetApiGetValues_(sheetName, range || 'A:ZZ', spreadsheetId);
-}
-
-function _externalHeaders_(spreadsheetId, sheetName) {
-  const values = _externalValues_(spreadsheetId, sheetName, '1:1');
-  return values.length ? (values[0] || []).map(String).filter(Boolean) : [];
-}
-
 function _nbdTargetSheet_(spreadsheetId, sheetName) {
   const ss = SpreadsheetApp.openById(spreadsheetId);
   let sheet = ss.getSheetByName(sheetName);
@@ -310,18 +301,14 @@ function _nbdTargetSheet_(spreadsheetId, sheetName) {
 }
 
 function _ensureExternalHeaders_(sheet, requiredHeaders) {
-  const spreadsheetId = sheet.getParent().getId();
-  const sheetName = sheet.getName();
   const lastCol = sheet.getLastColumn();
-  const existing = _externalHeaders_(spreadsheetId, sheetName);
-  if (lastCol === 0 || !existing.length) {
+  if (lastCol === 0 || sheet.getRange(1, 1).getValue() === '') {
     sheet.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders]);
     return;
   }
+  const existing = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
   const missing = requiredHeaders.filter(h => !existing.includes(h));
-  if (missing.length) {
-    sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
-  }
+  if (missing.length) sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
 }
 
 function _appendExternalRow_(sheet, headers, rowObj) {
@@ -333,13 +320,13 @@ function _appendExternalRow_(sheet, headers, rowObj) {
 function _updateExternalRow_(sheet, headers, keyCol, keyVal, patch) {
   const keyIdx = headers.indexOf(keyCol);
   if (keyIdx === -1 || sheet.getLastRow() < 2) return false;
-  const data = _externalValues_(sheet.getParent().getId(), sheet.getName(), 'A:ZZ');
+  const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][keyIdx]) !== String(keyVal)) continue;
-    const updatedRow = headers.map((h, colIdx) =>
-      patch[h] !== undefined ? patch[h] : data[i][colIdx]
-    );
-    sheet.getRange(i + 1, 1, 1, headers.length).setValues([updatedRow]);
+    Object.keys(patch).forEach(h => {
+      const colIdx = headers.indexOf(h);
+      if (colIdx !== -1) sheet.getRange(i + 1, colIdx + 1).setValue(patch[h]);
+    });
     return true;
   }
   return false;
@@ -348,7 +335,7 @@ function _updateExternalRow_(sheet, headers, keyCol, keyVal, patch) {
 function _findExternalLeadBySource_(sheet, headers, sourceLeadId) {
   const sourceCol = headers.indexOf('Source Lead ID');
   if (sourceCol === -1 || sheet.getLastRow() < 2) return null;
-  const data = _externalValues_(sheet.getParent().getId(), sheet.getName(), 'A:ZZ');
+  const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][sourceCol]) === String(sourceLeadId)) {
       return headers.reduce((obj, h, j) => { obj[h] = normalizeSheetValue(data[i][j]); return obj; }, {});
@@ -360,8 +347,8 @@ function _findExternalLeadBySource_(sheet, headers, sourceLeadId) {
 function _nbdInitialStageId_(spreadsheetId) {
   const stagesSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.STAGES);
   _ensureExternalHeaders_(stagesSheet, ['Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Stage Outcome','Created At']);
-  const data = _externalValues_(spreadsheetId, SHEET_NAMES.STAGES, 'A:ZZ');
-  if (data.length < 2) return '';
+  if (stagesSheet.getLastRow() < 2) return '';
+  const data = stagesSheet.getDataRange().getValues();
   const headers = data[0].map(String);
   const rows = data.slice(1).map(row => headers.reduce((obj, h, i) => { obj[h] = normalizeSheetValue(row[i]); return obj; }, {}));
   const activeRows = rows.filter(r => r['Is Active'] !== false && r['Is Active'] !== 'FALSE');

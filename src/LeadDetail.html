@@ -1,34 +1,27 @@
 <script>
 async function openLeadDetail(leadId) {
-    // Strategy: render the modal IMMEDIATELY with whatever's cached so the user
-    // sees lead details + open follow-ups instantly. Background-load the heavier
-    // history/activity-log slices only if they're missing.
+    // Serve from cache; use the single-lead endpoint when heavy detail caches are absent.
     let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
     let followups = AppCache.isLoaded('followups')
       ? AppCache.getRows('followups').filter(f => f['Lead ID'] === leadId)
       : [];
     let followupHistory = AppCache.isLoaded('followupHistory')
       ? AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId)
-      : null; // null = not yet loaded → render spinner placeholder
+      : [];
     let activityLogs = AppCache.isLoaded('activityLogs')
       ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId)
-      : null;
+      : [];
 
-    // Only block on a network call if we don't even have the lead itself.
-    if (!lead) {
-      try {
-        const data = await api.getLead(leadId);
-        lead = data && data.lead;
-        if (!AppCache.isLoaded('followups'))       followups        = data.followups        || [];
-        if (followupHistory === null)              followupHistory  = data.followupHistory  || [];
-        if (activityLogs === null)                 activityLogs     = data.activityLogs     || [];
-      } catch (e) {
-        toast('Lead not found or no longer available.', 'error');
-        return;
-      }
+    const needsLeadDetail = !lead || !AppCache.isLoaded('followups') || !AppCache.isLoaded('followupHistory') || !AppCache.isLoaded('activityLogs');
+    if (needsLeadDetail) {
+      const data = await api.getLead(leadId);
+      if (!lead) lead = data.lead;
+      if (!AppCache.isLoaded('followups')) followups = data.followups || [];
+      if (!AppCache.isLoaded('followupHistory')) followupHistory = data.followupHistory || [];
+      if (!AppCache.isLoaded('activityLogs')) activityLogs = data.activityLogs || [];
     }
     if (!lead) {
-      toast('Lead not found or no longer available.', 'error');
+      showToast('Lead not found or no longer available.', 'error');
       return;
     }
     followups = followups.sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
@@ -100,20 +93,16 @@ async function openLeadDetail(leadId) {
         ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
           ${icon('send', 14)} Push to NBD
         </button>` : ''}
-        ${canDeleteLead ? `<button class="btn btn-outlined btn-sm" style="color:#D32F2F;border-color:#D32F2F" onclick="deleteLeadConfirm('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'), this)">
+        ${canDeleteLead ? `<button class="btn btn-outlined btn-sm" style="color:#D32F2F;border-color:#D32F2F" onclick="deleteLeadConfirm('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'))">
           ${icon('trash-2', 14)} Delete
         </button>` : ''}
       </div>
     </div>
     <div id="tab-history" class="tab-pane">
-      ${followupHistory === null
-        ? '<div class="muted-text" style="padding:18px;display:flex;align-items:center;gap:8px"><span class="spinner" style="width:14px;height:14px"></span> Loading follow-up history…</div>'
-        : _followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
+      ${_followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
     </div>
     <div id="tab-log" class="tab-pane" style="display:none">
-      ${activityLogs === null
-        ? '<div class="muted-text" style="padding:18px;display:flex;align-items:center;gap:8px"><span class="spinner" style="width:14px;height:14px"></span> Loading activity logs…</div>'
-        : _activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
+      ${_activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
     </div>
     ${isNbdLocked ? `<div class="locked-panel">
       ${icon('lock', 18)}
@@ -135,25 +124,18 @@ async function openLeadDetail(leadId) {
         try {
           const payload = await collectLeadFormPayload(editForm);
           payload['Lead ID'] = lead['Lead ID'];
-          toast('Saving...', 'info');
-          const result = await runAsyncMutation({
+          AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
+          overlay.remove();
+          _refreshLeadViewsAfterLocalChange();
+          QueueManager.enqueue({
             module: 'leads', actionType: 'saveLead', payload,
-            onDone: async () => {
-              if (typeof _upsertLeadInCache === 'function') {
-                _upsertLeadInCache(lead['Lead ID'], { ...payload, 'Lead ID': lead['Lead ID'], 'Updated At': _nowStr() });
-              } else {
-                AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
-              }
-              overlay.remove();
-              await _refreshLeadViewsAfterLocalChange();
-              toast('Lead saved!');
-            },
+            onDone: () => toast('Lead saved!'),
             onFail: j  => {
               _refreshLeadsCache().catch(() => {});
               toast('Save failed: ' + (j.error || 'Error'), 'error');
             }
           });
-          if (!result) resetButtonLoading(btn);
+          toast('Saving…', 'info');
         } catch (err) {
           toast(err, 'error');
           resetButtonLoading(btn);
@@ -162,37 +144,6 @@ async function openLeadDetail(leadId) {
     }
     initLeadCustomFields(overlay);
     _initStateCityDropdowns(overlay, lead['State'] || '', lead['City'] || '');
-
-    // ── Lazy-load history / activity logs if they weren't in cache ──────────
-    if (followupHistory === null || activityLogs === null) {
-      (async () => {
-        try {
-          const data = await api.getLead(leadId);
-          if (!data) return;
-          if (!overlay.isConnected) return; // user already closed the modal
-          if (followupHistory === null) {
-            const histPane = overlay.querySelector('#tab-history');
-            if (histPane) {
-              histPane.innerHTML = _followupHistoryTable(data.followupHistory || [], 'No follow-up history yet.', fuContext);
-              renderIcons(histPane);
-            }
-          }
-          if (activityLogs === null) {
-            const logPane = overlay.querySelector('#tab-log');
-            if (logPane) {
-              logPane.innerHTML = _activityLogTable(data.activityLogs || [], 'No activity logs yet.', fuContext);
-              renderIcons(logPane);
-            }
-          }
-        } catch (err) {
-          console.warn('[LeadDetail] lazy history fetch failed:', err);
-          const histPane = overlay.querySelector('#tab-history');
-          if (histPane && followupHistory === null) histPane.innerHTML = '<div class="muted-text" style="padding:18px">Could not load history. Try reopening the lead.</div>';
-          const logPane = overlay.querySelector('#tab-log');
-          if (logPane && activityLogs === null) logPane.innerHTML = '<div class="muted-text" style="padding:18px">Could not load activity logs. Try reopening the lead.</div>';
-        }
-      })();
-    }
   }
 
   function switchTab(btn, tabId) {
@@ -252,8 +203,8 @@ async function openLeadDetail(leadId) {
       if (choice.mapToNbdLeadId) {
         // Map mode: link to existing NBD lead without creating a new one
         if (btn) setButtonLoading(btn, 'Mapping...');
-        _showNbdPushStatus('processing');
-        const result = await runAsyncMutation({
+        _showNbdPushStatus('queued');
+        QueueManager.enqueue({
           module: 'leads',
           actionType: 'pushLeadToNbd',
           payload: { leadId, mapToNbdLeadId: choice.mapToNbdLeadId },
@@ -276,7 +227,6 @@ async function openLeadDetail(leadId) {
             toast('Mapping failed: ' + (j.error || 'Unknown error'), 'error');
           }
         });
-        if (!result && btn) resetButtonLoading(btn);
         return;
       }
       // else: pushAnyway — fall through to normal push flow
@@ -334,9 +284,9 @@ async function openLeadDetail(leadId) {
 
     // Lock button and show inline status bar in the lead detail modal
     if (btn) setButtonLoading(btn, 'Pushing...');
-    _showNbdPushStatus('processing');
+    _showNbdPushStatus('queued');
 
-    const result = await runAsyncMutation({
+    QueueManager.enqueue({
       module: 'leads',
       actionType: 'pushLeadToNbd',
       payload: { leadId, nbdAssignedTo: confirmed.value.user, qualifiedRemark: confirmed.value.remark },
@@ -360,7 +310,6 @@ async function openLeadDetail(leadId) {
         toast('Push to NBD failed: ' + (j.error || 'Unknown error'), 'error');
       }
     });
-    if (!result && btn) resetButtonLoading(btn);
   }
 
   function _showNbdDuplicateDialog(companyName, duplicates) {
@@ -429,16 +378,40 @@ async function openLeadDetail(leadId) {
       else modal.querySelector('.modal-content')?.appendChild(bar);
     }
     const cfg = {
-            processing: { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Saving directly - almost there...' },
+      queued:     { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Queued — processing in background…' },
+      processing: { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:'loader-circle', iconCls:'spin-icon', text:'Processing — almost there…' },
       done:       { bg:'#f0fdf4', color:'#15803d', border:'#bbf7d0', icon:'check-circle',  iconCls:'',          text:'Successfully pushed to NBD!' },
       failed:     { bg:'#fef2f2', color:'#b91c1c', border:'#fecaca', icon:'alert-circle',  iconCls:'',          text:'Push failed: ' + (errorMsg || 'Unknown error') },
     }[state] || {};
     bar.style.background = cfg.bg;
     bar.style.color      = cfg.color;
     bar.style.border     = '1px solid ' + cfg.border;
-    const checkBtn = '';
+    const checkBtn = (state === 'queued' || state === 'processing')
+      ? `<button onclick="_checkNbdPushStatus(this)" style="margin-left:auto;padding:3px 10px;border:1px solid currentColor;border-radius:5px;background:none;color:inherit;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0">${icon('refresh-cw',12)} Check Now</button>`
+      : '';
     bar.innerHTML = `<span style="flex-shrink:0">${icon(cfg.icon, 15, cfg.iconCls)}</span><span style="flex:1">${cfg.text}</span>${checkBtn}`;
     renderIcons(bar);
   }
 
+  async function _checkNbdPushStatus(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+      // Find the most recent pushLeadToNbd job in the local queue
+      const jobs = Object.values(QueueManager.jobs()).filter(j => j.actionType === 'pushLeadToNbd');
+      if (!jobs.length) { _showNbdPushStatus('queued'); return; }
+      const job = jobs.sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0))[0];
+      // Force-poll the server for latest status
+      await QueueManager.pollNow([job.requestId]);
+      const fresh = QueueManager.jobs()[job.requestId];
+      if (!fresh) return;
+      if (fresh.status === 'DONE')    _showNbdPushStatus('done');
+      else if (fresh.status === 'DEAD') _showNbdPushStatus('failed', fresh.error);
+      else if (fresh.status === 'PROCESSING') _showNbdPushStatus('processing');
+      else _showNbdPushStatus('queued');
+    } catch (e) {
+      toast('Status check failed: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; renderIcons(btn.closest('#nbd-push-status-bar')); }
+    }
+  }
 </script>

@@ -40,28 +40,21 @@ async function loadStagesConfig() {
     </div>`;
   renderIcons(c);
 
-  const stagesList = el('stages-list');
-  const stagesSortable = Sortable.create(stagesList, {
+  Sortable.create(el('stages-list'), {
     animation: 150,
     handle: '.drag-handle',
     onEnd: async (evt) => {
       const orderedIds = Array.from(evt.to.children).map(el => el.dataset.stageId);
-      stagesSortable.option('disabled', true);
-      stagesList.style.opacity = '0.6';
-      toast('Saving order...', 'info');
-      const result = await runAsyncMutation({
+      QueueManager.enqueue({
         module: 'stages', actionType: 'reorderStages',
         payload: { ids: orderedIds },
-        onDone: async () => { toast('Stages reordered!'); await _refreshAppConfig().catch(() => {}); },
-        onFail: async j => {
+        onDone: () => { toast('Stages reordered!'); _refreshAppConfig().catch(() => {}); },
+        onFail: j => {
           toast('Reorder failed: ' + (j.error || 'Error'), 'error');
-          if (App.currentPage === 'config') await loadStagesConfig();
+          if (App.currentPage === 'config') loadStagesConfig();
         }
       });
-      if (stagesList && stagesList.isConnected) {
-        stagesSortable.option('disabled', false);
-        stagesList.style.opacity = '';
-      }
+      toast('Saving order…', 'info');
     }
   });
 }
@@ -167,19 +160,18 @@ function openStageForm(data = {}) {
     if (isEdit) payload['Stage ID'] = data['Stage ID'];
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    toast('Saving stage...', 'info');
-    const result = await runAsyncMutation({
+    overlay.remove();
+    QueueManager.enqueue({
       module: 'stages', actionType: 'saveStage',
       payload,
-      onDone: async () => {
+      onDone: () => {
         toast('Stage saved!');
-        await _refreshAppConfig().catch(() => {});
-        overlay.remove();
-        if (App.currentPage === 'config') await loadStagesConfig();
+        _refreshAppConfig().catch(() => {});
+        if (App.currentPage === 'config') loadStagesConfig();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
-    if (!result) resetButtonLoading(btn);
+    toast('Saving stage…', 'info');
   });
 }
 

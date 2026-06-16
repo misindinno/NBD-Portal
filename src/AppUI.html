@@ -43,8 +43,8 @@ function _installConfigRouteFallback() {
     writeTestCard.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px">
         <div>
-          <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Spreadsheet Write Speed Test</h3>
-          <p style="color:#666;font-size:13px">Writes one harmless sample row to <b>SHEETS_API_WRITE_TEST</b> using SpreadsheetApp, then shows timing.</p>
+          <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Sheets API Write Speed Test</h3>
+          <p style="color:#666;font-size:13px">Writes one harmless sample row to <b>SHEETS_API_WRITE_TEST</b> using Google Sheets API append, then shows timing.</p>
         </div>
         <button id="btn-sheets-api-write-test" class="btn btn-outlined" style="white-space:nowrap">${icon('zap',14)} Test Update Speed</button>
       </div>
@@ -64,7 +64,7 @@ function _installConfigRouteFallback() {
         resultBox.style.display = 'block';
         resultBox.innerHTML = `
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
-            ${metric('Sheet write', (result.apiWriteMs || 0) + ' ms')}
+            ${metric('API write', (result.apiWriteMs || 0) + ' ms')}
             ${metric('Total server', (result.totalMs || 0) + ' ms')}
             ${metric('Rows', result.updatedRows || 0)}
             ${metric('Sheet', result.sheetName || '-')}
@@ -74,7 +74,7 @@ function _installConfigRouteFallback() {
             <div><b>Test ID:</b> ${escapeHtml(result.testId || '-')}</div>
             <div><b>Server time:</b> ${escapeHtml(result.serverTimestamp || '-')}</div>
           </div>`;
-        toast('Spreadsheet write test complete!', 'success');
+        toast('Sheets API write test complete!', 'success');
       } catch (err) {
         resultBox.style.display = 'block';
         resultBox.innerHTML = `<div style="padding:10px;border-radius:8px;background:#fee2e2;color:#991b1b">${escapeHtml(err.message || String(err))}</div>`;
@@ -88,14 +88,13 @@ function _installConfigRouteFallback() {
     if (!el('cfg-settings')) return;
     const departments = App.config.departments || [];
     const selected = window._parseDepartmentList(App.config.settings?.visibleDepartments || []);
-    const selectedMap = selected.reduce((m, d) => { m[String(d || '').trim().toLowerCase()] = true; return m; }, {});
     el('cfg-settings').innerHTML = `
       <form id="portal-settings-form" class="card" style="padding:18px;max-width:760px">
         <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Portal Data Departments</h3>
         <p style="color:#666;font-size:13px;margin-bottom:14px">Selected departments control which users and assigned records appear across the portal. Leave all unchecked to show everything.</p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-bottom:18px">
           ${departments.map(d => `<label style="display:flex;align-items:center;gap:8px;font-size:13px">
-            <input type="checkbox" name="visibleDepartments" value="${escapeHtml(d)}" ${selectedMap[String(d || '').trim().toLowerCase()]?'checked':''}>
+            <input type="checkbox" name="visibleDepartments" value="${escapeHtml(d)}" ${selected.includes(d)?'checked':''}>
             ${escapeHtml(d)}
           </label>`).join('') || '<div style="font-size:13px;color:#888">No departments found. Add departments on user profiles first.</div>'}
         </div>
@@ -109,20 +108,17 @@ function _installConfigRouteFallback() {
         </div>
       </form>`;
     renderIcons(el('cfg-settings'));
-    el('portal-settings-form').addEventListener('submit', async e => {
+    el('portal-settings-form').addEventListener('submit', e => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      const btn = e.target.querySelector('[type=submit]');
-      setButtonLoading(btn);
-      toast('Saving settings...', 'info');
-      const result = await runAsyncMutation({
+      QueueManager.enqueue({
         module: 'config',
         actionType: 'savePortalSettings',
         payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
-        onDone: async () => { toast('Settings saved!'); },
+        onDone: async () => { await _refreshAppConfig().catch(() => {}); toast('Settings saved!'); },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      if (!result) resetButtonLoading(btn);
+      toast('Saving settings...', 'info');
     });
     window._appendSettingsWriteSpeedTestCard(el('cfg-settings'));
   };
@@ -161,26 +157,19 @@ function _installConfigRouteFallback() {
       </div>`;
     renderIcons(container);
     if (window.Sortable && el('stages-list')) {
-      const stagesList = el('stages-list');
-      const stagesSortable = Sortable.create(stagesList, {
+      Sortable.create(el('stages-list'), {
         animation: 150,
         handle: '.drag-handle',
-        onEnd: async evt => {
+        onEnd: evt => {
           const orderedIds = Array.from(evt.to.children).map(node => node.dataset.stageId);
-          stagesSortable.option('disabled', true);
-          stagesList.style.opacity = '0.6';
-          toast('Saving order...', 'info');
-          const result = await runAsyncMutation({
+          QueueManager.enqueue({
             module: 'stages',
             actionType: 'reorderStages',
             payload: { ids: orderedIds },
-            onDone: async () => { toast('Stages reordered!'); await _refreshAppConfig().catch(() => {}); },
-            onFail: async j => { toast('Reorder failed: ' + (j.error || 'Error'), 'error'); await window.loadStagesConfig(); }
+            onDone: () => { toast('Stages reordered!'); _refreshAppConfig().catch(() => {}); },
+            onFail: j => { toast('Reorder failed: ' + (j.error || 'Error'), 'error'); window.loadStagesConfig(); }
           });
-          if (stagesList && stagesList.isConnected) {
-            stagesSortable.option('disabled', false);
-            stagesList.style.opacity = '';
-          }
+          toast('Saving order...', 'info');
         }
       });
     }
@@ -220,7 +209,7 @@ function _installConfigRouteFallback() {
           <button type="submit" class="btn btn-primary">Save</button>
         </div>
       </form>`);
-    overlay.querySelector('#stage-form').addEventListener('submit', async e => {
+    overlay.querySelector('#stage-form').addEventListener('submit', e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const payload = {
@@ -235,22 +224,15 @@ function _installConfigRouteFallback() {
         'Is Skippable': fd.has('Is Skippable')
       };
       if (isEdit) payload['Stage ID'] = data['Stage ID'];
-      const btn = e.target.querySelector('[type=submit]');
-      setButtonLoading(btn);
-      toast('Saving stage...', 'info');
-      const result = await runAsyncMutation({
+      overlay.remove();
+      QueueManager.enqueue({
         module: 'stages',
         actionType: 'saveStage',
         payload,
-        onDone: async () => {
-          toast('Stage saved!');
-          await _refreshAppConfig().catch(() => {});
-          overlay.remove();
-          if (App.currentPage === 'config') await window.loadStagesConfig();
-        },
+        onDone: () => { toast('Stage saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadStagesConfig(); },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      if (!result) resetButtonLoading(btn);
+      toast('Saving stage...', 'info');
     });
   };
   if (!window.loadFieldConfig) window.loadFieldConfig = async function() {
@@ -354,7 +336,7 @@ function _installConfigRouteFallback() {
         <div class="form-group"><label>Skip Visibility</label><select class="form-control" name="Skip Visibility"><option value="normal" ${(data['Skip Visibility'] || 'normal') === 'normal' ? 'selected' : ''}>Normal</option><option value="skip_only" ${data['Skip Visibility'] === 'skip_only' ? 'selected' : ''}>Skip Only</option></select></div>
         <div class="modal-footer"><button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
       </form>`);
-    overlay.querySelector('#field-form').addEventListener('submit', async e => {
+    overlay.querySelector('#field-form').addEventListener('submit', e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const payload = Object.fromEntries(fd.entries());
@@ -365,20 +347,13 @@ function _installConfigRouteFallback() {
       payload['Per Stage'] = fd.has('Per Stage');
       payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
       if (isEdit) payload['Field ID'] = data['Field ID'];
-      const btn = e.target.querySelector('[type=submit]');
-      setButtonLoading(btn);
-      toast('Saving field...', 'info');
-      const result = await runAsyncMutation({
+      overlay.remove();
+      QueueManager.enqueue({
         module: 'fields', actionType: 'saveFieldConfig', payload,
-        onDone: async () => {
-          toast('Custom field saved!');
-          await _refreshAppConfig().catch(() => {});
-          overlay.remove();
-          if (App.currentPage === 'config') await window.loadFieldConfig();
-        },
+        onDone: () => { toast('Custom field saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadFieldConfig(); },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      if (!result) resetButtonLoading(btn);
+      toast('Saving field...', 'info');
     });
   };
   window.switchConfigTab = window.switchConfigTab || function(btn, tabId) {
@@ -432,6 +407,7 @@ const _PAGE_META = {
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
   config:    { title: 'Config',           crumb: 'Config' },
+  queue:     { title: 'Queue',            crumb: 'Queue' },
 };
 
 async function _runPageLoader(page, loaderName, args = []) {
@@ -488,6 +464,7 @@ async function navigate(page) {
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
     else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');
+    else if (page === 'queue')             await _runPageLoader(page, 'loadQueuePage');
     else el('content').innerHTML = '<p>Page not found.</p>';
   } catch(err) {
     console.error('[navigate] page loader threw for "' + page + '":', err);
@@ -555,6 +532,7 @@ function renderSidebar() {
     !_finalStageIds.has(l['Stage ID']) &&
     String(l['Lead Status'] || 'Open').toLowerCase() === 'open'
   ).length;
+  const queueCount = typeof QueueManager !== 'undefined' ? QueueManager.pendingCount() : 0;
   const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
   const canUseBulkEntry = isLqPortal ? show('BulkEntry') : u.role === 'ADMIN';
   const badge = (n, title) => n > 0 ? `<span class="nav-badge"${title ? ` title="${title}"` : ''}>${n > 99 ? '99+' : n}</span>` : '';
@@ -592,7 +570,10 @@ function renderSidebar() {
     ].filter(Boolean).join('');
     if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
   }
+
+  // Queue — visible to all authenticated users
   html += `<div class="nav-section">System</div>`;
+  html += navItem('queue', 'list-checks', 'Queue', badge(queueCount));
   if (u.canEditConfig || u.canManageUsers) {
     html += navItem('config', 'settings-2', 'Config');
   }
@@ -645,14 +626,15 @@ function canNavigate(page) {
   };
   // Dashboard page only reachable from the dashboard-only portal
   if (page === 'dashboard') return dashboardOnly && hasModule('Dashboard');
-  // In the dashboard-only portal, restrict to dashboard + today + config
-  if (dashboardOnly && !['today','config'].includes(page)) return false;
+  // In the dashboard-only portal, restrict to dashboard + today + queue + config
+  if (dashboardOnly && !['today','queue','config'].includes(page)) return false;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
   if (page === 'bulkview') {
     const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
     return isLqPortal ? (hasModule('BulkEntry') || App.user.role === 'ADMIN') : App.user.role === 'ADMIN';
   }
+  if (page === 'queue')     return !!App.user;
   if (page === 'today')     return !!App.user;
   return hasModule(moduleMap[page] || page);
 }
@@ -662,7 +644,7 @@ function defaultPageForUser() {
     if (canNavigate('dashboard')) return 'dashboard';
     if (canNavigate('today')) return 'today';
     if (App.user?.canEditConfig || App.user?.canManageUsers) return 'config';
-    return 'today';
+    return 'queue';
   }
   const ordered = [
     ['today', 'Today'], ['followups', 'Followups'], ['pipeline', 'Pipeline'],
@@ -671,7 +653,7 @@ function defaultPageForUser() {
   const match = ordered.find(([page]) => canNavigate(page));
   if (match) return match[0];
   if (App.user?.canEditConfig || App.user?.canManageUsers) return 'config';
-  return 'today';
+  return 'queue';
 }
 
 function toggleSidebar() {

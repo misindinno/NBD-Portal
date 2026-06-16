@@ -1,0 +1,476 @@
+<script>
+// ─── Client-side Queue Manager ────────────────────────────────────────────────
+// Enqueues write operations locally, shows live status badges, polls server
+// for completion, and applies incremental cache updates.
+// Works like Redis: enqueue fast (<50ms), process in background via GAS trigger.
+const QueueManager = (() => {
+  const LS_KEY     = 'nbd_queue_v1';
+  const POLL_MS    = 4_000;   // poll every 4 s while jobs are pending
+  const MAX_AGE_MS = 24 * 60 * 60 * 1000; // discard stale jobs after 24 h
+  const UNSENT_RETRY_MAX_MS = 60_000;
+
+  // job shape: { requestId, status, module, actionType, tempId, enqueuedAt, finalRecordId, error }
+  let _jobs = {};       // requestId → job
+  let _pollTimer = null;
+  let _kickTimer = null;
+  let _unsentRetryTimer = null;
+  function _notifyQueueChanged() {
+    if (typeof renderSidebar !== 'function') return;
+    try { renderSidebar(); } catch (e) { console.warn('[Queue] Sidebar refresh failed', e); }
+  }
+  let _callbacks = {};  // requestId → { onDone, onFail }
+
+  // ── Persistence ──────────────────────────────────────────────────────────────
+  function _save() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(_jobs)); } catch (_) {}
+  }
+
+  function _load() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const cutoff = Date.now() - MAX_AGE_MS;
+      _jobs = {};
+      // Keep ALL recent jobs (including DONE/DEAD) so queue history page can read them.
+      Object.values(parsed).forEach(j => {
+        if ((j.enqueuedAt || 0) > cutoff) _jobs[j.requestId] = j;
+      });
+    } catch (e) {
+      console.warn('[Queue] Could not load local queue state', e);
+      _jobs = {};
+    }
+  }
+
+  // ── Status badge HTML ─────────────────────────────────────────────────────────
+  function badgeHtml(requestId) {
+    const j = _jobs[requestId];
+    if (!j) return '';
+    const cls = {
+      QUEUED:     'q-queued',
+      PROCESSING: 'q-processing',
+      DONE:       'q-done',
+      FAILED:     'q-failed',
+      DEAD:       'q-dead'
+    }[j.status] || 'q-queued';
+    const label = {
+      QUEUED:     j.serverEnqueued === false ? 'Queued Local' : 'Queued',
+      PROCESSING: 'Saving…',
+      DONE:       'Saved',
+      FAILED:     'Retrying',
+      DEAD:       'Failed'
+    }[j.status] || j.status;
+    return `<span class="q-badge ${cls}" data-rid="${escapeHtml(requestId)}">${label}</span>`;
+  }
+
+  // ── Polling ───────────────────────────────────────────────────────────────────
+  function _pendingIds() {
+    return Object.values(_jobs)
+      .filter(j => j.serverEnqueued !== false)
+      .filter(j => j.status === 'QUEUED' || j.status === 'PROCESSING' || j.status === 'FAILED')
+      .map(j => j.requestId);
+  }
+
+  function _pendingUnsentJobs() {
+    return Object.values(_jobs)
+      .filter(j => j.serverEnqueued === false)
+      .filter(j => j.payload)
+      .filter(j => j.status !== 'DONE' && j.status !== 'DEAD');
+  }
+
+  function _updateBadge(requestId) {
+    document.querySelectorAll(`[data-rid="${requestId}"]`).forEach(el => {
+      el.outerHTML = badgeHtml(requestId);
+    });
+  }
+
+  async function _refreshJobStatuses(ids) {
+    const statuses = await api.getJobStatuses(ids);
+    let changed = false;
+    ids.forEach(rid => {
+      const srv = statuses[rid];
+      if (!srv || !_jobs[rid]) return;
+      const prev = _jobs[rid].status;
+      _jobs[rid].status = srv.status;
+      if (srv.finalRecordId) _jobs[rid].finalRecordId = srv.finalRecordId;
+      if (srv.error)         _jobs[rid].error         = srv.error;
+      if (srv.status !== prev) {
+        changed = true;
+        _updateBadge(rid);
+        if (srv.status === 'DONE') {
+          if (_callbacks[rid]?.onDone) _callbacks[rid].onDone(_jobs[rid]);
+          if (typeof _refreshAfterQueueJob === 'function') _refreshAfterQueueJob(_jobs[rid]);
+          delete _callbacks[rid];
+        } else if (srv.status === 'DEAD') {
+          if (_callbacks[rid]?.onFail) {
+            _callbacks[rid].onFail(_jobs[rid]);
+            if (typeof _refreshAfterQueueJob === 'function') _refreshAfterQueueJob(_jobs[rid]);
+          } else if (typeof _recoverFailedQueueJob === 'function') {
+            _recoverFailedQueueJob(_jobs[rid]);
+          }
+          delete _callbacks[rid];
+        }
+      }
+    });
+    if (changed) {
+      _save();
+      _notifyQueueChanged();
+    }
+    return statuses;
+  }
+
+  function _findCreateJobForTempId(tempId) {
+    return Object.values(_jobs)
+      .filter(j => j.actionType === 'saveLead' && j.tempId === tempId)
+      .sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0))[0] || null;
+  }
+
+  async function _waitForFinalLeadId(tempId) {
+    const createJob = _findCreateJobForTempId(tempId);
+    if (!createJob) throw new Error('Lead is still saving. Please wait for the save queue item to finish, then move it again.');
+    if (createJob.finalRecordId) return createJob.finalRecordId;
+    if (createJob.status === 'DEAD') throw new Error('Lead save failed first: ' + (createJob.error || 'Unknown error'));
+
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      await _refreshJobStatuses([createJob.requestId]);
+      const fresh = _jobs[createJob.requestId];
+      if (fresh?.finalRecordId) return fresh.finalRecordId;
+      if (fresh?.status === 'DEAD') throw new Error('Lead save failed first: ' + (fresh.error || 'Unknown error'));
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    throw new Error('Lead save is still pending. Stage move will not be sent until the lead has a real ID.');
+  }
+
+  async function _resolvePayloadDependencies(actionType, payload) {
+    const nextPayload = { ...(payload || {}) };
+    if (['updateLeadStage', 'moveLeadStageWithFields'].includes(actionType)) {
+      const leadId = String(nextPayload.leadId || '');
+      if (leadId.startsWith('temp-')) nextPayload.leadId = await _waitForFinalLeadId(leadId);
+    }
+    return nextPayload;
+  }
+
+  function _queueDataId(actionType, payload) {
+    const p = payload || {};
+    switch (actionType) {
+      case 'saveLead': return p['Lead ID'] || p.leadId || '';
+      case 'deleteLead': return p.id || p.leadId || p['Lead ID'] || '';
+      case 'updateLeadStage':
+      case 'moveLeadStageWithFields':
+      case 'pushLeadToNbd': return p.leadId || p['Lead ID'] || '';
+      case 'saveFollowup': return p['Follow-up ID'] || p.followupId || p.id || '';
+      case 'markFollowupDone':
+      case 'deleteFollowup': return p.id || p.followupId || p['Follow-up ID'] || '';
+      case 'updateConfigStatus':
+      case 'addConfig': return p.id || p['Config ID'] || '';
+      case 'saveStage': return p['Stage ID'] || p.stageId || '';
+      case 'reorderStages': return Array.isArray(p.ids) ? p.ids.join(',') : '';
+      case 'saveFieldConfig': return p['Field ID'] || p.fieldId || '';
+      case 'saveUser': return p['ID'] || p['User ID'] || p.userId || p.id || '';
+      default: return p.id || p.leadId || p.followupId || p['Lead ID'] || p['Follow-up ID'] || '';
+    }
+  }
+
+  async function _sendJobToServer(job, rawPayload) {
+    const payload = await _resolvePayloadDependencies(job.actionType, rawPayload || job.payload);
+    const payloadLen = JSON.stringify(payload || {}).length;
+    if (payloadLen > 200000) {
+      throw new Error('This save is too large for the background queue. Remove large file attachments or reduce file size, then try again.');
+    }
+    await _enqueueJobWithRetry(job, payload);
+    job.serverEnqueued = true;
+    job.enqueueAttempts = 0;
+    job.nextEnqueueAt = 0;
+    job.error = null;
+    _save();
+    _notifyQueueChanged();
+  }
+
+  async function _enqueueJobWithRetry(job, payload) {
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await api.enqueueJob(job.module, job.actionType, payload, job.requestId);
+      } catch (e) {
+        if (attempt >= maxAttempts || !_isTransientEnqueueError(e)) throw e;
+        await new Promise(resolve => setTimeout(resolve, 450 * attempt));
+      }
+    }
+  }
+
+  function _isTransientEnqueueError(error) {
+    const msg = String(error && error.message || error || '');
+    return /lock timeout|holding the lock|service invoked too many times|temporarily unavailable|server busy|network|timeout|connection|script error|internal error/i.test(msg);
+  }
+
+  function _isRecoverableLocalQueueError(error) {
+    const msg = String(error && error.message || error || '');
+    if (/payload too large|permission denied|invalid module|invalid action|lead save failed first/i.test(msg)) return false;
+    return true;
+  }
+
+  function _parkUnsentJob(job, error) {
+    if (!job) return;
+    const attempts = Number(job.enqueueAttempts || 0) + 1;
+    job.status = 'QUEUED';
+    job.serverEnqueued = false;
+    job.enqueueAttempts = attempts;
+    job.nextEnqueueAt = Date.now() + Math.min(UNSENT_RETRY_MAX_MS, 2500 * Math.pow(2, Math.min(attempts, 5)));
+    job.error = error && error.message ? error.message : String(error || 'Waiting to send to server queue');
+    _save();
+    _updateBadge(job.requestId);
+    _notifyQueueChanged();
+    _scheduleUnsentRetry();
+  }
+
+  function _scheduleUnsentRetry() {
+    if (_unsentRetryTimer) return;
+    const jobs = _pendingUnsentJobs();
+    if (!jobs.length) return;
+    const nowMs = Date.now();
+    const nextAt = jobs.reduce((min, j) => {
+      const at = Number(j.nextEnqueueAt || 0);
+      return Math.min(min, at > 0 ? at : nowMs);
+    }, nowMs + UNSENT_RETRY_MAX_MS);
+    _unsentRetryTimer = setTimeout(() => {
+      _unsentRetryTimer = null;
+      _retryUnsentJobs();
+    }, Math.max(500, Math.min(UNSENT_RETRY_MAX_MS, nextAt - nowMs)));
+  }
+
+  async function _retryUnsentJobs() {
+    const nowMs = Date.now();
+    const due = _pendingUnsentJobs()
+      .filter(j => !j.nextEnqueueAt || Number(j.nextEnqueueAt) <= nowMs)
+      .slice(0, 5);
+    for (const job of due) {
+      try {
+        await _sendJobToServer(job);
+        _updateBadge(job.requestId);
+      } catch (err) {
+        if (_isRecoverableLocalQueueError(err)) {
+          _parkUnsentJob(job, err);
+        } else {
+          job.status = 'DEAD';
+          job.error = err.message || String(err);
+          _save();
+          _updateBadge(job.requestId);
+          _notifyQueueChanged();
+          if (_callbacks[job.requestId]?.onFail) _callbacks[job.requestId].onFail(job);
+          else if (typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(job);
+          delete _callbacks[job.requestId];
+        }
+      }
+    }
+    if (_pendingUnsentJobs().length) _scheduleUnsentRetry();
+    if (_pendingIds().length) _startPoll();
+  }
+
+  function _resumeUnsentJobs() {
+    _pendingUnsentJobs().forEach(job => {
+      if (!job.nextEnqueueAt || Number(job.nextEnqueueAt) < Date.now()) job.nextEnqueueAt = Date.now() + 500;
+    });
+    _save();
+    _scheduleUnsentRetry();
+  }
+
+  function _pendingLeadPatches() {
+    const patches = {};
+    Object.values(_jobs).forEach(job => {
+      if (!['QUEUED', 'PROCESSING', 'FAILED'].includes(job.status)) return;
+      if (!['updateLeadStage', 'moveLeadStageWithFields'].includes(job.actionType)) return;
+      const payload = job.payload || {};
+      const leadId = String(payload.leadId || '');
+      const stageId = String(payload.stageId || '');
+      if (!leadId || !stageId || leadId.startsWith('temp-')) return;
+      patches[leadId] = {
+        ...(payload.fields || {}),
+        'Stage ID': stageId,
+        'Stage Updated At': new Date(job.enqueuedAt || Date.now()).toISOString(),
+        'Updated At': new Date(job.enqueuedAt || Date.now()).toISOString(),
+        '_queuePendingStage': true
+      };
+    });
+    return patches;
+  }
+
+  function _pendingFollowupOps() {
+    const ops = [];
+    Object.values(_jobs)
+      .filter(job => ['QUEUED', 'PROCESSING', 'FAILED'].includes(job.status))
+      .filter(job => ['saveFollowup', 'markFollowupDone', 'deleteFollowup'].includes(job.actionType))
+      .sort((a, b) => (a.enqueuedAt || 0) - (b.enqueuedAt || 0))
+      .forEach(job => {
+        const payload = job.payload || {};
+        if (job.actionType === 'saveFollowup') {
+          const followupId = String(job.tempId || payload['Follow-up ID'] || payload.followupId || job.requestId || '');
+          if (!followupId) return;
+          ops.push({
+            type: 'save',
+            followupId,
+            requestId: job.requestId,
+            enqueuedAt: job.enqueuedAt || Date.now(),
+            payload
+          });
+        } else if (job.actionType === 'markFollowupDone') {
+          const followupId = String(payload.id || payload.followupId || payload['Follow-up ID'] || job.tempId || '');
+          if (!followupId) return;
+          ops.push({
+            type: 'done',
+            followupId,
+            requestId: job.requestId,
+            enqueuedAt: job.enqueuedAt || Date.now(),
+            data: payload.data || {}
+          });
+        } else if (job.actionType === 'deleteFollowup') {
+          const followupId = String(payload.id || payload.followupId || payload['Follow-up ID'] || job.tempId || '');
+          if (!followupId) return;
+          ops.push({
+            type: 'delete',
+            followupId,
+            requestId: job.requestId,
+            enqueuedAt: job.enqueuedAt || Date.now()
+          });
+        }
+      });
+    return ops;
+  }
+
+  async function _poll() {
+    const ids = _pendingIds();
+    if (!ids.length) { _stopPoll(); return; }
+
+    try {
+      await _refreshJobStatuses(ids);
+    } catch (e) {
+      console.warn('[Queue] Status poll failed; will retry', e);
+    }
+  }
+
+  function _startPoll() {
+    if (_pollTimer) return;
+    _pollTimer = setInterval(_poll, POLL_MS);
+  }
+
+  function _stopPoll() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  }
+
+  function _kickQueueSoon() {
+    if (_kickTimer) return;
+    _kickTimer = setTimeout(() => {
+      _kickTimer = null;
+      if (!api.kickQueue) return;
+      api.kickQueue()
+        .then(() => _poll())
+        .catch(e => console.warn('[Queue] Fast queue kick failed; cron will continue processing', e));
+    }, 250);
+  }
+
+  // ── Server change notification (called from _applyChangeLog) ─────────────────
+  function onServerChange(moduleName) {
+    // Mark any FAILED jobs for that module as potentially PROCESSING again
+    // (the worker may have just processed them). Polling will update status.
+    Object.values(_jobs).forEach(j => {
+      if (j.module === moduleName && j.status === 'FAILED') {
+        j.status = 'PROCESSING';
+      }
+    });
+    _save();
+    _notifyQueueChanged();
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────────
+  return {
+    // Call once at app startup to resume pending jobs from localStorage.
+    init() {
+      _load();
+      _resumeUnsentJobs();
+      if (_pendingIds().length) _startPoll();
+    },
+
+    // Enqueue a write operation. Returns { requestId, tempId } immediately.
+    // opts: { module, actionType, payload, tempId, onDone, onFail }
+    async enqueue(opts) {
+      const requestId = 'rq-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const tempId    = opts.tempId || requestId;
+      const serializedPayload = JSON.stringify(opts.payload || {});
+
+      _jobs[requestId] = {
+        requestId,
+        status:      'QUEUED',
+        module:      opts.module,
+        actionType:  opts.actionType,
+        tempId,
+        enqueuedAt:  Date.now(),
+        finalRecordId: _queueDataId(opts.actionType, opts.payload) || null,
+        error:       null,
+        serverEnqueued: false,
+        payload:     serializedPayload.length < 190000 ? opts.payload : null
+      };
+      _save();
+      _notifyQueueChanged();
+
+      if (opts.onDone) _callbacks[requestId] = { onDone: opts.onDone, onFail: opts.onFail };
+
+      // Fire and forget — send to server queue
+      try {
+        const payload = await _resolvePayloadDependencies(opts.actionType, opts.payload);
+        const dataId = _queueDataId(opts.actionType, payload);
+        if (dataId) _jobs[requestId].finalRecordId = dataId;
+        const payloadLen = JSON.stringify(payload || {}).length;
+        if (payloadLen > 200000) {
+          throw new Error('This save is too large for the background queue. Remove large file attachments or reduce file size, then try again.');
+        }
+        await _sendJobToServer(_jobs[requestId], payload);
+      } catch (err) {
+        if (_isRecoverableLocalQueueError(err) && _jobs[requestId].payload) {
+          _parkUnsentJob(_jobs[requestId], err);
+          toast('Saved locally. It will retry sending to queue automatically.', 'info');
+        } else {
+          _jobs[requestId].status = 'DEAD';
+          _jobs[requestId].error  = err.message || String(err);
+          _save();
+          _updateBadge(requestId);
+          _notifyQueueChanged();
+          opts.onFail?.(_jobs[requestId]);
+          if (!opts.onFail && typeof _recoverFailedQueueJob === 'function') _recoverFailedQueueJob(_jobs[requestId]);
+        }
+        return { requestId, tempId };
+      }
+
+      _startPoll();
+      if (opts.flushNow) _kickQueueSoon();
+      return { requestId, tempId };
+    },
+
+    // Get current status of a job.
+    getStatus(requestId) { return _jobs[requestId] || null; },
+
+    // Badge HTML for inline display in table rows / cards.
+    badgeHtml,
+
+    // Called from _applyChangeLog when a server-side change is detected.
+    onServerChange,
+
+    // Expose pending count (for debug / banner display).
+    pendingCount() { return _pendingIds().length + _pendingUnsentJobs().length; },
+
+    getPendingLeadPatches() { return _pendingLeadPatches(); },
+
+    getPendingFollowupOps() { return _pendingFollowupOps(); },
+
+    // All local jobs (including completed) sorted newest-first — for history page.
+    getAllJobs() {
+      return Object.values(_jobs).sort((a, b) => (b.enqueuedAt || 0) - (a.enqueuedAt || 0));
+    },
+
+    // Raw jobs map — for on-demand status checks.
+    jobs() { return _jobs; },
+
+    // Force-poll a specific set of request IDs immediately.
+    async pollNow(ids) { return await _refreshJobStatuses(ids); }
+  };
+})();
+</script>

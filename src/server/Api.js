@@ -146,7 +146,12 @@ function apiGetAppConfig(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _apiUser();
-    return getAppConfig();
+    try {
+      return respond(getAppConfigFast_());
+    } catch (e) {
+      Logger.log('[Config] Sheets API app config fallback: ' + e.message);
+      return getAppConfig();
+    }
   });
 }
 
@@ -154,7 +159,12 @@ function apiGetAllStages(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireConfigReader();
-    return respond(getAllStages());
+    try {
+      return respond(getAllStagesFast_());
+    } catch (e) {
+      Logger.log('[Config] Sheets API stages fallback: ' + e.message);
+      return respond(getAllStages());
+    }
   });
 }
 
@@ -162,7 +172,12 @@ function apiGetAllConfigs(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireConfigReader();
-    return respond(getAllConfigs());
+    try {
+      return respond(getAllConfigsFast_());
+    } catch (e) {
+      Logger.log('[Config] Sheets API configs fallback: ' + e.message);
+      return respond(getAllRows(SHEET_NAMES.CONFIG));
+    }
   });
 }
 
@@ -170,7 +185,12 @@ function apiGetFieldConfig(token, sheet) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireConfigReader();
-    return respond(getFieldConfig(sheet));
+    try {
+      return respond(getFieldConfigFast_(sheet));
+    } catch (e) {
+      Logger.log('[Config] Sheets API field config fallback: ' + e.message);
+      return respond(getFieldConfig(sheet));
+    }
   });
 }
 
@@ -178,7 +198,12 @@ function apiGetAllFieldConfigs(token, sheet) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireConfigReader();
-    return respond(getAllFieldConfigs(sheet));
+    try {
+      return respond(getAllFieldConfigsFast_(sheet));
+    } catch (e) {
+      Logger.log('[Config] Sheets API all field config fallback: ' + e.message);
+      return respond(getAllFieldConfigs(sheet));
+    }
   });
 }
 
@@ -188,14 +213,6 @@ function apiGetLeads(token) {
   return apiGuard_(() => {
     const user = _requireModule('Leads');
     return respond(_scopeAssignedRows(_leadRows(), user));
-  });
-}
-
-function apiQueryLeadsPage(token, query) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireModule('Leads');
-    return respond(queryLeadsPage_(query || {}, user));
   });
 }
 
@@ -228,15 +245,6 @@ function apiCheckLeadDuplicates(token, phone, email, excludeLeadId, companyName)
   });
 }
 
-function apiFindDuplicateLeads(token) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireAuthToken_(token);
-    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
-    return respond(findDuplicateLeadsForAdmin());
-  });
-}
-
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -261,14 +269,6 @@ function apiGetFollowups(token, filters) {
   });
 }
 
-function apiQueryFollowupsPage(token, query) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireModule('Followups');
-    return respond(queryFollowupsPage_(query || {}, user));
-  });
-}
-
 function apiGetFollowupHistory(token, filters) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -289,12 +289,7 @@ function apiGetTodayActivitySnapshot(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAnyModule(['Dashboard', 'Followups', 'Leads']);
-    try {
-      return respond(getTodayActivitySnapshotFast_(user));
-    } catch (e) {
-      Logger.log('[Today] Snapshot helper failed; using SpreadsheetApp fallback: ' + (e.message || e));
-      return respond(_buildTodayActivitySnapshotSpreadsheet_(user));
-    }
+    return respond(getTodayActivitySnapshotFast_(user));
   });
 }
 
@@ -302,12 +297,7 @@ function apiGetFollowupPageSnapshot(token, options) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    try {
-      return respond(getFollowupPageSnapshotFast_(user, options || {}));
-    } catch (e) {
-      Logger.log('[Followups] Snapshot helper failed; using SpreadsheetApp fallback: ' + (e.message || e));
-      return respond(_buildFollowupPageSnapshotSpreadsheet_(user, options || {}));
-    }
+    return respond(getFollowupPageSnapshotFast_(user, options || {}));
   });
 }
 
@@ -323,8 +313,7 @@ function apiGetFollowupFormData(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    const snapshot = _getFollowupSnapshotForApi_(user, { includeHistory: false });
-    const leads = (snapshot.leads || [])
+    const leads = _scopeAssignedRows(_leadRows(), user)
       .filter(l => l['Lead Status'] === 'Open');
     return respond({ leads });
   });
@@ -334,8 +323,11 @@ function apiGetFollowupLeads(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    const snapshot = _getFollowupSnapshotForApi_(user, { includeHistory: false });
-    return respond(snapshot.leads || []);
+    const visibleFollowups = _scopeFollowupRows(getFollowups({ includeClosed: true }), user);
+    const linked = {};
+    visibleFollowups.forEach(f => { if (f['Lead ID']) linked[f['Lead ID']] = true; });
+    const leads = _leadRows().filter(l => _canReadAssignedRow(l, user) || linked[l['Lead ID']]);
+    return respond(leads);
   });
 }
 
@@ -343,7 +335,7 @@ function apiSaveFollowupDirect(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _apiUser();
-    _assertCanMutate_(user, 'followups', 'saveFollowup');
+    _assertCanEnqueueJob_(user, 'followups', 'saveFollowup');
     return saveFollowup(payload || {}, user.email);
   });
 }
@@ -352,7 +344,7 @@ function apiMarkFollowupDoneDirect(token, followupId, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _apiUser();
-    _assertCanMutate_(user, 'followups', 'markFollowupDone');
+    _assertCanEnqueueJob_(user, 'followups', 'markFollowupDone');
     return markFollowupDone(followupId || '', payload || {}, user.email);
   });
 }
@@ -436,6 +428,22 @@ function apiGetBulkProgress(token, batchId) {
   });
 }
 
+function apiGetBulkQueueSummary(token, limit, includeRows) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireBulkEntry_();
+    return respond(getBulkQueueSummary(user.email, user.role === 'ADMIN', Number(limit) || 100, includeRows !== false));
+  });
+}
+
+function apiGetBulkQueueJobDetail(token, requestId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireBulkEntry_();
+    return respond(getBulkQueueJobDetail(user.email, user.role === 'ADMIN', requestId || ''));
+  });
+}
+
 function apiCreateErrorCsv(token, errorRows) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -444,16 +452,18 @@ function apiCreateErrorCsv(token, errorRows) {
   });
 }
 
-// Legacy queue endpoints - kept so older deployed portals can enqueue writes
-// while this codebase uses direct mutations for the current UI.
+// ── Queue endpoints ───────────────────────────────────────────────────────────
+// Fast enqueue — validates auth + writes ONE queue row. Returns in < 500ms.
 function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
     const mod = String(moduleName || '');
     const action = String(actionType || '');
+
     const allowed = ['leads', 'followups', 'config', 'stages', 'fields', 'bulk'];
     if (!allowed.includes(mod)) throw new Error('Invalid module.');
+
     const allowedActions = [
       'saveLead', 'saveBulkRows', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
       'pushLeadToNbd',
@@ -462,75 +472,102 @@ function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
       'saveFieldConfig', 'savePortalSettings', 'saveUser',
     ];
     if (!allowedActions.includes(action)) throw new Error('Invalid action.');
-    _assertCanMutate_(user, mod, action);
-    return respond(enqueueJob_(user.email, mod, action, payload || {}, requestId || ''));
+    _assertCanEnqueueJob_(user, mod, action);
+
+    const payloadStr = JSON.stringify(payload || {});
+    if (payloadStr.length > 200000) throw new Error('Payload too large (max 200 KB).');
+
+    const result = enqueueJob_(user.email, mod, action, payload || {}, requestId || '');
+    return respond(result);
   });
 }
 
+// Poll status for up to 20 requestIds at once.
 function apiGetJobStatuses(token, requestIds) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    _apiUser();
-    return respond(getJobStatuses_(requestIds || []));
+    _requireAuthToken_(token);
+    if (!Array.isArray(requestIds)) throw new Error('requestIds must be an array.');
+    if (requestIds.length > 20) throw new Error('Max 20 IDs per request.');
+    return respond(getJobStatuses_(requestIds));
   });
 }
 
-function apiGetQueueHistory(token, limit, filterEmail) {
+// Incremental change log — returns only entries after lastSeq.
+function apiGetChanges(token, lastSeq) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    const user = _apiUser();
-    if (user.role === 'ADMIN') return respond(getAllQueueHistory_(filterEmail || '', limit || 100));
-    return respond(getQueueHistory_(user.email, limit || 50));
+    _requireAuthToken_(token);
+    return respond(getChangesAfter_(Number(lastSeq) || 0));
   });
 }
 
-function apiRetryQueueJob(token, requestId) {
+// Queue history for the current user — newest first, max 100 rows.
+function apiGetQueueHistory(token, limit) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    const user = _apiUser();
-    if (user.role !== 'ADMIN') throw new Error('Permission denied.');
-    return respond(retryQueueJob_(requestId));
+    const user = _requireAuthToken_(token);
+    try {
+      return respond(getQueueHistoryFast_(user.email, Number(limit) || 50));
+    } catch (e) {
+      Logger.log('[QueuePage] Sheets API history fallback: ' + e.message);
+      return respond(getQueueHistory_(user.email, Number(limit) || 50));
+    }
   });
 }
 
 function apiGetQueueHealth(token, filterEmail) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    const user = _apiUser();
-    return respond(getQueueHealth_(user.email, user, filterEmail || ''));
+    const user = _requireAuthToken_(token);
+    try {
+      return respond(getQueueHealthFast_(user.email, user, filterEmail || ''));
+    } catch (e) {
+      Logger.log('[QueuePage] Sheets API health fallback: ' + e.message);
+      return respond(getQueueHealth_(user.email, user, filterEmail || ''));
+    }
   });
 }
 
-// ── Direct mutation endpoint ───────────────────────────────────────────────────────────
-// Direct mutation - validates auth and writes immediately.
-function apiMutate(token, moduleName, actionType, payload, requestId) {
+// Admin-only: returns queue history for all users (or a specific email filter).
+function apiGetAllQueueHistory(token, filterEmail, limit) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAuthToken_(token);
-    const mod = String(moduleName || '');
-    const action = String(actionType || '');
+    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
+    try {
+      return respond(getAllQueueHistoryFast_(filterEmail || '', Number(limit) || 100));
+    } catch (e) {
+      Logger.log('[QueuePage] Sheets API admin history fallback: ' + e.message);
+      return respond(getAllQueueHistory_(filterEmail || '', Number(limit) || 100));
+    }
+  });
+}
 
-    const allowed = ['leads', 'followups', 'config', 'stages', 'fields', 'bulk'];
-    if (!allowed.includes(mod)) throw new Error('Invalid module.');
+function apiProcessQueueNow(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
+    processQueue();
+    return respond(getQueueHealth_(user.email, user, ''));
+  });
+}
 
-    const allowedActions = [
-      'saveLead', 'saveBulkRows', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
-      'pushLeadToNbd',
-      'saveFollowup', 'markFollowupDone', 'deleteFollowup',
-      'addConfig', 'updateConfigStatus', 'saveStage', 'reorderStages',
-      'saveFieldConfig', 'savePortalSettings', 'saveUser',
-    ];
-    if (!allowedActions.includes(action)) throw new Error('Invalid action.');
-    _assertCanMutate_(user, mod, action);
+function apiKickQueue(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _requireAuthToken_(token);
+    return respond(processQueueFast_());
+  });
+}
 
-    const payloadStr = JSON.stringify(payload || {});
-    if (payloadStr.length > 200000) throw new Error('Payload too large (max 200 KB).');
-
-    return withTrustedWriteUser_(user.email, () => {
-      const result = _dispatchWrite(action, user.email, payload || {});
-      if (result && typeof result === 'object' && Object.prototype.hasOwnProperty.call(result, 'success')) return result;
-      return respond(result || true);
-    });
+function apiRetryQueueJob(token, requestId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    if (!user || user.role !== 'ADMIN') return respond(null, 'Permission denied.');
+    return respond(retryQueueJob_(requestId));
   });
 }
 
@@ -578,7 +615,7 @@ function _requireBulkEntry_() {
   throw new Error('Permission denied.');
 }
 
-function _assertCanMutate_(user, moduleName, actionType) {
+function _assertCanEnqueueJob_(user, moduleName, actionType) {
   const isAdmin = user.role === 'ADMIN';
   const has = name => isAdmin || userHasModule(user, name);
   const canWriteLead = ['ADMIN', 'MANAGER', 'SALES'].includes(user.role) && (has('Leads') || has('LeadForm'));
@@ -710,52 +747,8 @@ function _buildLeadMapById_() {
   }, {});
 }
 
-function _getFollowupSnapshotForApi_(user, options) {
-  try {
-    return getFollowupPageSnapshotFast_(user, options || {});
-  } catch (e) {
-    Logger.log('[Followups] Snapshot helper failed; using SpreadsheetApp fallback: ' + (e.message || e));
-    return _buildFollowupPageSnapshotSpreadsheet_(user, options || {});
-  }
-}
-
-function _buildFollowupPageSnapshotSpreadsheet_(user, options) {
-  const started = Date.now();
-  const includeHistory = !!(options && options.includeHistory);
-  const allLeads = _leadRows();
-  const visibleLeads = _scopeAssignedRows(allLeads, user);
-  const visibleLeadMap = visibleLeads.reduce((map, lead) => {
-    if (lead['Lead ID']) map[lead['Lead ID']] = true;
-    return map;
-  }, {});
-  const followups = _scopeFollowupRows(getFollowups({ includeClosed: true }), user);
-  const linkedLeadMap = followups.reduce((map, row) => {
-    if (row['Lead ID']) map[row['Lead ID']] = true;
-    return map;
-  }, {});
-  return {
-    leads: allLeads.filter(lead => visibleLeadMap[lead['Lead ID']] || linkedLeadMap[lead['Lead ID']]),
-    followups,
-    followupHistory: includeHistory ? _scopeFollowupHistoryRows(getFollowupHistory({}), user) : [],
-    source: 'spreadsheet-app-fallback',
-    fetchMs: Date.now() - started,
-    fetchedAt: now()
-  };
-}
-
-function _buildTodayActivitySnapshotSpreadsheet_(user) {
-  return {
-    leads: _scopeAssignedRows(_leadRows(), user),
-    followups: _scopeFollowupRows(getFollowups({ includeClosed: true }), user),
-    followupHistory: _scopeFollowupHistoryRows(getFollowupHistory({}), user),
-    activityLogs: _scopeActivityLogRows(getLeadActivityLogs({}), user),
-    source: 'spreadsheet-app-fallback',
-    fetchedAt: now()
-  };
-}
-
 function _leadRows() {
-  return getRowsWithCustomFieldValues_('Leads', getAllRowsSpreadsheet_(SHEET_NAMES.LEADS));
+  return getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS));
 }
 
 function _leadIndexRowsForScope_() {

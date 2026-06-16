@@ -93,9 +93,8 @@ async function openFollowupForm(leadId = '', leadName = '') {
     fuForm.dataset.submitting = '1';
     const btn = fuForm.querySelector('[type=submit]');
     setButtonLoading(btn, 'Saving...');
-    let payload;
     try {
-      payload = await collectLeadFormPayload(fuForm);
+      const payload = await collectLeadFormPayload(fuForm);
       if (!payload['Lead ID'])          delete payload['Lead ID'];
       if (!payload['Updated Stage ID']) delete payload['Updated Stage ID'];
       if (!payload['Lead ID'])          delete payload['Updated Stage ID'];
@@ -111,26 +110,15 @@ async function openFollowupForm(leadId = '', leadName = '') {
         fuForm.dataset.submitting = '';
         return;
       }
+
+      const saveResult = await api.saveFollowupDirect(payload);
+      overlay.remove();
+      _applyFollowupSaveResult(payload, saveResult);
+      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
+      if (App.currentPage === 'dashboard') loadDashboard();
+      toast('Follow-up saved' + (saveResult ? ': ' + saveResult : '') + '!');
     } catch (err) {
       toast(err.message || String(err), 'error');
-      resetButtonLoading(btn);
-      fuForm.dataset.submitting = '';
-      return;
-    }
-
-    toast('Saving follow-up...', 'info');
-    const result = await runAsyncMutation({
-      module: 'followups', actionType: 'saveFollowup', payload,
-      onDone: async ({ result: saveResult }) => {
-        overlay.remove();
-        _applyFollowupSaveResult(payload, saveResult);
-        if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
-        if (App.currentPage === 'dashboard') loadDashboard();
-        toast('Follow-up saved' + (saveResult ? ': ' + saveResult : '') + '!');
-      },
-      onFail: failed => toast(failed.error || 'Save failed', 'error')
-    });
-    if (!result) {
       resetButtonLoading(btn);
       fuForm.dataset.submitting = '';
     }
@@ -184,10 +172,6 @@ async function openMarkFollowupDoneForm(followupId) {
     .map(c => '<option>' + escapeHtml(c['Value']) + '</option>').join('');
   const stageOptionsHTML = lead ? _fuNextStageOptionsHTML(lead['Lead ID'], snapshot.leads || []) : '<option value="">No Change</option>';
   const todayStr = localDateInputValue();
-  // Local-time `YYYY-MM-DDTHH:MM` (the format `datetime-local` expects).
-  const _nowLocal = new Date();
-  _nowLocal.setMinutes(_nowLocal.getMinutes() - _nowLocal.getTimezoneOffset());
-  const nowDateTime = _nowLocal.toISOString().slice(0, 16);
   const _maxD = new Date(); _maxD.setDate(_maxD.getDate() + 7);
   const maxNextDate = _maxD.toISOString().split('T')[0];
   const stageMap = (App.config.allStages || App.config.stages || []).reduce(function(m,s){m[s['Stage ID']]=s;return m;},{});
@@ -225,8 +209,8 @@ async function openMarkFollowupDoneForm(followupId) {
     <form id="fu-done-form" data-current-final-stage="${leadIsFinalStage ? 'true' : 'false'}">
       <div class="form-row">
         <div class="form-group">
-          <label>Done At *</label>
-          <input class="form-control" name="Done Date" type="datetime-local" value="${nowDateTime}" max="${nowDateTime}" required>
+          <label>Done Date *</label>
+          <input class="form-control" name="Done Date" type="date" value="${todayStr}" disabled max="${todayStr}" required>
         </div>
         <div class="form-group">
           <label>Next Planned Date <span id="fu-next-date-required" style="font-size:10px;color:#ef4444;font-weight:700">*</span></label>
@@ -328,34 +312,20 @@ async function openMarkFollowupDoneForm(followupId) {
     form.dataset.submitting = '1';
     const btn = form.querySelector('[type=submit]');
     setButtonLoading(btn, 'Saving...');
-    let payload, closesFollowup;
     try {
-      payload = await collectLeadFormPayload(form);
+      const payload = await collectLeadFormPayload(form);
       if (!payload['Updated Stage ID']) delete payload['Updated Stage ID'];
       if (!payload['Issues'])           delete payload['Issues'];
-      closesFollowup = _markDoneClosesFollowup(form);
+      const closesFollowup = _markDoneClosesFollowup(form);
       if (closesFollowup) delete payload['Next Follow-up Date'];
+      const result = await api.markFollowupDoneDirect(followupId, payload);
+      overlay.remove();
+      _applyFollowupDoneResult(result);
+      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
+      if (App.currentPage === 'dashboard') loadDashboard();
+      toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
     } catch (err) {
       toast(err.message || String(err), 'error');
-      resetButtonLoading(btn);
-      form.dataset.submitting = '';
-      return;
-    }
-
-    toast(closesFollowup ? 'Closing follow-up...' : 'Saving follow-up result...', 'info');
-    const mutationResult = await runAsyncMutation({
-      module: 'followups', actionType: 'markFollowupDone',
-      payload: { id: followupId, data: payload },
-      onDone: async ({ result }) => {
-        overlay.remove();
-        _applyFollowupDoneResult(result);
-        if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
-        if (App.currentPage === 'dashboard') loadDashboard();
-        toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
-      },
-      onFail: failed => toast(failed.error || 'Save failed', 'error')
-    });
-    if (!mutationResult) {
       resetButtonLoading(btn);
       form.dataset.submitting = '';
     }

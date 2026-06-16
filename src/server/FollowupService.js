@@ -136,8 +136,7 @@ function markFollowupDone(followupId, data, email) {
   if (row['Lead ID'] && !lead) return respond(null, 'Linked lead not found.');
   if (!_canWriteFollowupRow(row, lead, user)) return respond(null, 'Permission denied.');
 
-  // Preserve the time the user actually marked done; fall back to "now" if empty.
-  const doneDate = formatDateTime(data['Done Date'] || new Date());
+  const doneDate = formatDate(data['Done Date'] || today());
   const nextDate = formatDate(data['Next Follow-up Date'] || data['Next Planned Date'] || '');
   const remark = String(data['Remark'] || '').trim();
   if (!remark) return respond(null, 'Done remark is required.');
@@ -266,20 +265,13 @@ function markFollowupDone(followupId, data, email) {
 }
 
 function _canWriteFollowupForLead(lead, user) {
-  return ['ADMIN', 'MANAGER'].includes(user.role) || _followupUserValueMatches_(lead['Assigned To'], user);
+  return ['ADMIN', 'MANAGER'].includes(user.role) || lead['Assigned To'] === user.id;
 }
 
 function _canWriteFollowupRow(row, lead, user) {
   if (['ADMIN', 'MANAGER'].includes(user.role)) return true;
-  if (lead && _canWriteFollowupForLead(lead, user)) return true;
-  return _followupUserValueMatches_(row['Created By'], user) || _followupUserValueMatches_(row['Done By'], user);
-}
-
-function _followupUserValueMatches_(value, user) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw || !user) return false;
-  return raw === String(user.id || '').trim().toLowerCase() ||
-    raw === String(user.email || '').trim().toLowerCase();
+  if (lead) return _canWriteFollowupForLead(lead, user);
+  return row['Created By'] === user.id;
 }
 
 function getFollowupCustomFields() {
@@ -359,7 +351,7 @@ function _reopenClosedNonFinalFollowupsNextMonday_() {
     if (isFinal && stage['Stage ID']) map[String(stage['Stage ID'])] = true;
     return map;
   }, {});
-  const leadsById = getAllRowsSpreadsheet_(SHEET_NAMES.LEADS).reduce((map, lead) => {
+  const leadsById = getAllRows(SHEET_NAMES.LEADS).reduce((map, lead) => {
     if (lead['Lead ID']) map[String(lead['Lead ID'])] = lead;
     return map;
   }, {});

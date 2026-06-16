@@ -85,7 +85,6 @@ const api = {
   getAllFieldConfigs:   (s)     => api._authedRead('apiGetAllFieldConfigs', s),
   getLeads:            ()      => api._authedRead('apiGetLeads'),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
-  findDuplicateLeads:  ()      => api._authedRead('apiFindDuplicateLeads'),
   getFollowups:        (f)     => api._authedRead('apiGetFollowups', f),
   getFollowupHistory:  (f)     => api._authedRead('apiGetFollowupHistory', f),
   getFollowupPageSnapshot: (o)  => api._authedRead('apiGetFollowupPageSnapshot', o || {}),
@@ -105,37 +104,22 @@ const api = {
   saveBulkRow:         (row, rowNumber, mode) => api._authedRead('apiSaveBulkRow', row, rowNumber, mode || 'create'),
   createBulkFollowupOnlyRow: (row, rowNumber) => api._authedRead('apiCreateBulkFollowupOnlyRow', row, rowNumber),
   getBulkProgress:     (id)    => api._authedRead('apiGetBulkProgress', id),
+  getBulkQueueSummary: (limit, includeRows) => api._authedRead('apiGetBulkQueueSummary', limit || 100, includeRows !== false),
+  getBulkQueueJobDetail: (requestId) => api._authedRead('apiGetBulkQueueJobDetail', requestId || ''),
   createErrorCsv:      (rows)  => api._authedRead('apiCreateErrorCsv', rows),
 
-  // Admin
+  // ── Admin ─────────────────────────────────────────────────────────────────
   updatePermissions: ()                      => api._authedRead('apiUpdatePermissions'),
 
-  // Direct mutations + DB-style paged reads
-  mutate:          (mod, act, payload, rid) => api._authedRead('apiMutate', mod, act, payload, rid),
-  queryLeadsPage:  (q)                      => api._authedRead('apiQueryLeadsPage', q || {}),
-  queryFollowupsPage: (q)                   => api._authedRead('apiQueryFollowupsPage', q || {}),
+  // ── Queue endpoints ───────────────────────────────────────────────────────
+  enqueueJob:      (mod, act, payload, rid) => api._authedRead('apiEnqueueJob', mod, act, payload, rid),
+  getJobStatuses:  (ids)                    => api._authedRead('apiGetJobStatuses', ids),
+  getChanges:      (seq)                    => api._authedRead('apiGetChanges', seq),
+  getQueueHistory:    (limit)               => api._authedRead('apiGetQueueHistory', limit || 50),
+  getQueueHealth:     (filterEmail)         => api._authedRead('apiGetQueueHealth', filterEmail || ''),
+  getAllQueueHistory:  (filterEmail, limit) => api._authedRead('apiGetAllQueueHistory', filterEmail || '', limit || 100),
+  processQueueNow:    ()                    => api._authedRead('apiProcessQueueNow'),
+  kickQueue:          ()                    => api._authedRead('apiKickQueue'),
+  retryQueueJob:      (requestId)           => api._authedRead('apiRetryQueueJob', requestId),
 };
-
-async function runAsyncMutation(opts = {}) {
-  const requestId = opts.requestId || ('mt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
-  try {
-    const result = await api.mutate(opts.module, opts.actionType, opts.payload || {}, requestId);
-    if (!opts.skipRefresh && typeof _refreshAfterMutation === 'function') await _refreshAfterMutation(opts);
-    if (typeof opts.onDone === 'function') {
-      await opts.onDone({ requestId, status: 'DONE', result, finalRecordId: _mutationResultId(result, opts.payload || {}) });
-    }
-    return result;
-  } catch (err) {
-    const failed = { requestId, status: 'FAILED', error: err && err.message ? err.message : String(err || 'Save failed') };
-    if (typeof opts.onFail === 'function') await opts.onFail(failed);
-    else toast('Save failed: ' + failed.error, 'error');
-    return null;
-  }
-}
-
-function _mutationResultId(result, payload = {}) {
-  if (typeof result === 'string') return result;
-  if (result && typeof result === 'object') return result.leadId || result.followupId || result.id || result.recordId || '';
-  return payload.id || payload.leadId || payload.followupId || payload['Lead ID'] || payload['Follow-up ID'] || '';
-}
 </script>

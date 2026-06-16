@@ -177,12 +177,15 @@ function _fieldConfigValue(field, key) {
 function getAppConfig() {
   assertServerContext_();
   try {
+    const cache = CacheService.getScriptCache();
+    const cached = cache.get("APP_CONFIG_V9");
+    if (cached) {
+      try {
+        return respond(JSON.parse(cached));
+      } catch (e) {}
+    }
     const outcomes = getConfigByType("Outcome");
     const settings = getPortalSettings_();
-    const portalUsers = getUsersWithPortalAccess_();
-    const activePortalUsers = portalUsers
-      .filter((u) => isActiveUserValue(u["Is Active"]) && _userMatchesDepartmentSettings_(u, settings));
-    const availableDepartments = _portalDepartmentOptions_(portalUsers, settings);
     const config = {
       stages: getActiveStages(),
       sources: getConfigByType("Lead Source"),
@@ -206,7 +209,8 @@ function getAppConfig() {
       leadFields: getFieldConfig("Leads"),
       followupFields: getFieldConfig("Followups"),
       _allConfigs: getAllRows(SHEET_NAMES.CONFIG),
-      users: activePortalUsers
+      users: getUsersWithPortalAccess_()
+        .filter((u) => isActiveUserValue(u["Is Active"]) && _userMatchesDepartmentSettings_(u, settings))
         .map((u) => {
         const email = String(u["Email Address"] || "")
           .trim()
@@ -220,9 +224,9 @@ function getAppConfig() {
           department: u["Department"] || "",
         };
       }),
-      departments: availableDepartments,
+      departments: _activeUserDepartments_(),
       allStages: getAllStages(),
-      userNameMap: portalUsers.reduce((m, u) => {
+      userNameMap: getAllRows(SHEET_NAMES.USERS).reduce((m, u) => {
         const email = String(u["Email Address"] || "").trim().toLowerCase();
         const id = getStaffUserId(u, email);
         if (id) m[id] = u["Name"] || email;
@@ -230,6 +234,9 @@ function getAppConfig() {
         return m;
       }, {}),
     };
+    try {
+      cache.put("APP_CONFIG_V9", JSON.stringify(config), 300);
+    } catch (e) {}
     return respond(config);
   } catch (e) {
     return respond(null, "getAppConfig failed: " + e.message);
@@ -266,23 +273,6 @@ function _activeUserDepartments_() {
     .sort();
 }
 
-function _portalDepartmentOptions_(portalUsers, settings) {
-  const departments = {};
-  (portalUsers || [])
-    .filter((u) => isActiveUserValue(u["Is Active"]))
-    .forEach((u) => {
-      const department = _departmentName_(u["Department"]);
-      if (department) departments[department.toLowerCase()] = department;
-    });
-  (settings && settings.visibleDepartments || []).forEach((department) => {
-    const value = _departmentName_(department);
-    if (value) departments[value.toLowerCase()] = value;
-  });
-  return Object.keys(departments)
-    .map((key) => departments[key])
-    .sort((a, b) => a.localeCompare(b));
-}
-
 function _parseDepartmentList_(value) {
   if (Array.isArray(value)) return value.map(_departmentName_).filter(Boolean);
   return String(value || "")
@@ -302,4 +292,7 @@ function _departmentName_(value) {
 
 function invalidateAppConfigCache() {
   assertServerContext_();
+  try {
+    CacheService.getScriptCache().remove("APP_CONFIG_V9");
+  } catch (e) {}
 }

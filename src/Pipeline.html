@@ -390,29 +390,20 @@ async function loadPipeline() {
         const destStage    = _stages.find(s => s['Stage ID'] === newStageId);
         const isFinal      = destStage ? _isFinalStage(destStage) : false;
         const optStatus    = isFinal ? _pipelineStatusForStage(destStage) : 'Open';
-        toast('Moving lead...', 'info');
-        _setPipelineUpdating(true, evt.item);
-        const result = await runAsyncMutation({
+        _applyPipelineStageResult(leadId, newStageId, { leadStatus: optStatus });
+        if (isFinal) evt.item.remove();
+        _updatePipelineCounts();
+        _updatePipelineEmptyStates();
+        QueueManager.enqueue({
           module: 'leads', actionType: 'updateLeadStage',
           payload: { leadId, stageId: newStageId, fromStageId: oldStageId, note: '' },
-          onDone: () => {
-            _applyPipelineStageResult(leadId, newStageId, { leadStatus: optStatus });
-            if (isFinal) evt.item.remove();
-            _updatePipelineCounts();
-            _updatePipelineEmptyStates();
-            toast('Stage updated!');
-          },
+          onDone: () => toast('Stage updated!'),
           onFail: j => {
             toast('Stage update failed: ' + (j.error || 'Error'), 'error');
             loadPipeline();
           }
         });
-        _setPipelineUpdating(false, evt.item);
-        if (!result) {
-          _restorePipelineDrag(evt);
-          _updatePipelineCounts();
-          _updatePipelineEmptyStates();
-        }
+        toast('Moving lead…', 'info');
       }
     });
     window.pipelineSortables.push(sortable);
@@ -551,14 +542,13 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
       });
       const isFinal = _isFinalStage(stage);
       const leadStatus = isFinal ? _pipelineStatusForStage(stage) : 'Open';
-      toast('Moving lead...', 'info');
-      const result = await runAsyncMutation({
+      _applyPipelineStageResult(leadId, stageId, { leadStatus }, fieldPayload);
+      overlay.remove();
+      loadPipeline();
+      QueueManager.enqueue({
         module: 'leads', actionType: 'moveLeadStageWithFields',
         payload: { leadId, stageId, fromStageId: lead?.['Stage ID'] || '', fields: { ...(fieldPayload || {}), __stage_skipped: skipped ? 'true' : '' }, note: '' },
-        onDone: async () => {
-          _applyPipelineStageResult(leadId, stageId, { leadStatus }, fieldPayload);
-          overlay.remove();
-          await loadPipeline();
+        onDone: () => {
           toast('Stage updated!');
           if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
         },
@@ -567,7 +557,7 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
           loadPipeline();
         }
       });
-      if (!result) resetButtonLoading(btn);
+      toast('Moving lead…', 'info');
     } catch (err) {
       toast(err, 'error');
       resetButtonLoading(btn);

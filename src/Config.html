@@ -64,7 +64,6 @@ async function loadPortalSettings() {
   if (!el('cfg-settings')) return;
   const departments = App.config.departments || [];
   const selected = window._parseDepartmentList(App.config.settings?.visibleDepartments || []);
-  const selectedMap = selected.reduce((m, d) => { m[String(d || '').trim().toLowerCase()] = true; return m; }, {});
   el('cfg-settings').innerHTML = `
     <form id="portal-settings-form" class="card" style="padding:18px;max-width:760px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;flex-wrap:wrap">
@@ -79,7 +78,7 @@ async function loadPortalSettings() {
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-bottom:18px">
         ${departments.map(d => `<label style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <input type="checkbox" name="visibleDepartments" value="${escapeHtml(d)}" ${selectedMap[String(d || '').trim().toLowerCase()]?'checked':''}>
+          <input type="checkbox" name="visibleDepartments" value="${escapeHtml(d)}" ${selected.includes(d)?'checked':''}>
           ${escapeHtml(d)}
         </label>`).join('') || '<div style="font-size:13px;color:#888">No departments found. Add departments on user profiles first.</div>'}
       </div>
@@ -100,17 +99,19 @@ async function loadPortalSettings() {
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    toast('Saving settings...', 'info');
-    const result = await runAsyncMutation({
+    resetButtonLoading(btn);
+    QueueManager.enqueue({
       module: 'config', actionType: 'savePortalSettings',
       payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
       onDone: async () => {
+        await _refreshAppConfig().catch(() => {});
+        api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
         toast('Settings saved!');
-        if (App.currentPage === 'config') await loadPortalSettings();
+        if (App.currentPage === 'config') loadPortalSettings();
       },
       onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
     });
-    if (!result) resetButtonLoading(btn);
+    toast('Saving settings…', 'info');
   });
 
   const writeTestCard = document.createElement('div');
@@ -119,8 +120,8 @@ async function loadPortalSettings() {
   writeTestCard.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px">
       <div>
-        <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Spreadsheet Write Speed Test</h3>
-        <p style="color:#666;font-size:13px">Writes one harmless sample row to <b>SHEETS_API_WRITE_TEST</b> using SpreadsheetApp, then shows timing.</p>
+        <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Sheets API Write Speed Test</h3>
+        <p style="color:#666;font-size:13px">Writes one harmless sample row to <b>SHEETS_API_WRITE_TEST</b> using Google Sheets API append, then shows timing.</p>
       </div>
       <button id="btn-sheets-api-write-test" class="btn btn-outlined" style="white-space:nowrap">${icon('zap',14)} Test Update Speed</button>
     </div>
@@ -141,7 +142,7 @@ async function loadPortalSettings() {
       resultBox.style.display = 'block';
       resultBox.innerHTML = `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
-          ${_settingsMetric('Sheet write', (result.apiWriteMs || 0) + ' ms')}
+          ${_settingsMetric('API write', (result.apiWriteMs || 0) + ' ms')}
           ${_settingsMetric('Total server', (result.totalMs || 0) + ' ms')}
           ${_settingsMetric('Rows', result.updatedRows || 0)}
           ${_settingsMetric('Sheet', result.sheetName || '-')}
@@ -151,7 +152,7 @@ async function loadPortalSettings() {
           <div><b>Test ID:</b> ${escapeHtml(result.testId || '-')}</div>
           <div><b>Server time:</b> ${escapeHtml(result.serverTimestamp || '-')}</div>
         </div>`;
-      toast('Spreadsheet write test complete!', 'success');
+      toast('Sheets API write test complete!', 'success');
     } catch (err) {
       resultBox.style.display = 'block';
       resultBox.innerHTML = `<div style="padding:10px;border-radius:8px;background:#fee2e2;color:#991b1b">${escapeHtml(err.message || String(err))}</div>`;
@@ -350,7 +351,7 @@ function _installConfigFieldsFallback() {
     const form = overlay.querySelector('#field-form');
     window._toggleFieldTargetOptions(form, true);
     form.querySelector('[name="Stage ID"]')?.addEventListener('change', () => window._toggleFieldTargetOptions(form));
-    form.addEventListener('submit', async e => {
+    form.addEventListener('submit', e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const payload = Object.fromEntries(fd.entries());
@@ -362,20 +363,13 @@ function _installConfigFieldsFallback() {
       payload['Allow Multiple'] = fd.has('Allow Multiple');
       payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
       if (isEdit) payload['Field ID'] = data['Field ID'];
-      const btn = e.target.querySelector('[type=submit]');
-      setButtonLoading(btn);
-      toast('Saving field...', 'info');
-      const result = await runAsyncMutation({
+      overlay.remove();
+      QueueManager.enqueue({
         module: 'fields', actionType: 'saveFieldConfig', payload,
-        onDone: async () => {
-          toast('Custom field saved!');
-          await _refreshAppConfig().catch(() => {});
-          overlay.remove();
-          if (App.currentPage === 'config') await window.loadFieldConfig();
-        },
+        onDone: () => { toast('Custom field saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadFieldConfig(); },
         onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
       });
-      if (!result) resetButtonLoading(btn);
+      toast('Saving field...', 'info');
     });
   };
   window._toggleFieldTargetOptions = function(form, preserveValues = false) {

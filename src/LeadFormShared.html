@@ -67,31 +67,12 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
             ${cfg.users.map(u => `<option value="${escapeHtml(u.id)}" ${d['Assigned To'] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
           </select></div>` : ''}
       </div>
-    ${buildLeadCustomFieldsHTML(d, customFields, configOptions, { hideAllStagePerStage: true })}
-    <div class="lead-form-error" style="display:none;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:#FEF2F2;color:#991B1B;border:1px solid #FECACA;font-size:13px;line-height:1.4"></div>
+    ${buildLeadCustomFieldsHTML(d, customFields, configOptions)}
     <div class="modal-footer">
       <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>
     </div>
   </form>`;
-  }
-
-  function _showLeadFormError(form, message) {
-    const box = form && form.querySelector('.lead-form-error');
-    if (!box) return;
-    box.innerHTML = `${icon('circle-alert', 14)} <span>${escapeHtml(message || 'Save failed. Please try again.')}</span>`;
-    box.style.display = 'flex';
-    box.style.alignItems = 'flex-start';
-    box.style.gap = '8px';
-    renderIcons(box);
-    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
-  function _clearLeadFormError(form) {
-    const box = form && form.querySelector('.lead-form-error');
-    if (!box) return;
-    box.style.display = 'none';
-    box.innerHTML = '';
   }
 
 
@@ -128,32 +109,21 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
     });
   }
 
-  function _upsertLeadInCache(leadId, row) {
-    if (!leadId || !AppCache.isLoaded('leads')) return;
-    const exists = AppCache.getRows('leads').some(r => _leadRowId(r) === leadId);
-    if (exists) AppCache.patchRow('leads', 'Lead ID', leadId, row);
-    else AppCache.addRow('leads', { ...row, 'Lead ID': leadId });
-  }
-
-  async function deleteLeadConfirm(leadId, overlay, btn) {
+  function deleteLeadConfirm(leadId, overlay) {
     if (!leadId) return;
     if (!confirm('Delete this lead and all related follow-ups, history, activity logs, and custom field values? This cannot be undone.')) return;
-    if (btn) setButtonLoading(btn, 'Deleting...');
-    toast('Deleting...', 'info');
-    const result = await runAsyncMutation({
+    _removeLeadRelatedRowsFromCache(leadId);
+    if (overlay) overlay.remove();
+    _refreshLeadViewsAfterLocalChange();
+    QueueManager.enqueue({
       module: 'leads', actionType: 'deleteLead',
       payload: { id: leadId },
-      onDone: async () => {
-        _removeLeadRelatedRowsFromCache(leadId);
-        if (overlay) overlay.remove();
-        await _refreshLeadViewsAfterLocalChange();
-        toast('Lead deleted!');
-      },
+      onDone: () => toast('Lead deleted!'),
       onFail: j => {
         toast('Delete failed: ' + (j.error || 'Error'), 'error');
         _refreshLeadsCache().catch(() => {});
       }
     });
-    if (!result && btn) resetButtonLoading(btn);
+    toast('Deleting…', 'info');
   }
 </script>

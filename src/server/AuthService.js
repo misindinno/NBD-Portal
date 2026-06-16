@@ -79,20 +79,16 @@ function getPortalAccessForUser_(user, email, portalKey) {
   const normEmail = String(email || user['Email Address'] || '').trim().toLowerCase();
   try {
     ensureUserPortalAccessSheet_();
-    return _findPortalAccessRow_(getAllRows(SHEET_NAMES.USER_PORTAL_ACCESS), key, userId, normEmail);
+    return getAllRows(SHEET_NAMES.USER_PORTAL_ACCESS).find(r =>
+      String(r['Portal Key'] || '').trim().toUpperCase() === key &&
+      (
+        (userId && String(r['User ID'] || '') === String(userId)) ||
+        (normEmail && String(r['Email Address'] || '').trim().toLowerCase() === normEmail)
+      )
+    ) || null;
   } catch (e) {
     return null;
   }
-}
-
-function _findPortalAccessRow_(accessRows, key, userId, normEmail) {
-  return (accessRows || []).find(r =>
-    String(r['Portal Key'] || '').trim().toUpperCase() === key &&
-    (
-      (userId && String(r['User ID'] || '') === String(userId)) ||
-      (normEmail && String(r['Email Address'] || '').trim().toLowerCase() === normEmail)
-    )
-  ) || null;
 }
 
 function mergeUserPortalAccess_(user, access) {
@@ -122,12 +118,11 @@ function mergeUserPortalAccess_(user, access) {
 function getUsersWithPortalAccess_(portalKey, includeInactive) {
   const key = String(portalKey || currentPortalKey_()).trim().toUpperCase();
   ensureUserPortalAccessSheet_();
-  const accessRows = getAllRows(SHEET_NAMES.USER_PORTAL_ACCESS);
   return getAllRows(SHEET_NAMES.USERS)
     .filter(u => includeInactive || isActiveUserValue(u['Is Active']))
     .map(u => {
       const email = String(u['Email Address'] || '').trim().toLowerCase();
-      const access = _findPortalAccessRow_(accessRows, key, getStaffUserId(u, email), email);
+      const access = getPortalAccessForUser_(u, email, key);
       return mergeUserPortalAccess_(u, access);
     })
     .filter(u => includeInactive || isActiveUserValue(u['Is Active']));
@@ -260,7 +255,7 @@ function canManageUsersPermission(user) {
 
 function requireConfigEditor() {
   const trustedEmail = TRUSTED_WRITE_EMAIL;
-  if (!trustedEmail) throw new Error('Direct write calls require an authenticated user.');
+  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use the queue API.');
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   if (!canEditConfigPermission(result.data)) throw new Error('Permission denied.');
@@ -269,17 +264,17 @@ function requireConfigEditor() {
 
 function requireUserManager() {
   const trustedEmail = TRUSTED_WRITE_EMAIL;
-  if (!trustedEmail) throw new Error('Direct write calls require an authenticated user.');
+  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use the queue API.');
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   if (!canManageUsersPermission(result.data)) throw new Error('Permission denied.');
   return result.data;
 }
 
-// Used by direct writes — validates email + role before any write
+// Used by queued writes — validates email + role before any write
 function requireRole(allowedRoles) {
   const trustedEmail = TRUSTED_WRITE_EMAIL;
-  if (!trustedEmail) throw new Error('Direct write calls require an authenticated user.');
+  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use the queue API.');
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   if (!allowedRoles.includes(result.data.role)) throw new Error('Permission denied.');
