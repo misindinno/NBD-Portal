@@ -185,6 +185,40 @@ function getAllRowsSpreadsheet_(sheetName) {
 // When CLIENT_CONFIG.AGGREGATE_SOURCES is set, reads the same sheet from every
 // listed spreadsheet and concatenates the rows, tagging each row with
 // _source and _sourceName for downstream filtering.
+//
+// IMPORTANT: each source is a separate SpreadsheetApp.openById + getValues call,
+// so a dashboard with 4 sources = 4 quota units per sheet. To stay under the
+// per-account Spreadsheet read throttle (~200–300/min, shared across users when
+// deployed "Execute as: Me"), we memoize each (sheet × source) for a short
+// window via CacheService. Re-loads inside that window cost zero API calls.
+const _AGGREGATE_CACHE_TTL_SECONDS = 60;
+
+function _aggregateCacheGet_(key) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const raw = cache.get(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+
+function _aggregateCachePut_(key, value) {
+  try {
+    const json = JSON.stringify(value);
+    // CacheService rejects >100 KB per key; skip cache for huge sheets rather than throw.
+    if (json.length > 95000) return;
+    CacheService.getScriptCache().put(key, json, _AGGREGATE_CACHE_TTL_SECONDS);
+  } catch (e) {}
+}
+
+function invalidateAggregateCache(sheetName) {
+  try {
+    const sources = (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.AGGREGATE_SOURCES) || [];
+    const keys = sources.map(src => 'AGG::' + normalizeSheetName(sheetName) + '::' + (src && src.spreadsheetId || ''));
+    CacheService.getScriptCache().removeAll(keys);
+  } catch (e) {}
+}
+
 function getAggregatedRows(sheetName) {
   assertServerContext_();
   const sources = (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.AGGREGATE_SOURCES) || [];
@@ -194,11 +228,17 @@ function getAggregatedRows(sheetName) {
   const merged = [];
   sources.forEach(src => {
     if (!src || !src.spreadsheetId) return;
-    const rows = sheetApiValuesToRows_(sheetApiGetValues_(resolved, 'A:ZZ', src.spreadsheetId));
+    const cacheKey = 'AGG::' + resolved + '::' + src.spreadsheetId;
+    let rows = _aggregateCacheGet_(cacheKey);
+    if (!rows) {
+      rows = sheetApiValuesToRows_(sheetApiGetValues_(resolved, 'A:ZZ', src.spreadsheetId));
+      _aggregateCachePut_(cacheKey, rows);
+    }
     rows.forEach(row => {
-      const obj = { ...row };
-      obj._source = src.key || '';
-      obj._sourceName = src.name || src.key || '';
+      const obj = Object.assign({}, row, {
+        _source: src.key || '',
+        _sourceName: src.name || src.key || ''
+      });
       merged.push(obj);
     });
   });
