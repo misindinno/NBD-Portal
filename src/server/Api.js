@@ -289,7 +289,12 @@ function apiGetTodayActivitySnapshot(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireAnyModule(['Dashboard', 'Followups', 'Leads']);
-    return respond(getTodayActivitySnapshotFast_(user));
+    try {
+      return respond(getTodayActivitySnapshotFast_(user));
+    } catch (e) {
+      Logger.log('[Today] Snapshot helper failed; using SpreadsheetApp fallback: ' + (e.message || e));
+      return respond(_buildTodayActivitySnapshotSpreadsheet_(user));
+    }
   });
 }
 
@@ -297,7 +302,12 @@ function apiGetFollowupPageSnapshot(token, options) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    return respond(getFollowupPageSnapshotFast_(user, options || {}));
+    try {
+      return respond(getFollowupPageSnapshotFast_(user, options || {}));
+    } catch (e) {
+      Logger.log('[Followups] Snapshot helper failed; using SpreadsheetApp fallback: ' + (e.message || e));
+      return respond(_buildFollowupPageSnapshotSpreadsheet_(user, options || {}));
+    }
   });
 }
 
@@ -313,7 +323,7 @@ function apiGetFollowupFormData(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    const snapshot = getFollowupPageSnapshotFast_(user, { includeHistory: false });
+    const snapshot = _getFollowupSnapshotForApi_(user, { includeHistory: false });
     const leads = (snapshot.leads || [])
       .filter(l => l['Lead Status'] === 'Open');
     return respond({ leads });
@@ -324,7 +334,7 @@ function apiGetFollowupLeads(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     const user = _requireModule('Followups');
-    const snapshot = getFollowupPageSnapshotFast_(user, { includeHistory: false });
+    const snapshot = _getFollowupSnapshotForApi_(user, { includeHistory: false });
     return respond(snapshot.leads || []);
   });
 }
@@ -698,6 +708,50 @@ function _buildLeadMapById_() {
     if (l['Lead ID']) m[l['Lead ID']] = l;
     return m;
   }, {});
+}
+
+function _getFollowupSnapshotForApi_(user, options) {
+  try {
+    return getFollowupPageSnapshotFast_(user, options || {});
+  } catch (e) {
+    Logger.log('[Followups] Snapshot helper failed; using SpreadsheetApp fallback: ' + (e.message || e));
+    return _buildFollowupPageSnapshotSpreadsheet_(user, options || {});
+  }
+}
+
+function _buildFollowupPageSnapshotSpreadsheet_(user, options) {
+  const started = Date.now();
+  const includeHistory = !!(options && options.includeHistory);
+  const allLeads = _leadRows();
+  const visibleLeads = _scopeAssignedRows(allLeads, user);
+  const visibleLeadMap = visibleLeads.reduce((map, lead) => {
+    if (lead['Lead ID']) map[lead['Lead ID']] = true;
+    return map;
+  }, {});
+  const followups = _scopeFollowupRows(getFollowups({ includeClosed: true }), user);
+  const linkedLeadMap = followups.reduce((map, row) => {
+    if (row['Lead ID']) map[row['Lead ID']] = true;
+    return map;
+  }, {});
+  return {
+    leads: allLeads.filter(lead => visibleLeadMap[lead['Lead ID']] || linkedLeadMap[lead['Lead ID']]),
+    followups,
+    followupHistory: includeHistory ? _scopeFollowupHistoryRows(getFollowupHistory({}), user) : [],
+    source: 'spreadsheet-app-fallback',
+    fetchMs: Date.now() - started,
+    fetchedAt: now()
+  };
+}
+
+function _buildTodayActivitySnapshotSpreadsheet_(user) {
+  return {
+    leads: _scopeAssignedRows(_leadRows(), user),
+    followups: _scopeFollowupRows(getFollowups({ includeClosed: true }), user),
+    followupHistory: _scopeFollowupHistoryRows(getFollowupHistory({}), user),
+    activityLogs: _scopeActivityLogRows(getLeadActivityLogs({}), user),
+    source: 'spreadsheet-app-fallback',
+    fetchedAt: now()
+  };
 }
 
 function _leadRows() {
