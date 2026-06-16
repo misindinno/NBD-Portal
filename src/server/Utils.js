@@ -38,6 +38,13 @@ function formatDate(date) {
   return Utilities.formatDate(new Date(date), Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
+// Like formatDate but preserves the time component. Use when "when exactly did
+// this happen" matters (e.g. Done Date on follow-ups).
+function formatDateTime(date) {
+  if (!date) return '';
+  return Utilities.formatDate(new Date(date), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+}
+
 function daysDiff(dateStr) {
   if (!dateStr) return null;
   const diff = new Date() - new Date(dateStr);

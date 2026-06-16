@@ -184,6 +184,10 @@ async function openMarkFollowupDoneForm(followupId) {
     .map(c => '<option>' + escapeHtml(c['Value']) + '</option>').join('');
   const stageOptionsHTML = lead ? _fuNextStageOptionsHTML(lead['Lead ID'], snapshot.leads || []) : '<option value="">No Change</option>';
   const todayStr = localDateInputValue();
+  // Local-time `YYYY-MM-DDTHH:MM` (the format `datetime-local` expects).
+  const _nowLocal = new Date();
+  _nowLocal.setMinutes(_nowLocal.getMinutes() - _nowLocal.getTimezoneOffset());
+  const nowDateTime = _nowLocal.toISOString().slice(0, 16);
   const _maxD = new Date(); _maxD.setDate(_maxD.getDate() + 7);
   const maxNextDate = _maxD.toISOString().split('T')[0];
   const stageMap = (App.config.allStages || App.config.stages || []).reduce(function(m,s){m[s['Stage ID']]=s;return m;},{});
@@ -221,8 +225,8 @@ async function openMarkFollowupDoneForm(followupId) {
     <form id="fu-done-form" data-current-final-stage="${leadIsFinalStage ? 'true' : 'false'}">
       <div class="form-row">
         <div class="form-group">
-          <label>Done Date *</label>
-          <input class="form-control" name="Done Date" type="date" value="${todayStr}" disabled max="${todayStr}" required>
+          <label>Done At *</label>
+          <input class="form-control" name="Done Date" type="datetime-local" value="${nowDateTime}" max="${nowDateTime}" required>
         </div>
         <div class="form-group">
           <label>Next Planned Date <span id="fu-next-date-required" style="font-size:10px;color:#ef4444;font-weight:700">*</span></label>

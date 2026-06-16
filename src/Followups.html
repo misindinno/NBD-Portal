@@ -757,7 +757,10 @@ function _fuTableRow(r) {
       const doneDate = r['Done Date'] || r._lastDoneDate || '';
       const fallbackDate = r['Follow-up Date'] || '';
       if (doneDate) {
-        return `<div class="fu-date-sub fu-date-done" title="Last done date"><span class="fu-date-tag">Done</span> ${formatDate(doneDate)}</div>`;
+        // If the value carries a time component, show date + time; otherwise just date.
+        const hasTime = /\d{1,2}:\d{2}/.test(String(doneDate));
+        const shown = hasTime ? formatDateTime(doneDate) : formatDate(doneDate);
+        return `<div class="fu-date-sub fu-date-done" title="Last done at ${escapeHtml(shown)}"><span class="fu-date-tag">Done</span> ${shown}</div>`;
       }
       return `<div class="fu-date-sub muted-text">${fallbackDate ? formatDate(fallbackDate) : '-'}</div>`;
     })()}</td>

@@ -136,7 +136,8 @@ function markFollowupDone(followupId, data, email) {
   if (row['Lead ID'] && !lead) return respond(null, 'Linked lead not found.');
   if (!_canWriteFollowupRow(row, lead, user)) return respond(null, 'Permission denied.');
 
-  const doneDate = formatDate(data['Done Date'] || today());
+  // Preserve the time the user actually marked done; fall back to "now" if empty.
+  const doneDate = formatDateTime(data['Done Date'] || new Date());
   const nextDate = formatDate(data['Next Follow-up Date'] || data['Next Planned Date'] || '');
   const remark = String(data['Remark'] || '').trim();
   if (!remark) return respond(null, 'Done remark is required.');
