@@ -128,6 +128,13 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
     });
   }
 
+  function _upsertLeadInCache(leadId, row) {
+    if (!leadId || !AppCache.isLoaded('leads')) return;
+    const exists = AppCache.getRows('leads').some(r => _leadRowId(r) === leadId);
+    if (exists) AppCache.patchRow('leads', 'Lead ID', leadId, row);
+    else AppCache.addRow('leads', { ...row, 'Lead ID': leadId });
+  }
+
   async function deleteLeadConfirm(leadId, overlay, btn) {
     if (!leadId) return;
     if (!confirm('Delete this lead and all related follow-ups, history, activity logs, and custom field values? This cannot be undone.')) return;

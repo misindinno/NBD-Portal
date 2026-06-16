@@ -162,21 +162,29 @@ function _collectionsForMutationAction(actionType, moduleName) {
   }[moduleName] || [];
 }
 
-function _refreshAfterMutation(mutation) {
+async function _refreshAfterMutation(mutation) {
   const collections = _collectionsForMutationAction(mutation?.actionType, mutation?.module);
-  if (collections.includes('leads')) _refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed after mutation', e));
+  const jobs = [];
+  if (collections.includes('leads')) {
+    jobs.push(_refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed after mutation', e)));
+  }
   if (collections.includes('followups')) {
     if (App.currentPage?.startsWith('followups')) {
       if (typeof _fuMarkStateStale === 'function') _fuMarkStateStale();
     } else {
-      _refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed after mutation', e));
+      jobs.push(_refreshFollowupsCache().catch(e => console.warn('[AppData] Follow-up refresh failed after mutation', e)));
     }
   }
   if (collections.includes('followupHistory') && AppCache.isLoaded('followupHistory') && !App.currentPage?.startsWith('followups')) {
-    _refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed after mutation', e));
+    jobs.push(_refreshFollowupHistoryCache().catch(e => console.warn('[AppData] Follow-up history refresh failed after mutation', e)));
   }
-  if (collections.includes('activityLogs') && AppCache.isLoaded('activityLogs')) _refreshActivityLogsCache().catch(e => console.warn('[AppData] Activity log refresh failed after mutation', e));
-  if (collections.includes('config')) _refreshAppConfig().catch(e => console.warn('[AppData] Config refresh failed after mutation', e));
+  if (collections.includes('activityLogs') && AppCache.isLoaded('activityLogs')) {
+    jobs.push(_refreshActivityLogsCache().catch(e => console.warn('[AppData] Activity log refresh failed after mutation', e)));
+  }
+  if (collections.includes('config')) {
+    jobs.push(_refreshAppConfig().catch(e => console.warn('[AppData] Config refresh failed after mutation', e)));
+  }
+  await Promise.all(jobs);
 }
 
 async function _refreshLeadsCache() {

@@ -128,7 +128,11 @@ async function openLeadDetail(leadId) {
           const result = await runAsyncMutation({
             module: 'leads', actionType: 'saveLead', payload,
             onDone: async () => {
-              AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
+              if (typeof _upsertLeadInCache === 'function') {
+                _upsertLeadInCache(lead['Lead ID'], { ...payload, 'Lead ID': lead['Lead ID'], 'Updated At': _nowStr() });
+              } else {
+                AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
+              }
               overlay.remove();
               await _refreshLeadViewsAfterLocalChange();
               toast('Lead saved!');

@@ -430,7 +430,7 @@
               onDone: () => {
                 if (typeof _removeLeadRelatedRowsFromCache === 'function') _removeLeadRelatedRowsFromCache(leadId);
                 else AppCache.removeRow('leads', 'Lead ID', leadId);
-                cell.getRow().delete();
+                _refreshLeadViewsAfterLocalChange();
                 toast('Lead deleted!');
               },
               onFail: j => {
@@ -555,14 +555,15 @@
         module: 'leads', actionType: 'saveLead', payload,
         onDone: async ({ result: savedId }) => {
           const finalId = savedId || updateId || payload['Lead ID'] || '';
-          if (isUpdate && AppCache.isLoaded('leads')) {
-            AppCache.patchRow('leads', 'Lead ID', updateId, { ...payload, 'Lead ID': finalId, 'Updated At': _nowStr() });
-          } else if (!isUpdate && AppCache.isLoaded('leads')) {
-            AppCache.addRow('leads', {
-              ...payload, 'Lead ID': finalId,
+          if (AppCache.isLoaded('leads')) {
+            const localRow = {
+              ...payload,
+              'Lead ID': finalId,
               'Lead Status': payload['Lead Status'] || 'Open',
-              'Created At': _nowStr(), 'Updated At': _nowStr()
-            });
+              'Updated At': _nowStr()
+            };
+            if (!isUpdate) localRow['Created At'] = _nowStr();
+            if (typeof _upsertLeadInCache === 'function') _upsertLeadInCache(finalId, localRow);
           }
           overlay.remove();
           _refreshLeadViewsAfterLocalChange();
