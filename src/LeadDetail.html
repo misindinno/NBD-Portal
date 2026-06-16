@@ -1,27 +1,34 @@
 <script>
 async function openLeadDetail(leadId) {
-    // Serve from cache; use the single-lead endpoint when heavy detail caches are absent.
+    // Strategy: render the modal IMMEDIATELY with whatever's cached so the user
+    // sees lead details + open follow-ups instantly. Background-load the heavier
+    // history/activity-log slices only if they're missing.
     let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
     let followups = AppCache.isLoaded('followups')
       ? AppCache.getRows('followups').filter(f => f['Lead ID'] === leadId)
       : [];
     let followupHistory = AppCache.isLoaded('followupHistory')
       ? AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId)
-      : [];
+      : null; // null = not yet loaded → render spinner placeholder
     let activityLogs = AppCache.isLoaded('activityLogs')
       ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId)
-      : [];
+      : null;
 
-    const needsLeadDetail = !lead || !AppCache.isLoaded('followups') || !AppCache.isLoaded('followupHistory') || !AppCache.isLoaded('activityLogs');
-    if (needsLeadDetail) {
-      const data = await api.getLead(leadId);
-      if (!lead) lead = data.lead;
-      if (!AppCache.isLoaded('followups')) followups = data.followups || [];
-      if (!AppCache.isLoaded('followupHistory')) followupHistory = data.followupHistory || [];
-      if (!AppCache.isLoaded('activityLogs')) activityLogs = data.activityLogs || [];
+    // Only block on a network call if we don't even have the lead itself.
+    if (!lead) {
+      try {
+        const data = await api.getLead(leadId);
+        lead = data && data.lead;
+        if (!AppCache.isLoaded('followups'))       followups        = data.followups        || [];
+        if (followupHistory === null)              followupHistory  = data.followupHistory  || [];
+        if (activityLogs === null)                 activityLogs     = data.activityLogs     || [];
+      } catch (e) {
+        toast('Lead not found or no longer available.', 'error');
+        return;
+      }
     }
     if (!lead) {
-      showToast('Lead not found or no longer available.', 'error');
+      toast('Lead not found or no longer available.', 'error');
       return;
     }
     followups = followups.sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
@@ -99,10 +106,14 @@ async function openLeadDetail(leadId) {
       </div>
     </div>
     <div id="tab-history" class="tab-pane">
-      ${_followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
+      ${followupHistory === null
+        ? '<div class="muted-text" style="padding:18px;display:flex;align-items:center;gap:8px"><span class="spinner" style="width:14px;height:14px"></span> Loading follow-up history…</div>'
+        : _followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
     </div>
     <div id="tab-log" class="tab-pane" style="display:none">
-      ${_activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
+      ${activityLogs === null
+        ? '<div class="muted-text" style="padding:18px;display:flex;align-items:center;gap:8px"><span class="spinner" style="width:14px;height:14px"></span> Loading activity logs…</div>'
+        : _activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
     </div>
     ${isNbdLocked ? `<div class="locked-panel">
       ${icon('lock', 18)}
@@ -151,6 +162,37 @@ async function openLeadDetail(leadId) {
     }
     initLeadCustomFields(overlay);
     _initStateCityDropdowns(overlay, lead['State'] || '', lead['City'] || '');
+
+    // ── Lazy-load history / activity logs if they weren't in cache ──────────
+    if (followupHistory === null || activityLogs === null) {
+      (async () => {
+        try {
+          const data = await api.getLead(leadId);
+          if (!data) return;
+          if (!overlay.isConnected) return; // user already closed the modal
+          if (followupHistory === null) {
+            const histPane = overlay.querySelector('#tab-history');
+            if (histPane) {
+              histPane.innerHTML = _followupHistoryTable(data.followupHistory || [], 'No follow-up history yet.', fuContext);
+              renderIcons(histPane);
+            }
+          }
+          if (activityLogs === null) {
+            const logPane = overlay.querySelector('#tab-log');
+            if (logPane) {
+              logPane.innerHTML = _activityLogTable(data.activityLogs || [], 'No activity logs yet.', fuContext);
+              renderIcons(logPane);
+            }
+          }
+        } catch (err) {
+          console.warn('[LeadDetail] lazy history fetch failed:', err);
+          const histPane = overlay.querySelector('#tab-history');
+          if (histPane && followupHistory === null) histPane.innerHTML = '<div class="muted-text" style="padding:18px">Could not load history. Try reopening the lead.</div>';
+          const logPane = overlay.querySelector('#tab-log');
+          if (logPane && activityLogs === null) logPane.innerHTML = '<div class="muted-text" style="padding:18px">Could not load activity logs. Try reopening the lead.</div>';
+        }
+      })();
+    }
   }
 
   function switchTab(btn, tabId) {
