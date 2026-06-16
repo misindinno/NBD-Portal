@@ -101,7 +101,7 @@ function rebuildIndexForSheet_(sheetName) {
       const built = def.build(row, row._rowNumber);
       return built[h] !== undefined ? built[h] : '';
     }));
-  if (rows.length) sheetApiSetValues_(def.indexSheet, 'A2:' + _columnLetter_(def.headers.length) + (rows.length + 1), rows);
+  if (rows.length) indexSheet.getRange(2, 1, rows.length, def.headers.length).setValues(rows);
   return rows.length;
 }
 
@@ -306,9 +306,9 @@ function syncIndexRow_(sheetName, rowObj, rowNumber) {
   const values = def.headers.map(h => built[h] !== undefined ? built[h] : '');
   const hit = _findIndexRecord_(def, def.idColumn, id);
   if (hit) {
-    sheetApiSetValues_(def.indexSheet, 'A' + hit.rowNumber + ':' + _columnLetter_(def.headers.length) + hit.rowNumber, [values]);
+    indexSheet.getRange(hit.rowNumber, 1, 1, def.headers.length).setValues([values]);
   } else {
-    sheetApiAppendValues_(def.indexSheet, [values]);
+    indexSheet.getRange(indexSheet.getLastRow() + 1, 1, 1, def.headers.length).setValues([values]);
   }
 }
 
@@ -378,16 +378,16 @@ function _clearIndexBody_(sheet) {
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
   if (lastRow > 1 && lastCol > 0) {
-    sheetApiClearValues_(sheet.getName(), 'A2:' + _columnLetter_(lastCol) + lastRow);
+    sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
   }
 }
 
 function _resetIndexSheet_(sheet, headers) {
   const maxRows = sheet.getMaxRows();
   const maxCols = sheet.getMaxColumns();
-  if (maxRows > 0 && maxCols > 0) sheetApiClearValues_(sheet.getName(), 'A1:' + _columnLetter_(maxCols) + maxRows);
+  if (maxRows > 0 && maxCols > 0) sheet.getRange(1, 1, maxRows, maxCols).clearContent();
   if (sheet.getMaxColumns() < headers.length) sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
-  sheetApiSetValues_(sheet.getName(), 'A1:' + _columnLetter_(headers.length) + '1', [headers]);
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   _styleHeaderRow(sheet, 1, headers.length);
 }
 

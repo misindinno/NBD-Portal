@@ -99,7 +99,9 @@ function _insertLeadMasterRowBlockingDuplicates_(leadRow) {
     const rowObj = pickLeadMasterFields_(leadRow);
     const headers = getHeaders(SHEET_NAMES.LEADS);
     const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
-    const rowNumber = sheetApiAppendValues_(SHEET_NAMES.LEADS, [row]) || getSheet(SHEET_NAMES.LEADS).getLastRow();
+    const sheet = getSheet(SHEET_NAMES.LEADS);
+    const rowNumber = sheet.getLastRow() + 1;
+    sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
     if (typeof syncIndexRow_ === 'function') syncIndexRow_(SHEET_NAMES.LEADS, rowObj, rowNumber);
     return { success: true };
   } finally {

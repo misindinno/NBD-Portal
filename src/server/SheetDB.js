@@ -86,58 +86,44 @@ function sheetApiGetValues_(sheetName, range, spreadsheetId) {
 
 function sheetApiSetValues_(sheetName, range, values, spreadsheetId) {
   assertServerContext_();
-  assertSheetsApiAvailable_();
-  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
-  Sheets.Spreadsheets.Values.update(
-    { values: values || [] },
-    id,
-    sheetApiRange_(sheetName, range),
-    { valueInputOption: 'USER_ENTERED' }
-  );
+  const sheet = getSheetForSpreadsheet_(sheetName, spreadsheetId);
+  const data = values || [];
+  if (!data.length) return;
+  sheet.getRange(range).setValues(data);
 }
 
 function sheetApiClearValues_(sheetName, range, spreadsheetId) {
   assertServerContext_();
-  assertSheetsApiAvailable_();
-  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
-  Sheets.Spreadsheets.Values.clear({}, id, sheetApiRange_(sheetName, range));
+  getSheetForSpreadsheet_(sheetName, spreadsheetId).getRange(range).clearContent();
 }
 
 function sheetApiAppendValues_(sheetName, values, spreadsheetId) {
   assertServerContext_();
-  assertSheetsApiAvailable_();
-  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
-  const res = Sheets.Spreadsheets.Values.append(
-    { values: values || [] },
-    id,
-    sheetApiRange_(sheetName, 'A:ZZ'),
-    { valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS' }
-  );
-  return _sheetApiStartRowFromRange_(res && res.updates && res.updates.updatedRange);
+  const data = values || [];
+  if (!data.length) return 0;
+  const sheet = getSheetForSpreadsheet_(sheetName, spreadsheetId);
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, data.length, data[0].length).setValues(data);
+  return startRow;
 }
 
 function sheetApiDeleteRow_(sheetName, rowNumber, spreadsheetId) {
   assertServerContext_();
-  assertSheetsApiAvailable_();
-  const sheet = getSheet(sheetName);
-  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
-  Sheets.Spreadsheets.batchUpdate({
-    requests: [{
-      deleteDimension: {
-        range: {
-          sheetId: sheet.getSheetId(),
-          dimension: 'ROWS',
-          startIndex: Number(rowNumber) - 1,
-          endIndex: Number(rowNumber)
-        }
-      }
-    }]
-  }, id);
+  getSheetForSpreadsheet_(sheetName, spreadsheetId).deleteRow(Number(rowNumber));
 }
 
 function _sheetApiStartRowFromRange_(range) {
   const match = String(range || '').match(/[A-Z]+(\d+)/i);
   return match ? Number(match[1]) : 0;
+}
+
+function getSheetForSpreadsheet_(sheetName, spreadsheetId) {
+  const normalized = normalizeSheetName(sheetName);
+  if (!spreadsheetId) return getSheet(normalized);
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  let sheet = ss.getSheetByName(normalized);
+  if (!sheet) sheet = ss.insertSheet(normalized);
+  return sheet;
 }
 
 function sheetApiValuesToRows_(values) {
@@ -238,7 +224,9 @@ function insertRow(sheetName, rowObj) {
   let rowNumber = 0;
   lock.waitLock(10000);
   try {
-    rowNumber = sheetApiAppendValues_(sheetName, [row]) || getSheet(sheetName).getLastRow();
+    const sheet = getSheet(sheetName);
+    rowNumber = sheet.getLastRow() + 1;
+    sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
   } finally {
     lock.releaseLock();
   }
@@ -252,28 +240,29 @@ function updateRow(sheetName, idColumn, idValue, updates) {
   let syncedRow = null;
   let syncedRowNumber = 0;
   try {
-    const data = sheetApiGetValues_(sheetName, 'A:ZZ');
-    if (data.length < 2) return false;
-    const headers = data[0];
+    const sheet = getSheet(sheetName);
+    const values = sheet.getDataRange().getValues();
+    if (values.length < 2) return false;
+    const headers = values[0].map(String);
     const col = headers.indexOf(idColumn);
     if (col === -1) return false;
     let rowIndex = -1;
     const indexedRow = typeof findIndexedRowNumber_ === 'function'
       ? findIndexedRowNumber_(sheetName, idColumn, idValue)
       : -1;
-    if (indexedRow > 1 && indexedRow <= data.length && String(data[indexedRow - 1][col]) === String(idValue)) {
+    if (indexedRow > 1 && indexedRow <= values.length && String(values[indexedRow - 1][col]) === String(idValue)) {
       rowIndex = indexedRow - 1;
     } else {
-      for (let i = 1; i < data.length; i++) {
-        if (String(data[i][col]) === String(idValue)) { rowIndex = i; break; }
+      for (let i = 1; i < values.length; i++) {
+        if (String(values[i][col]) === String(idValue)) { rowIndex = i; break; }
       }
     }
     if (rowIndex === -1) return false;
     // Fix #9: build full updated row and write in a single setValues call
     const updatedRow = headers.map((h, i) =>
-      updates[h] !== undefined ? updates[h] : data[rowIndex][i]
+      updates[h] !== undefined ? updates[h] : values[rowIndex][i]
     );
-    sheetApiSetValues_(sheetName, 'A' + (rowIndex + 1) + ':' + _columnLetter_(headers.length) + (rowIndex + 1), [updatedRow]);
+    sheet.getRange(rowIndex + 1, 1, 1, headers.length).setValues([updatedRow]);
     syncedRow = headers.reduce((obj, h, i) => {
       obj[h] = normalizeSheetValue(updatedRow[i]);
       return obj;
@@ -290,13 +279,14 @@ function deleteRow(sheetName, idColumn, idValue) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const data = sheetApiGetValues_(sheetName, 'A:ZZ');
+    const sheet = getSheet(sheetName);
+    const data = sheet.getDataRange().getValues();
     if (data.length < 2) return false;
-    const col = data[0].indexOf(idColumn);
+    const col = data[0].map(String).indexOf(idColumn);
     if (col === -1) return false;
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][col]) === String(idValue)) {
-        sheetApiDeleteRow_(sheetName, i + 1);
+        sheet.deleteRow(i + 1);
         if (typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
         return true;
       }
@@ -313,12 +303,13 @@ function deleteAllRowsWhere(sheetName, filterFn) {
   lock.waitLock(10000);
   let deleted = 0;
   try {
-    const data = sheetApiGetValues_(sheetName, 'A:ZZ');
+    const sheet = getSheet(sheetName);
+    const data = sheet.getDataRange().getValues();
     if (data.length < 2) return 0;
-    const headers = data[0];
+    const headers = data[0].map(String);
     for (let i = data.length - 1; i >= 1; i--) {
       const row = headers.reduce((obj, h, j) => { obj[h] = data[i][j]; return obj; }, {});
-      if (filterFn(row)) { sheetApiDeleteRow_(sheetName, i + 1); deleted++; }
+      if (filterFn(row)) { sheet.deleteRow(i + 1); deleted++; }
     }
   } finally {
     lock.releaseLock();
@@ -340,7 +331,7 @@ function safeInitHeaders(sheetName, requiredHeaders) {
 
   // Sheet is brand new — write full header row
   if (lastCol === 0 || !existingHeaders.length) {
-    sheetApiSetValues_(sheetName, 'A1:' + _columnLetter_(requiredHeaders.length) + '1', [requiredHeaders]);
+    sheet.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders]);
     _styleHeaderRow(sheet, 1, requiredHeaders.length);
     return;
   }
@@ -350,11 +341,7 @@ function safeInitHeaders(sheetName, requiredHeaders) {
   if (missing.length === 0) return; // nothing to do
 
   const startCol = lastCol + 1;
-  sheetApiSetValues_(
-    sheetName,
-    _columnLetter_(startCol) + '1:' + _columnLetter_(startCol + missing.length - 1) + '1',
-    [missing]
-  );
+  sheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
   _styleHeaderRow(sheet, startCol, missing.length);
 }
 

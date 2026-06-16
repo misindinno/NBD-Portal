@@ -315,20 +315,18 @@ function _ensureExternalHeaders_(sheet, requiredHeaders) {
   const lastCol = sheet.getLastColumn();
   const existing = _externalHeaders_(spreadsheetId, sheetName);
   if (lastCol === 0 || !existing.length) {
-    sheetApiSetValues_(sheetName, 'A1:' + _columnLetter_(requiredHeaders.length) + '1', [requiredHeaders], spreadsheetId);
+    sheet.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders]);
     return;
   }
   const missing = requiredHeaders.filter(h => !existing.includes(h));
   if (missing.length) {
-    const start = _columnLetter_(lastCol + 1);
-    const end = _columnLetter_(lastCol + missing.length);
-    sheetApiSetValues_(sheetName, start + '1:' + end + '1', [missing], spreadsheetId);
+    sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
   }
 }
 
 function _appendExternalRow_(sheet, headers, rowObj) {
   const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
-  sheetApiAppendValues_(sheet.getName(), [row], sheet.getParent().getId());
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
 }
 
 // Patches specific columns of a single row in an external sheet identified by keyCol=keyVal.
@@ -341,12 +339,7 @@ function _updateExternalRow_(sheet, headers, keyCol, keyVal, patch) {
     const updatedRow = headers.map((h, colIdx) =>
       patch[h] !== undefined ? patch[h] : data[i][colIdx]
     );
-    sheetApiSetValues_(
-      sheet.getName(),
-      'A' + (i + 1) + ':' + _columnLetter_(headers.length) + (i + 1),
-      [updatedRow],
-      sheet.getParent().getId()
-    );
+    sheet.getRange(i + 1, 1, 1, headers.length).setValues([updatedRow]);
     return true;
   }
   return false;

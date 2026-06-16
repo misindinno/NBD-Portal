@@ -158,9 +158,6 @@ function _sheetApiFollowupHistoryRows_(rows) {
 function runSheetsApiSampleWrite_(user, payload) {
   assertServerContext_();
   if (!canEditConfigPermission(user)) throw new Error('Permission denied.');
-  if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {
-    throw new Error('Google Sheets advanced service is not enabled.');
-  }
 
   const totalStart = Date.now();
   const sheetName = 'SHEETS_API_WRITE_TEST';
@@ -174,27 +171,21 @@ function runSheetsApiSampleWrite_(user, payload) {
     user.email || user.id || '',
     String(payload && payload.clientTimestamp || ''),
     now(),
-    'Sheets API values.append',
+    'SpreadsheetApp setValues',
     note
   ];
 
-  const apiStart = Date.now();
-  const response = Sheets.Spreadsheets.Values.append(
-    { values: [row] },
-    SPREADSHEET_ID,
-    "'" + sheetName.replace(/'/g, "''") + "'!A:G",
-    {
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS'
-    }
-  );
+  const writeStart = Date.now();
+  const sheet = getSheet(sheetName);
+  const rowNumber = sheet.getLastRow() + 1;
+  sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
 
   return {
     sheetName,
     testId: row[0],
-    updatedRange: response.updates && response.updates.updatedRange || '',
-    updatedRows: response.updates && response.updates.updatedRows || 0,
-    apiWriteMs: Date.now() - apiStart,
+    updatedRange: sheetName + '!A' + rowNumber + ':G' + rowNumber,
+    updatedRows: 1,
+    apiWriteMs: Date.now() - writeStart,
     totalMs: Date.now() - totalStart,
     serverTimestamp: row[4]
   };
