@@ -43,8 +43,8 @@ function _installConfigRouteFallback() {
     writeTestCard.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px">
         <div>
-          <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Sheets API Write Speed Test</h3>
-          <p style="color:#666;font-size:13px">Writes one harmless sample row to <b>SHEETS_API_WRITE_TEST</b> using Google Sheets API append, then shows timing.</p>
+          <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Spreadsheet Write Speed Test</h3>
+          <p style="color:#666;font-size:13px">Writes one harmless sample row to <b>SHEETS_API_WRITE_TEST</b> using SpreadsheetApp, then shows timing.</p>
         </div>
         <button id="btn-sheets-api-write-test" class="btn btn-outlined" style="white-space:nowrap">${icon('zap',14)} Test Update Speed</button>
       </div>
@@ -64,7 +64,7 @@ function _installConfigRouteFallback() {
         resultBox.style.display = 'block';
         resultBox.innerHTML = `
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
-            ${metric('API write', (result.apiWriteMs || 0) + ' ms')}
+            ${metric('Sheet write', (result.apiWriteMs || 0) + ' ms')}
             ${metric('Total server', (result.totalMs || 0) + ' ms')}
             ${metric('Rows', result.updatedRows || 0)}
             ${metric('Sheet', result.sheetName || '-')}
@@ -74,7 +74,7 @@ function _installConfigRouteFallback() {
             <div><b>Test ID:</b> ${escapeHtml(result.testId || '-')}</div>
             <div><b>Server time:</b> ${escapeHtml(result.serverTimestamp || '-')}</div>
           </div>`;
-        toast('Sheets API write test complete!', 'success');
+        toast('Spreadsheet write test complete!', 'success');
       } catch (err) {
         resultBox.style.display = 'block';
         resultBox.innerHTML = `<div style="padding:10px;border-radius:8px;background:#fee2e2;color:#991b1b">${escapeHtml(err.message || String(err))}</div>`;

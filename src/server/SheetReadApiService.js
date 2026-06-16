@@ -1,11 +1,7 @@
-// Fast read helpers backed by the Advanced Google Sheets service.
-// Keep browser calls behind Api.js so auth and row scoping still apply.
+// Snapshot read helpers. Keep browser calls behind Api.js so auth and row scoping still apply.
 
 function sheetApiBatchGetRows_(sheetNames) {
   assertServerContext_();
-  if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {
-    throw new Error('Google Sheets advanced service is not enabled.');
-  }
   const specs = (sheetNames || [])
     .map(item => {
       if (typeof item === 'object') {
@@ -19,15 +15,8 @@ function sheetApiBatchGetRows_(sheetNames) {
     .filter(spec => spec.sheetName);
   if (!specs.length) return {};
 
-  const ranges = specs.map(spec => "'" + String(spec.sheetName).replace(/'/g, "''") + "'!" + spec.range);
-  const result = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {
-    ranges,
-    valueRenderOption: 'FORMATTED_VALUE',
-    dateTimeRenderOption: 'FORMATTED_STRING'
-  });
-  const valueRanges = result.valueRanges || [];
   return specs.reduce((map, spec, i) => {
-    map[spec.sheetName] = _sheetApiValuesToRows_(valueRanges[i] && valueRanges[i].values);
+    map[spec.sheetName] = _sheetApiValuesToRows_(sheetApiGetValues_(spec.sheetName, spec.range));
     return map;
   }, {});
 }
@@ -63,7 +52,7 @@ function getTodayActivitySnapshotFast_(user) {
     followups: _scopeFollowupRows(followups, user),
     followupHistory: _scopeFollowupHistoryRows(followupHistory, user),
     activityLogs: _scopeActivityLogRows(activityLogs, user),
-    source: 'sheets-api',
+    source: 'spreadsheet-app',
     fetchedAt: now()
   };
 }
@@ -100,7 +89,7 @@ function getFollowupPageSnapshotFast_(user, options) {
           ['Done By']
         )
       : [],
-    source: 'sheets-api',
+    source: 'spreadsheet-app',
     fetchMs: Date.now() - started,
     fetchedAt: now()
   };

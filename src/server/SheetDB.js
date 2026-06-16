@@ -56,12 +56,6 @@ function spreadsheetIdForSheet_(sheetName) {
   return isUserDatabaseSheet(sheetName) ? USER_DATABASE_SPREADSHEET_ID : SPREADSHEET_ID;
 }
 
-function assertSheetsApiAvailable_() {
-  if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {
-    throw new Error('Google Sheets advanced service is not enabled.');
-  }
-}
-
 function sheetApiRange_(sheetName, range) {
   const escaped = String(normalizeSheetName(sheetName)).replace(/'/g, "''");
   return "'" + escaped + "'!" + (range || 'A:ZZ');
@@ -69,14 +63,9 @@ function sheetApiRange_(sheetName, range) {
 
 function sheetApiGetValues_(sheetName, range, spreadsheetId) {
   assertServerContext_();
-  assertSheetsApiAvailable_();
-  const id = spreadsheetId || spreadsheetIdForSheet_(sheetName);
+  const sheet = getSheetForSpreadsheet_(sheetName, spreadsheetId);
   try {
-    const res = Sheets.Spreadsheets.Values.get(id, sheetApiRange_(sheetName, range), {
-      valueRenderOption: 'FORMATTED_VALUE',
-      dateTimeRenderOption: 'FORMATTED_STRING'
-    });
-    return res.values || [];
+    return _getSpreadsheetValuesForRange_(sheet, range || 'A:ZZ');
   } catch (e) {
     const message = String(e && e.message || e);
     if (message.includes('Unable to parse range') || message.includes('not found')) return [];
@@ -115,6 +104,37 @@ function sheetApiDeleteRow_(sheetName, rowNumber, spreadsheetId) {
 function _sheetApiStartRowFromRange_(range) {
   const match = String(range || '').match(/[A-Z]+(\d+)/i);
   return match ? Number(match[1]) : 0;
+}
+
+function _getSpreadsheetValuesForRange_(sheet, range) {
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const raw = String(range || 'A:ZZ').trim();
+
+  const rowOnly = raw.match(/^(\d+):(\d+)$/);
+  if (rowOnly) {
+    const startRow = Math.max(Number(rowOnly[1]), 1);
+    const endRow = Math.max(Number(rowOnly[2]), startRow);
+    return sheet.getRange(startRow, 1, endRow - startRow + 1, lastCol).getValues();
+  }
+
+  const colOnly = raw.match(/^([A-Z]+):([A-Z]+)$/i);
+  if (colOnly) {
+    const startCol = _columnNumberFromLetter_(colOnly[1]);
+    const requestedEndCol = _columnNumberFromLetter_(colOnly[2]);
+    const endCol = Math.min(Math.max(requestedEndCol, startCol), Math.max(lastCol, startCol));
+    return sheet.getRange(1, startCol, lastRow, endCol - startCol + 1).getValues();
+  }
+
+  return sheet.getRange(raw).getValues();
+}
+
+function _columnNumberFromLetter_(letter) {
+  return String(letter || '').toUpperCase().split('').reduce((n, ch) => {
+    const code = ch.charCodeAt(0);
+    if (code < 65 || code > 90) return n;
+    return n * 26 + code - 64;
+  }, 0) || 1;
 }
 
 function getSheetForSpreadsheet_(sheetName, spreadsheetId) {

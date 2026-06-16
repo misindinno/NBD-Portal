@@ -437,10 +437,10 @@ function _fuFetchBadge(snapshot) {
   if (!snapshot) return '';
   const serverMs = Number(snapshot.fetchMs || 0);
   const browserMs = Number(snapshot.browserMs || 0);
-  return `<div class="fu-kpi fu-kpi-neutral" title="Server Sheets API fetch: ${serverMs} ms. Browser roundtrip: ${browserMs} ms.">
+  return `<div class="fu-kpi fu-kpi-neutral" title="Server SpreadsheetApp fetch: ${serverMs} ms. Browser roundtrip: ${browserMs} ms.">
     <span class="fu-kpi-icon">${icon('gauge', 17)}</span>
     <span class="fu-kpi-value">${escapeHtml(browserMs || serverMs || '-')} ms</span>
-    <span class="fu-kpi-label">API Fetch</span>
+    <span class="fu-kpi-label">Sheet Fetch</span>
     <span class="fu-kpi-sub">${escapeHtml(snapshot.source || 'api')} / server ${serverMs || '-'} ms <span id="fu-state-stale-badge" style="display:${_fuStateStale ? '' : 'none'};color:#b45309"> stale</span></span>
   </div>`;
 }
