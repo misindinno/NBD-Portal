@@ -79,6 +79,11 @@ function onOpen() {
     .addItem('🧭 Rebuild Indexes', 'rebuildAllIndexes')
     .addItem('📅 Reopen Closed Non-final Follow-ups', 'reopenClosedNonFinalFollowupsFromMenu')
     .addSeparator()
+    .addItem('▶️ Install Queue Auto Process', 'setupQueueTrigger')
+    .addItem('⚡ Process Queue Now', 'processQueue')
+    .addItem('📋 Queue Trigger Status', '_showQueueStatus')
+    .addItem('⏹️ Remove Queue Trigger', 'removeQueueTrigger')
+    .addSeparator()
     .addItem('🔗 Open Portal', 'openPortal');
   if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq')) {
     menu.addItem('Bulk Entry', 'openBulkEntry');
@@ -143,6 +148,13 @@ function pushUpdate() {
   const ui = SpreadsheetApp.getUi();
   PropertiesService.getScriptProperties().setProperty('APP_VERSION', String(Date.now()));
   ui.alert('✅ Update Pushed', 'All open portal tabs will reload within 15 seconds.', ui.ButtonSet.OK);
+}
+
+function _showQueueStatus() {
+  const status = typeof getQueueTriggerStatus === 'function'
+    ? getQueueTriggerStatus()
+    : 'Queue worker code is not loaded.';
+  SpreadsheetApp.getUi().alert('Queue Trigger Status', status, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 function openPortal() {
@@ -269,6 +281,12 @@ function setupSheets() {
     safeInitHeaders(SHEET_NAMES.CONFIG, [
       'Config ID','Config Type','Value','Status'
     ]);
+    safeInitHeaders(SHEET_NAMES.QUEUE, [
+      'Request ID','Status','Created At','Updated At',
+      'User Email','Module Name','Action Type','Payload JSON',
+      'Attempt Count','Max Attempts','Next Retry At',
+      'Lease Until','Lock Owner','Last Error','Processed At','Final Record ID'
+    ]);
     safeInitHeaders(SHEET_NAMES.CHANGE_LOG, [
       'Sequence','Timestamp','Module','Record ID','Action Type','Changed By'
     ]);
@@ -279,6 +297,7 @@ function setupSheets() {
     _migrateLegacyFollowupData_();
     migrateLegacyCustomFieldValues_();
     rebuildAllIndexes();
+    if (typeof setupQueueTrigger === 'function') setupQueueTrigger();
     _seedDefaultData();
     return 'Setup complete! All existing data preserved.';
   });

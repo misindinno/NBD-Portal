@@ -459,6 +459,63 @@ function apiCreateErrorCsv(token, errorRows) {
   });
 }
 
+// Legacy queue endpoints - kept so older deployed portals can enqueue writes
+// while this codebase uses direct mutations for the current UI.
+function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAuthToken_(token);
+    const mod = String(moduleName || '');
+    const action = String(actionType || '');
+    const allowed = ['leads', 'followups', 'config', 'stages', 'fields', 'bulk'];
+    if (!allowed.includes(mod)) throw new Error('Invalid module.');
+    const allowedActions = [
+      'saveLead', 'saveBulkRows', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
+      'pushLeadToNbd',
+      'saveFollowup', 'markFollowupDone', 'deleteFollowup',
+      'addConfig', 'updateConfigStatus', 'saveStage', 'reorderStages',
+      'saveFieldConfig', 'savePortalSettings', 'saveUser',
+    ];
+    if (!allowedActions.includes(action)) throw new Error('Invalid action.');
+    _assertCanMutate_(user, mod, action);
+    return respond(enqueueJob_(user.email, mod, action, payload || {}, requestId || ''));
+  });
+}
+
+function apiGetJobStatuses(token, requestIds) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    _apiUser();
+    return respond(getJobStatuses_(requestIds || []));
+  });
+}
+
+function apiGetQueueHistory(token, limit, filterEmail) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    if (user.role === 'ADMIN') return respond(getAllQueueHistory_(filterEmail || '', limit || 100));
+    return respond(getQueueHistory_(user.email, limit || 50));
+  });
+}
+
+function apiRetryQueueJob(token, requestId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    if (user.role !== 'ADMIN') throw new Error('Permission denied.');
+    return respond(retryQueueJob_(requestId));
+  });
+}
+
+function apiGetQueueHealth(token, filterEmail) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    return respond(getQueueHealth_(user.email, user, filterEmail || ''));
+  });
+}
+
 // ── Direct mutation endpoint ───────────────────────────────────────────────────────────
 // Direct mutation - validates auth and writes immediately.
 function apiMutate(token, moduleName, actionType, payload, requestId) {
