@@ -266,13 +266,20 @@ function markFollowupDone(followupId, data, email) {
 }
 
 function _canWriteFollowupForLead(lead, user) {
-  return ['ADMIN', 'MANAGER'].includes(user.role) || lead['Assigned To'] === user.id;
+  return ['ADMIN', 'MANAGER'].includes(user.role) || _followupUserValueMatches_(lead['Assigned To'], user);
 }
 
 function _canWriteFollowupRow(row, lead, user) {
   if (['ADMIN', 'MANAGER'].includes(user.role)) return true;
-  if (lead) return _canWriteFollowupForLead(lead, user);
-  return row['Created By'] === user.id;
+  if (lead && _canWriteFollowupForLead(lead, user)) return true;
+  return _followupUserValueMatches_(row['Created By'], user) || _followupUserValueMatches_(row['Done By'], user);
+}
+
+function _followupUserValueMatches_(value, user) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw || !user) return false;
+  return raw === String(user.id || '').trim().toLowerCase() ||
+    raw === String(user.email || '').trim().toLowerCase();
 }
 
 function getFollowupCustomFields() {
