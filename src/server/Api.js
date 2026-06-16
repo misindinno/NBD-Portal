@@ -146,12 +146,7 @@ function apiGetAppConfig(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _apiUser();
-    try {
-      return respond(getAppConfigFast_());
-    } catch (e) {
-      Logger.log('[Config] Sheets API app config fallback: ' + e.message);
-      return getAppConfig();
-    }
+    return getAppConfig();
   });
 }
 
@@ -159,12 +154,7 @@ function apiGetAllStages(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireConfigReader();
-    try {
-      return respond(getAllStagesFast_());
-    } catch (e) {
-      Logger.log('[Config] Sheets API stages fallback: ' + e.message);
-      return respond(getAllStages());
-    }
+    return respond(getAllStages());
   });
 }
 
@@ -172,12 +162,7 @@ function apiGetAllConfigs(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireConfigReader();
-    try {
-      return respond(getAllConfigsFast_());
-    } catch (e) {
-      Logger.log('[Config] Sheets API configs fallback: ' + e.message);
-      return respond(getAllRows(SHEET_NAMES.CONFIG));
-    }
+    return respond(getAllConfigs());
   });
 }
 
@@ -185,12 +170,7 @@ function apiGetFieldConfig(token, sheet) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireConfigReader();
-    try {
-      return respond(getFieldConfigFast_(sheet));
-    } catch (e) {
-      Logger.log('[Config] Sheets API field config fallback: ' + e.message);
-      return respond(getFieldConfig(sheet));
-    }
+    return respond(getFieldConfig(sheet));
   });
 }
 
@@ -198,12 +178,7 @@ function apiGetAllFieldConfigs(token, sheet) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
     _requireConfigReader();
-    try {
-      return respond(getAllFieldConfigsFast_(sheet));
-    } catch (e) {
-      Logger.log('[Config] Sheets API all field config fallback: ' + e.message);
-      return respond(getAllFieldConfigs(sheet));
-    }
+    return respond(getAllFieldConfigs(sheet));
   });
 }
 
