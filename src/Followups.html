@@ -841,7 +841,7 @@ function _followupHistoryTable(rows, emptyMsg, ctx) {
           : '-';
         return `<tr>
           <td>${formatDate(row['Planned Date']) || '-'}</td>
-          <td>${formatDate(row['Done Date']) || '-'}</td>
+          <td>${formatDateTime(row['Created At']) || '-'}</td>
           <td>${escapeHtml(ctx?.userMap?.[row['Done By']] || row['Done By'] || '-')}</td>
           <td>${contactModeHTML}</td>
           <td><div class="fu-discussion" title="${escapeHtml(row['Remark'] || '')}">${escapeHtml(row['Remark'] || '-')}</div></td>
