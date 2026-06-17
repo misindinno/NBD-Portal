@@ -570,7 +570,7 @@ function _todayApply() {
       const remarkRaw = (r['Remark'] || r['Discussion'] || '');
       const nextDate  = r['Next Follow-up Date'] || r['Next Planned Date'] || r['Next Date'] || '';
       const next      = nextDate ? formatDate(nextDate) : `<span class="muted-text">—</span>`;
-      const doneAt    = formatDate(r['Done Date'] || r['Created At'] || '');
+      const doneAt    = formatDateTime(r['Done Date'] || r['Created At'] || '');
       const planned   = r['Follow-up Date'] || r['Planned Date'] || '';
       const plannedFmt = planned ? formatDate(planned) : `<span class="muted-text">—</span>`;
       const leadId    = r['Lead ID'] || '';
