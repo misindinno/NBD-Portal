@@ -168,10 +168,18 @@ function syncIndexRow_(sheetName, rowObj, rowNumber) {
   if (!id) return;
   safeInitHeaders(def.indexSheet, def.headers);
   const indexSheet = getSheet(def.indexSheet);
-  const built = def.build(rowObj, rowNumber);
+  let sourceRowNumber = Number(rowNumber || rowObj._rowNumber || 0);
+  if (sourceRowNumber < 2) {
+    sourceRowNumber = findRowIndexWithoutIndex_(sheetName, def.idColumn, id);
+  }
+  if (sourceRowNumber < 2) {
+    rebuildIndexForSheet_(sheetName);
+    return;
+  }
+  const built = def.build(rowObj, sourceRowNumber);
   const values = def.headers.map(h => built[h] !== undefined ? built[h] : '');
   const hit = _findIndexRecord_(def, def.idColumn, id);
-  if (hit) {
+  if (hit && Number(hit.rowNumber) >= 2) {
     indexSheet.getRange(hit.rowNumber, 1, 1, def.headers.length).setValues([values]);
   } else {
     indexSheet.getRange(indexSheet.getLastRow() + 1, 1, 1, def.headers.length).setValues([values]);
