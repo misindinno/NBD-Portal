@@ -101,7 +101,15 @@ function _insertLeadMasterRowBlockingDuplicates_(leadRow) {
     const headers = getHeaders(SHEET_NAMES.LEADS);
     const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
     sheet.appendRow(row);
-    if (typeof syncIndexRow_ === 'function') syncIndexRow_(SHEET_NAMES.LEADS, rowObj, sheet.getLastRow());
+    let rowNumber = Number(sheet.getLastRow() || 0);
+    if (rowNumber < 2 && typeof findRowIndexWithoutIndex_ === 'function') {
+      rowNumber = findRowIndexWithoutIndex_(SHEET_NAMES.LEADS, 'Lead ID', leadRow['Lead ID']);
+    }
+    if (rowNumber < 2) {
+      Logger.log('[Leads] Inserted lead but could not resolve row number for Lead ID=' + leadRow['Lead ID']);
+    } else if (typeof syncIndexRow_ === 'function') {
+      syncIndexRow_(SHEET_NAMES.LEADS, rowObj, rowNumber);
+    }
     return { success: true };
   } finally {
     lock.releaseLock();

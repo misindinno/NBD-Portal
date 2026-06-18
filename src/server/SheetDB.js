@@ -258,6 +258,11 @@ function queryRows(sheetName, filterFn) {
 // Safe: creates sheet if missing, writes header row if empty,
 // or appends only NEW columns to the right — never touches existing data.
 function safeInitHeaders(sheetName, requiredHeaders) {
+  requiredHeaders = Array.isArray(requiredHeaders) ? requiredHeaders.filter(Boolean) : [];
+  if (!requiredHeaders.length) {
+    Logger.log('[SheetDB] safeInitHeaders skipped empty header list for ' + sheetName);
+    return;
+  }
   const sheet = getSheet(sheetName);
   const lastCol = sheet.getLastColumn();
 

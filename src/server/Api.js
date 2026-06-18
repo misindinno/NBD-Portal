@@ -250,7 +250,12 @@ function apiSaveLead(token, payload) {
   return apiGuard_(() => {
     const user = _apiUser();
     _assertCanMutate_(user, 'leads', 'saveLead');
-    return withTrustedWriteUser_(user.email, () => saveLead(payload || {}, user.email));
+    try {
+      return withTrustedWriteUser_(user.email, () => saveLead(payload || {}, user.email));
+    } catch (e) {
+      Logger.log('[apiSaveLead] ' + (e && e.stack ? e.stack : e));
+      throw new Error('Save lead failed: ' + (e.message || e));
+    }
   });
 }
 

@@ -102,7 +102,7 @@ function rebuildIndexForSheet_(sheetName) {
   const sourceData = sourceSheet.getDataRange().getValues();
   const indexSheet = getSheet(def.indexSheet);
   _clearIndexBody_(indexSheet);
-  if (sourceData.length < 2) return 0;
+  if (sourceData.length < 2 || !sourceData[0] || !sourceData[0].length) return 0;
 
   const sourceHeaders = sourceData[0].map(String);
   const rows = sourceData.slice(1)
@@ -216,8 +216,9 @@ function _isIndexSheet_(sheetName) {
 
 function _findIndexRecord_(def, columnName, value) {
   const sheet = getSheet(def.indexSheet);
+  safeInitHeaders(def.indexSheet, def.headers);
   const data = sheet.getDataRange().getValues();
-  if (data.length < 2) return null;
+  if (data.length < 2 || !data[0] || !data[0].length) return null;
   const headers = data[0].map(String);
   const col = headers.indexOf(String(columnName));
   if (col === -1) return null;
@@ -254,7 +255,10 @@ function _rowObjectFromValues_(headers, values, rowNumber) {
 function _clearIndexBody_(sheet) {
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
-  if (lastRow > 1 && lastCol > 0) sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+  if (lastRow > 1 && lastCol > 0) {
+    const count = lastRow - 1;
+    if (count > 0) sheet.getRange(2, 1, count, lastCol).clearContent();
+  }
 }
 
 function _idxLower_(value) {
