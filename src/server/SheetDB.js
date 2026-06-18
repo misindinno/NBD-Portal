@@ -131,6 +131,7 @@ function findRowIndex(sheetName, idColumn, idValue) {
   if (indexedRow > 1) return indexedRow;
   const sheet = getSheet(sheetName);
   const data = sheet.getDataRange().getValues();
+  if (!data.length || !data[0] || !data[0].length) return -1;
   const headers = data[0];
   const col = headers.indexOf(idColumn);
   if (col === -1) return -1;
@@ -143,6 +144,9 @@ function findRowIndex(sheetName, idColumn, idValue) {
 function insertRow(sheetName, rowObj) {
   const sheet = getSheet(sheetName);
   const headers = getHeaders(sheetName);
+  if (!headers.length) {
+    throw new Error('Cannot insert row: sheet "' + sheetName + '" has no headers. Run setupSheets first.');
+  }
   const row = headers.map((h) => (rowObj[h] !== undefined ? rowObj[h] : ""));
   const lock = LockService.getScriptLock();
   let rowNumber = 0;
@@ -215,6 +219,7 @@ function deleteRow(sheetName, idColumn, idValue) {
   lock.waitLock(10000);
   try {
     const data = sheet.getDataRange().getValues();
+    if (!data.length || !data[0] || !data[0].length) return false;
     const col = data[0].indexOf(idColumn);
     if (col === -1) return false;
     for (let i = 1; i < data.length; i++) {
@@ -238,7 +243,7 @@ function deleteAllRowsWhere(sheetName, filterFn) {
   let deleted = 0;
   try {
     const data = sheet.getDataRange().getValues();
-    if (data.length < 2) return 0;
+    if (data.length < 2 || !data[0] || !data[0].length) return 0;
     const headers = data[0];
     for (let i = data.length - 1; i >= 1; i--) {
       const row = headers.reduce((obj, h, j) => { obj[h] = data[i][j]; return obj; }, {});
@@ -289,9 +294,56 @@ function safeInitHeaders(sheetName, requiredHeaders) {
 }
 
 function _styleHeaderRow(sheet, startCol, count) {
+  startCol = Number(startCol || 0);
+  count = Number(count || 0);
+  if (startCol < 1 || count < 1) {
+    Logger.log('[SheetDB] Header styling skipped for invalid range startCol=' + startCol + ' count=' + count);
+    return;
+  }
   sheet
     .getRange(1, startCol, 1, count)
     .setBackground("#1565C0")
     .setFontColor("#FFFFFF")
     .setFontWeight("bold");
+}
+
+function diagnoseSheetRanges_() {
+  assertServerContext_();
+  const names = [
+    SHEET_NAMES.USERS,
+    SHEET_NAMES.USER_PORTAL_ACCESS,
+    SHEET_NAMES.LEADS,
+    SHEET_NAMES.FOLLOWUPS,
+    SHEET_NAMES.FOLLOWUP_HISTORY,
+    SHEET_NAMES.LEAD_ACTIVITY_LOGS,
+    SHEET_NAMES.STAGES,
+    SHEET_NAMES.FIELD_CONFIG,
+    SHEET_NAMES.CONFIG,
+    SHEET_NAMES.LEAD_FIELD_VALUES,
+    SHEET_NAMES.FOLLOWUP_FIELD_VALUES,
+    SHEET_NAMES.IDX_LEADS,
+    SHEET_NAMES.IDX_FOLLOWUPS,
+    SHEET_NAMES.IDX_USERS
+  ].filter(Boolean);
+  const seen = {};
+  return names.filter(name => {
+    const normalized = normalizeSheetName(name);
+    if (seen[normalized]) return false;
+    seen[normalized] = true;
+    return true;
+  }).map(name => {
+    const normalized = normalizeSheetName(name);
+    const sheet = getSheet(normalized);
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    const headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String) : [];
+    return {
+      sheet: normalized,
+      lastRow,
+      lastCol,
+      hasHeaders: headers.some(h => String(h || '').trim()),
+      blankHeaders: headers.filter(h => !String(h || '').trim()).length,
+      firstHeaders: headers.slice(0, 8)
+    };
+  });
 }

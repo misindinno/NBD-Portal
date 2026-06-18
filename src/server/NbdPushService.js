@@ -436,6 +436,11 @@ function _nbdTargetSheet_(spreadsheetId, sheetName) {
 }
 
 function _ensureExternalHeaders_(sheet, requiredHeaders) {
+  requiredHeaders = Array.isArray(requiredHeaders) ? requiredHeaders.filter(Boolean) : [];
+  if (!requiredHeaders.length) {
+    Logger.log('[NBD] External header init skipped empty header list for ' + sheet.getName());
+    return;
+  }
   const lastCol = sheet.getLastColumn();
   if (lastCol === 0 || sheet.getRange(1, 1).getValue() === '') {
     sheet.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders]);
@@ -447,8 +452,11 @@ function _ensureExternalHeaders_(sheet, requiredHeaders) {
 }
 
 function _appendExternalRow_(sheet, headers, rowObj) {
+  headers = Array.isArray(headers) ? headers.filter(Boolean) : [];
+  if (!headers.length) throw new Error('Cannot append external row: sheet "' + sheet.getName() + '" has no headers.');
   const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
   const rowNumber = sheet.getLastRow() + 1;
+  if (rowNumber < 2) throw new Error('Cannot append external row: invalid row number ' + rowNumber + ' for ' + sheet.getName());
   sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
   return rowNumber;
 }

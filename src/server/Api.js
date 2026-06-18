@@ -352,6 +352,15 @@ function apiRunSheetsApiSampleWrite(token, payload) {
   });
 }
 
+function apiDiagnoseSheetRanges(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    if (user.role !== 'ADMIN') throw new Error('Permission denied.');
+    return respond(diagnoseSheetRanges_());
+  });
+}
+
 function apiSavePortalSettings(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

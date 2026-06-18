@@ -21,72 +21,83 @@ function getLead(leadId) {
 }
 
 function saveLead(data, email) {
-  const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
-  const leadId = _leadIdFromPayload(data);
-  const skipped = data['__stage_skipped'] === 'true' || data['skipped'] === true;
-  if (leadId) {
-    data['Lead ID'] = leadId;
-    const existing = getLead(leadId);
-    if (!existing || !existing.lead) return respond(null, 'Lead not found.');
-    if (!_canWriteLead(existing.lead, user)) return respond(null, 'Permission denied.');
-    if (_isLeadPushedToNbd_(existing.lead)) return respond(null, 'Lead is already pushed to NBD and cannot be edited in LQ.');
+  return _leadSaveStep_('saveLead', () => {
+    const user = _leadSaveStep_('authorize user', () => requireRole(['ADMIN', 'MANAGER', 'SALES']));
+    const leadId = _leadIdFromPayload(data);
+    const skipped = data['__stage_skipped'] === 'true' || data['skipped'] === true;
+    if (leadId) {
+      data['Lead ID'] = leadId;
+      const existing = _leadSaveStep_('load existing lead', () => getLead(leadId));
+      if (!existing || !existing.lead) return respond(null, 'Lead not found.');
+      if (!_canWriteLead(existing.lead, user)) return respond(null, 'Permission denied.');
+      if (_isLeadPushedToNbd_(existing.lead)) return respond(null, 'Lead is already pushed to NBD and cannot be edited in LQ.');
+      if (user.role === 'SALES') data['Assigned To'] = user.id;
+      const updateDuplicate = _leadSaveStep_('check update duplicate', () => _leadDuplicateMessage_(data, leadId));
+      if (updateDuplicate) return respond(null, updateDuplicate);
+      const prepared = _leadSaveStep_('prepare update payload', () => _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped));
+      _leadSaveStep_('apply update status', () => _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']));
+      const updatePayload = { ...prepared, 'Updated At': now() };
+      const updated = _leadSaveStep_('update lead row', () => updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(updatePayload)));
+      if (!updated) return respond(null, 'Lead update failed. Lead ID was not found in the lead sheet.');
+      _leadSaveStep_('upsert lead custom fields', () => upsertCustomFieldValues_('Leads', leadId, prepared, user.id, prepared['Stage ID'] || existing.lead['Stage ID']));
+      _bumpStamp('leads');
+      return respond(leadId);
+    }
+    const id = generateUUID();
     if (user.role === 'SALES') data['Assigned To'] = user.id;
-    const updateDuplicate = _leadDuplicateMessage_(data, leadId);
-    if (updateDuplicate) return respond(null, updateDuplicate);
-    const prepared = _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped);
-    _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']);
-    const updatePayload = { ...prepared, 'Updated At': now() };
-    const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(updatePayload));
-    if (!updated) return respond(null, 'Lead update failed. Lead ID was not found in the lead sheet.');
-    upsertCustomFieldValues_('Leads', leadId, prepared, user.id, prepared['Stage ID'] || existing.lead['Stage ID']);
-    _bumpStamp('leads');
-    return respond(leadId);
-  }
-  const id = generateUUID();
-  if (user.role === 'SALES') data['Assigned To'] = user.id;
-  const duplicate = _leadDuplicateMessage_(data, '');
-  if (duplicate) return respond(null, duplicate);
-  const prepared = _prepareLeadPayload(data, data['Stage ID'], {}, skipped);
-  _applyLeadStatusFromStage(prepared, prepared['Stage ID']);
-  const followupDate = today();
-  const leadRow = {
-    ...prepared, 'Lead ID': id,
-    'Assigned To': prepared['Assigned To'] || user.id,
-    'Lead Status': prepared['Lead Status'] || 'Open',
-    'Last Follow-up Date': prepared['Last Follow-up Date'] || followupDate,
-    'Next Follow-up Date': prepared['Next Follow-up Date'] || followupDate,
-    'Created At': now(), 'Updated At': now()
-  };
-  let leadInserted = false;
+    const duplicate = _leadSaveStep_('check create duplicate', () => _leadDuplicateMessage_(data, ''));
+    if (duplicate) return respond(null, duplicate);
+    const prepared = _leadSaveStep_('prepare create payload', () => _prepareLeadPayload(data, data['Stage ID'], {}, skipped));
+    _leadSaveStep_('apply create status', () => _applyLeadStatusFromStage(prepared, prepared['Stage ID']));
+    const followupDate = today();
+    const leadRow = {
+      ...prepared, 'Lead ID': id,
+      'Assigned To': prepared['Assigned To'] || user.id,
+      'Lead Status': prepared['Lead Status'] || 'Open',
+      'Last Follow-up Date': prepared['Last Follow-up Date'] || followupDate,
+      'Next Follow-up Date': prepared['Next Follow-up Date'] || followupDate,
+      'Created At': now(), 'Updated At': now()
+    };
+    let leadInserted = false;
+    try {
+      const insertResult = _leadSaveStep_('insert lead master row', () => _insertLeadMasterRowBlockingDuplicates_(leadRow));
+      if (!insertResult.success) return respond(null, insertResult.error);
+      leadInserted = true;
+      _leadSaveStep_('upsert create custom fields', () => upsertCustomFieldValues_('Leads', id, prepared, user.id, prepared['Stage ID']));
+      const fuTypes = _leadSaveStep_('load followup type config', () => getConfigByType('Follow-up Type'));
+      _leadSaveStep_('ensure followup sheets', () => ensureFollowupSheets_());
+      _leadSaveStep_('insert initial followup', () => insertRow(SHEET_NAMES.FOLLOWUPS, {
+        'Follow-up ID': generateUUID(),
+        'Lead ID': id,
+        'Planned Date': followupDate,
+        'Follow-up Date': followupDate,
+        'Follow-up Type': fuTypes[0] || 'Call',
+        'Discussion': 'New lead created',
+        'Next Follow-up Date': followupDate,
+        'Status': 'Open',
+        'Stage ID': prepared['Stage ID'] || '',
+        'Created By': user.id,
+        'Created At': now(),
+        'Updated At': now()
+      }));
+      _bumpStamp('leads');
+      _bumpStamp('followups');
+      return respond(id);
+    } catch (e) {
+      if (leadInserted) _leadSaveStep_('rollback lead row', () => deleteRow(SHEET_NAMES.LEADS, 'Lead ID', id));
+      _leadSaveStep_('rollback custom fields', () => deleteCustomFieldValuesForEntity_('Leads', id));
+      _leadSaveStep_('rollback followups', () => deleteAllRowsWhere(SHEET_NAMES.FOLLOWUPS, r => r['Lead ID'] === id));
+      throw e;
+    }
+  });
+}
+
+function _leadSaveStep_(label, fn) {
   try {
-    const insertResult = _insertLeadMasterRowBlockingDuplicates_(leadRow);
-    if (!insertResult.success) return respond(null, insertResult.error);
-    leadInserted = true;
-    upsertCustomFieldValues_('Leads', id, prepared, user.id, prepared['Stage ID']);
-    const fuTypes = getConfigByType('Follow-up Type');
-    ensureFollowupSheets_();
-    insertRow(SHEET_NAMES.FOLLOWUPS, {
-      'Follow-up ID': generateUUID(),
-      'Lead ID': id,
-      'Planned Date': followupDate,
-      'Follow-up Date': followupDate,
-      'Follow-up Type': fuTypes[0] || 'Call',
-      'Discussion': 'New lead created',
-      'Next Follow-up Date': followupDate,
-      'Status': 'Open',
-      'Stage ID': prepared['Stage ID'] || '',
-      'Created By': user.id,
-      'Created At': now(),
-      'Updated At': now()
-    });
-    _bumpStamp('leads');
-    _bumpStamp('followups');
-    return respond(id);
+    return fn();
   } catch (e) {
-    if (leadInserted) deleteRow(SHEET_NAMES.LEADS, 'Lead ID', id);
-    deleteCustomFieldValuesForEntity_('Leads', id);
-    deleteAllRowsWhere(SHEET_NAMES.FOLLOWUPS, r => r['Lead ID'] === id);
-    throw e;
+    const message = e && e.message ? e.message : String(e);
+    throw new Error('saveLead step "' + label + '" failed: ' + message);
   }
 }
 
