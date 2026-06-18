@@ -379,6 +379,22 @@ function apiCheckNbdDuplicate(token, leadId) {
   });
 }
 
+function apiPushLeadToNbd(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'leads', 'pushLeadToNbd');
+    const data = payload || {};
+    return pushLeadToNbd(
+      data.leadId || data['Lead ID'] || '',
+      user.email,
+      data.nbdAssignedTo || '',
+      data.mapToNbdLeadId || '',
+      data.qualifiedRemark || ''
+    );
+  });
+}
+
 // Bulk Entry
 function apiGetBulkConfig(token) {
   _currentApiToken_ = token || '';

@@ -2,7 +2,7 @@
 
 function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRemark) {
   assertServerContext_();
-  const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
+  const user = requireRoleForEmail_(['ADMIN', 'MANAGER', 'SALES'], email);
   if (!_isLqPortalForNbdPush_()) return respond(null, 'Push to NBD is available only in the LQ portal.');
   const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
   if (!targetSpreadsheetId) return respond(null, 'NBD target spreadsheet is not configured for this portal.');
@@ -10,9 +10,24 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
+  const sourceStage = _nbdSourceStage_(lead);
+  if (!_isWonStageForNbd_(sourceStage, lead)) {
+    return respond(null, 'Only LQ leads in a Won stage can be pushed to NBD.');
+  }
+  if (lead['NBD Lead ID'] && !mapToNbdLeadId) {
+    return respond({ leadId, nbdLeadId: lead['NBD Lead ID'], alreadyPushed: true });
+  }
+  if (lead['NBD Lead ID'] && mapToNbdLeadId && String(lead['NBD Lead ID']) !== String(mapToNbdLeadId)) {
+    return respond(null, 'This LQ lead is already linked to NBD lead ' + lead['NBD Lead ID'] + '.');
+  }
 
   // Map mode: link this LQ lead to an existing NBD lead instead of creating a new one.
   if (mapToNbdLeadId) {
+    const mapTarget = _findExternalLeadById_(targetSpreadsheetId, mapToNbdLeadId);
+    if (!mapTarget) return respond(null, 'Selected NBD lead was not found. Refresh and try again.');
+    if (mapTarget['Source Lead ID'] && String(mapTarget['Source Lead ID']) !== String(leadId)) {
+      return respond(null, 'Selected NBD lead is already mapped to source lead ' + mapTarget['Source Lead ID'] + '.');
+    }
     const ts = now();
     // Patch the LQ lead
     updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
@@ -30,6 +45,7 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
         'Source Portal':  CLIENT_CONFIG.APP_TITLE || 'LQ Portal',
         'Updated At':     ts
       });
+      _rebuildExternalLeadIndex_(targetSpreadsheetId);
     } catch (e) {
       Logger.log('Map: could not patch NBD lead: ' + e.message);
     }
@@ -39,10 +55,6 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
 
   const targetUser = _findNbdAssignableUser_(targetSpreadsheetId, nbdAssignedTo);
   if (!targetUser) return respond(null, 'Please select a valid NBD user to assign this lead.');
-  const sourceStage = _nbdSourceStage_(lead);
-  if (!_isWonStageForNbd_(sourceStage, lead)) {
-    return respond(null, 'Only LQ leads in a Won stage can be pushed to NBD.');
-  }
   safeInitHeaders(SHEET_NAMES.LEADS, LEAD_MASTER_FIELDS);
 
   const targetSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
@@ -57,6 +69,10 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
     });
     _bumpStamp('leads');
     return respond({ leadId, nbdLeadId: existing['Lead ID'] || '', alreadyPushed: true });
+  }
+  const duplicates = _findNbdDuplicateLeads_(targetSpreadsheetId, lead, { skipSourceLeadId: leadId });
+  if (duplicates.length) {
+    return respond(null, 'Existing NBD lead found. Please use Map to this instead of creating a duplicate. Matched on: ' + duplicates.map(d => d.matchOn).join('; '));
   }
 
   const nbdLeadId = generateUUID();
@@ -81,7 +97,8 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
     'Created At': ts,
     'Updated At': ts
   };
-  _appendExternalRow_(targetSheet, targetHeaders, row);
+  const targetRowNumber = _appendExternalRow_(targetSheet, targetHeaders, row);
+  _upsertExternalLeadIndex_(targetSpreadsheetId, row, targetRowNumber);
   const nbdFollowupId = _createNbdInitialFollowup_(targetSpreadsheetId, nbdLeadId, lead, sourceStage, user, targetUser, followupDate, ts, qualifiedRemark);
 
   updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
@@ -103,36 +120,26 @@ function checkNbdDuplicates(leadId) {
   const lead = getLead(leadId)?.lead;
   if (!lead) return [];
 
-  const targetSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
-  if (targetSheet.getLastRow() < 2) return [];
-  const data = targetSheet.getDataRange().getValues();
-  const headers = data[0].map(String);
+  return _findNbdDuplicateLeads_(targetSpreadsheetId, lead, { skipSourceLeadId: leadId });
+}
 
-  const col = h => headers.indexOf(h);
-  const phoneCol   = col('Phone');
-  const altCol     = col('Alternate No');
-  const emailCol   = col('Email');
-  const companyCol = col('Company Name');
-  const leadIdCol  = col('Lead ID');
-  const contactCol = col('Contact Person');
-  const stageIdCol = col('Stage ID');
-  const srcLeadCol = col('Source Lead ID');
-
+function _findNbdDuplicateLeads_(targetSpreadsheetId, lead, options) {
+  const indexRows = _nbdLeadIndexRows_(targetSpreadsheetId);
   const lqPhone   = _normalizePhone_(lead['Phone']);
   const lqAlt     = _normalizePhone_(lead['Alternate No']);
   const lqEmail   = String(lead['Email']        || '').trim().toLowerCase();
   const lqCompany = String(lead['Company Name'] || '').trim().toLowerCase();
+  const skipSourceLeadId = String(options && options.skipSourceLeadId || '').trim();
 
   const matches = [];
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    // Skip if this NBD row is already the result of pushing this same LQ lead
-    if (srcLeadCol !== -1 && String(row[srcLeadCol]) === String(leadId)) continue;
+  for (let i = 0; i < indexRows.length; i++) {
+    const row = indexRows[i] || {};
+    if (skipSourceLeadId && String(row['Source Lead ID'] || '') === skipSourceLeadId) continue;
 
-    const rPhone   = _normalizePhone_(String(row[phoneCol]   || ''));
-    const rAlt     = _normalizePhone_(String(row[altCol]     || ''));
-    const rEmail   = String(row[emailCol]   || '').trim().toLowerCase();
-    const rCompany = String(row[companyCol] || '').trim().toLowerCase();
+    const rPhone   = _normalizePhone_(row['Phone']);
+    const rAlt     = _normalizePhone_(row['Alternate No']);
+    const rEmail   = String(row['Email'] || '').trim().toLowerCase();
+    const rCompany = String(row['Company Name'] || '').trim().toLowerCase();
 
     const phoneMatch   = !!(lqPhone   && ((rPhone && lqPhone === rPhone) || (rAlt && lqPhone === rAlt)));
     const altMatch     = !!(lqAlt     && ((rPhone && lqAlt   === rPhone) || (rAlt && lqAlt   === rAlt)));
@@ -147,19 +154,134 @@ function checkNbdDuplicates(leadId) {
       companyMatch             && 'Company'
     ].filter(Boolean);
 
-    // Look up stage name from NBD stages sheet
-    const nbdStageId = stageIdCol !== -1 ? String(row[stageIdCol] || '') : '';
     matches.push({
-      nbdLeadId: leadIdCol !== -1 ? String(row[leadIdCol] || '') : '',
-      company:   companyCol !== -1 ? String(row[companyCol] || '') : '',
-      contact:   contactCol !== -1 ? String(row[contactCol] || '') : '',
-      phone:     phoneCol   !== -1 ? String(row[phoneCol]   || '') : '',
-      email:     emailCol   !== -1 ? String(row[emailCol]   || '') : '',
-      stageId:   nbdStageId,
+      nbdLeadId: String(row['Lead ID'] || ''),
+      company:   String(row['Company Name'] || ''),
+      contact:   String(row['Contact Person'] || ''),
+      phone:     String(row['Phone'] || ''),
+      email:     String(row['Email'] || ''),
+      stageId:   String(row['Stage ID'] || ''),
       matchOn:   reasons.join(', ')
     });
   }
   return matches;
+}
+
+function _findExternalLeadById_(spreadsheetId, leadId) {
+  const id = String(leadId || '').trim();
+  if (!id) return null;
+  const indexed = _nbdLeadIndexRows_(spreadsheetId).find(row => String(row['Lead ID'] || '') === id);
+  if (indexed) return indexed;
+  const targetSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.LEADS);
+  if (targetSheet.getLastRow() < 2) return null;
+  const data = targetSheet.getDataRange().getValues();
+  const headers = data[0].map(String);
+  const leadIdCol = headers.indexOf('Lead ID');
+  if (leadIdCol === -1) return null;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][leadIdCol] || '') !== id) continue;
+    return headers.reduce((obj, h, j) => {
+      obj[h] = normalizeSheetValue(data[i][j]);
+      return obj;
+    }, {});
+  }
+  return null;
+}
+
+function _nbdLeadIndexHeaders_() {
+  return [
+    'Lead ID','Phone','Alternate No','Email','Assigned To','Stage ID','Lead Status',
+    'Next Follow-up Date','Company Name','Contact Person','City','State',
+    'Source Portal','Source Lead ID','Updated At','Row Number'
+  ];
+}
+
+function _nbdLeadIndexRows_(spreadsheetId) {
+  const indexSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.IDX_LEADS);
+  const requiredHeaders = _nbdLeadIndexHeaders_();
+  const existingHeaders = indexSheet.getLastColumn()
+    ? indexSheet.getRange(1, 1, 1, indexSheet.getLastColumn()).getValues()[0].map(String)
+    : [];
+  const needsRebuild = requiredHeaders.some(h => !existingHeaders.includes(h));
+  _ensureExternalHeaders_(indexSheet, requiredHeaders);
+  if (indexSheet.getLastRow() < 2 || needsRebuild) _rebuildExternalLeadIndex_(spreadsheetId);
+  const data = indexSheet.getDataRange().getValues();
+  if (data.length < 2) return _externalLeadRowsForIndex_(spreadsheetId);
+  const headers = data[0].map(String);
+  return data.slice(1)
+    .filter(row => row.some(v => String(v || '').trim()))
+    .map(row => headers.reduce((obj, h, i) => {
+      obj[h] = normalizeSheetValue(row[i]);
+      return obj;
+    }, {}));
+}
+
+function _rebuildExternalLeadIndex_(spreadsheetId) {
+  const indexSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.IDX_LEADS);
+  const headers = _nbdLeadIndexHeaders_();
+  indexSheet.clearContents();
+  indexSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  const rows = _externalLeadRowsForIndex_(spreadsheetId).map(row => headers.map(h => row[h] !== undefined ? row[h] : ''));
+  if (rows.length) indexSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  return rows.length;
+}
+
+function _externalLeadRowsForIndex_(spreadsheetId) {
+  const leadSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.LEADS);
+  if (leadSheet.getLastRow() < 2) return [];
+  const data = leadSheet.getDataRange().getValues();
+  const headers = data[0].map(String);
+  return data.slice(1)
+    .filter(row => row.some(v => String(v || '').trim()))
+    .map((values, i) => {
+      const row = headers.reduce((obj, h, j) => {
+        obj[h] = normalizeSheetValue(values[j]);
+        return obj;
+      }, {});
+      return _externalLeadIndexRow_(row, i + 2);
+    });
+}
+
+function _externalLeadIndexRow_(row, rowNumber) {
+  return {
+    'Lead ID': row['Lead ID'] || '',
+    'Phone': _normalizePhone_(row['Phone']),
+    'Alternate No': _normalizePhone_(row['Alternate No']),
+    'Email': String(row['Email'] || '').trim().toLowerCase(),
+    'Assigned To': row['Assigned To'] || '',
+    'Stage ID': row['Stage ID'] || '',
+    'Lead Status': row['Lead Status'] || '',
+    'Next Follow-up Date': row['Next Follow-up Date'] || '',
+    'Company Name': row['Company Name'] || '',
+    'Contact Person': row['Contact Person'] || '',
+    'City': row['City'] || '',
+    'State': row['State'] || '',
+    'Source Portal': row['Source Portal'] || '',
+    'Source Lead ID': row['Source Lead ID'] || '',
+    'Updated At': row['Updated At'] || '',
+    'Row Number': rowNumber || ''
+  };
+}
+
+function _upsertExternalLeadIndex_(spreadsheetId, leadRow, rowNumber) {
+  const indexSheet = _nbdTargetSheet_(spreadsheetId, SHEET_NAMES.IDX_LEADS);
+  const headers = _nbdLeadIndexHeaders_();
+  _ensureExternalHeaders_(indexSheet, headers);
+  const indexRow = _externalLeadIndexRow_(leadRow, rowNumber);
+  const leadId = String(indexRow['Lead ID'] || '');
+  if (!leadId) return;
+  const data = indexSheet.getDataRange().getValues();
+  const currentHeaders = data.length ? data[0].map(String) : headers;
+  const idCol = currentHeaders.indexOf('Lead ID');
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][idCol] || '') !== leadId) continue;
+    currentHeaders.forEach((h, col) => {
+      if (indexRow[h] !== undefined) indexSheet.getRange(i + 1, col + 1).setValue(indexRow[h]);
+    });
+    return;
+  }
+  indexSheet.getRange(indexSheet.getLastRow() + 1, 1, 1, currentHeaders.length)
+    .setValues([currentHeaders.map(h => indexRow[h] !== undefined ? indexRow[h] : '')]);
 }
 
 function _normalizePhone_(phone) {
@@ -313,7 +435,9 @@ function _ensureExternalHeaders_(sheet, requiredHeaders) {
 
 function _appendExternalRow_(sheet, headers, rowObj) {
   const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
-  sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+  const rowNumber = sheet.getLastRow() + 1;
+  sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
+  return rowNumber;
 }
 
 // Patches specific columns of a single row in an external sheet identified by keyCol=keyVal.

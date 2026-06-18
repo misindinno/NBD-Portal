@@ -204,32 +204,26 @@ async function openLeadDetail(leadId) {
         // Map mode: link to existing NBD lead without creating a new one
         if (btn) setButtonLoading(btn, 'Mapping...');
         _showNbdPushStatus('queued');
-        QueueManager.enqueue({
-          module: 'leads',
-          actionType: 'pushLeadToNbd',
-          payload: { leadId, mapToNbdLeadId: choice.mapToNbdLeadId },
-          onDone: j => {
-            _showNbdPushStatus('done');
-            AppCache.patchRow('leads', 'Lead ID', leadId, {
-              'NBD Lead ID': choice.mapToNbdLeadId,
-              'Pushed To NBD At': _nowStr(),
-              'Updated At': _nowStr()
-            });
-            setTimeout(() => {
-              document.querySelector('.modal-overlay')?.remove();
-              _refreshLeadViewsAfterLocalChange();
-            }, 1200);
-            toast('Lead mapped to existing NBD lead!', 'success');
-          },
-          onFail: j => {
-            _showNbdPushStatus('failed', j.error || 'Unknown error');
-            if (btn) resetButtonLoading(btn);
-            toast('Mapping failed: ' + (j.error || 'Unknown error'), 'error');
-          }
-        });
+        try {
+          await api.pushLeadToNbd({ leadId, mapToNbdLeadId: choice.mapToNbdLeadId });
+          _showNbdPushStatus('done');
+          AppCache.patchRow('leads', 'Lead ID', leadId, {
+            'NBD Lead ID': choice.mapToNbdLeadId,
+            'Pushed To NBD At': _nowStr(),
+            'Updated At': _nowStr()
+          });
+          setTimeout(() => {
+            document.querySelector('.modal-overlay')?.remove();
+            _refreshLeadViewsAfterLocalChange();
+          }, 1200);
+          toast('Lead mapped to existing NBD lead!', 'success');
+        } catch (err) {
+          _showNbdPushStatus('failed', err.message || 'Unknown error');
+          if (btn) resetButtonLoading(btn);
+          toast('Mapping failed: ' + (err.message || err), 'error');
+        }
         return;
       }
-      // else: pushAnyway — fall through to normal push flow
     }
 
     let nbdUsers = [];
@@ -286,30 +280,25 @@ async function openLeadDetail(leadId) {
     if (btn) setButtonLoading(btn, 'Pushing...');
     _showNbdPushStatus('queued');
 
-    QueueManager.enqueue({
-      module: 'leads',
-      actionType: 'pushLeadToNbd',
-      payload: { leadId, nbdAssignedTo: confirmed.value.user, qualifiedRemark: confirmed.value.remark },
-      onDone: j => {
-        _showNbdPushStatus('done');
-        const nbdLeadId = j.finalRecordId || '';
-        AppCache.patchRow('leads', 'Lead ID', leadId, {
-          'NBD Lead ID': nbdLeadId,
-          'Pushed To NBD At': _nowStr(),
-          'Updated At': _nowStr()
-        });
-        setTimeout(() => {
-          document.querySelector('.modal-overlay')?.remove();
-          _refreshLeadViewsAfterLocalChange();
-        }, 1200);
-        toast('Lead pushed to NBD successfully!', 'success');
-      },
-      onFail: j => {
-        _showNbdPushStatus('failed', j.error || 'Unknown error');
-        if (btn) resetButtonLoading(btn);
-        toast('Push to NBD failed: ' + (j.error || 'Unknown error'), 'error');
-      }
-    });
+    try {
+      const pushResult = await api.pushLeadToNbd({ leadId, nbdAssignedTo: confirmed.value.user, qualifiedRemark: confirmed.value.remark });
+      _showNbdPushStatus('done');
+      const nbdLeadId = (pushResult && pushResult.nbdLeadId) || '';
+      AppCache.patchRow('leads', 'Lead ID', leadId, {
+        'NBD Lead ID': nbdLeadId,
+        'Pushed To NBD At': _nowStr(),
+        'Updated At': _nowStr()
+      });
+      setTimeout(() => {
+        document.querySelector('.modal-overlay')?.remove();
+        _refreshLeadViewsAfterLocalChange();
+      }, 1200);
+      toast('Lead pushed to NBD successfully!', 'success');
+    } catch (err) {
+      _showNbdPushStatus('failed', err.message || 'Unknown error');
+      if (btn) resetButtonLoading(btn);
+      toast('Push to NBD failed: ' + (err.message || err), 'error');
+    }
   }
 
   function _showNbdDuplicateDialog(companyName, duplicates) {
@@ -335,7 +324,6 @@ async function openLeadDetail(leadId) {
       window._nbdDupResolve  = (idx, action) => {
         Swal.close();
         if (action === 'map') resolve({ mapToNbdLeadId: duplicates[idx].nbdLeadId });
-        else if (action === 'push') resolve({ pushAnyway: true });
         else resolve(null);
         delete window._nbdDupList;
         delete window._nbdDupResolve;
@@ -345,19 +333,17 @@ async function openLeadDetail(leadId) {
         title: `⚠️ Existing NBD Lead Found`,
         html: `
           <div style="font-size:13px;color:#374151;margin-bottom:12px;text-align:left">
-            <strong>${escapeHtml(companyName)}</strong> may already exist in NBD. Map to an existing lead or push as new.
+            <strong>${escapeHtml(companyName)}</strong> already matches an NBD lead. Map to an existing lead to avoid duplicate creation.
           </div>
           <div style="max-height:260px;overflow-y:auto;text-align:left">${rows}</div>`,
         showCancelButton: true,
-        showConfirmButton: true,
-        confirmButtonText: 'Push as New Lead',
+        showConfirmButton: false,
         cancelButtonText: 'Cancel',
         confirmButtonColor: '#6366f1',
         width: 520,
       }).then(result => {
         if (window._nbdDupResolve) {
-          if (result.isConfirmed) window._nbdDupResolve(null, 'push');
-          else window._nbdDupResolve(null, 'cancel');
+          window._nbdDupResolve(null, 'cancel');
         }
       });
     });

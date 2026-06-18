@@ -9,7 +9,8 @@ function _indexDefinitions_() {
       idColumn: 'Lead ID',
       headers: [
         'Lead ID','Phone','Alternate No','Email','Assigned To','Stage ID','Lead Status',
-        'Next Follow-up Date','Company Name','Contact Person','City','State','Updated At','Row Number'
+        'Next Follow-up Date','Company Name','Contact Person','City','State',
+        'Source Portal','Source Lead ID','Updated At','Row Number'
       ],
       build(row, rowNumber) {
         return {
@@ -25,6 +26,8 @@ function _indexDefinitions_() {
           'Contact Person': row['Contact Person'] || '',
           'City': row['City'] || '',
           'State': row['State'] || '',
+          'Source Portal': row['Source Portal'] || '',
+          'Source Lead ID': row['Source Lead ID'] || '',
           'Updated At': row['Updated At'] || '',
           'Row Number': rowNumber || ''
         };
