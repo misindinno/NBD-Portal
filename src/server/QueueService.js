@@ -332,9 +332,15 @@ function claimJobs_(workerOwner, batchSize, options) {
       if (candidate.recordKey) claimedKeys.add(candidate.recordKey);
     }
 
-    // Batch-write all updates at once
+    // Batch-write all updates at once. Apps Script ranges are 1-based and row 1
+    // is the header, so an invalid queue row should not stop the full worker.
     updates.forEach(u => {
-      sheet.getRange(u.rowIndex, 1, 1, u.values.length).setValues([u.values]);
+      const rowIndex = Number(u.rowIndex || 0);
+      if (rowIndex < 2) {
+        Logger.log('[Queue] Skipping invalid claim update rowIndex=' + u.rowIndex);
+        return;
+      }
+      sheet.getRange(rowIndex, 1, 1, u.values.length).setValues([u.values]);
     });
 
   } finally {
