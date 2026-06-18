@@ -297,6 +297,19 @@ function getNbdAssignableUsers() {
   return _nbdAssignableUsers_(targetSpreadsheetId);
 }
 
+function getNbdPushContext(leadId) {
+  assertServerContext_();
+  if (!_isLqPortalForNbdPush_()) return { duplicates: [], users: [] };
+  const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
+  if (!targetSpreadsheetId) return { duplicates: [], users: [] };
+  const lead = getLead(leadId)?.lead;
+  if (!lead) throw new Error('Lead not found.');
+  return {
+    duplicates: _findNbdDuplicateLeads_(targetSpreadsheetId, lead, { skipSourceLeadId: leadId }),
+    users: _nbdAssignableUsers_(targetSpreadsheetId)
+  };
+}
+
 function _isLeadQualifiedForNbd_(lead) {
   return _isWonStageForNbd_(_nbdSourceStage_(lead), lead);
 }

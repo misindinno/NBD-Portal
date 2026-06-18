@@ -98,6 +98,7 @@ const api = {
   getUsers:            ()      => api._authedRead('apiGetUsers'),
   getNbdAssignableUsers: ()    => api._authedRead('apiGetNbdAssignableUsers'),
   checkNbdDuplicate:   (id)   => api._authedRead('apiCheckNbdDuplicate', id),
+  getNbdPushContext:   (id)   => api._authedRead('apiGetNbdPushContext', id),
   pushLeadToNbd:       (p)    => api._authedRead('apiPushLeadToNbd', p || {}),
   getBulkConfig:       ()      => api._authedRead('apiGetBulkConfig'),
   validateBulkRows:    (rows, mode)  => api._authedRead('apiValidateBulkRows', rows, mode || 'create'),

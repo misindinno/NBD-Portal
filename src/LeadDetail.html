@@ -182,21 +182,31 @@ async function openLeadDetail(leadId) {
     if (!leadId) return;
     const btn = el('push-nbd-btn');
 
-    // Disable immediately so user can't double-click while dialog loads
-    if (btn) setButtonLoading(btn, 'Loading...');
+    // Disable immediately so user can't double-click while dialog loads.
+    if (btn) setButtonLoading(btn, 'Preparing...');
 
     const lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
     const companyName = lead ? (lead['Company Name'] || leadId) : leadId;
-    if (btn) resetButtonLoading(btn);
-
-    // Check for existing NBD leads matching phone / email / company
-    if (btn) setButtonLoading(btn, 'Checking NBD...');
     let duplicates = [];
-    try { duplicates = await api.checkNbdDuplicate(leadId); } catch (_) {}
-    if (btn) resetButtonLoading(btn);
+    let nbdUsers = [];
+    try {
+      const context = api.getNbdPushContext
+        ? await api.getNbdPushContext(leadId)
+        : {
+            duplicates: await api.checkNbdDuplicate(leadId),
+            users: await api.getNbdAssignableUsers()
+          };
+      duplicates = Array.isArray(context?.duplicates) ? context.duplicates : [];
+      nbdUsers = Array.isArray(context?.users) ? context.users : [];
+    } catch (err) {
+      if (btn) resetButtonLoading(btn);
+      toast('Could not prepare NBD push: ' + (err.message || err), 'error');
+      return;
+    }
 
     // If duplicates found — ask user to map or push anyway (or cancel)
     if (duplicates.length) {
+      if (btn) resetButtonLoading(btn);
       const choice = await _showNbdDuplicateDialog(companyName, duplicates);
       if (!choice) return; // cancelled
 
@@ -226,14 +236,6 @@ async function openLeadDetail(leadId) {
       }
     }
 
-    let nbdUsers = [];
-    try {
-      nbdUsers = await api.getNbdAssignableUsers();
-    } catch (err) {
-      if (btn) resetButtonLoading(btn);
-      toast('Could not load NBD users: ' + (err.message || err), 'error');
-      return;
-    }
     if (!nbdUsers.length) {
       if (btn) resetButtonLoading(btn);
       toast('No active NBD users found for assignment.', 'error');
@@ -266,6 +268,9 @@ async function openLeadDetail(leadId) {
       confirmButtonText: 'Yes, Push',
       cancelButtonText: 'Cancel',
       confirmButtonColor: '#6366f1',
+      didOpen: () => {
+        if (btn) resetButtonLoading(btn);
+      },
       preConfirm: () => {
         const user   = document.getElementById('swal-nbd-user')?.value || '';
         const remark = (document.getElementById('swal-nbd-remark')?.value || '').trim();
