@@ -264,18 +264,18 @@ function openUserForm(data = {}) {
       return;
     }
     if (pw) payload['Password'] = pw;
-    overlay.remove();
-    QueueManager.enqueue({
-      module: 'config', actionType: 'saveUser',
-      payload,
-      onDone: async () => {
-        toast('User saved!');
-        await _refreshAppConfig().catch(() => {});
-        renderSidebar();
-        if (App.currentPage === 'config' && canNavigate('config')) loadConfig();
-      },
-      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
-    });
+    try {
+      await api.saveUser(payload);
+      await _refreshAppConfig().catch(() => {});
+      overlay.remove();
+      toast('User saved!');
+      renderSidebar();
+      if (App.currentPage === 'config' && canNavigate('config')) await loadConfig();
+    } catch (err) {
+      resetButtonLoading(btn);
+      toast('Save failed: ' + (err.message || err), 'error');
+    }
+    return;
     toast('Saving user…', 'info');
   });
 }

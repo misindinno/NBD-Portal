@@ -125,17 +125,10 @@ async function openLeadDetail(leadId) {
           const payload = await collectLeadFormPayload(editForm);
           payload['Lead ID'] = lead['Lead ID'];
           AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
+          await api.saveLead(payload);
           overlay.remove();
           _refreshLeadViewsAfterLocalChange();
-          QueueManager.enqueue({
-            module: 'leads', actionType: 'saveLead', payload,
-            onDone: () => toast('Lead saved!'),
-            onFail: j  => {
-              _refreshLeadsCache().catch(() => {});
-              toast('Save failed: ' + (j.error || 'Error'), 'error');
-            }
-          });
-          toast('Saving…', 'info');
+          toast('Lead saved!');
         } catch (err) {
           toast(err, 'error');
           resetButtonLoading(btn);

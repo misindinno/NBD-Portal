@@ -245,6 +245,44 @@ function apiCheckLeadDuplicates(token, phone, email, excludeLeadId, companyName)
   });
 }
 
+function apiSaveLead(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'leads', 'saveLead');
+    return withTrustedWriteUser_(user.email, () => saveLead(payload || {}, user.email));
+  });
+}
+
+function apiDeleteLead(token, leadId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'leads', 'deleteLead');
+    return withTrustedWriteUser_(user.email, () => deleteLead(leadId || '', user.email));
+  });
+}
+
+function apiUpdateLeadStage(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'leads', 'updateLeadStage');
+    const data = payload || {};
+    return withTrustedWriteUser_(user.email, () => updateLeadStage(data.leadId || '', data.stageId || '', data.note || '', user.email, data.fromStageId || ''));
+  });
+}
+
+function apiMoveLeadStageWithFields(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'leads', 'moveLeadStageWithFields');
+    const data = payload || {};
+    return withTrustedWriteUser_(user.email, () => moveLeadStageWithFields(data.leadId || '', data.stageId || '', data.fields || {}, data.note || '', user.email, data.fromStageId || ''));
+  });
+}
+
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -306,6 +344,71 @@ function apiRunSheetsApiSampleWrite(token, payload) {
   return apiGuard_(() => {
     const user = _requireConfigReader();
     return respond(runSheetsApiSampleWrite_(user, payload || {}));
+  });
+}
+
+function apiSavePortalSettings(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'config', 'savePortalSettings');
+    return withTrustedWriteUser_(user.email, () => savePortalSettings(payload || {}, user.email));
+  });
+}
+
+function apiAddConfig(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'config', 'addConfig');
+    const data = payload || {};
+    return withTrustedWriteUser_(user.email, () => addConfig(data.type || data['Config Type'] || '', data.value || data.Value || '', user.email));
+  });
+}
+
+function apiUpdateConfigStatus(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'config', 'updateConfigStatus');
+    const data = payload || {};
+    return withTrustedWriteUser_(user.email, () => updateConfigStatus(data.id || data['Config ID'] || '', data.status || data.Status || '', user.email));
+  });
+}
+
+function apiSaveStage(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'stages', 'saveStage');
+    return withTrustedWriteUser_(user.email, () => saveStage(payload || {}, user.email));
+  });
+}
+
+function apiReorderStages(token, ids) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'stages', 'reorderStages');
+    return withTrustedWriteUser_(user.email, () => reorderStages(Array.isArray(ids) ? ids : [], user.email));
+  });
+}
+
+function apiSaveFieldConfig(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'fields', 'saveFieldConfig');
+    return withTrustedWriteUser_(user.email, () => saveFieldConfig(payload || {}, user.email));
+  });
+}
+
+function apiSaveUser(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'config', 'saveUser');
+    return withTrustedWriteUser_(user.email, () => _saveUser(payload || {}, user.email));
   });
 }
 

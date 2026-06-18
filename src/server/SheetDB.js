@@ -165,6 +165,7 @@ function updateRow(sheetName, idColumn, idValue, updates) {
   let syncedRowNumber = 0;
   try {
     const data = sheet.getDataRange().getValues();
+    if (!data.length || !data[0] || !data[0].length) return false;
     const headers = data[0];
     const col = headers.indexOf(idColumn);
     if (col === -1) return false;
@@ -180,16 +181,27 @@ function updateRow(sheetName, idColumn, idValue, updates) {
       }
     }
     if (rowIndex === -1) return false;
+    if (rowIndex < 1) {
+      Logger.log('[SheetDB] Refusing invalid update row for ' + sheetName + ' ' + idColumn + '=' + idValue + ' rowIndex=' + rowIndex);
+      if (typeof rebuildIndexForSheet_ === 'function') rebuildIndexForSheet_(sheetName);
+      return false;
+    }
     // Fix #9: build full updated row and write in a single setValues call
     const updatedRow = headers.map((h, i) =>
       updates[h] !== undefined ? updates[h] : data[rowIndex][i]
     );
-    sheet.getRange(rowIndex + 1, 1, 1, headers.length).setValues([updatedRow]);
+    const targetRowNumber = rowIndex + 1;
+    if (targetRowNumber < 2) {
+      Logger.log('[SheetDB] Refusing invalid target row for ' + sheetName + ' ' + idColumn + '=' + idValue + ' row=' + targetRowNumber);
+      if (typeof rebuildIndexForSheet_ === 'function') rebuildIndexForSheet_(sheetName);
+      return false;
+    }
+    sheet.getRange(targetRowNumber, 1, 1, headers.length).setValues([updatedRow]);
     syncedRow = headers.reduce((obj, h, i) => {
       obj[h] = normalizeSheetValue(updatedRow[i]);
       return obj;
     }, {});
-    syncedRowNumber = rowIndex + 1;
+    syncedRowNumber = targetRowNumber;
   } finally {
     lock.releaseLock();
   }

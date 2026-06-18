@@ -109,21 +109,19 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
     });
   }
 
-  function deleteLeadConfirm(leadId, overlay) {
+  async function deleteLeadConfirm(leadId, overlay) {
     if (!leadId) return;
     if (!confirm('Delete this lead and all related follow-ups, history, activity logs, and custom field values? This cannot be undone.')) return;
     _removeLeadRelatedRowsFromCache(leadId);
     if (overlay) overlay.remove();
     _refreshLeadViewsAfterLocalChange();
-    QueueManager.enqueue({
-      module: 'leads', actionType: 'deleteLead',
-      payload: { id: leadId },
-      onDone: () => toast('Lead deleted!'),
-      onFail: j => {
-        toast('Delete failed: ' + (j.error || 'Error'), 'error');
-        _refreshLeadsCache().catch(() => {});
-      }
-    });
-    toast('Deleting…', 'info');
+    try {
+      toast('Deleting...', 'info');
+      await api.deleteLead(leadId);
+      toast('Lead deleted!');
+    } catch (err) {
+      toast('Delete failed: ' + (err.message || err), 'error');
+      _refreshLeadsCache().catch(() => {});
+    }
   }
 </script>

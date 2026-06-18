@@ -217,6 +217,7 @@ function _saveUser(data, email) {
   }
   upsertUserPortalAccess_({ ...payload, 'ID': finalUserId }, data);
   invalidateAppConfigCache();
+  _bumpStamp('config');
   return respond(true);
 }
 

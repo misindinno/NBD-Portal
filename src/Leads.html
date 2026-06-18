@@ -342,7 +342,7 @@
           formatter: function() {
             return '<button class="fu-icon-action danger" title="Delete lead">' + iconSvg('trash-2', 14) + '</button>';
           },
-          cellClick: function(e, cell) {
+          cellClick: async function(e, cell) {
             e.stopPropagation();
             const leadId = _leadRowId(cell.getRow().getData());
             if (!leadId) return;
@@ -350,16 +350,14 @@
             if (typeof _removeLeadRelatedRowsFromCache === 'function') _removeLeadRelatedRowsFromCache(leadId);
             else AppCache.removeRow('leads', 'Lead ID', leadId);
             cell.getRow().delete();
-            QueueManager.enqueue({
-              module: 'leads', actionType: 'deleteLead',
-              payload: { id: leadId },
-              onDone: () => toast('Lead deleted!'),
-              onFail: j => {
-                toast('Delete failed: ' + (j.error || 'Error'), 'error');
-                _refreshLeadsCache().catch(() => {});
-              }
-            });
-            toast('Deleting…', 'info');
+            try {
+              toast('Deleting...', 'info');
+              await api.deleteLead(leadId);
+              toast('Lead deleted!');
+            } catch (err) {
+              toast('Delete failed: ' + (err.message || err), 'error');
+              _refreshLeadsCache().catch(() => {});
+            }
           }
         }] : [])
       ]
@@ -476,23 +474,20 @@
         }
         overlay.remove();
         _refreshLeadViewsAfterLocalChange();
-        QueueManager.enqueue({
-          module: 'leads', actionType: 'saveLead', payload, tempId,
-          onDone: j => {
-            if (!isUpdate && j.finalRecordId) {
-              AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': j.finalRecordId, '_queueTemp': false });
-              if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
-              _refreshLeadViewsAfterLocalChange();
-            }
-            toast('Lead saved!');
-          },
-          onFail: j => {
-            if (!isUpdate) AppCache.removeRow('leads', 'Lead ID', tempId);
-            _refreshLeadsCache().catch(() => {});
-            toast('Save failed: ' + (j.error || 'Error'), 'error');
+        try {
+          toast(isUpdate ? 'Saving...' : 'Saving lead...', 'info');
+          const finalRecordId = await api.saveLead(payload);
+          if (!isUpdate && finalRecordId) {
+            AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': finalRecordId, '_queueTemp': false });
+            if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
+            _refreshLeadViewsAfterLocalChange();
           }
-        });
-        toast(isUpdate ? 'Saving…' : 'Lead queued for saving…', 'info');
+          toast('Lead saved!');
+        } catch (err) {
+          if (!isUpdate) AppCache.removeRow('leads', 'Lead ID', tempId);
+          _refreshLeadsCache().catch(() => {});
+          toast('Save failed: ' + (err.message || err), 'error');
+        }
       } catch (err) {
         toast(err, 'error');
         resetButtonLoading(btn);

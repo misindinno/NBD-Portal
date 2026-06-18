@@ -71,35 +71,33 @@ function openConfigForm() {
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn, 'Adding...');
-    overlay.remove();
-    QueueManager.enqueue({
-      module: 'config', actionType: 'addConfig',
-      payload: { type: fd.get('type'), value: fd.get('value') },
-      onDone: () => {
-        toast('Config added!');
-        _refreshAppConfig().catch(() => {});
-        if (App.currentPage === 'config') loadDropdownsConfig();
-      },
-      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
-    });
+    try {
+      await api.addConfig({ type: fd.get('type'), value: fd.get('value') });
+      await _refreshAppConfig().catch(() => {});
+      overlay.remove();
+      toast('Config added!');
+      if (App.currentPage === 'config') await loadDropdownsConfig();
+    } catch (err) {
+      resetButtonLoading(btn);
+      toast('Save failed: ' + (err.message || err), 'error');
+    }
+    return;
     toast('Adding…', 'info');
   });
 }
 
-function toggleConfigStatus(id, newStatus) {
-  QueueManager.enqueue({
-    module: 'config', actionType: 'updateConfigStatus',
-    payload: { id, status: newStatus },
-    onDone: () => {
-      toast('Status updated!');
-      _refreshAppConfig().catch(() => {});
-      if (App.currentPage === 'config') loadDropdownsConfig();
-    },
-    onFail: j => {
-      toast('Update failed: ' + (j.error || 'Error'), 'error');
-      if (App.currentPage === 'config') loadDropdownsConfig();
-    }
-  });
+async function toggleConfigStatus(id, newStatus) {
+  try {
+    toast('Updating...', 'info');
+    await api.updateConfigStatus({ id, status: newStatus });
+    await _refreshAppConfig().catch(() => {});
+    toast('Status updated!');
+    if (App.currentPage === 'config') await loadDropdownsConfig();
+  } catch (err) {
+    toast('Update failed: ' + (err.message || err), 'error');
+    if (App.currentPage === 'config') loadDropdownsConfig();
+  }
+  return;
   toast('Updating…', 'info');
 }
 

@@ -195,6 +195,7 @@ function _lfInitValidator() {
     if (!validateCfMultiselects(form)) return;
     const btn = form.querySelector('[type=submit]');
     setButtonLoading(btn, 'Submitting...');
+    let tempId = '';
     try {
       const payload = await collectLeadFormPayload(form);
 
@@ -206,27 +207,19 @@ function _lfInitValidator() {
         setButtonLoading(btn, 'Submitting...');
       }
 
-      const tempId  = 'temp-' + Date.now();
+      tempId = 'temp-' + Date.now();
       AppCache.addRow('leads', {
         ...payload, 'Lead ID': tempId, '_queueTemp': true,
         'Lead Status': 'Open',
         'Created At': _nowStr(), 'Updated At': _nowStr()
       });
-      QueueManager.enqueue({
-        module: 'leads', actionType: 'saveLead', payload, tempId,
-        onDone: j => {
-          if (j.finalRecordId) AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': j.finalRecordId, '_queueTemp': false });
-          if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
-        },
-        onFail: j => {
-          AppCache.removeRow('leads', 'Lead ID', tempId);
-          if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
-          toast('Lead save failed: ' + (j.error || 'Error'), 'error');
-        }
-      });
+      const finalRecordId = await api.saveLead(payload);
+      if (finalRecordId) AppCache.patchRow('leads', 'Lead ID', tempId, { 'Lead ID': finalRecordId, '_queueTemp': false });
+      if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
       _lfShowSuccess(payload['Company Name'] || payload['Client Description']);
     } catch (err) {
-      toast(err, 'error');
+      if (tempId) AppCache.removeRow('leads', 'Lead ID', tempId);
+      toast(err.message || err, 'error');
       resetButtonLoading(btn);
     }
   });

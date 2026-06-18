@@ -177,17 +177,17 @@ function openFieldForm(data = {}) {
     if (isEdit) payload['Field ID'] = data['Field ID'];
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    overlay.remove();
-    QueueManager.enqueue({
-      module: 'fields', actionType: 'saveFieldConfig',
-      payload,
-      onDone: () => {
-        toast('Custom field saved!');
-        _refreshAppConfig().catch(() => {});
-        if (App.currentPage === 'config') loadFieldConfig();
-      },
-      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
-    });
+    try {
+      await api.saveFieldConfig(payload);
+      await _refreshAppConfig().catch(() => {});
+      overlay.remove();
+      toast('Custom field saved!');
+      if (App.currentPage === 'config') await loadFieldConfig();
+    } catch (err) {
+      resetButtonLoading(btn);
+      toast('Save failed: ' + (err.message || err), 'error');
+    }
+    return;
     toast('Saving field…', 'info');
   });
 }

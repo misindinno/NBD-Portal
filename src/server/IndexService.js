@@ -179,8 +179,9 @@ function syncIndexRow_(sheetName, rowObj, rowNumber) {
   const built = def.build(rowObj, sourceRowNumber);
   const values = def.headers.map(h => built[h] !== undefined ? built[h] : '');
   const hit = _findIndexRecord_(def, def.idColumn, id);
-  if (hit && Number(hit.rowNumber) >= 2) {
-    indexSheet.getRange(hit.rowNumber, 1, 1, def.headers.length).setValues([values]);
+  const indexRowNumber = Number(hit && hit.rowNumber || 0);
+  if (indexRowNumber >= 2) {
+    indexSheet.getRange(indexRowNumber, 1, 1, def.headers.length).setValues([values]);
   } else {
     indexSheet.getRange(indexSheet.getLastRow() + 1, 1, 1, def.headers.length).setValues([values]);
   }

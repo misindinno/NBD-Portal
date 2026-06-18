@@ -45,15 +45,16 @@ async function loadStagesConfig() {
     handle: '.drag-handle',
     onEnd: async (evt) => {
       const orderedIds = Array.from(evt.to.children).map(el => el.dataset.stageId);
-      QueueManager.enqueue({
-        module: 'stages', actionType: 'reorderStages',
-        payload: { ids: orderedIds },
-        onDone: () => { toast('Stages reordered!'); _refreshAppConfig().catch(() => {}); },
-        onFail: j => {
-          toast('Reorder failed: ' + (j.error || 'Error'), 'error');
-          if (App.currentPage === 'config') loadStagesConfig();
-        }
-      });
+      try {
+        toast('Saving order...', 'info');
+        await api.reorderStages(orderedIds);
+        await _refreshAppConfig().catch(() => {});
+        toast('Stages reordered!');
+      } catch (err) {
+        toast('Reorder failed: ' + (err.message || err), 'error');
+        if (App.currentPage === 'config') loadStagesConfig();
+      }
+      return;
       toast('Saving order…', 'info');
     }
   });
@@ -160,17 +161,17 @@ function openStageForm(data = {}) {
     if (isEdit) payload['Stage ID'] = data['Stage ID'];
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    overlay.remove();
-    QueueManager.enqueue({
-      module: 'stages', actionType: 'saveStage',
-      payload,
-      onDone: () => {
-        toast('Stage saved!');
-        _refreshAppConfig().catch(() => {});
-        if (App.currentPage === 'config') loadStagesConfig();
-      },
-      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
-    });
+    try {
+      await api.saveStage(payload);
+      await _refreshAppConfig().catch(() => {});
+      overlay.remove();
+      toast('Stage saved!');
+      if (App.currentPage === 'config') await loadStagesConfig();
+    } catch (err) {
+      resetButtonLoading(btn);
+      toast('Save failed: ' + (err.message || err), 'error');
+    }
+    return;
     toast('Saving stage…', 'info');
   });
 }

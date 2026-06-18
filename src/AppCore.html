@@ -85,6 +85,10 @@ const api = {
   getAllFieldConfigs:   (s)     => api._authedRead('apiGetAllFieldConfigs', s),
   getLeads:            ()      => api._authedRead('apiGetLeads'),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
+  saveLead:            (p)     => api._authedRead('apiSaveLead', p || {}),
+  deleteLead:          (id)    => api._authedRead('apiDeleteLead', id || ''),
+  updateLeadStage:     (p)     => api._authedRead('apiUpdateLeadStage', p || {}),
+  moveLeadStageWithFields: (p) => api._authedRead('apiMoveLeadStageWithFields', p || {}),
   getFollowups:        (f)     => api._authedRead('apiGetFollowups', f),
   getFollowupHistory:  (f)     => api._authedRead('apiGetFollowupHistory', f),
   getFollowupPageSnapshot: (o)  => api._authedRead('apiGetFollowupPageSnapshot', o || {}),
@@ -112,6 +116,13 @@ const api = {
 
   // ── Admin ─────────────────────────────────────────────────────────────────
   updatePermissions: ()                      => api._authedRead('apiUpdatePermissions'),
+  savePortalSettings: (p)                    => api._authedRead('apiSavePortalSettings', p || {}),
+  addConfig: (p)                             => api._authedRead('apiAddConfig', p || {}),
+  updateConfigStatus: (p)                    => api._authedRead('apiUpdateConfigStatus', p || {}),
+  saveStage: (p)                             => api._authedRead('apiSaveStage', p || {}),
+  reorderStages: (ids)                       => api._authedRead('apiReorderStages', ids || []),
+  saveFieldConfig: (p)                       => api._authedRead('apiSaveFieldConfig', p || {}),
+  saveUser: (p)                              => api._authedRead('apiSaveUser', p || {}),
 
   // ── Queue endpoints ───────────────────────────────────────────────────────
   enqueueJob:      (mod, act, payload, rid) => api._authedRead('apiEnqueueJob', mod, act, payload, rid),

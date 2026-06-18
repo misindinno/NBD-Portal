@@ -99,18 +99,18 @@ async function loadPortalSettings() {
     const fd = new FormData(e.target);
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
-    resetButtonLoading(btn);
-    QueueManager.enqueue({
-      module: 'config', actionType: 'savePortalSettings',
-      payload: { visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' },
-      onDone: async () => {
-        await _refreshAppConfig().catch(() => {});
-        api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
-        toast('Settings saved!');
-        if (App.currentPage === 'config') loadPortalSettings();
-      },
-      onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
-    });
+    try {
+      await api.savePortalSettings({ visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' });
+      await _refreshAppConfig().catch(() => {});
+      api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
+      toast('Settings saved!');
+      if (App.currentPage === 'config') await loadPortalSettings();
+    } catch (err) {
+      toast('Save failed: ' + (err.message || err), 'error');
+    } finally {
+      resetButtonLoading(btn);
+    }
+    return;
     toast('Saving settings…', 'info');
   });
 
@@ -351,7 +351,7 @@ function _installConfigFieldsFallback() {
     const form = overlay.querySelector('#field-form');
     window._toggleFieldTargetOptions(form, true);
     form.querySelector('[name="Stage ID"]')?.addEventListener('change', () => window._toggleFieldTargetOptions(form));
-    form.addEventListener('submit', e => {
+    form.addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const payload = Object.fromEntries(fd.entries());
@@ -363,13 +363,18 @@ function _installConfigFieldsFallback() {
       payload['Allow Multiple'] = fd.has('Allow Multiple');
       payload['Skip Visibility'] = fd.get('Skip Visibility') || 'normal';
       if (isEdit) payload['Field ID'] = data['Field ID'];
-      overlay.remove();
-      QueueManager.enqueue({
-        module: 'fields', actionType: 'saveFieldConfig', payload,
-        onDone: () => { toast('Custom field saved!'); _refreshAppConfig().catch(() => {}); if (App.currentPage === 'config') window.loadFieldConfig(); },
-        onFail: j => toast('Save failed: ' + (j.error || 'Error'), 'error')
-      });
-      toast('Saving field...', 'info');
+      const btn = e.target.querySelector('[type=submit]');
+      setButtonLoading(btn);
+      try {
+        await api.saveFieldConfig(payload);
+        await _refreshAppConfig().catch(() => {});
+        overlay.remove();
+        toast('Custom field saved!');
+        if (App.currentPage === 'config') await window.loadFieldConfig();
+      } catch (err) {
+        resetButtonLoading(btn);
+        toast('Save failed: ' + (err.message || err), 'error');
+      }
     });
   };
   window._toggleFieldTargetOptions = function(form, preserveValues = false) {
