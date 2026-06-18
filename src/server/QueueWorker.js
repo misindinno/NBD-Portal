@@ -83,7 +83,6 @@ function processQueueFast_() {
             'saveFollowup',
             'updateLeadStage',
             'moveLeadStageWithFields',
-            'pushLeadToNbd',
             'saveLead'
           ]
         });
@@ -169,7 +168,6 @@ function _dispatchQueuedJob_(actionType, userEmail, payload) {
     case 'updateLeadStage':       return updateLeadStage(payload.leadId, payload.stageId, payload.note, userEmail);
     case 'moveLeadStageWithFields':
       return moveLeadStageWithFields(payload.leadId, payload.stageId, payload.fields || {}, payload.note, userEmail);
-    case 'pushLeadToNbd':         return pushLeadToNbd(payload.leadId, userEmail, payload.nbdAssignedTo, payload.mapToNbdLeadId || '', payload.qualifiedRemark || '');
     // ── Follow-ups
     case 'saveFollowup':          return saveFollowup(payload, userEmail);
     case 'markFollowupDone':      return markFollowupDone(payload.id, payload.data || {}, userEmail);
@@ -232,7 +230,6 @@ function _bumpStampForModule_(moduleName, actionType) {
     deleteLead:              ['leads', 'followups', 'followup_history', 'activity_logs'],
     updateLeadStage:         ['leads', 'activity_logs'],
     moveLeadStageWithFields: ['leads', 'activity_logs'],
-    pushLeadToNbd:           ['leads', 'activity_logs'],
     saveFollowup:            ['followups', 'leads', 'activity_logs'],
     markFollowupDone:        ['followups', 'followup_history', 'leads', 'activity_logs'],
     deleteFollowup:          ['followups'],

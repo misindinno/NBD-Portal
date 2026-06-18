@@ -42,7 +42,6 @@ function _qRecordKey_(actionType, payload) {
       return p.id ? 'lead:' + p.id : '';
     case 'updateLeadStage':
     case 'moveLeadStageWithFields':
-    case 'pushLeadToNbd':
       return p.leadId ? 'lead:' + p.leadId : '';
     // Follow-ups (key on the followup id; fallback to lead so saves/done for same followup serialize)
     case 'saveFollowup':
@@ -77,7 +76,6 @@ function _qDataId_(actionType, payload) {
       return p.id || p.leadId || p['Lead ID'] || '';
     case 'updateLeadStage':
     case 'moveLeadStageWithFields':
-    case 'pushLeadToNbd':
       return p.leadId || p['Lead ID'] || '';
     case 'saveFollowup':
       return p['Follow-up ID'] || p.followupId || p.id || '';
@@ -187,7 +185,7 @@ function getJobStatuses_(requestIds) {
 function _qActionPriority_(actionType) {
   const action = String(actionType || '');
   if (action === 'markFollowupDone' || action === 'saveFollowup') return 0;
-  if (action === 'updateLeadStage' || action === 'moveLeadStageWithFields' || action === 'pushLeadToNbd') return 1;
+  if (action === 'updateLeadStage' || action === 'moveLeadStageWithFields') return 1;
   if (action === 'saveLead') return 2;
   if (action === 'deleteLead' || action === 'deleteFollowup') return 3;
   if (action === 'saveBulkRows') return 9;

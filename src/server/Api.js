@@ -492,7 +492,6 @@ function apiEnqueueJob(token, moduleName, actionType, payload, requestId) {
 
     const allowedActions = [
       'saveLead', 'saveBulkRows', 'deleteLead', 'updateLeadStage', 'moveLeadStageWithFields',
-      'pushLeadToNbd',
       'saveFollowup', 'markFollowupDone', 'deleteFollowup',
       'addConfig', 'updateConfigStatus', 'saveStage', 'reorderStages',
       'saveFieldConfig', 'savePortalSettings', 'saveUser',
