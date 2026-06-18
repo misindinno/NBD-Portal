@@ -64,12 +64,18 @@ function getAllRows(sheetName) {
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
   const headers = data[0];
-  return data.slice(1).map((row) =>
-    headers.reduce((obj, h, i) => {
-      obj[h] = normalizeSheetValue(row[i]);
-      return obj;
-    }, {}),
-  );
+  return data.slice(1).map((row) => rowObjectFromHeaders_(headers, row));
+}
+
+function rowObjectFromHeaders_(headers, values, normalize) {
+  const obj = {};
+  (headers || []).forEach((header, i) => {
+    const key = String(header || '').trim();
+    if (!key) return;
+    const value = values ? values[i] : '';
+    obj[key] = normalize === false ? value : normalizeSheetValue(value);
+  });
+  return obj;
 }
 
 // ─── Cross-portal aggregation (dashboard-portal only) ──────────────────────
@@ -98,8 +104,7 @@ function getAggregatedRows(sheetName) {
     if (data.length < 2) return;
     const headers = data[0];
     data.slice(1).forEach(row => {
-      const obj = {};
-      headers.forEach((h, i) => { obj[h] = normalizeSheetValue(row[i]); });
+      const obj = rowObjectFromHeaders_(headers, row);
       obj._source = src.key || '';
       obj._sourceName = src.name || src.key || '';
       merged.push(obj);
@@ -201,10 +206,7 @@ function updateRow(sheetName, idColumn, idValue, updates) {
       return false;
     }
     sheet.getRange(targetRowNumber, 1, 1, headers.length).setValues([updatedRow]);
-    syncedRow = headers.reduce((obj, h, i) => {
-      obj[h] = normalizeSheetValue(updatedRow[i]);
-      return obj;
-    }, {});
+    syncedRow = rowObjectFromHeaders_(headers, updatedRow);
     syncedRowNumber = targetRowNumber;
   } finally {
     lock.releaseLock();
@@ -246,7 +248,7 @@ function deleteAllRowsWhere(sheetName, filterFn) {
     if (data.length < 2 || !data[0] || !data[0].length) return 0;
     const headers = data[0];
     for (let i = data.length - 1; i >= 1; i--) {
-      const row = headers.reduce((obj, h, j) => { obj[h] = data[i][j]; return obj; }, {});
+      const row = rowObjectFromHeaders_(headers, data[i], false);
       if (filterFn(row)) { sheet.deleteRow(i + 1); deleted++; }
     }
   } finally {

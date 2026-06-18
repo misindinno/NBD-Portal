@@ -215,22 +215,27 @@ function _isIndexSheet_(sheetName) {
 }
 
 function _findIndexRecord_(def, columnName, value) {
-  const sheet = getSheet(def.indexSheet);
-  safeInitHeaders(def.indexSheet, def.headers);
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2 || !data[0] || !data[0].length) return null;
-  const headers = data[0].map(String);
-  const col = headers.indexOf(String(columnName));
-  if (col === -1) return null;
-  const target = String(value);
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][col]) !== target) continue;
-    return {
-      rowNumber: i + 1,
-      row: _rowObjectFromValues_(headers, data[i], i + 1)
-    };
+  try {
+    const sheet = getSheet(def.indexSheet);
+    safeInitHeaders(def.indexSheet, def.headers);
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2 || !data[0] || !data[0].length) return null;
+    const headers = data[0].map(String);
+    const col = headers.indexOf(String(columnName));
+    if (col === -1) return null;
+    const target = String(value);
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][col]) !== target) continue;
+      return {
+        rowNumber: i + 1,
+        row: _rowObjectFromValues_(headers, data[i], i + 1)
+      };
+    }
+    return null;
+  } catch (e) {
+    Logger.log('[IndexService] _findIndexRecord_ failed for ' + (def && def.indexSheet) + ' column=' + columnName + ': ' + (e && e.message || e));
+    return null;
   }
-  return null;
 }
 
 function _getRowObjectAt_(sheetName, rowNumber) {
@@ -238,16 +243,24 @@ function _getRowObjectAt_(sheetName, rowNumber) {
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
   if (rowNumber < 2 || rowNumber > lastRow || lastCol < 1) return null;
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
-  const values = sheet.getRange(rowNumber, 1, 1, lastCol).getValues()[0];
-  return _rowObjectFromValues_(headers, values, rowNumber);
+  try {
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+    const values  = sheet.getRange(rowNumber, 1, 1, lastCol).getValues()[0];
+    return _rowObjectFromValues_(headers, values, rowNumber);
+  } catch (e) {
+    Logger.log('[IndexService] _getRowObjectAt_ failed for ' + sheetName + ' row=' + rowNumber + ' lastRow=' + lastRow + ' lastCol=' + lastCol + ': ' + (e && e.message || e));
+    return null;
+  }
 }
 
 function _rowObjectFromValues_(headers, values, rowNumber) {
-  const obj = headers.reduce((m, h, i) => {
-    m[h] = normalizeSheetValue(values[i]);
-    return m;
-  }, {});
+  const obj = typeof rowObjectFromHeaders_ === 'function'
+    ? rowObjectFromHeaders_(headers, values)
+    : headers.reduce((m, h, i) => {
+        const key = String(h || '').trim();
+        if (key) m[key] = normalizeSheetValue(values[i]);
+        return m;
+      }, {});
   obj._rowNumber = rowNumber || '';
   return obj;
 }

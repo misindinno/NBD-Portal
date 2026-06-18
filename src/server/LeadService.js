@@ -8,15 +8,57 @@ function getLeads() {
 }
 
 function getLead(leadId) {
-  const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
-  const lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
+  // Defensive: any sub-call that throws "starting row of the range is too small"
+  // (caused by a stale index pointing at a row that no longer exists, or a
+  // freshly-created sheet) is recovered by rebuilding the leads index once and
+  // retrying with a full-scan fallback.
+  const _loadBase = () => {
+    const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
+    return baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
+  };
+  let lead = null;
+  try {
+    lead = _loadBase();
+  } catch (e) {
+    const msg = String(e && e.message || e);
+    Logger.log('[getLead] base read failed for ' + leadId + ': ' + msg + (e && e.stack ? '\n' + e.stack : ''));
+    if (/starting row|range/i.test(msg) && typeof rebuildIndexForSheet_ === 'function') {
+      try { rebuildIndexForSheet_(SHEET_NAMES.LEADS); } catch (re) { Logger.log('[getLead] rebuild leads index failed: ' + re); }
+      // Fallback to a direct full-scan if the indexed path is corrupt.
+      const allLeads = getAllRows(SHEET_NAMES.LEADS);
+      const baseLead = allLeads.find(r => String(r['Lead ID']) === String(leadId)) || null;
+      lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
+    } else {
+      throw e;
+    }
+  }
   if (!lead) return null;
-  const followups = getRowsWithCustomFieldValues_('Followups', getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId))
-    .filter(_isFollowupTaskRow)
-    .map(_normalizeFollowupRow)
-    .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
-  const followupHistory = _followupHistoryRows().filter(r => r['Lead ID'] === leadId);
-  const activityLogs = _leadActivityRows().filter(r => r['Lead ID'] === leadId);
+
+  let followups = [];
+  try {
+    followups = getRowsWithCustomFieldValues_('Followups', getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId))
+      .filter(_isFollowupTaskRow)
+      .map(_normalizeFollowupRow)
+      .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
+  } catch (e) {
+    Logger.log('[getLead] followups read failed for ' + leadId + ': ' + (e && e.message || e));
+    if (typeof rebuildIndexForSheet_ === 'function') {
+      try { rebuildIndexForSheet_(SHEET_NAMES.FOLLOWUPS); } catch (_) {}
+    }
+    followups = (getAllRows(SHEET_NAMES.FOLLOWUPS) || [])
+      .filter(r => String(r['Lead ID']) === String(leadId))
+      .filter(_isFollowupTaskRow)
+      .map(_normalizeFollowupRow)
+      .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
+  }
+
+  let followupHistory = [];
+  let activityLogs = [];
+  try { followupHistory = _followupHistoryRows().filter(r => r['Lead ID'] === leadId); }
+  catch (e) { Logger.log('[getLead] history read failed: ' + (e && e.message || e)); }
+  try { activityLogs = _leadActivityRows().filter(r => r['Lead ID'] === leadId); }
+  catch (e) { Logger.log('[getLead] activity read failed: ' + (e && e.message || e)); }
+
   return { lead, followups, followupHistory, activityLogs };
 }
 
