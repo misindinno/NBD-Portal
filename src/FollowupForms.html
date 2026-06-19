@@ -240,6 +240,24 @@ async function openMarkFollowupDoneForm(followupId) {
         <label>Done Remark *</label>
         <textarea class="form-control" name="Remark" rows="3" required placeholder="What happened in this follow-up?"></textarea>
       </div>
+      <div class="form-group">
+        <label style="font-size:12.5px;font-weight:600;color:#1f2937;display:block;margin-bottom:8px">Was the call Productive <span style="color:#ef4444">*</span></label>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:10px">
+          ${[
+            { val:'Yes', ic:'check-circle', col:'#16a34a', abg:'#f0fdf4', ab:'#22c55e', ibg:'#dcfce7' },
+            { val:'No',  ic:'x-circle',     col:'#dc2626', abg:'#fef2f2', ab:'#f87171', ibg:'#fee2e2' },
+          ].map(o => `
+            <label class="fu-productive-opt"
+              data-col="${o.col}" data-abg="${o.abg}" data-ab="${o.ab}" data-ibg="${o.ibg}"
+              style="display:flex;align-items:center;gap:10px;padding:11px 14px;height:52px;border:1.5px solid #e5e7eb;border-radius:12px;cursor:pointer;background:#fafafa;transition:border-color .15s,background .15s,box-shadow .15s;box-shadow:0 1px 2px rgba(0,0,0,.04)">
+              <input type="radio" name="Was Productive" value="${o.val}" style="position:absolute;opacity:0;width:0;height:0;pointer-events:none">
+              <span class="fp-icon" style="flex-shrink:0;width:30px;height:30px;border-radius:8px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:${o.col};transition:background .15s">${icon(o.ic, 16)}</span>
+              <span style="font-size:12.5px;font-weight:500;color:#374151;white-space:nowrap;line-height:1">${o.val}</span>
+            </label>
+          `).join('')}
+        </div>
+        <span class="form-error-msg" id="fu-productive-err" style="display:none">Please choose Yes or No.</span>
+      </div>
       ${issueFieldHTML}
       ${stageFieldHTML}
       <div class="modal-footer">
@@ -283,6 +301,38 @@ async function openMarkFollowupDoneForm(followupId) {
     });
   });
 
+  form.querySelectorAll('.fu-productive-opt').forEach(lbl => {
+    lbl.addEventListener('mouseenter', () => {
+      if (lbl.querySelector('input[type="radio"]').checked) return;
+      lbl.style.borderColor = '#d1d5db';
+      lbl.style.background = '#f9fafb';
+      lbl.style.boxShadow = '0 2px 6px rgba(0,0,0,.07)';
+    });
+    lbl.addEventListener('mouseleave', () => {
+      if (lbl.querySelector('input[type="radio"]').checked) return;
+      lbl.style.borderColor = '#e5e7eb';
+      lbl.style.background = '#fafafa';
+      lbl.style.boxShadow = '0 1px 2px rgba(0,0,0,.04)';
+    });
+    lbl.addEventListener('click', () => {
+      form.querySelectorAll('.fu-productive-opt').forEach(l => {
+        l.style.borderColor = '#e5e7eb';
+        l.style.background = '#fafafa';
+        l.style.boxShadow = '0 1px 2px rgba(0,0,0,.04)';
+        const ic = l.querySelector('.fp-icon');
+        if (ic) ic.style.background = '#f3f4f6';
+      });
+      const { ab, abg, ibg } = lbl.dataset;
+      lbl.style.borderColor = ab;
+      lbl.style.background = abg;
+      lbl.style.boxShadow = `0 0 0 3px ${ab}33`;
+      const ic = lbl.querySelector('.fp-icon');
+      if (ic) ic.style.background = ibg;
+      const errEl = document.getElementById('fu-productive-err');
+      if (errEl) errEl.style.display = 'none';
+    });
+  });
+
   const validator = _makeValidator(form);
   validator.addField(form.querySelector('[name="Done Date"]'),          [{ rule: 'required', errorMessage: 'Done date is required.' }]);
   validator.addField(form.querySelector('[name="Remark"]'),             [{ rule: 'required', errorMessage: 'Done remark is required.' }]);
@@ -300,6 +350,11 @@ async function openMarkFollowupDoneForm(followupId) {
     if (form.dataset.submitting === '1') return;
     if (!form.querySelector('[name="Contact Mode"]:checked')) {
       const errEl = document.getElementById('fu-contact-mode-err');
+      if (errEl) errEl.style.display = '';
+      return;
+    }
+    if (!form.querySelector('[name="Was Productive"]:checked')) {
+      const errEl = document.getElementById('fu-productive-err');
       if (errEl) errEl.style.display = '';
       return;
     }

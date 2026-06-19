@@ -8,7 +8,7 @@ function ensureFollowupSheets_() {
   ]);
   safeInitHeaders(SHEET_NAMES.FOLLOWUP_HISTORY, [
     'History ID','Follow-up ID','Lead ID','Planned Date','Done Date','Done By',
-    'Follow-up Type','Contact Mode','Remark','Outcome','Next Planned Date','Status After','Stage ID','Updated Stage ID','Created At'
+    'Follow-up Type','Contact Mode','Was Productive','Remark','Outcome','Next Planned Date','Status After','Stage ID','Updated Stage ID','Created At'
   ]);
   safeInitHeaders(SHEET_NAMES.LEAD_ACTIVITY_LOGS, [
     'Log ID','Lead ID','Action Type','Old Value','New Value','Remark','Created By','Created At'
@@ -139,7 +139,9 @@ function markFollowupDone(followupId, data, email) {
   const doneDate = formatDate(data['Done Date'] || today());
   const nextDate = formatDate(data['Next Follow-up Date'] || data['Next Planned Date'] || '');
   const remark = String(data['Remark'] || '').trim();
+  const wasProductive = String(data['Was Productive'] || '').trim();
   if (!remark) return respond(null, 'Done remark is required.');
+  if (!['Yes', 'No'].includes(wasProductive)) return respond(null, 'Was the call Productive is required.');
 
   // Pre-validate stage before any writes to avoid partial-write inconsistency
   const skipped = data['__stage_skipped'] === 'true' || data['__stage_skipped'] === true;
@@ -172,6 +174,7 @@ function markFollowupDone(followupId, data, email) {
     'Done By': user.id,
     'Follow-up Type': row['Follow-up Type'] || '',
     'Contact Mode': String(data['Contact Mode'] || ''),
+    'Was Productive': wasProductive,
     'Remark': remark,
     'Outcome': data['Outcome'] || row['Outcome'] || '',
     'Next Planned Date': nextDate,
