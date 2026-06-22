@@ -1,0 +1,151 @@
+<script>
+let _archiveTab = 'alerts';
+let _archiveData = { alerts: [], archived: [] };
+
+async function loadArchive(tab = 'alerts', force = false) {
+  _archiveTab = tab || _archiveTab || 'alerts';
+  const content = el('content');
+  if (!content) return;
+  content.innerHTML = `
+    <div id="archive-page" class="page-shell">
+      <div class="fu-hero">
+        <div class="fu-hero-left">
+          <div class="fu-hero-icon" style="background:#F1F5F9;color:#334155">${icon('archive', 16)}</div>
+          <div>
+            <div class="fu-hero-title">Archive</div>
+            <div class="fu-hero-sub">Review stale leads, archive them, and keep archived records separate from active work.</div>
+          </div>
+        </div>
+        <button class="btn btn-outlined btn-sm" onclick="loadArchive(_archiveTab, true)">${icon('refresh-cw', 13)} Refresh</button>
+      </div>
+      <div id="archive-kpis" class="fu-kpis" style="margin-bottom:14px"></div>
+      <div class="tabs" style="margin-bottom:12px">
+        <button class="tab-btn ${_archiveTab === 'alerts' ? 'active' : ''}" onclick="loadArchive('alerts')">${icon('bell-ring', 14)} Archive Alert</button>
+        <button class="tab-btn ${_archiveTab === 'archived' ? 'active' : ''}" onclick="loadArchive('archived')">${icon('archive', 14)} Archived Leads</button>
+      </div>
+      <div id="archive-body">${skeletonPage('table')}</div>
+    </div>`;
+  renderIcons(content);
+
+  if (force || !_archiveData._loaded) {
+    _archiveData = await api.getArchiveData();
+    _archiveData._loaded = true;
+  }
+  _renderArchive();
+}
+
+function _renderArchive() {
+  const alerts = _archiveData.alerts || [];
+  const archived = _archiveData.archived || [];
+  const kpis = el('archive-kpis');
+  if (kpis) {
+    kpis.innerHTML = [
+      _archiveKpi('Archive Alerts', alerts.length, '28+ days pending and 10+ not picked', 'bell-ring', 'warning'),
+      _archiveKpi('Archived Leads', archived.length, 'hidden from active work', 'archive', 'neutral'),
+      _archiveKpi('Not Picked Risk', alerts.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), 'total not-picked attempts', 'phone-missed', 'danger')
+    ].join('');
+    renderIcons(kpis);
+  }
+  const rows = _archiveTab === 'archived' ? archived : alerts;
+  const body = el('archive-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="fu-worklist-card">
+      <div class="fu-worklist-head">
+        <div>
+          <div class="fu-worklist-title">${_archiveTab === 'archived' ? 'Archived Leads' : 'Archive Alert'} <span class="fu-worklist-count">${rows.length}</span></div>
+          <div style="font-size:12px;color:#64748b">${_archiveTab === 'archived' ? 'Leads already archived with their linked follow-ups.' : 'Open leads pending for 28+ days with Not Picked count greater than or equal to 10.'}</div>
+        </div>
+      </div>
+      <div class="fu-table-scroll">
+        <table class="fu-table">
+          <thead><tr>
+            <th>Lead</th><th>Owner</th><th>Pending</th><th>Not Picked</th><th>Follow-ups</th><th>${_archiveTab === 'archived' ? 'Archived' : 'Reason'}</th><th></th>
+          </tr></thead>
+          <tbody>${rows.length ? rows.map(_archiveRowHTML).join('') : `<tr><td colspan="7" class="empty-table-cell">${_archiveTab === 'archived' ? 'No archived leads found.' : 'No archive alerts found.'}</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+  renderIcons(body);
+}
+
+function _archiveKpi(label, value, sub, ic, cls) {
+  return `<div class="fu-kpi fu-kpi-${cls}">
+    <span class="fu-kpi-icon">${icon(ic, 17)}</span>
+    <span class="fu-kpi-value">${escapeHtml(value)}</span>
+    <span class="fu-kpi-label">${escapeHtml(label)}</span>
+    <span class="fu-kpi-sub">${escapeHtml(sub)}</span>
+  </div>`;
+}
+
+function _archiveRowHTML(row) {
+  const leadId = String(row['Lead ID'] || '');
+  const owner = App.config.userNameMap?.[row['Assigned To']] || row['Assigned To'] || '—';
+  const title = row['Company Name'] || row['Client Description'] || leadId || '—';
+  const place = [row['City'], row['State']].filter(Boolean).join(', ');
+  const pending = Number(row._pendingDays || 0);
+  const archivedInfo = row['Archived At']
+    ? `${formatDateTime(row['Archived At'])}${row['Archive Reason'] ? ' - ' + row['Archive Reason'] : ''}`
+    : '28+ days pending and 10+ Not Picked';
+  return `<tr class="fu-row">
+    <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
+      <div class="fu-lead-title">${escapeHtml(title)}</div>
+      <div class="fu-lead-sub">${escapeHtml(place || leadId)}</div>
+    </td>
+    <td>${escapeHtml(owner)}</td>
+    <td><span class="badge" style="background:#FEF3C7;color:#92400E">${escapeHtml(pending)} days</span></td>
+    <td><span class="badge" style="background:#FEE2E2;color:#991B1B">${escapeHtml(row._notPickedCount || 0)}</span></td>
+    <td>${escapeHtml(row._followupCount || 0)}</td>
+    <td><div class="fu-discussion" title="${escapeHtml(archivedInfo)}">${escapeHtml(archivedInfo)}</div></td>
+    <td style="text-align:right">
+      ${_archiveTab === 'archived'
+        ? `<button class="btn btn-outlined btn-sm" onclick="_restoreArchivedLead('${escapeHtml(leadId)}')">${icon('rotate-ccw', 13)} Restore</button>`
+        : `<button class="btn btn-primary btn-sm" onclick="_archiveLeadNow('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button>`}
+    </td>
+  </tr>`;
+}
+
+function _archiveOpenLead(leadId) {
+  if (leadId && typeof openLeadDetail === 'function') openLeadDetail(leadId);
+}
+
+async function _archiveLeadNow(leadId) {
+  const result = await Swal.fire({
+    title: 'Archive lead?',
+    input: 'textarea',
+    inputLabel: 'Archive reason',
+    inputPlaceholder: 'Reason for archive',
+    showCancelButton: true,
+    confirmButtonText: 'Archive',
+    confirmButtonColor: '#334155'
+  });
+  if (!result.isConfirmed) return;
+  await api.archiveLead({ leadId, reason: result.value || 'Archive alert accepted' });
+  toast('Lead archived.');
+  AppCache.invalidate('leads');
+  AppCache.invalidate('followups');
+  _archiveData._loaded = false;
+  await loadArchive(_archiveTab, true);
+  if (typeof renderSidebar === 'function') renderSidebar();
+}
+
+async function _restoreArchivedLead(leadId) {
+  const result = await Swal.fire({
+    title: 'Restore lead?',
+    text: 'This will move the lead back to active leads.',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Restore'
+  });
+  if (!result.isConfirmed) return;
+  await api.restoreArchivedLead(leadId);
+  toast('Lead restored.');
+  AppCache.invalidate('leads');
+  AppCache.invalidate('followups');
+  _archiveData._loaded = false;
+  await loadArchive(_archiveTab, true);
+  if (typeof renderSidebar === 'function') renderSidebar();
+}
+
+window.loadArchive = loadArchive;
+</script>

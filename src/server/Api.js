@@ -268,6 +268,33 @@ function apiDeleteLead(token, leadId) {
   });
 }
 
+function apiGetArchiveData(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Archive');
+    return respond(getArchiveData(user));
+  });
+}
+
+function apiArchiveLead(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'archive', 'archiveLead');
+    const data = payload || {};
+    return withTrustedWriteUser_(user.email, () => archiveLead(data.leadId || '', data.reason || '', user.email));
+  });
+}
+
+function apiRestoreArchivedLead(token, leadId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'archive', 'restoreArchivedLead');
+    return withTrustedWriteUser_(user.email, () => restoreArchivedLead(leadId || '', user.email));
+  });
+}
+
 function apiUpdateLeadStage(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -291,7 +318,7 @@ function apiMoveLeadStageWithFields(token, payload) {
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    const user = _requireAnyModule(['Leads', 'Followups']);
+    const user = _requireAnyModule(['Leads', 'Followups', 'Archive']);
     const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', id);
     const lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
     const followups = _scopeFollowupRows(getFollowups({ leadId: id, includeClosed: true }), user);
@@ -768,6 +795,10 @@ function _assertCanEnqueueJob_(user, moduleName, actionType) {
     if ((!misDepartment && user.role !== 'ADMIN') || !has('Leads')) throw new Error('Permission denied. Only MIS or Admin users can delete leads.');
     return;
   }
+  if (['archiveLead', 'restoreArchivedLead'].includes(actionType)) {
+    if (!(isAdmin || has('Archive'))) throw new Error('Permission denied.');
+    return;
+  }
   if (actionType === 'saveBulkRows') {
     _requireBulkEntry_();
     return;
@@ -894,7 +925,8 @@ function _buildLeadMapById_() {
 }
 
 function _leadRows() {
-  return getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS));
+  return getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS))
+    .filter(row => !_isArchivedLead_(row));
 }
 
 function _leadIndexRowsForScope_() {

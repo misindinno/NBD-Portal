@@ -158,6 +158,8 @@ function _collectionsForQueueAction(actionType, moduleName) {
     saveLead:                ['leads', 'followups'],
     saveBulkRows:            ['leads', 'followups'],
     deleteLead:              ['leads', 'followups', 'followupHistory', 'activityLogs'],
+    archiveLead:             ['leads', 'followups', 'activityLogs'],
+    restoreArchivedLead:     ['leads', 'followups', 'activityLogs'],
     updateLeadStage:         ['leads', 'activityLogs'],
     moveLeadStageWithFields: ['leads', 'activityLogs'],
     saveFollowup:            ['followups', 'leads', 'activityLogs'],

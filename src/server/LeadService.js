@@ -3,8 +3,10 @@
 let CUSTOM_FIELD_UPLOAD_FOLDER_CACHE = null;
 
 function getLeads() {
-  if (isAggregatePortal()) return getAggregatedRows(SHEET_NAMES.LEADS);
-  return getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS));
+  const rows = isAggregatePortal()
+    ? getAggregatedRows(SHEET_NAMES.LEADS)
+    : getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS));
+  return rows.filter(row => !_isArchivedLead_(row));
 }
 
 function getLead(leadId) {
@@ -526,6 +528,11 @@ function _canWriteLead(lead, user) {
 
 function _isLeadPushedToNbd_(lead) {
   return !!(lead && (lead['NBD Lead ID'] || lead['Pushed To NBD At']));
+}
+
+function _isArchivedLead_(lead) {
+  const archived = String(lead && lead['Is Archived'] || '').trim().toUpperCase();
+  return archived === 'TRUE' || archived === 'YES' || archived === '1' || String(lead && lead['Lead Status'] || '').trim().toLowerCase() === 'archived';
 }
 
 function _validateLeadStageMove_(fromStageId, toStageId) {

@@ -2,12 +2,12 @@
 function _ensureConfigUserHelpers() {
   if (!window.USER_MODULES) {
     const isLq = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
-    window.USER_MODULES = ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users','LeadForm'].concat(isLq ? ['BulkEntry'] : []);
+    window.USER_MODULES = ['Dashboard','Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm'].concat(isLq ? ['BulkEntry'] : []);
   }
   if (!window.USER_ROLE_MODULES) {
     const lqExtra = window.USER_MODULES.includes('BulkEntry') ? ['BulkEntry'] : [];
     window.USER_ROLE_MODULES = {
-      ADMIN:   ['Dashboard','Leads','Pipeline','Followups','Reports','Config','Users'].concat(lqExtra),
+      ADMIN:   ['Dashboard','Leads','Pipeline','Followups','Reports','Archive','Config','Users'].concat(lqExtra),
       MANAGER: ['Dashboard','Leads','Pipeline','Followups','Reports'],
       SALES:   ['Dashboard','Leads','Pipeline','Followups'],
       USER:    ['Dashboard','Followups'],
@@ -48,6 +48,7 @@ function _ensureConfigUserHelpers() {
     if (moduleName === 'Followups') return 'Follow-ups';
     if (moduleName === 'LeadForm') return 'Lead Form';
     if (moduleName === 'BulkEntry') return 'Bulk Entry';
+    if (moduleName === 'Archive') return 'Archive';
     return moduleName;
   };
   if (!window._userModuleBadges) window._userModuleBadges = user => `<div style="display:flex;flex-wrap:wrap;gap:4px">

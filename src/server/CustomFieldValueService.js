@@ -7,6 +7,7 @@ const LEAD_MASTER_FIELDS = [
   'Stage ID','Priority','Assigned To','Lead Status',
   'Stage Updated At','Last Follow-up Date','Next Follow-up Date',
   'Source Portal','Source Lead ID','NBD Lead ID','Pushed To NBD At',
+  'Is Archived','Archived At','Archived By','Archive Reason',
   'Created At','Updated At'
 ];
 

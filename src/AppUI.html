@@ -416,6 +416,7 @@ const _PAGE_META = {
   leads:     { title: 'Lead Master',      crumb: 'Lead Master' },
   pipeline:  { title: 'Pipeline',         crumb: 'Pipeline' },
   followups: { title: 'Follow Up',        crumb: 'Follow Up' },
+  archive:   { title: 'Archive',          crumb: 'Archive' },
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
   config:    { title: 'Config',           crumb: 'Config' },
@@ -475,6 +476,7 @@ async function navigate(page) {
     }
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
+    else if (page === 'archive')           await _runPageLoader(page, 'loadArchive', ['alerts']);
     else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');
     else if (page === 'queue')             await _runPageLoader(page, 'loadQueuePage');
     else el('content').innerHTML = '<p>Page not found.</p>';
@@ -578,6 +580,7 @@ function renderSidebar() {
     const leadItems = [
       show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master', badge(leadsCount, 'Pending (not in final stage)')) : '',
       show('LeadForm')  ? navItem('leadform', 'file-plus',  'Lead Form')   : '',
+      show('Archive')   ? navItem('archive',  'archive',    'Archive')     : '',
       canUseBulkEntry ? navItem('bulkview', 'table-2',    'Bulk Entry')  : '',
     ].filter(Boolean).join('');
     if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
@@ -633,6 +636,7 @@ function canNavigate(page) {
   const dashboardOnly = _isDashboardPortal();
   const moduleMap = {
     dashboard: 'Dashboard', leads: 'Leads', pipeline: 'Pipeline',
+    archive: 'Archive',
     followups: 'Followups', 'followups-today': 'Followups',
     'followups-overdue': 'Followups', 'followups-custom': 'Followups', 'followups-new': 'Followups'
   };
@@ -660,7 +664,7 @@ function defaultPageForUser() {
   }
   const ordered = [
     ['today', 'Today'], ['followups', 'Followups'], ['pipeline', 'Pipeline'],
-    ['leads', 'Leads'], ['leadform', 'LeadForm']
+    ['leads', 'Leads'], ['archive', 'Archive'], ['leadform', 'LeadForm']
   ];
   const match = ordered.find(([page]) => canNavigate(page));
   if (match) return match[0];

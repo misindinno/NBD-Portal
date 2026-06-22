@@ -51,7 +51,7 @@ function getTodayActivitySnapshotFast_(user) {
     { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' },
     { sheetName: SHEET_NAMES.LEAD_ACTIVITY_LOGS, range: 'A:H' }
   ]);
-  const leads = rows[SHEET_NAMES.LEADS] || [];
+  const leads = (rows[SHEET_NAMES.LEADS] || []).filter(lead => !_isArchivedLead_(lead));
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
     .map(_normalizeFollowupRow);
@@ -77,7 +77,7 @@ function getFollowupPageSnapshotFast_(user, options) {
   ];
   if (includeHistory) specs.push({ sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' });
   const rows = sheetApiBatchGetRows_(specs);
-  const leads = rows[SHEET_NAMES.LEADS] || [];
+  const leads = (rows[SHEET_NAMES.LEADS] || []).filter(lead => !_isArchivedLead_(lead));
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
     .map(_normalizeFollowupRow);

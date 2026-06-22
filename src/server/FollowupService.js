@@ -459,7 +459,8 @@ function _isFollowupTaskRow(row) {
 }
 
 function _isOpenFollowup(row) {
-  return String(row && row['Status'] || 'Open').toLowerCase() !== 'closed';
+  const status = String(row && row['Status'] || 'Open').toLowerCase();
+  return status !== 'closed' && status !== 'archived';
 }
 
 function _plannedDate(row) {

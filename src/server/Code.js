@@ -259,6 +259,7 @@ function setupSheets() {
       'Stage ID','Priority','Assigned To','Lead Status',
       'Stage Updated At','Last Follow-up Date','Next Follow-up Date',
       'Source Portal','Source Lead ID','NBD Lead ID','Pushed To NBD At',
+      'Is Archived','Archived At','Archived By','Archive Reason',
       'Created At','Updated At'
     ]);
     ensureFollowupSheets_();
@@ -328,7 +329,7 @@ function _seedDefaultData() {
       ['Outcome','Interested'],['Outcome','Not Interested'],['Outcome','Call Again'],
       ['Outcome','Order Received'],['Outcome','Payment Received'],['Outcome','No Response'],
       ['Category','Dealer'],['Category','Distributor'],['Category','Direct'],['Category','OEM'],
-      ['Lead Status','Open'],['Lead Status','Won'],['Lead Status','Lost'],['Lead Status','Hold'],['Lead Status','Disqualified'],
+      ['Lead Status','Open'],['Lead Status','Won'],['Lead Status','Lost'],['Lead Status','Hold'],['Lead Status','Disqualified'],['Lead Status','Archived'],
       ['State','Delhi'],['State','Haryana'],['State','Punjab'],['State','Rajasthan'],
       ['State','UP'],['State','Maharashtra'],['State','Gujarat']
     ];
