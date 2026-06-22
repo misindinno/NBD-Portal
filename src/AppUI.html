@@ -565,13 +565,13 @@ function renderSidebar() {
     // Dashboard-only client: only analytics nav + system items
     const analyticsItems = [
       show('Dashboard') ? navItem('dashboard', 'layout-dashboard', 'Dashboard') : '',
-      show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : ''
+      navItem('today',     'activity',         "Today's Activity")
     ].filter(Boolean).join('');
     if (analyticsItems) html += `<div class="nav-section">Analytics</div>${analyticsItems}`;
   } else {
     // Main portals: hide Dashboard (now lives in its own client) but keep Today's Activity
     const mainItems = [
-      show('Dashboard') ? navItem('today',     'activity',         "Today's Activity") : '',
+      navItem('today',     'activity',         "Today's Activity"),
       show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount, 'Overdue + Today + New leads without follow-up'))   : '',
       show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
     ].filter(Boolean).join('');
