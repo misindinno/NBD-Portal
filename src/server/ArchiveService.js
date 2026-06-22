@@ -23,7 +23,7 @@ function getArchiveData(user) {
 
   const cutoff = new Date();
   cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() - 0);
+  cutoff.setDate(cutoff.getDate() - 28);
 
   const archived = [];
   const alerts = [];
