@@ -324,6 +324,8 @@ function _todayApply() {
   const callsDone  = activeHistory.filter(r => r['Contact Mode'] === 'Call Connected' || r['Follow-up Type'] === 'Call').length;
   const visitsDone = activeHistory.filter(r => r['Follow-up Type'] === 'Visit').length;
   const waDone     = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp').length;
+  const productiveHistory = history.filter(r => String(r['Was Productive'] || '').trim().toLowerCase() === 'yes');
+  const nonProductiveHistory = history.filter(r => String(r['Was Productive'] || '').trim().toLowerCase() === 'no');
   const stageMovs  = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase().includes('stage')).length;
   const statusChangeRows = actLogs.filter(r => {
     const action = String(r['Action Type'] || '').toLowerCase();
@@ -417,6 +419,8 @@ function _todayApply() {
     { key: 'stage',     label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
     { key: 'calls',     label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
     { key: 'wa',        label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' },
+    { key: 'productive', label: 'Productive Calls', value: productiveHistory.length, sub: 'marked yes', icon: 'thumbs-up', cls: 'success' },
+    { key: 'nonproductive', label: 'Non-Productive Calls', value: nonProductiveHistory.length, sub: 'marked no', icon: 'thumbs-down', cls: 'danger' },
     { key: 'connrate',  label: 'Connection Call Rate', value: `${_todayRates.connectionRate}%`, sub: `${_todayRates.connects} connects`, icon: 'activity', cls: 'blue' },
     { key: 'convrate',  label: 'Conversion Rate', value: `${_todayRates.conversionRate}%`, sub: `${_todayRates.conversions} converted`, icon: 'trending-up', cls: 'success' }
   ];
@@ -479,6 +483,8 @@ function _todayApply() {
     case 'notpicked': allRows = [...missedHistory]; break;
     case 'calls':     allRows = activeHistory.filter(r => r['Contact Mode'] === 'Call Connected' || r['Follow-up Type'] === 'Call'); break;
     case 'wa':        allRows = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp'); break;
+    case 'productive': allRows = [...productiveHistory]; break;
+    case 'nonproductive': allRows = [...nonProductiveHistory]; break;
     case 'stage':     allRows = [...logRows.filter(r => String(r['Follow-up Type'] || '').toLowerCase().includes('stage'))]; break;
     case 'newleads':
       allRows = newLeads.map(l => ({
@@ -530,7 +536,7 @@ function _todayApply() {
   const chipEl = el('td-card-filter-chip');
   if (chipEl) {
     if (_todayCardFilter) {
-      const labelMap = { pending:'Pending Follow-up', connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', stage:'Stage Moves', status:'Lead Status Change', newleads:'New Leads', unique:'Unique Leads' };
+      const labelMap = { pending:'Pending Follow-up', connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', productive:'Productive Calls', nonproductive:'Non-Productive Calls', stage:'Stage Moves', status:'Lead Status Change', newleads:'New Leads', unique:'Unique Leads' };
       const label = _todayCardFilter.startsWith('status:')
         ? `Status: ${decodeURIComponent(_todayCardFilter.slice('status:'.length))}`
         : (labelMap[_todayCardFilter] || _todayCardFilter);
@@ -566,6 +572,10 @@ function _todayApply() {
       const contactBadge = cm
         ? `<span class="td-mode-badge" style="background:${cms.bg};color:${cms.color}">${escapeHtml(cm)}</span>`
         : `<span class="muted-text">—</span>`;
+      const productiveValue = String(r['Was Productive'] || '').trim();
+      const productiveBadge = productiveValue
+        ? `<span class="td-mode-badge" style="margin-top:5px;background:${productiveValue === 'Yes' ? '#dcfce7' : '#fee2e2'};color:${productiveValue === 'Yes' ? '#166534' : '#991b1b'}">Productive: ${escapeHtml(productiveValue)}</span>`
+        : '';
       const remark    = escapeHtml(r['Remark'] || r['Discussion'] || '—');
       const remarkRaw = (r['Remark'] || r['Discussion'] || '');
       const nextDate  = r['Next Follow-up Date'] || r['Next Planned Date'] || r['Next Date'] || '';
@@ -583,7 +593,7 @@ function _todayApply() {
           ${city ? `<div class="fu-lead-sub">${icon('map-pin', 12)} ${city}</div>` : ''}
         </td>
         <td><div class="fu-date-sub">${plannedFmt}</div></td>
-        <td>${contactBadge}</td>
+        <td><div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">${contactBadge}${productiveBadge}</div></td>
         <td><div class="fu-discussion" title="${escapeHtml(remarkRaw)}">${remark}</div></td>
         <td><div class="fu-date-sub">${next}</div></td>
       </tr>`;
