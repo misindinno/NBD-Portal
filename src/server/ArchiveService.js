@@ -122,7 +122,7 @@ function _archiveLeadNeedsAlert_(lead, notPickedCount, cutoff) {
   if (_isArchivedLead_(lead)) return false;
   if (String(lead['Lead Status'] || 'Open').trim().toLowerCase() !== 'open') return false;
   if (Number(notPickedCount || 0) < 10) return false;
-  const pendingDate = formatDate(lead['Next Follow-up Date'] || lead['Last Follow-up Date'] || lead['Created At'] || '');
+  const pendingDate = formatDate(lead['Created At'] || '');
   if (!pendingDate) return false;
   const pending = new Date(pendingDate);
   pending.setHours(0, 0, 0, 0);
