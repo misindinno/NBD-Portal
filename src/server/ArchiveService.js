@@ -132,13 +132,13 @@ function _archiveLeadNeedsAlert_(lead, notPickedCount, cutoff) {
 function _archiveEnrichLead_(lead, followups, notPickedCount) {
   const latestOpen = (followups || [])
     .filter(f => String(f['Status'] || '').trim().toLowerCase() !== 'closed')
-    .sort((a, b) => new Date(b['Updated At'] || b['Created At'] || 0) - new Date(a['Updated At'] || a['Created At'] || 0))[0] || {};
+    .sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0))[0] || {};
   return {
     ...lead,
     _notPickedCount: Number(notPickedCount || 0),
     _followupCount: (followups || []).length,
     _latestFollowupStatus: latestOpen['Status'] || '',
-    _pendingDays: daysDiff(lead['Next Follow-up Date'] || lead['Last Follow-up Date'] || lead['Created At'] || '') || 0
+    _pendingDays: daysDiff(lead['Created At'] || '') || 0
   };
 }
 
