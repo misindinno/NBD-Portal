@@ -185,7 +185,7 @@ async function openLeadDetail(leadId) {
     if (overlay) overlay.remove();
     toast('Lead archived.');
     if (typeof renderSidebar === 'function') renderSidebar();
-    if (App.currentPage === 'archive' && typeof loadArchive === 'function') loadArchive(_archiveTab || 'alerts', true);
+    if (App.currentPage === 'archive' && typeof loadArchive === 'function') loadArchive(_archiveTab || 'archived', true);
     else if (App.currentPage === 'leads' && typeof loadLeads === 'function') loadLeads(true);
   }
 

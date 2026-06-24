@@ -476,7 +476,7 @@ async function navigate(page) {
     }
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
-    else if (page === 'archive')           await _runPageLoader(page, 'loadArchive', ['alerts']);
+    else if (page === 'archive')           await _runPageLoader(page, 'loadArchive', ['archived']);
     else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');
     else if (page === 'queue')             await _runPageLoader(page, 'loadQueuePage');
     else el('content').innerHTML = '<p>Page not found.</p>';
