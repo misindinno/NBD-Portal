@@ -244,6 +244,7 @@
     const priClass = { hot: 'lead-pri-hot', warm: 'lead-pri-warm', cold: 'lead-pri-cold' };
     const priIcon  = { hot: 'flame', warm: 'thermometer', cold: 'snowflake' };
     const iconSvg  = (name, size) => icon(name, size);
+    const canArchiveLead = App.user.role === 'ADMIN' || hasModule('Archive');
 
     const rowH = { comfortable: 52, compact: 42, ultra: 34 }[_leadDensity] || 42;
     if (leadTable) { try { leadTable.destroy(); } catch(e) {} leadTable = null; }
@@ -337,6 +338,18 @@
         //   },
         //   cellClick: function(e, cell) { openLeadDetail(_leadRowId(cell.getRow().getData())); }
         // }
+        ...(canArchiveLead ? [{
+          title: '', width: 64, hozAlign: 'center', headerSort: false,
+          formatter: function() {
+            return '<button class="fu-icon-action" title="Archive lead">' + iconSvg('archive', 14) + '</button>';
+          },
+          cellClick: async function(e, cell) {
+            e.stopPropagation();
+            const leadId = _leadRowId(cell.getRow().getData());
+            if (!leadId) return;
+            await _archiveLeadFromTable(leadId, cell.getRow());
+          }
+        }] : []),
         ...(String(App.user.department || '').trim().toUpperCase() === 'MIS' || App.user.role === 'ADMIN' ? [{
           title: '', width: 64, hozAlign: 'center', headerSort: false,
           formatter: function() {
@@ -376,6 +389,31 @@
     leadTable.on('renderComplete', refreshIcons);
     leadTable.on('pageLoaded', refreshIcons);
     leadTable.on('dataSorted', refreshIcons);
+  }
+
+  async function _archiveLeadFromTable(leadId, row) {
+    const result = await Swal.fire({
+      title: 'Archive lead?',
+      input: 'textarea',
+      inputLabel: 'Archive reason',
+      inputPlaceholder: 'Reason for archive',
+      showCancelButton: true,
+      confirmButtonText: 'Archive',
+      confirmButtonColor: '#334155'
+    });
+    if (!result.isConfirmed) return;
+    try {
+      toast('Archiving...', 'info');
+      await api.archiveLead({ leadId, reason: result.value || 'Archived from lead master' });
+      AppCache.removeRow('leads', 'Lead ID', leadId);
+      if (row) row.delete();
+      AppCache.invalidate('followups');
+      toast('Lead archived.');
+      if (typeof renderSidebar === 'function') renderSidebar();
+    } catch (err) {
+      toast('Archive failed: ' + (err.message || err), 'error');
+      _refreshLeadsCache().catch(() => {});
+    }
   }
 
   // Shared filter predicate: used both by Tabulator (to filter rows) and by

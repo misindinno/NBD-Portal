@@ -16,7 +16,10 @@ async function loadArchive(tab = 'alerts', force = false) {
             <div class="fu-hero-sub">Review stale leads, archive them, and keep archived records separate from active work.</div>
           </div>
         </div>
-        <button class="btn btn-outlined btn-sm" onclick="loadArchive(_archiveTab, true)">${icon('refresh-cw', 13)} Refresh</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-outlined btn-sm" onclick="_exportArchiveCsv()">${icon('download', 13)} Export</button>
+          <button class="btn btn-outlined btn-sm" onclick="loadArchive(_archiveTab, true)">${icon('refresh-cw', 13)} Refresh</button>
+        </div>
       </div>
       <div id="archive-kpis" class="fu-kpis" style="margin-bottom:14px"></div>
       <div class="tabs" style="margin-bottom:12px">
@@ -145,6 +148,53 @@ async function _restoreArchivedLead(leadId) {
   _archiveData._loaded = false;
   await loadArchive(_archiveTab, true);
   if (typeof renderSidebar === 'function') renderSidebar();
+}
+
+function _exportArchiveCsv() {
+  const rows = _archiveTab === 'archived' ? (_archiveData.archived || []) : (_archiveData.alerts || []);
+  if (!rows.length) {
+    toast('No archive rows to export.', 'error');
+    return;
+  }
+  const headers = [
+    'Lead ID','Company Name','Contact Person','Phone','Email','City','State',
+    'Assigned To','Lead Status','Next Follow-up Date','Last Follow-up Date',
+    'Not Picked Count','Pending Days','Follow-up Count','Archived At','Archived By','Archive Reason'
+  ];
+  const csvRows = [headers].concat(rows.map(row => [
+    row['Lead ID'] || '',
+    row['Company Name'] || '',
+    row['Contact Person'] || '',
+    row['Phone'] || '',
+    row['Email'] || '',
+    row['City'] || '',
+    row['State'] || '',
+    App.config.userNameMap?.[row['Assigned To']] || row['Assigned To'] || '',
+    row['Lead Status'] || '',
+    row['Next Follow-up Date'] || '',
+    row['Last Follow-up Date'] || '',
+    row._notPickedCount || 0,
+    row._pendingDays || 0,
+    row._followupCount || 0,
+    row['Archived At'] || '',
+    App.config.userNameMap?.[row['Archived By']] || row['Archived By'] || '',
+    row['Archive Reason'] || ''
+  ]));
+  const csv = csvRows.map(cols => cols.map(_archiveCsvCell).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const stamp = typeof localDateInputValue === 'function' ? localDateInputValue() : new Date().toISOString().slice(0, 10);
+  a.download = `archive-${_archiveTab}-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(a.href);
+  a.remove();
+}
+
+function _archiveCsvCell(value) {
+  const text = String(value ?? '');
+  return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
 }
 
 window.loadArchive = loadArchive;
