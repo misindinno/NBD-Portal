@@ -76,12 +76,17 @@ function _objectsFromSheetsApiValues_(values, opts) {
 // shallow copies so callers can mutate freely. Any write helper calls
 // _invalidateReadCache_() to drop the cache, keeping reads consistent with writes.
 let _READ_CACHE_ = {};
-const _CACHEABLE_READ_SHEETS_ = [
-  SHEET_NAMES.CONFIG, SHEET_NAMES.STAGES, SHEET_NAMES.FIELD_CONFIG,
-  SHEET_NAMES.USERS, SHEET_NAMES.USER_PORTAL_ACCESS
-].reduce((m, name) => { m[normalizeSheetName(name)] = true; return m; }, {});
+// Built lazily on first use — must NOT reference SHEET_NAMES/normalizeSheetName at load
+// time, since GAS evaluates files alphabetically and Utils.js (SHEET_NAMES) loads later.
+let _CACHEABLE_READ_SHEETS_ = null;
 
 function _isCacheableReadSheet_(sheetName) {
+  if (!_CACHEABLE_READ_SHEETS_) {
+    _CACHEABLE_READ_SHEETS_ = [
+      SHEET_NAMES.CONFIG, SHEET_NAMES.STAGES, SHEET_NAMES.FIELD_CONFIG,
+      SHEET_NAMES.USERS, SHEET_NAMES.USER_PORTAL_ACCESS
+    ].reduce((m, name) => { m[normalizeSheetName(name)] = true; return m; }, {});
+  }
   return !!_CACHEABLE_READ_SHEETS_[normalizeSheetName(sheetName)];
 }
 function _invalidateReadCache_() {
