@@ -1,6 +1,124 @@
 // Fast read helpers backed by the Advanced Google Sheets service.
 // Keep browser calls behind Api.js so auth and row scoping still apply.
 
+// ─── Unified row reader (Sheets API primary, SpreadsheetApp fallback) ──────────
+// getAllRows() delegates here, so every read in the app first tries the Advanced
+// Sheets service and transparently falls back to SpreadsheetApp on any error.
+// Output is byte-for-byte compatible with the legacy getValues()+normalizeSheetValue()
+// representation — dates render as 'yyyy-MM-dd HH:mm:ss', numbers/booleans/strings are
+// preserved — so existing consumers and the (SpreadsheetApp) write path stay correct.
+
+function _sheetsServiceReady_() {
+  return typeof Sheets !== 'undefined' && Sheets.Spreadsheets && Sheets.Spreadsheets.Values;
+}
+
+// Routes user/auth sheets to the user-database spreadsheet, everything else to the
+// portal spreadsheet. Returns '' when unconfigured so the caller skips the API path.
+function _spreadsheetIdForSheet_(sheetName) {
+  return isUserDatabaseSheet(sheetName)
+    ? String(USER_DATABASE_SPREADSHEET_ID || '')
+    : String(SPREADSHEET_ID || '');
+}
+
+// Columns that hold date/time values in the schema. The "… At"/"… Date" suffix rule
+// auto-covers new timestamp columns; the exception set lists the few that don't follow it.
+const _DATE_COLUMN_EXCEPTIONS_ = { 'Lease Until': true, 'Timestamp': true };
+function _isDateColumnHeader_(header) {
+  const h = String(header || '').trim();
+  if (!h) return false;
+  if (_DATE_COLUMN_EXCEPTIONS_[h]) return true;
+  return /[\s_\-](At|Date)$/i.test(h);
+}
+
+// Google Sheets serial number → 'yyyy-MM-dd HH:mm:ss', preserving the cell's wall-clock
+// (25569 = days between the 1899-12-30 serial epoch and the Unix epoch).
+function _serialToDateTimeString_(serial) {
+  const n = Number(serial);
+  if (!isFinite(n)) return String(serial);
+  const d = new Date(Math.round((n - 25569) * 86400000));
+  if (isNaN(d.getTime())) return String(serial);
+  const p = x => (x < 10 ? '0' : '') + x;
+  return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()) +
+    ' ' + p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds());
+}
+
+function _sheetsApiCellValue_(value, isDateCol) {
+  if (value === null || value === undefined) return '';
+  if (isDateCol && typeof value === 'number') return _serialToDateTimeString_(value);
+  return value;
+}
+
+// Turns a raw UNFORMATTED_VALUE/SERIAL_NUMBER value matrix into row objects matching
+// rowObjectFromHeaders_(). opts.skipBlankRows mirrors the batch reader's blank filtering.
+function _objectsFromSheetsApiValues_(values, opts) {
+  const data = values || [];
+  if (data.length < 2) return [];
+  const headers = (data[0] || []).map(h => String(h || '').trim());
+  const dateFlags = headers.map(_isDateColumnHeader_);
+  const skipBlank = !!(opts && opts.skipBlankRows);
+  const out = [];
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r] || [];
+    if (skipBlank && !row.some(v => String(v == null ? '' : v).trim() !== '')) continue;
+    const obj = {};
+    for (let c = 0; c < headers.length; c++) {
+      if (!headers[c]) continue;
+      obj[headers[c]] = _sheetsApiCellValue_(row[c], dateFlags[c]);
+    }
+    out.push(obj);
+  }
+  return out;
+}
+
+// ── Per-execution read cache ───────────────────────────────────────────────────
+// Read-mostly sheets (config + users) are read several times per request while
+// building lookup maps. Cache them for the life of this GAS execution and hand back
+// shallow copies so callers can mutate freely. Any write helper calls
+// _invalidateReadCache_() to drop the cache, keeping reads consistent with writes.
+let _READ_CACHE_ = {};
+const _CACHEABLE_READ_SHEETS_ = [
+  SHEET_NAMES.CONFIG, SHEET_NAMES.STAGES, SHEET_NAMES.FIELD_CONFIG,
+  SHEET_NAMES.USERS, SHEET_NAMES.USER_PORTAL_ACCESS
+].reduce((m, name) => { m[normalizeSheetName(name)] = true; return m; }, {});
+
+function _isCacheableReadSheet_(sheetName) {
+  return !!_CACHEABLE_READ_SHEETS_[normalizeSheetName(sheetName)];
+}
+function _invalidateReadCache_() {
+  _READ_CACHE_ = {};
+}
+
+function readAllRowsWithFallback_(sheetName) {
+  assertServerContext_();
+  const cacheable = _isCacheableReadSheet_(sheetName);
+  if (cacheable) {
+    const cached = _READ_CACHE_[normalizeSheetName(sheetName)];
+    if (cached) return cached.map(r => ({ ...r }));
+  }
+
+  let rows = null;
+  const ssId = _spreadsheetIdForSheet_(sheetName);
+  if (ssId && _sheetsServiceReady_()) {
+    try {
+      const a1 = "'" + normalizeSheetName(sheetName).replace(/'/g, "''") + "'";
+      const res = Sheets.Spreadsheets.Values.get(ssId, a1, {
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'SERIAL_NUMBER'
+      });
+      rows = _objectsFromSheetsApiValues_(res.values, { skipBlankRows: false });
+    } catch (e) {
+      Logger.log('[Read] Sheets API getAllRows fell back for ' + sheetName + ': ' + (e && e.message || e));
+    }
+  }
+  if (rows === null) rows = _legacyGetAllRows_(sheetName);
+
+  if (cacheable) {
+    _READ_CACHE_[normalizeSheetName(sheetName)] = rows;
+    return rows.map(r => ({ ...r }));
+  }
+  return rows;
+}
+
 function sheetApiBatchGetRows_(sheetNames) {
   assertServerContext_();
   if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {

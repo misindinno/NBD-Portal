@@ -59,7 +59,14 @@ function getHeaders(sheetName) {
   return sheet.getRange(1, 1, 1, lastCol).getValues()[0];
 }
 
+// Sheets-API-first read with SpreadsheetApp fallback (see readAllRowsWithFallback_).
 function getAllRows(sheetName) {
+  return readAllRowsWithFallback_(sheetName);
+}
+
+// Legacy SpreadsheetApp read — the fallback path used when the Sheets API is
+// unavailable, errors, or the spreadsheet id is unconfigured.
+function _legacyGetAllRows_(sheetName) {
   const sheet = getSheet(sheetName);
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
@@ -146,8 +153,10 @@ function findRowIndex(sheetName, idColumn, idValue) {
   return -1;
 }
 
+// Inserts a row. The append goes through the Sheets API (SpreadsheetApp fallback) via
+// _appendRowWithFallback_; LockService + index sync are unchanged.
 function insertRow(sheetName, rowObj) {
-  const sheet = getSheet(sheetName);
+  _invalidateReadCache_();
   const headers = getHeaders(sheetName);
   if (!headers.length) {
     throw new Error('Cannot insert row: sheet "' + sheetName + '" has no headers. Run setupSheets first.');
@@ -157,15 +166,40 @@ function insertRow(sheetName, rowObj) {
   let rowNumber = 0;
   lock.waitLock(10000);
   try {
-    sheet.appendRow(row);
-    rowNumber = sheet.getLastRow();
+    rowNumber = _appendRowWithFallback_(sheetName, row, headers.length);
   } finally {
     lock.releaseLock();
   }
   if (typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, rowObj, rowNumber);
 }
 
+// Updates a row by id. Tries the Sheets API path (targeted read-modify-write under the
+// script lock); any miss/uncertainty/error falls through to the authoritative
+// SpreadsheetApp path so behaviour and return values match the legacy implementation.
 function updateRow(sheetName, idColumn, idValue, updates) {
+  _invalidateReadCache_();
+  const headers = getHeaders(sheetName);
+  if (headers && headers.length) {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    let res = _FALLBACK_;
+    try {
+      res = _sheetsApiUpdateRow_(sheetName, idColumn, idValue, updates, headers);
+    } catch (e) {
+      Logger.log('[Write] Sheets API updateRow fell back for ' + sheetName + ' ' + idColumn + '=' + idValue + ': ' + (e && e.message || e));
+      res = _FALLBACK_;
+    } finally {
+      lock.releaseLock();
+    }
+    if (res !== _FALLBACK_ && res && res.ok) {
+      if (typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, res.syncedRow, res.rowNumber);
+      return true;
+    }
+  }
+  return _legacyUpdateRow_(sheetName, idColumn, idValue, updates);
+}
+
+function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
   const sheet = getSheet(sheetName);
   // Fix #10: acquire lock BEFORE reading row index to prevent race condition
   const lock = LockService.getScriptLock();
@@ -215,7 +249,28 @@ function updateRow(sheetName, idColumn, idValue, updates) {
   return true;
 }
 
+// Deletes a row by id. Sheets API (deleteDimension) first, SpreadsheetApp fallback.
 function deleteRow(sheetName, idColumn, idValue) {
+  _invalidateReadCache_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let outcome = _FALLBACK_;
+  try {
+    outcome = _sheetsApiDeleteRow_(sheetName, idColumn, idValue);
+  } catch (e) {
+    Logger.log('[Write] Sheets API deleteRow fell back for ' + sheetName + ' ' + idColumn + '=' + idValue + ': ' + (e && e.message || e));
+    outcome = _FALLBACK_;
+  } finally {
+    lock.releaseLock();
+  }
+  if (outcome === true) {
+    if (typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
+    return true;
+  }
+  return _legacyDeleteRow_(sheetName, idColumn, idValue);
+}
+
+function _legacyDeleteRow_(sheetName, idColumn, idValue) {
   const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -237,8 +292,29 @@ function deleteRow(sheetName, idColumn, idValue) {
   }
 }
 
-// Deletes every row matching filterFn. Iterates bottom-up so row numbers stay valid.
+// Deletes every row matching filterFn. Sheets API (batched deleteDimension) first,
+// SpreadsheetApp fallback. Index rebuild runs once after the deletions.
 function deleteAllRowsWhere(sheetName, filterFn) {
+  _invalidateReadCache_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let result = _FALLBACK_;
+  try {
+    result = _sheetsApiDeleteAllRowsWhere_(sheetName, filterFn);
+  } catch (e) {
+    Logger.log('[Write] Sheets API deleteAllRowsWhere fell back for ' + sheetName + ': ' + (e && e.message || e));
+    result = _FALLBACK_;
+  } finally {
+    lock.releaseLock();
+  }
+  if (result !== _FALLBACK_) {
+    if (result > 0 && typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
+    return result;
+  }
+  return _legacyDeleteAllRowsWhere_(sheetName, filterFn);
+}
+
+function _legacyDeleteAllRowsWhere_(sheetName, filterFn) {
   const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -265,6 +341,7 @@ function queryRows(sheetName, filterFn) {
 // Safe: creates sheet if missing, writes header row if empty,
 // or appends only NEW columns to the right — never touches existing data.
 function safeInitHeaders(sheetName, requiredHeaders) {
+  _invalidateReadCache_();
   requiredHeaders = Array.isArray(requiredHeaders) ? requiredHeaders.filter(Boolean) : [];
   if (!requiredHeaders.length) {
     Logger.log('[SheetDB] safeInitHeaders skipped empty header list for ' + sheetName);
