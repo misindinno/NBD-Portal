@@ -54,6 +54,16 @@ function logout() {
   window.location.reload();
 }
 
+// Loads the Vela login typefaces (Manrope + Space Grotesk) once, on demand.
+function _ensureLoginFonts_() {
+  if (document.getElementById('lo-fonts')) return;
+  const l = document.createElement('link');
+  l.id = 'lo-fonts';
+  l.rel = 'stylesheet';
+  l.href = 'https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap';
+  document.head.appendChild(l);
+}
+
 // ─── Google SSO helper ────────────────────────────────────────────────────────
 function _initOverlayGoogleAuth(overlay) {
   const clientId  = typeof GOOGLE_CLIENT_ID !== 'undefined' ? GOOGLE_CLIENT_ID : '';
@@ -61,12 +71,21 @@ function _initOverlayGoogleAuth(overlay) {
   const errEl     = overlay.querySelector('#lo-google-err');
   if (!container) return;
 
+  const loadingHTML =
+    '<div style="height:46px;display:flex;align-items:center;justify-content:center">' +
+    '<span style="width:18px;height:18px;border:2.4px solid rgba(108,92,231,.25);border-top-color:var(--lo-acc);border-radius:50%;animation:spin .7s linear infinite;display:inline-block"></span></div>';
+
   if (!clientId) {
     if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Google sign-in is temporarily unavailable. Please use email login.'; }
     return;
   }
 
-  container.innerHTML = '<div style="height:44px;display:flex;align-items:center;justify-content:center"><span class="lo-spinner"></span></div>';
+  container.innerHTML = loadingHTML;
+
+  function renderBtn() {
+    const gw = Math.min(400, Math.max(240, container.clientWidth || 360));
+    window.google.accounts.id.renderButton(container, { theme: 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', width: gw });
+  }
 
   function doInit() {
     container.innerHTML = '';
@@ -82,12 +101,12 @@ function _initOverlayGoogleAuth(overlay) {
           await _continueAppInit(result.token);
         } catch (err) {
           container.innerHTML = '';
-          window.google.accounts.id.renderButton(container, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', width: 300 });
+          renderBtn();
           if (errEl) { errEl.style.display = 'block'; errEl.textContent = String(err.message || err); }
         }
       }
     });
-    window.google.accounts.id.renderButton(container, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', width: 300 });
+    renderBtn();
   }
 
   let tries = 0;
@@ -103,8 +122,10 @@ function _initOverlayGoogleAuth(overlay) {
   }, 100);
 }
 
-// ─── Login overlay ────────────────────────────────────────────────────────────
+// ─── Login overlay (Vela design) ──────────────────────────────────────────────
 function showLoginOverlay(errorMsg, errorType) {
+  _ensureLoginFonts_();
+
   const isSession = /session|expired/i.test(errorMsg || '');
   const msgClass  = (errorType === 'info' || isSession) ? 'lo-info-msg' : 'lo-err-msg';
   const errHTML   = errorMsg ? `
@@ -113,174 +134,179 @@ function showLoginOverlay(errorMsg, errorType) {
       <span>${escapeHtml(errorMsg)}</span>
     </div>` : '';
 
+  const idleBtn =
+    '<span class="lo-btn-content">Sign in' +
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    '</span>';
+
   const overlay = document.createElement('div');
   overlay.id = 'nbd-login-overlay';
   overlay.innerHTML = `
     <div class="lo-stage">
 
       <!-- ── Left hero panel ── -->
-      <aside class="lo-side">
-        <div class="lo-side-grid"></div>
-        <div class="lo-side-glow"></div>
+      <div class="lo-side">
+        <!-- glowing mesh blobs -->
+        <div style="position:absolute;width:560px;height:560px;left:-140px;top:-150px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#6C5CE7,transparent 64%);filter:blur(58px);opacity:.9;animation:blob1 17s ease-in-out infinite;"></div>
+        <div style="position:absolute;width:480px;height:480px;right:-120px;top:8%;border-radius:50%;background:radial-gradient(circle at 50% 50%,#22C7E6,transparent 66%);filter:blur(60px);opacity:.7;animation:blob2 21s ease-in-out infinite;"></div>
+        <div style="position:absolute;width:520px;height:520px;left:12%;bottom:-180px;border-radius:50%;background:radial-gradient(circle at 50% 50%,#E879F9,transparent 66%);filter:blur(70px);opacity:.55;animation:blob3 19s ease-in-out infinite;"></div>
+        <div style="position:absolute;width:420px;height:420px;right:6%;bottom:-120px;border-radius:50%;background:radial-gradient(circle at 50% 50%,#5B7CFA,transparent 66%);filter:blur(56px);opacity:.65;animation:blob4 23s ease-in-out infinite;"></div>
 
-        <div class="lo-side-brand">
-          <span class="lo-mark"></span>
-          ${APP_TITLE}
-          <span class="lo-badge">High-velocity sales</span>
-        </div>
+        <!-- scrolling grid -->
+        <div style="position:absolute;inset:-44px 0;background-image:linear-gradient(to right,rgba(255,255,255,.5) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,.5) 1px,transparent 1px);background-size:44px 44px;opacity:.05;animation:gridScroll 8s linear infinite;"></div>
 
-        <div class="lo-hero">
-          <div>
-            <p class="lo-h1">Your entire sales</p>
-            <p class="lo-h1 lo-h1-dim">operation, simplified.</p>
-            <p class="lo-tag">Real-time CRM workspace &nbsp;·&nbsp; Lead management &nbsp;·&nbsp; Smart follow-ups</p>
-          </div>
+        <!-- drifting particles -->
+        <div style="position:absolute;left:14%;bottom:8%;width:4px;height:4px;border-radius:50%;background:#fff;animation:floatUp 9s linear infinite;animation-delay:0s;"></div>
+        <div style="position:absolute;left:26%;bottom:0%;width:3px;height:3px;border-radius:50%;background:#A7F3F0;animation:floatUp 11s linear infinite;animation-delay:1.4s;"></div>
+        <div style="position:absolute;left:40%;bottom:6%;width:5px;height:5px;border-radius:50%;background:#fff;animation:floatUp 12s linear infinite;animation-delay:3s;"></div>
+        <div style="position:absolute;left:55%;bottom:2%;width:3px;height:3px;border-radius:50%;background:#E9C2FF;animation:floatUp 10s linear infinite;animation-delay:.6s;"></div>
+        <div style="position:absolute;left:68%;bottom:9%;width:4px;height:4px;border-radius:50%;background:#fff;animation:floatUp 13s linear infinite;animation-delay:2.2s;"></div>
+        <div style="position:absolute;left:80%;bottom:1%;width:3px;height:3px;border-radius:50%;background:#BFE0FF;animation:floatUp 10.5s linear infinite;animation-delay:4s;"></div>
+        <div style="position:absolute;left:33%;bottom:4%;width:3px;height:3px;border-radius:50%;background:#fff;animation:floatUp 14s linear infinite;animation-delay:5.2s;"></div>
+        <div style="position:absolute;left:88%;bottom:7%;width:4px;height:4px;border-radius:50%;background:#C9B6FF;animation:floatUp 11.5s linear infinite;animation-delay:1.9s;"></div>
 
-          <!-- Product mockup -->
-          <div class="lo-mockup">
-            <div class="lo-mock-bar">
-              <div class="lo-mock-dots"><span></span><span></span><span></span></div>
-              <div class="lo-mock-url">lqportal.app / dashboard</div>
-            </div>
-            <div class="lo-mock-body">
-              <div class="lo-mock-sidebar">
-                <div class="lo-mock-nav active">Leads</div>
-                <div class="lo-mock-nav">Pipeline</div>
-                <div class="lo-mock-nav">Follow-ups</div>
-                <div class="lo-mock-nav">Team</div>
+        <!-- hero content -->
+        <div style="position:relative;z-index:2;height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:46px 52px;">
+          <div></div>
+
+          <div style="display:flex;flex-direction:column;gap:36px;max-width:540px;">
+            <div style="animation:revealUp .8s cubic-bezier(.2,.7,.2,1) both;animation-delay:.12s;">
+              <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 13px;border-radius:100px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(8px);margin-bottom:22px;">
+                <span style="width:7px;height:7px;border-radius:50%;background:#34E5C4;animation:pulseDot 2s ease-in-out infinite;"></span>
+                <span style="font-size:12.5px;font-weight:600;color:rgba(255,255,255,.86);letter-spacing:.2px;">Live analytics, in real time</span>
               </div>
-              <div class="lo-mock-main">
-                <div class="lo-mock-stats">
-                  <div class="lo-mock-stat">
-                    <div class="lo-mock-stat-v">142</div>
-                    <div class="lo-mock-stat-k">Today's Leads</div>
+              <h1 style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:42px;line-height:1.1;color:#fff;margin:0;letter-spacing:-1px;">Turn raw data into<br>decisions you trust.</h1>
+              <p style="font-size:15.5px;line-height:1.6;color:rgba(255,255,255,.68);margin:18px 0 0;max-width:420px;">One workspace for every metric that matters. Track, model, and ship — without waiting on a dashboard to load.</p>
+            </div>
+
+            <!-- live dashboard illustration -->
+            <div style="position:relative;animation:revealHero 1s cubic-bezier(.2,.7,.2,1) both;animation-delay:.28s;">
+              <div style="position:relative;width:360px;border-radius:20px;padding:22px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(16px);box-shadow:0 30px 70px -20px rgba(10,6,40,.7);animation:floatCard 7s ease-in-out infinite;">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;">
+                  <div>
+                    <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.6);letter-spacing:.3px;">Active users</div>
+                    <div style="font-family:'Space Grotesk',sans-serif;font-size:30px;font-weight:700;color:#fff;letter-spacing:-.8px;margin-top:3px;">48,920</div>
                   </div>
-                  <div class="lo-mock-stat">
-                    <div class="lo-mock-stat-v" style="color:#34D399">68%</div>
-                    <div class="lo-mock-stat-k">Conversion</div>
-                  </div>
-                  <div class="lo-mock-stat">
-                    <div class="lo-mock-stat-v" style="color:#FBB240">24</div>
-                    <div class="lo-mock-stat-k">Follow-ups</div>
+                  <div style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:8px;background:rgba(52,229,196,.16);color:#5BF0D6;font-size:12.5px;font-weight:700;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 16 L10 9 L14 13 L20 5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    12.4%
                   </div>
                 </div>
-                <div class="lo-mock-pipeline">
-                  <div class="lo-mock-stage" style="--c:#6366F1"></div>
-                  <div class="lo-mock-stage" style="--c:#8B5CF6"></div>
-                  <div class="lo-mock-stage" style="--c:#10B981"></div>
-                  <div class="lo-mock-stage" style="--c:#F59E0B"></div>
+                <svg width="100%" height="78" viewBox="0 0 316 78" fill="none" preserveAspectRatio="none" style="display:block;">
+                  <defs>
+                    <linearGradient id="vela-line" x1="0" y1="0" x2="316" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#22C7E6"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+                    <linearGradient id="vela-area" x1="0" y1="0" x2="0" y2="78" gradientUnits="userSpaceOnUse"><stop stop-color="#6C5CE7" stop-opacity=".35"/><stop offset="1" stop-color="#6C5CE7" stop-opacity="0"/></linearGradient>
+                  </defs>
+                  <path d="M0 60 L44 46 L88 52 L132 30 L176 38 L220 18 L264 26 L316 8 L316 78 L0 78 Z" fill="url(#vela-area)"/>
+                  <path d="M0 60 L44 46 L88 52 L132 30 L176 38 L220 18 L264 26 L316 8" stroke="url(#vela-line)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="460" stroke-dashoffset="460" style="animation:drawLine 1.8s cubic-bezier(.4,0,.2,1) forwards;animation-delay:.7s;"/>
+                  <circle cx="316" cy="8" r="4" fill="#fff" style="filter:drop-shadow(0 0 6px #A78BFA);"/>
+                </svg>
+                <div style="display:flex;align-items:flex-end;gap:7px;height:56px;margin-top:16px;">
+                  <div style="flex:1;height:60%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#6C5CE7,#4338ca);transform-origin:bottom;animation:barLive 2.4s ease-in-out infinite;animation-delay:0s;"></div>
+                  <div style="flex:1;height:82%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#7C6CF0,#4f46e5);transform-origin:bottom;animation:barLive 2.6s ease-in-out infinite;animation-delay:.25s;"></div>
+                  <div style="flex:1;height:50%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#5B7CFA,#3b5bdb);transform-origin:bottom;animation:barLive 2.2s ease-in-out infinite;animation-delay:.5s;"></div>
+                  <div style="flex:1;height:94%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#22C7E6,#0e9bc4);transform-origin:bottom;animation:barLive 2.8s ease-in-out infinite;animation-delay:.15s;"></div>
+                  <div style="flex:1;height:68%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#6C5CE7,#4338ca);transform-origin:bottom;animation:barLive 2.3s ease-in-out infinite;animation-delay:.4s;"></div>
+                  <div style="flex:1;height:88%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#A78BFA,#7c3aed);transform-origin:bottom;animation:barLive 2.7s ease-in-out infinite;animation-delay:.6s;"></div>
+                  <div style="flex:1;height:56%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#5B7CFA,#3b5bdb);transform-origin:bottom;animation:barLive 2.5s ease-in-out infinite;animation-delay:.3s;"></div>
+                  <div style="flex:1;height:76%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#22C7E6,#0e9bc4);transform-origin:bottom;animation:barLive 2.9s ease-in-out infinite;animation-delay:.55s;"></div>
+                  <div style="flex:1;height:64%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#6C5CE7,#4338ca);transform-origin:bottom;animation:barLive 2.4s ease-in-out infinite;animation-delay:.7s;"></div>
                 </div>
-                <div class="lo-mock-fu-list">
-                  <div class="lo-mock-fu-item"><span class="lo-mock-fu-dot" style="background:#34D399"></span>Acme Corp &mdash; Call scheduled today</div>
-                  <div class="lo-mock-fu-item"><span class="lo-mock-fu-dot" style="background:#FBB240"></span>Globex Ltd &mdash; Proposal follow-up due</div>
+              </div>
+
+              <!-- floating chips -->
+              <div style="position:absolute;top:-26px;right:-34px;display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:14px;background:rgba(255,255,255,.92);box-shadow:0 18px 40px -14px rgba(10,6,40,.6);animation:floatChipA 6s ease-in-out infinite;">
+                <div style="width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#34E5C4,#22C7E6);display:flex;align-items:center;justify-content:center;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2v20M5 9h9a3 3 0 0 1 0 6H7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#8a8aa3;font-weight:600;">Revenue</div>
+                  <div style="font-size:15px;color:#1a1830;font-weight:800;font-family:'Space Grotesk',sans-serif;">$24.8k</div>
+                </div>
+              </div>
+
+              <div style="position:absolute;bottom:-22px;left:-38px;display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:14px;background:rgba(255,255,255,.92);box-shadow:0 18px 40px -14px rgba(10,6,40,.6);animation:floatChipB 7.5s ease-in-out infinite;">
+                <div style="width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#6C5CE7,#A78BFA);display:flex;align-items:center;justify-content:center;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 6 L9 17 L4 12" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#8a8aa3;font-weight:600;">Uptime</div>
+                  <div style="font-size:15px;color:#1a1830;font-weight:800;font-family:'Space Grotesk',sans-serif;">99.98%</div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Feature list -->
-          <div class="lo-features">
-            <div class="lo-feat">
-              <div class="lo-feat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.78)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg></div>
-              <div><div class="lo-feat-title">Lead Management</div><div class="lo-feat-sub">Capture, assign and track every prospect</div></div>
+          <!-- footer quote -->
+          <div style="display:flex;align-items:center;gap:14px;animation:revealUp .8s cubic-bezier(.2,.7,.2,1) both;animation-delay:.4s;">
+            <div style="display:flex;">
+              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#6C5CE7,#22C7E6);border:2px solid #241c5e;"></div>
+              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#E879F9,#6C5CE7);border:2px solid #241c5e;margin-left:-12px;"></div>
+              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#34E5C4,#5B7CFA);border:2px solid #241c5e;margin-left:-12px;"></div>
             </div>
-            <div class="lo-feat">
-              <div class="lo-feat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.78)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
-              <div><div class="lo-feat-title">Sales Pipeline</div><div class="lo-feat-sub">Visualise your funnel, move deals in real time</div></div>
-            </div>
-            <div class="lo-feat">
-              <div class="lo-feat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.78)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
-              <div><div class="lo-feat-title">Smart Follow-ups</div><div class="lo-feat-sub">Scheduled reminders so no deal slips away</div></div>
-            </div>
-            <div class="lo-feat">
-              <div class="lo-feat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.78)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-              <div><div class="lo-feat-title">Team &amp; Roles</div><div class="lo-feat-sub">Granular permissions across your workspace</div></div>
-            </div>
+            <p style="font-size:13px;color:rgba(255,255,255,.62);margin:0;line-height:1.45;">Trusted by <strong style="color:#fff;font-weight:700;">12,000+</strong> data teams<br>at fast-moving companies.</p>
           </div>
         </div>
-
-        <div class="lo-stats">
-          <div><div class="lo-stat-k">Leads tracked</div><div class="lo-stat-v">50k<span class="lo-stat-u">+</span></div></div>
-          <div><div class="lo-stat-k">Uptime</div><div class="lo-stat-v"><span class="lo-live"></span>99.9<span class="lo-stat-u">%</span></div></div>
-          <div><div class="lo-stat-k">Follow-ups</div><div class="lo-stat-v">200k<span class="lo-stat-u">+</span></div></div>
-        </div>
-      </aside>
+      </div>
 
       <!-- ── Right form panel ── -->
-      <section class="lo-pane">
-        <div class="lo-top">
-          <div class="lo-top-brand">
-            <span class="lo-mark" style="width:22px;height:22px;border-radius:6px"></span>
-            ${APP_TITLE}
-          </div>
-          <div class="lo-top-secure">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            Secure workspace
-          </div>
-        </div>
-
-        <div class="lo-wrap">
-          <div class="lo-form-card">
-            <h1 class="lo-title">Welcome back</h1>
+      <div class="lo-pane">
+        <div class="lo-form-card">
+          <div style="animation:revealUp .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:.05s;">
+            <h2 class="lo-title">Welcome back</h2>
             <p class="lo-subtitle">Sign in to your ${APP_TITLE} workspace.</p>
+          </div>
+
+          <div class="lo-sso" style="animation:revealUp .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:.13s;">
+            <div id="lo-google-container"></div>
+            <div id="lo-google-err" style="display:none;font-size:12px;color:var(--lo-muted);text-align:center;margin-top:10px"></div>
+          </div>
+
+          <div class="lo-divider" style="animation:revealUp .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:.19s;">
+            <span class="lo-line"></span><span class="lo-dtxt">or continue with email</span><span class="lo-line"></span>
+          </div>
+
+          <form id="lo-form" novalidate autocomplete="on">
             ${errHTML}
-
-            <form id="lo-form" novalidate autocomplete="on">
-              <div class="lo-field">
-                <label class="lo-label" for="lo-email">Email address</label>
-                <div class="lo-input-wrap">
-                  <span class="lo-input-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 7l10 7 10-7"/></svg>
-                  </span>
-                  <input id="lo-email" class="lo-input" type="email" name="email" placeholder="you@company.com" autocomplete="email" required>
-                </div>
-                <div class="lo-field-err" id="lo-email-err" style="display:none"></div>
+            <label class="lo-field" style="animation:revealUp .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:.25s;">
+              <span class="lo-label">Email</span>
+              <div class="lo-input-wrap">
+                <span class="lo-input-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" stroke-width="1.8"/><path d="M4 7l8 5.5L20 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+                <input id="lo-email" class="lo-input" type="email" name="email" placeholder="you@company.com" autocomplete="email" required>
               </div>
+              <div class="lo-field-err" id="lo-email-err" style="display:none"></div>
+            </label>
 
-              <div class="lo-field">
-                <label class="lo-label" for="lo-pw">Password</label>
-                <div class="lo-input-wrap">
-                  <span class="lo-input-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  </span>
-                  <input id="lo-pw" class="lo-input pad-r" type="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
-                  <button type="button" class="lo-pw-toggle" id="lo-pw-toggle" title="Show / hide password">
-                    <svg id="lo-eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-                    <svg id="lo-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
-                  </button>
-                </div>
-                <div class="lo-field-err" id="lo-pw-err" style="display:none"></div>
+            <label class="lo-field" style="animation:revealUp .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:.31s;">
+              <div class="lo-pw-row">
+                <span class="lo-label" style="margin-bottom:0">Password</span>
+                <a href="#" class="lo-link" onclick="return false">Forgot?</a>
               </div>
-
-              <div class="lo-meta-row">
-                <label class="lo-remember">
-                  <input type="checkbox" id="lo-remember"> Remember me
-                </label>
-                <a href="#" class="lo-forgot" onclick="return false">Forgot password?</a>
+              <div class="lo-input-wrap">
+                <span class="lo-input-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5" stroke="currentColor" stroke-width="1.8"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+                <input id="lo-pw" class="lo-input pad-r" type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required>
+                <button type="button" class="lo-pw-toggle" id="lo-pw-toggle" aria-label="Toggle password">
+                  <svg id="lo-eye-on" viewBox="0 0 24 24" fill="none"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/></svg>
+                  <svg id="lo-eye-off" viewBox="0 0 24 24" fill="none" style="display:none"><path d="M4 4l16 16M9.9 5.2A9.6 9.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.1 3.9M6.2 7.4A17 17 0 0 0 2 12s3.6 7 10 7a9.5 9.5 0 0 0 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </button>
               </div>
+              <div class="lo-field-err" id="lo-pw-err" style="display:none"></div>
+            </label>
 
-              <button type="submit" class="lo-btn" id="lo-submit">Sign in</button>
-            </form>
+            <label class="lo-remember" style="animation:revealUp .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:.37s;">
+              <input type="checkbox" id="lo-remember" checked>
+              <span class="lo-check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M20 6 L9 17 L4 12" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <span class="lo-remember-txt">Keep me signed in</span>
+            </label>
 
-            <div class="lo-divider">or continue with</div>
-            <div id="lo-google-container" style="min-height:44px;display:flex;justify-content:center;align-items:center"></div>
-            <div id="lo-google-err" style="display:none;font-size:12px;color:var(--lo-muted);text-align:center;margin-top:8px"></div>
+            <button type="submit" class="lo-btn" id="lo-submit" style="animation:revealUp .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:.43s;">${idleBtn}</button>
+          </form>
 
-            <div class="lo-trust">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              Protected by encrypted authentication
-            </div>
-          </div>
+          <p class="lo-foot" style="animation:revealUp .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:.5s;">
+            Need access? <span style="color:var(--lo-acc);font-weight:700;">Contact your administrator</span>
+          </p>
         </div>
-
-        <div class="lo-bot">
-          <span><span class="lo-status-dot"></span> All systems operational</span>
-          <div style="display:flex;gap:16px">
-            <a href="#" onclick="return false">Privacy Policy</a>
-            <a href="#" onclick="return false">Terms of Service</a>
-          </div>
-        </div>
-      </section>
+      </div>
     </div>`;
 
   document.body.appendChild(overlay);
@@ -301,6 +327,16 @@ function showLoginOverlay(errorMsg, errorType) {
   const emailInput = overlay.querySelector('#lo-email');
   const emailErr   = overlay.querySelector('#lo-email-err');
   const pwErr      = overlay.querySelector('#lo-pw-err');
+
+  // Ripple flourish on the gradient button.
+  submit.addEventListener('mousedown', function(e) {
+    const r  = submit.getBoundingClientRect();
+    const sp = document.createElement('span');
+    sp.style.cssText = 'position:absolute;left:' + (e.clientX - r.left) + 'px;top:' + (e.clientY - r.top) +
+      'px;width:320px;height:320px;border-radius:50%;background:rgba(255,255,255,.45);pointer-events:none;transform:translate(-50%,-50%) scale(0);animation:ripple .6s ease-out forwards;';
+    submit.appendChild(sp);
+    setTimeout(function() { sp.remove(); }, 600);
+  });
 
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
@@ -337,7 +373,7 @@ function showLoginOverlay(errorMsg, errorType) {
       await _continueAppInit(result.token);
     } catch (err) {
       submit.disabled = false;
-      submit.textContent = 'Sign in';
+      submit.innerHTML = idleBtn;
       const existing = overlay.querySelector('.lo-err-msg');
       if (existing) existing.remove();
       const errDiv = document.createElement('div');
