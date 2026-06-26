@@ -25,20 +25,52 @@ async function init() {
 
 async function _continueAppInit(token) {
   Store.dispatch('SET_LOADING', { key: 'auth', value: true });
-  const boot = await api.bootstrapWithToken(token);
+
+  // One round-trip loads the whole working set (user + config + leads + follow-ups).
+  // Fall back to the legacy bootstrap (config only) for older deployments.
+  let boot;
+  try {
+    boot = await api.bootstrapData(token);
+  } catch (e) {
+    boot = await api.bootstrapWithToken(token);
+  }
+
   Store.dispatch('SET_USER', boot.user);
   Store.dispatch('SET_CONFIG', boot.config);
   AppCache.touch('config');
   AppLookup.rebuild();
+
+  // Hydrate state from the single payload — pages then render with no extra fetches.
+  if (Array.isArray(boot.leads))     AppCache.setRows('leads', boot.leads);
+  if (Array.isArray(boot.followups)) AppCache.setRows('followups', boot.followups);
+  if (boot.stamps && boot.stamps.appVersion && boot.stamps.appVersion !== '0') {
+    _knownAppVersion = boot.stamps.appVersion;
+  }
+
   Store.dispatch('SET_LOADING', { key: 'auth', value: false });
   renderSidebar();
 
   const requestedPage = _initialRequestedPage();
   const defaultPage = requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser();
-  _ensureCached('leads',          () => api.getLeads().catch(() => api.getFollowupLeads())).then(() => { try { renderSidebar(); } catch(e) {} }).catch(() => {});
-  // History and activity logs are large; pages that need them load them on demand.
+
+  // Legacy fallback path carries no leads — load them on demand so the sidebar fills.
+  if (!AppCache.isLoaded('leads')) {
+    _ensureCached('leads', () => api.getLeads().catch(() => api.getFollowupLeads()))
+      .then(() => { try { renderSidebar(); } catch (e) {} }).catch(() => {});
+  }
+
   navigate(defaultPage);
   startCacheRevalidation();
+  _prefetchSecondary_();
+}
+
+// After first paint, warm the heavy collections (follow-up history + activity logs) in
+// the background so lead-detail and Today views open instantly later. Non-blocking.
+function _prefetchSecondary_() {
+  setTimeout(function() {
+    if (!AppCache.isLoaded('followupHistory')) _ensureCached('followupHistory', () => api.getFollowupHistory({})).catch(() => {});
+    if (!AppCache.isLoaded('activityLogs'))    _ensureCached('activityLogs',    () => api.getLeadActivityLogs({})).catch(() => {});
+  }, 1200);
 }
 
 function _initialRequestedPage() {

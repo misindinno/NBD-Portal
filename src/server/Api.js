@@ -50,6 +50,51 @@ function apiLogout(token) {
   });
 }
 
+// One-shot bootstrap: returns the entire working set (user + config + leads + follow-ups)
+// in a single round-trip so the client can hydrate state and render every page without
+// further fetches. Reads run through the Sheets-API batch layer (SpreadsheetApp fallback).
+function apiBootstrapData(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const session = readAuthSession_(token);
+    if (!session) return respond(null, 'SESSION_EXPIRED');
+    const userResult = getCurrentUserByEmail_(session.email);
+    if (!userResult.success) return respond(null, userResult.error || 'ACCESS_DENIED');
+    refreshAuthSession_(token);
+    const user = userResult.data;
+
+    let config;
+    try {
+      config = getAppConfigFast_();
+    } catch (e) {
+      Logger.log('[Bootstrap] Sheets API config fallback: ' + e.message);
+      const c = getAppConfig();
+      if (!c.success) return c;
+      config = c.data;
+    }
+
+    const leads = _scopeAssignedRows(_leadRows(), user);
+    const followups = _scopeFollowupRows(getFollowups({}), user)
+      .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
+
+    return respond({ user, config, leads, followups, stamps: _bootstrapStamps_() });
+  });
+}
+
+function _bootstrapStamps_() {
+  const p = PropertiesService.getScriptProperties();
+  return {
+    leads:           p.getProperty('STAMP_LEADS')            || '0',
+    followups:       p.getProperty('STAMP_FOLLOWUPS')        || '0',
+    followupHistory: p.getProperty('STAMP_FOLLOWUP_HISTORY') || '0',
+    activityLogs:    p.getProperty('STAMP_ACTIVITY_LOGS')    || '0',
+    stages:          p.getProperty('STAMP_STAGES')           || '0',
+    fields:          p.getProperty('STAMP_FIELDS')           || '0',
+    config:          p.getProperty('STAMP_CONFIG')           || '0',
+    appVersion:      p.getProperty('APP_VERSION')            || '0'
+  };
+}
+
 function apiLoginWithGoogle(idToken) {
   return apiGuard_(() => {
     if (!idToken) return respond(null, 'Missing Google ID token.');

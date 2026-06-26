@@ -73,6 +73,7 @@ const api = {
   login:               (e, p)  => api._read('apiLogin', e, p),
   loginWithGoogle:     (t)     => api._read('apiLoginWithGoogle', t),
   bootstrapWithToken:  (t)     => api._read('apiBootstrapWithToken', t),
+  bootstrapData:       (t)     => api._read('apiBootstrapData', t),
   logout:              (t)     => api._read('apiLogout', t),
 
   // ── Reads ─────────────────────────────────────────────────────────────────
