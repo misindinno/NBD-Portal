@@ -18,6 +18,15 @@ function _todayCardClick(key) {
 window._todayCardClick = _todayCardClick;
 
 async function loadToday() {
+  // State-based: if everything Today needs is already in memory (bootstrap + prefetch),
+  // render instantly — no skeleton, no re-fetch. The 15s revalidation poll keeps it fresh.
+  if (AppCache.isLoaded('leads') && AppCache.isLoaded('followups') &&
+      AppCache.isLoaded('followupHistory') && AppCache.isLoaded('activityLogs')) {
+    el('content').innerHTML = `<div id="today-wrap"></div>`;
+    _renderToday();
+    return;
+  }
+
   el('content').innerHTML = `<div id="today-wrap">${skeletonPage('table')}</div>`;
 
   try {
