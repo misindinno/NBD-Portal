@@ -637,7 +637,7 @@ function _todayChartType(history) {
   const ctx = el('td-chart-type');
   if (!ctx) return;
   const types  = ['Call', 'WhatsApp', 'Visit', 'Email', 'Payment'];
-  const colors = ['#3b82f6', '#22c55e', '#8b5cf6', '#f59e0b', '#ef4444'];
+  const colors = ['#6C5CE7', '#16a34a', '#22C7E6', '#d97706', '#ef4444'];
   const counts = types.map(t => history.filter(r => r['Follow-up Type'] === t).length);
   _todayCharts.type = new Chart(ctx, {
     type: 'bar',
@@ -669,7 +669,7 @@ function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
 
   _todayCharts.trend = new Chart(ctx, {
     type: 'line',
-    data: { labels, datasets: [{ data: counts, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.12)', tension: 0.4, fill: true, pointBackgroundColor: '#6366f1', pointRadius: 4 }] },
+    data: { labels, datasets: [{ data: counts, borderColor: '#6C5CE7', backgroundColor: 'rgba(108,92,231,.12)', tension: 0.4, fill: true, pointBackgroundColor: '#6C5CE7', pointRadius: 4 }] },
     options: {
       plugins: { legend: { display: false } },
       scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } }, grid: { color: '#f3f4f6' } }, x: { ticks: { font: { size: 11 } }, grid: { display: false } } },
@@ -688,7 +688,7 @@ function _todayChartContactMode(history) {
   });
   const labels = Object.keys(modeMap);
   const data   = Object.values(modeMap);
-  const palette = ['#16a34a','#2563eb','#dc2626','#8b5cf6','#f59e0b','#14b8a6','#ec4899','#64748b'];
+  const palette = ['#6C5CE7','#2563eb','#16a34a','#d97706','#22C7E6','#7c3aed','#ef4444','#64748b'];
 
   _todayCharts.contactMode = new Chart(ctx, {
     type: 'doughnut',

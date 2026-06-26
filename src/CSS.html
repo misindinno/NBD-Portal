@@ -10,7 +10,7 @@
     --md-danger: #D32F2F;
     --md-success: #388E3C;
     --md-warning: #F57C00;
-    --sidebar-w: 240px;
+    --sidebar-w: 250px;
     --sb-collapsed: 64px;
     --sb-bg-from:   #1565C0;
     --sb-bg-to:     #1040A0;
@@ -724,26 +724,35 @@
     border-right: none; box-shadow: 8px 0 28px -18px rgba(20,30,90,.7);
     font-family: 'Manrope', system-ui, sans-serif;
   }
-  .sb-header { border-bottom-color: rgba(255,255,255,.12); }
+  .sb-header { padding: 18px 16px; border-bottom-color: rgba(255,255,255,.12); }
   .sb-logo-wrap {
-    background: linear-gradient(135deg, #6C5CE7, #22C7E6); border-radius: 11px;
+    width: 38px; height: 38px; border-radius: 11px;
+    background: linear-gradient(135deg, #6C5CE7, #22C7E6);
     box-shadow: 0 8px 18px -6px rgba(10,20,80,.6);
   }
-  .sb-brand-name { font-family: 'Space Grotesk', sans-serif; }
-  .sb-brand-sub { color: #aac4f4; }
-  .sb-toggle { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.16); color: #cdddfb; border-radius: 9px; }
+  .sb-logo-wrap .lucide { width: 20px; height: 20px; }
+  .sb-brand-name { font-family: 'Space Grotesk', sans-serif; font-size: 16px; }
+  .sb-brand-sub { font-size: 10.5px; color: #aac4f4; letter-spacing: .6px; }
+  .sb-toggle { width: 32px; height: 32px; border-radius: 9px; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.16); color: #cdddfb; }
   .sb-toggle:hover { background: rgba(255,255,255,.16); color: #fff; }
-  .nav-section { color: #8fb0ee; }
-  .sb-nav a { color: #d3e2fb; border-radius: 11px; font-weight: 600; }
+  .sb-nav { padding: 16px 12px 10px; }
+  .nav-section { padding: 18px 12px 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 1px; color: #8fb0ee; }
+  .sb-nav > .nav-section:first-child { padding-top: 2px; }
+  .sb-nav a {
+    height: auto; padding: 11px 14px; gap: 12px; margin-bottom: 4px;
+    border-radius: 11px; font-size: 14px; font-weight: 600; color: #d3e2fb;
+  }
   .sb-nav a:hover { background: rgba(255,255,255,.08); color: #fff; }
-  .sb-nav a.active { background: rgba(255,255,255,.16); color: #fff; }
-  .sb-nav a.active::before { background: #fff; }
+  .sb-nav a.active { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 3px 0 0 #fff; }
+  .sb-nav a.active::before { display: none; }
+  .sb-nav a .lucide { opacity: .92; }
   .nav-badge { background: rgba(255,255,255,.18); }
-  .sb-footer { border-top-color: rgba(255,255,255,.12); }
-  .sb-user-card { background: rgba(255,255,255,.08); border: none; border-radius: 12px; }
+  .sb-footer { padding: 12px; border-top-color: rgba(255,255,255,.12); }
+  .sb-user-card { padding: 9px 11px; gap: 11px; background: rgba(255,255,255,.08); border: none; border-radius: 12px; }
   .sb-user-card:hover { background: rgba(255,255,255,.14); }
-  .sb-user-avatar { background: rgba(255,255,255,.18); border-radius: 10px; }
-  .sb-user-role { color: #aac4f4; }
+  .sb-user-avatar { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.18); }
+  .sb-user-name { font-size: 13px; }
+  .sb-user-role { font-size: 11px; color: #aac4f4; }
 
   #topbar {
     height: 68px; border-bottom-color: #ecebf4;
