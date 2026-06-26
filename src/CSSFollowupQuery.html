@@ -861,9 +861,11 @@
   .fu-page .fu-topbar-btn.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 16px 30px -8px rgba(108,92,231,.7); }
 
   /* KPI cards — big value top-left, colored icon square top-right, colored left border */
-  .fu-page .fu-kpis { grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 14px; }
+  .fu-page .fu-kpis { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 14px; padding-bottom: 4px; }
+  .fu-page .fu-kpis::-webkit-scrollbar { height: 7px; }
+  .fu-page .fu-kpis::-webkit-scrollbar-thumb { background: #d9d8e6; border-radius: 7px; }
   .fu-page .fu-kpi {
-    display: block; position: relative; min-height: 0;
+    flex: 1 0 165px; display: block; position: relative; min-height: 0;
     background: #fff; border: 1px solid #ecebf4; border-left-width: 3px;
     border-radius: 15px; padding: 15px 16px; text-align: left;
     box-shadow: 0 4px 14px -10px rgba(40,30,80,.5);
