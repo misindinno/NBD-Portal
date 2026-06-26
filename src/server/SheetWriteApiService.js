@@ -118,7 +118,7 @@ function _deleteSheetRowsByNumber_(ssId, gid, rowNumbers) {
 // Appends a row, returning its 1-based row number. Sheets API first, SpreadsheetApp fallback.
 function _appendRowWithFallback_(sheetName, row, colCount) {
   const ssId = _spreadsheetIdForSheet_(sheetName);
-  if (ssId && _sheetsServiceReady_() && _rawWriteSafe_(row)) {
+  if (ssId && _sheetsApiAvailable_() && _rawWriteSafe_(row)) {
     try {
       const norm = normalizeSheetName(sheetName);
       const res = Sheets.Spreadsheets.Values.append(
@@ -132,6 +132,7 @@ function _appendRowWithFallback_(sheetName, row, colCount) {
       // Row landed but its number is unknown — never re-append; resolve via the live last row.
       return getSheet(sheetName).getLastRow();
     } catch (e) {
+      _noteSheetsApiError_(e);
       Logger.log('[Write] Sheets API append fell back for ' + sheetName + ': ' + (e && e.message || e));
     }
   }
@@ -144,7 +145,7 @@ function _appendRowWithFallback_(sheetName, row, colCount) {
 // on success, or _FALLBACK_ for any case the caller should hand to _legacyUpdateRow_.
 function _sheetsApiUpdateRow_(sheetName, idColumn, idValue, updates, headers) {
   const ssId = _spreadsheetIdForSheet_(sheetName);
-  if (!ssId || !_sheetsServiceReady_()) return _FALLBACK_;
+  if (!ssId || !_sheetsApiAvailable_()) return _FALLBACK_;
   const col = headers.indexOf(idColumn);
   if (col === -1) return _FALLBACK_;
   if (!_rawWriteSafe_(headers.map(h => updates[h]))) return _FALLBACK_;
@@ -166,7 +167,7 @@ function _sheetsApiUpdateRow_(sheetName, idColumn, idValue, updates, headers) {
 // Deletes the row identified by idColumn=idValue. Returns true on delete, or _FALLBACK_.
 function _sheetsApiDeleteRow_(sheetName, idColumn, idValue) {
   const ssId = _spreadsheetIdForSheet_(sheetName);
-  if (!ssId || !_sheetsServiceReady_()) return _FALLBACK_;
+  if (!ssId || !_sheetsApiAvailable_()) return _FALLBACK_;
   const headers = getHeaders(sheetName);
   const col = headers.indexOf(idColumn);
   if (col === -1) return _FALLBACK_;
@@ -182,7 +183,7 @@ function _sheetsApiDeleteRow_(sheetName, idColumn, idValue) {
 // Deletes every row matching filterFn. Returns the count deleted, or _FALLBACK_.
 function _sheetsApiDeleteAllRowsWhere_(sheetName, filterFn) {
   const ssId = _spreadsheetIdForSheet_(sheetName);
-  if (!ssId || !_sheetsServiceReady_()) return _FALLBACK_;
+  if (!ssId || !_sheetsApiAvailable_()) return _FALLBACK_;
   const norm = normalizeSheetName(sheetName);
   const res = Sheets.Spreadsheets.Values.get(ssId, _a1Sheet_(norm), {
     valueRenderOption: 'UNFORMATTED_VALUE',

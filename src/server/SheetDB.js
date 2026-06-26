@@ -186,6 +186,7 @@ function updateRow(sheetName, idColumn, idValue, updates) {
     try {
       res = _sheetsApiUpdateRow_(sheetName, idColumn, idValue, updates, headers);
     } catch (e) {
+      _noteSheetsApiError_(e);
       Logger.log('[Write] Sheets API updateRow fell back for ' + sheetName + ' ' + idColumn + '=' + idValue + ': ' + (e && e.message || e));
       res = _FALLBACK_;
     } finally {
@@ -258,6 +259,7 @@ function deleteRow(sheetName, idColumn, idValue) {
   try {
     outcome = _sheetsApiDeleteRow_(sheetName, idColumn, idValue);
   } catch (e) {
+    _noteSheetsApiError_(e);
     Logger.log('[Write] Sheets API deleteRow fell back for ' + sheetName + ' ' + idColumn + '=' + idValue + ': ' + (e && e.message || e));
     outcome = _FALLBACK_;
   } finally {
@@ -302,6 +304,7 @@ function deleteAllRowsWhere(sheetName, filterFn) {
   try {
     result = _sheetsApiDeleteAllRowsWhere_(sheetName, filterFn);
   } catch (e) {
+    _noteSheetsApiError_(e);
     Logger.log('[Write] Sheets API deleteAllRowsWhere fell back for ' + sheetName + ': ' + (e && e.message || e));
     result = _FALLBACK_;
   } finally {

@@ -12,6 +12,40 @@ function _sheetsServiceReady_() {
   return typeof Sheets !== 'undefined' && Sheets.Spreadsheets && Sheets.Spreadsheets.Values;
 }
 
+// ── Sheets API circuit breaker ─────────────────────────────────────────────────
+// When the Advanced Sheets service hits its per-minute quota it throws on every call
+// for the rest of that minute. Retrying just keeps burning the exhausted quota, so the
+// first quota/rate error trips a short cooldown (CacheService, shared across executions);
+// while it is active every read and write skips the Sheets API and uses SpreadsheetApp.
+const _SHEETS_API_COOLDOWN_KEY_ = 'SHEETS_API_COOLDOWN';
+let _sheetsApiCooldownChecked_ = false;
+let _sheetsApiCooldownActive_ = false;
+
+function _sheetsApiAvailable_() {
+  if (!_sheetsServiceReady_()) return false;
+  if (!_sheetsApiCooldownChecked_) {
+    _sheetsApiCooldownChecked_ = true;
+    try {
+      _sheetsApiCooldownActive_ = CacheService.getScriptCache().get(_SHEETS_API_COOLDOWN_KEY_) === '1';
+    } catch (e) {
+      _sheetsApiCooldownActive_ = false;
+    }
+  }
+  return !_sheetsApiCooldownActive_;
+}
+
+function _isQuotaError_(e) {
+  const msg = String(e && e.message || e || '').toLowerCase();
+  return /quota|rate.?limit|too many|429|user rate|limit exceeded|resource has been exhausted|exceeded/.test(msg);
+}
+
+// Trips the cooldown on quota/rate errors so the rest of this minute uses SpreadsheetApp.
+function _noteSheetsApiError_(e) {
+  if (!_isQuotaError_(e)) return;
+  _sheetsApiCooldownActive_ = true;
+  try { CacheService.getScriptCache().put(_SHEETS_API_COOLDOWN_KEY_, '1', 90); } catch (_) {}
+}
+
 // Routes user/auth sheets to the user-database spreadsheet, everything else to the
 // portal spreadsheet. Returns '' when unconfigured so the caller skips the API path.
 function _spreadsheetIdForSheet_(sheetName) {
@@ -103,7 +137,7 @@ function readAllRowsWithFallback_(sheetName) {
 
   let rows = null;
   const ssId = _spreadsheetIdForSheet_(sheetName);
-  if (ssId && _sheetsServiceReady_()) {
+  if (ssId && _sheetsApiAvailable_()) {
     try {
       const a1 = "'" + normalizeSheetName(sheetName).replace(/'/g, "''") + "'";
       const res = Sheets.Spreadsheets.Values.get(ssId, a1, {
@@ -112,6 +146,7 @@ function readAllRowsWithFallback_(sheetName) {
       });
       rows = _objectsFromSheetsApiValues_(res.values, { skipBlankRows: false });
     } catch (e) {
+      _noteSheetsApiError_(e);
       Logger.log('[Read] Sheets API getAllRows fell back for ' + sheetName + ': ' + (e && e.message || e));
     }
   }
@@ -126,9 +161,6 @@ function readAllRowsWithFallback_(sheetName) {
 
 function sheetApiBatchGetRows_(sheetNames) {
   assertServerContext_();
-  if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {
-    throw new Error('Google Sheets advanced service is not enabled.');
-  }
   const specs = (sheetNames || [])
     .map(item => {
       if (typeof item === 'object') {
@@ -142,15 +174,28 @@ function sheetApiBatchGetRows_(sheetNames) {
     .filter(spec => spec.sheetName);
   if (!specs.length) return {};
 
-  const ranges = specs.map(spec => "'" + String(spec.sheetName).replace(/'/g, "''") + "'!" + spec.range);
-  const result = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {
-    ranges,
-    valueRenderOption: 'FORMATTED_VALUE',
-    dateTimeRenderOption: 'FORMATTED_STRING'
-  });
-  const valueRanges = result.valueRanges || [];
-  return specs.reduce((map, spec, i) => {
-    map[spec.sheetName] = _sheetApiValuesToRows_(valueRanges[i] && valueRanges[i].values);
+  if (_sheetsApiAvailable_()) {
+    try {
+      const ranges = specs.map(spec => "'" + String(spec.sheetName).replace(/'/g, "''") + "'!" + spec.range);
+      const result = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {
+        ranges,
+        valueRenderOption: 'FORMATTED_VALUE',
+        dateTimeRenderOption: 'FORMATTED_STRING'
+      });
+      const valueRanges = result.valueRanges || [];
+      return specs.reduce((map, spec, i) => {
+        map[spec.sheetName] = _sheetApiValuesToRows_(valueRanges[i] && valueRanges[i].values);
+        return map;
+      }, {});
+    } catch (e) {
+      _noteSheetsApiError_(e);
+      Logger.log('[Read] Sheets API batchGet fell back to SpreadsheetApp: ' + (e && e.message || e));
+    }
+  }
+  // Fallback: read each sheet via SpreadsheetApp. getAllRows is breaker-gated, so during a
+  // quota cooldown it goes straight to the legacy path instead of re-hitting the API.
+  return specs.reduce((map, spec) => {
+    map[spec.sheetName] = getAllRows(spec.sheetName);
     return map;
   }, {});
 }
