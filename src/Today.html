@@ -110,15 +110,15 @@ function _renderToday() {
         <div class="td-charts">
           <div class="td-chart-box">
             <div class="td-chart-title">${icon('bar-chart-3', 13)} By Type</div>
-            <div class="td-chart-canvas-wrap"><canvas id="td-chart-type"></canvas></div>
+            <div id="td-chart-type" class="td-chart-svg"></div>
           </div>
           <div class="td-chart-box">
             <div class="td-chart-title">${icon('trending-up', 13)} Daily Trend (7 days)</div>
-            <div class="td-chart-canvas-wrap"><canvas id="td-chart-trend"></canvas></div>
+            <div id="td-chart-trend" class="td-chart-svg"></div>
           </div>
           <div class="td-chart-box">
             <div class="td-chart-title">${icon('pie-chart', 13)} Contact Modes</div>
-            <div class="td-chart-canvas-wrap"><canvas id="td-chart-outcome"></canvas></div>
+            <div id="td-chart-outcome" class="td-chart-svg"></div>
           </div>
         </div>
 
@@ -634,34 +634,39 @@ function _todayOpenLead(leadId) {
 }
 
 function _todayDestroyCharts() {
-  Object.values(_todayCharts).forEach(c => { try { c.destroy(); } catch(e) {} });
   _todayCharts = {};
   ['td-chart-type', 'td-chart-trend', 'td-chart-outcome'].forEach(id => {
     const c = el(id);
-    if (c) { c.width = c.width; }
+    if (c) c.innerHTML = '';
   });
 }
 
+// ── Today charts — hand-built SVG/CSS to match the Vela design ──────────────────
 function _todayChartType(history) {
-  const ctx = el('td-chart-type');
-  if (!ctx) return;
+  const box = el('td-chart-type');
+  if (!box) return;
   const types  = ['Call', 'WhatsApp', 'Visit', 'Email', 'Payment'];
-  const colors = ['#6C5CE7', '#16a34a', '#22C7E6', '#d97706', '#ef4444'];
   const counts = types.map(t => history.filter(r => r['Follow-up Type'] === t).length);
-  _todayCharts.type = new Chart(ctx, {
-    type: 'bar',
-    data: { labels: types, datasets: [{ data: counts, backgroundColor: colors, borderRadius: 6, borderSkipped: false }] },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } }, grid: { color: '#f3f4f6' } }, x: { ticks: { font: { size: 11 } }, grid: { display: false } } },
-      responsive: true, maintainAspectRatio: false
-    }
-  });
+  const max = Math.max(1, ...counts);
+  const topIdx = counts.indexOf(Math.max(...counts));
+  const bars = types.map((t, i) => {
+    const c = counts[i];
+    const h = c > 0 ? Math.max(6, Math.round(c / max * 100)) : 3;
+    const bg = c > 0
+      ? (i === topIdx ? 'linear-gradient(180deg,#6C5CE7,#5B7CFA)' : 'linear-gradient(180deg,#a99cf0,#bcc6fb)')
+      : '#ecebf4';
+    const shadow = (c > 0 && i === topIdx) ? 'box-shadow:0 8px 18px -8px rgba(108,92,231,.55);' : '';
+    return '<div class="tdb-col"><span class="tdb-val">' + (c > 0 ? c : '') + '</span>' +
+      '<div class="tdb-bar" style="height:' + h + '%;background:' + bg + ';' + shadow + '"></div></div>';
+  }).join('');
+  const lbls = types.map((t, i) =>
+    '<span class="tdb-lbl' + (i === topIdx && counts[i] > 0 ? ' on' : '') + '">' + escapeHtml(t) + '</span>').join('');
+  box.innerHTML = '<div class="tdb-bars">' + bars + '</div><div class="tdb-lbls">' + lbls + '</div>';
 }
 
 function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
-  const ctx = el('td-chart-trend');
-  if (!ctx) return;
+  const box = el('td-chart-trend');
+  if (!box) return;
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
@@ -675,46 +680,59 @@ function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
     return rows.length;
   });
   const labels = days.map(d => { const dt = new Date(d + 'T00:00:00'); return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); });
-
-  _todayCharts.trend = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets: [{ data: counts, borderColor: '#6C5CE7', backgroundColor: 'rgba(108,92,231,.12)', tension: 0.4, fill: true, pointBackgroundColor: '#6C5CE7', pointRadius: 4 }] },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } }, grid: { color: '#f3f4f6' } }, x: { ticks: { font: { size: 11 } }, grid: { display: false } } },
-      responsive: true, maintainAspectRatio: false
-    }
-  });
+  const max = Math.max(1, ...counts);
+  const left = 10, right = 690, top = 28, bot = 182, stepX = (right - left) / 6;
+  const pts = counts.map((c, i) => [
+    Math.round((left + i * stepX) * 10) / 10,
+    Math.round((bot - (c / max) * (bot - top)) * 10) / 10
+  ]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
+  const area = line + ' L' + right + ' ' + bot + ' L' + left + ' ' + bot + ' Z';
+  const dots = pts.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4" fill="#fff" stroke="#6C5CE7" stroke-width="2.5"/>').join('');
+  box.innerHTML =
+    '<svg viewBox="0 0 700 210" width="100%" height="170" preserveAspectRatio="none" style="display:block;overflow:visible">' +
+      '<defs>' +
+        '<linearGradient id="ta-area" x1="0" y1="0" x2="0" y2="210" gradientUnits="userSpaceOnUse"><stop stop-color="#6C5CE7" stop-opacity=".28"/><stop offset="1" stop-color="#6C5CE7" stop-opacity="0"/></linearGradient>' +
+        '<linearGradient id="ta-line" x1="0" y1="0" x2="700" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5B7CFA"/><stop offset="1" stop-color="#6C5CE7"/></linearGradient>' +
+      '</defs>' +
+      '<line x1="10" y1="182" x2="690" y2="182" stroke="#f0eff6" stroke-width="1"/>' +
+      '<line x1="10" y1="105" x2="690" y2="105" stroke="#f5f4fa" stroke-width="1"/>' +
+      '<line x1="10" y1="28" x2="690" y2="28" stroke="#f5f4fa" stroke-width="1"/>' +
+      '<path d="' + area + '" fill="url(#ta-area)"/>' +
+      '<path d="' + line + '" fill="none" stroke="url(#ta-line)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1100" stroke-dashoffset="1100" style="animation:drawLine 1.4s ease forwards"/>' +
+      dots +
+    '</svg>' +
+    '<div class="tdt-lbls">' + labels.map(l => '<span>' + escapeHtml(l) + '</span>').join('') + '</div>';
 }
 
 function _todayChartContactMode(history) {
-  const ctx = el('td-chart-outcome');
-  if (!ctx) return;
+  const box = el('td-chart-outcome');
+  if (!box) return;
   const modeMap = {};
-  history.forEach(r => {
-    const mode = r['Contact Mode'] || 'No Contact Mode';
-    modeMap[mode] = (modeMap[mode] || 0) + 1;
-  });
-  const labels = Object.keys(modeMap);
-  const data   = Object.values(modeMap);
-  const palette = ['#6C5CE7','#2563eb','#16a34a','#d97706','#22C7E6','#7c3aed','#ef4444','#64748b'];
-
-  _todayCharts.contactMode = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: labels.length ? labels : ['No data'],
-      datasets: [{
-        data: data.length ? data : [1],
-        backgroundColor: data.length ? palette.slice(0, labels.length) : ['#e5e7eb'],
-        borderWidth: 2,
-        borderColor: '#fff'
-      }]
-    },
-    options: {
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 8, boxWidth: 12 } } },
-      responsive: true, maintainAspectRatio: false,
-      cutout: '60%'
-    }
-  });
+  history.forEach(r => { const m = r['Contact Mode'] || 'No Contact Mode'; modeMap[m] = (modeMap[m] || 0) + 1; });
+  const entries = Object.entries(modeMap).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, e) => s + e[1], 0);
+  if (!total) { box.innerHTML = '<div style="padding:40px;text-align:center;color:#918fa5;font-size:13px">No contact data yet</div>'; return; }
+  const palette = ['#16a34a', '#ef4444', '#2563eb', '#6C5CE7', '#d97706', '#0d9488', '#7c3aed', '#64748b'];
+  const C = 2 * Math.PI * 54;
+  let acc = 0;
+  const segs = entries.map((e, i) => {
+    const len = (e[1] / total) * C;
+    const rot = -90 + (acc / total) * 360;
+    acc += e[1];
+    return '<circle cx="70" cy="70" r="54" fill="none" stroke="' + palette[i % palette.length] +
+      '" stroke-width="20" stroke-dasharray="' + len.toFixed(1) + ' ' + (C - len).toFixed(1) +
+      '" transform="rotate(' + rot.toFixed(1) + ' 70 70)"/>';
+  }).join('');
+  const legend = entries.map((e, i) => {
+    const pct = Math.round(e[1] / total * 100);
+    return '<div class="tdc-leg"><span class="tdc-dot" style="background:' + palette[i % palette.length] + '"></span>' +
+      '<span class="tdc-lbl">' + escapeHtml(e[0]) + '</span><span class="tdc-pct">' + pct + '%</span></div>';
+  }).join('');
+  box.innerHTML =
+    '<div class="tdc-wrap"><div class="tdc-ring">' +
+      '<svg viewBox="0 0 140 140" width="150" height="150"><circle cx="70" cy="70" r="54" fill="none" stroke="#f0eff6" stroke-width="20"/>' + segs + '</svg>' +
+      '<div class="tdc-center"><span class="tdc-total">' + total + '</span><span class="tdc-sub">logged</span></div>' +
+    '</div><div class="tdc-legend">' + legend + '</div></div>';
 }
 </script>

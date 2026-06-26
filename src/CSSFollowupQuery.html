@@ -974,4 +974,28 @@
   .lead-cbx.on { background: #6C5CE7; border-color: #6C5CE7; }
   .lead-cbx.on::after { content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 
+  /* Today charts — Vela SVG/CSS (replaces Chart.js) */
+  .td-chart-svg { width: 100%; }
+  .tdb-bars { display: flex; align-items: flex-end; gap: 14px; height: 158px; padding-bottom: 12px; border-bottom: 1px solid #f0eff6; }
+  .tdb-col { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; }
+  .tdb-val { font-size: 11px; font-weight: 800; color: #161427; min-height: 14px; }
+  .tdb-bar { width: 100%; max-width: 56px; border-radius: 8px 8px 4px 4px; transform-origin: bottom; animation: growBar .7s cubic-bezier(.2,.8,.3,1) both; }
+  .tdb-lbls { display: flex; gap: 14px; margin-top: 8px; }
+  .tdb-lbl { flex: 1; text-align: center; font-size: 11.5px; color: #918fa5; }
+  .tdb-lbl.on { color: #4a4860; font-weight: 700; }
+  .tdt-lbls { display: flex; justify-content: space-between; margin-top: 6px; padding: 0 4px; }
+  .tdt-lbls span { font-size: 11px; color: #918fa5; }
+  .tdc-wrap { display: flex; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap; padding: 6px 0; }
+  .tdc-ring { position: relative; width: 150px; height: 150px; flex-shrink: 0; }
+  .tdc-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .tdc-total { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 700; color: #161427; }
+  .tdc-sub { font-size: 10.5px; color: #918fa5; font-weight: 600; }
+  .tdc-legend { display: flex; flex-direction: column; gap: 10px; }
+  .tdc-leg { display: flex; align-items: center; gap: 8px; min-width: 175px; }
+  .tdc-dot { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+  .tdc-lbl { font-size: 12.5px; color: #4a4860; font-weight: 600; }
+  .tdc-pct { font-size: 12.5px; color: #161427; font-weight: 800; margin-left: auto; }
+  @keyframes growBar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  @keyframes drawLine { to { stroke-dashoffset: 0; } }
+
 </style>
