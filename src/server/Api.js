@@ -63,21 +63,28 @@ function apiBootstrapData(token) {
     refreshAuthSession_(token);
     const user = userResult.data;
 
-    let config;
+    // Initial load is the one place reads use the Sheets API (fast batch); the flag is
+    // reset in finally so nothing else in or after this execution touches the API.
+    _bootstrapReadMode_ = true;
     try {
-      config = getAppConfigFast_();
-    } catch (e) {
-      Logger.log('[Bootstrap] Sheets API config fallback: ' + e.message);
-      const c = getAppConfig();
-      if (!c.success) return c;
-      config = c.data;
+      let config;
+      try {
+        config = getAppConfigFast_();
+      } catch (e) {
+        Logger.log('[Bootstrap] config fallback: ' + e.message);
+        const c = getAppConfig();
+        if (!c.success) return c;
+        config = c.data;
+      }
+
+      const leads = _scopeAssignedRows(_leadRows(), user);
+      const followups = _scopeFollowupRows(getFollowups({}), user)
+        .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
+
+      return respond({ user, config, leads, followups, stamps: _bootstrapStamps_() });
+    } finally {
+      _bootstrapReadMode_ = false;
     }
-
-    const leads = _scopeAssignedRows(_leadRows(), user);
-    const followups = _scopeFollowupRows(getFollowups({}), user)
-      .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
-
-    return respond({ user, config, leads, followups, stamps: _bootstrapStamps_() });
   });
 }
 

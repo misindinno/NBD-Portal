@@ -1,12 +1,12 @@
 // Fast read helpers backed by the Advanced Google Sheets service.
 // Keep browser calls behind Api.js so auth and row scoping still apply.
 
-// ─── Unified row reader (Sheets API primary, SpreadsheetApp fallback) ──────────
-// getAllRows() delegates here, so every read in the app first tries the Advanced
-// Sheets service and transparently falls back to SpreadsheetApp on any error.
-// Output is byte-for-byte compatible with the legacy getValues()+normalizeSheetValue()
-// representation — dates render as 'yyyy-MM-dd HH:mm:ss', numbers/booleans/strings are
-// preserved — so existing consumers and the (SpreadsheetApp) write path stay correct.
+// ─── Unified row reader ────────────────────────────────────────────────────────
+// getAllRows() delegates here. By default it reads via SpreadsheetApp; it uses the
+// Advanced Sheets service ONLY during the initial bootstrap (_bootstrapReadMode_) so the
+// app stays well under the Sheets API quota. Either path yields the same row shape
+// (UNFORMATTED/SERIAL is normalised to match getValues()+normalizeSheetValue(): dates as
+// 'yyyy-MM-dd HH:mm:ss', numbers/booleans/strings preserved), so consumers don't care which ran.
 
 function _sheetsServiceReady_() {
   return typeof Sheets !== 'undefined' && Sheets.Spreadsheets && Sheets.Spreadsheets.Values;
@@ -20,6 +20,12 @@ function _sheetsServiceReady_() {
 const _SHEETS_API_COOLDOWN_KEY_ = 'SHEETS_API_COOLDOWN';
 let _sheetsApiCooldownChecked_ = false;
 let _sheetsApiCooldownActive_ = false;
+
+// Reads use the Advanced Sheets service ONLY during the initial bootstrap load (set by
+// apiBootstrapData for the life of that one execution). Every other read — the 15s
+// revalidation poll, per-page loads, scoping, on-demand — uses SpreadsheetApp, which keeps
+// the app well under the Sheets API per-minute quota. Mutations still use the Sheets API.
+let _bootstrapReadMode_ = false;
 
 function _sheetsApiAvailable_() {
   if (!_sheetsServiceReady_()) return false;
@@ -137,7 +143,7 @@ function readAllRowsWithFallback_(sheetName) {
 
   let rows = null;
   const ssId = _spreadsheetIdForSheet_(sheetName);
-  if (ssId && _sheetsApiAvailable_()) {
+  if (ssId && _bootstrapReadMode_ && _sheetsApiAvailable_()) {
     try {
       const a1 = "'" + normalizeSheetName(sheetName).replace(/'/g, "''") + "'";
       const res = Sheets.Spreadsheets.Values.get(ssId, a1, {
@@ -174,17 +180,17 @@ function sheetApiBatchGetRows_(sheetNames) {
     .filter(spec => spec.sheetName);
   if (!specs.length) return {};
 
-  if (_sheetsApiAvailable_()) {
+  if (_bootstrapReadMode_ && _sheetsApiAvailable_()) {
     try {
       const ranges = specs.map(spec => "'" + String(spec.sheetName).replace(/'/g, "''") + "'!" + spec.range);
       const result = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {
         ranges,
-        valueRenderOption: 'FORMATTED_VALUE',
-        dateTimeRenderOption: 'FORMATTED_STRING'
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'SERIAL_NUMBER'
       });
       const valueRanges = result.valueRanges || [];
       return specs.reduce((map, spec, i) => {
-        map[spec.sheetName] = _sheetApiValuesToRows_(valueRanges[i] && valueRanges[i].values);
+        map[spec.sheetName] = _objectsFromSheetsApiValues_(valueRanges[i] && valueRanges[i].values, { skipBlankRows: true });
         return map;
       }, {});
     } catch (e) {
@@ -192,8 +198,7 @@ function sheetApiBatchGetRows_(sheetNames) {
       Logger.log('[Read] Sheets API batchGet fell back to SpreadsheetApp: ' + (e && e.message || e));
     }
   }
-  // Fallback: read each sheet via SpreadsheetApp. getAllRows is breaker-gated, so during a
-  // quota cooldown it goes straight to the legacy path instead of re-hitting the API.
+  // Default (everything except the initial bootstrap): read each sheet via SpreadsheetApp.
   return specs.reduce((map, spec) => {
     map[spec.sheetName] = getAllRows(spec.sheetName);
     return map;
