@@ -331,6 +331,32 @@ function apiArchiveLead(token, payload) {
   });
 }
 
+// Bulk archive — archives many leads in one round-trip; reports per-lead success/failure.
+function apiArchiveLeads(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'archive', 'archiveLead');
+    const data = payload || {};
+    const ids = (Array.isArray(data.leadIds) ? data.leadIds : []).map(String).filter(Boolean);
+    const reason = data.reason || 'Bulk archived from lead master';
+    if (!ids.length) return respond({ archived: [], failed: [] });
+    return withTrustedWriteUser_(user.email, () => {
+      const archived = [], failed = [];
+      ids.forEach(id => {
+        try {
+          const r = archiveLead(id, reason, user.email);
+          if (r && r.success) archived.push(id);
+          else failed.push({ id: id, error: (r && r.error) || 'Archive failed' });
+        } catch (e) {
+          failed.push({ id: id, error: (e && e.message) || String(e) });
+        }
+      });
+      return respond({ archived: archived, failed: failed });
+    });
+  });
+}
+
 function apiRestoreArchivedLead(token, leadId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

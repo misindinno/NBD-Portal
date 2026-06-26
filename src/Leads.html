@@ -4,9 +4,11 @@
   let _leadStatusTab = 'all';
   let _leadFiltersOpen = false;
   let _leadDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_leadDensity')) || 'compact';
+  let _leadSelected = new Set();   // Lead IDs checked for bulk actions (archive)
 
   async function loadLeads(force = false) {
     el('page-title').textContent = 'Leads';
+    _leadSelected.clear();
     if (force) {
       setContentLoading('table');
       const rows = await api.getLeads();
@@ -222,6 +224,7 @@
           <div class="fu-worklist-head">
             <div class="fu-worklist-head-left">
               <div class="fu-worklist-title">Leads <span class="fu-worklist-count" id="lead-row-count">${sorted.length}</span></div>
+              <div id="lead-bulk-bar" class="lead-bulk-bar" style="display:none"></div>
             </div>
             <div class="fu-worklist-tools">
               <div class="fu-density-toggle" id="lead-density-toggle" role="group" aria-label="Row density">
@@ -266,6 +269,23 @@
         el.classList.toggle('lead-row-final', isFinal && !isNbd);
       },
       columns: [
+        ...(canArchiveLead ? [{
+          title: '<input type="checkbox" class="lead-sel-all" title="Select all" onclick="_leadToggleSelectAll(this)">',
+          field: 'Lead ID', width: 40, hozAlign: 'center', headerSort: false, resizable: false, cssClass: 'lead-sel-col',
+          formatter: function (cell) {
+            const id = _leadRowId(cell.getRow().getData());
+            return '<input type="checkbox" class="lead-sel-cb" tabindex="-1" ' + (_leadSelected.has(id) ? 'checked' : '') + '>';
+          },
+          cellClick: function (e, cell) {
+            e.stopPropagation();
+            const id = _leadRowId(cell.getRow().getData());
+            if (!id) return;
+            if (_leadSelected.has(id)) _leadSelected.delete(id); else _leadSelected.add(id);
+            const cb = cell.getElement().querySelector('input');
+            if (cb) cb.checked = _leadSelected.has(id);
+            _leadUpdateBulkBar();
+          }
+        }] : []),
         {
           title: 'Company / Contact', field: 'Company Name', sorter: 'string', minWidth: 200,
           formatter: function (cell) {
@@ -415,6 +435,76 @@
       _refreshLeadsCache().catch(() => {});
     }
   }
+
+  // ── Bulk archive ──────────────────────────────────────────────────────────────
+  function _leadUpdateBulkBar() {
+    const bar = el('lead-bulk-bar');
+    if (!bar) return;
+    const n = _leadSelected.size;
+    if (!n) {
+      bar.style.display = 'none';
+      bar.innerHTML = '';
+      const all = document.querySelector('.lead-sel-all'); if (all) all.checked = false;
+      return;
+    }
+    bar.style.display = '';
+    bar.innerHTML =
+      '<span class="lead-bulk-count">' + n + ' selected</span>' +
+      '<button class="lead-bulk-btn lead-bulk-archive" onclick="_leadBulkArchive()">' + icon('archive', 13) + ' Archive</button>' +
+      '<button class="lead-bulk-btn lead-bulk-clear" onclick="_leadClearSelection()">' + icon('x', 13) + ' Clear</button>';
+    renderIcons(bar);
+  }
+
+  function _leadToggleSelectAll(cb) {
+    const on = !!(cb && cb.checked);
+    const rows = (window.leadTable && leadTable.getData('active')) || AppCache.getRows('leads');
+    _leadSelected.clear();
+    if (on) rows.forEach(r => { const id = _leadRowId(r); if (id) _leadSelected.add(id); });
+    if (window.leadTable) leadTable.redraw(true);
+    _leadUpdateBulkBar();
+  }
+  window._leadToggleSelectAll = _leadToggleSelectAll;
+
+  function _leadClearSelection() {
+    _leadSelected.clear();
+    if (window.leadTable) leadTable.redraw(true);
+    _leadUpdateBulkBar();
+  }
+  window._leadClearSelection = _leadClearSelection;
+
+  async function _leadBulkArchive() {
+    const ids = [..._leadSelected];
+    if (!ids.length) return;
+    const result = await Swal.fire({
+      title: 'Archive ' + ids.length + ' lead' + (ids.length > 1 ? 's' : '') + '?',
+      input: 'textarea', inputLabel: 'Archive reason', inputPlaceholder: 'Reason for archive',
+      showCancelButton: true, confirmButtonText: 'Archive', confirmButtonColor: '#6C5CE7'
+    });
+    if (!result.isConfirmed) return;
+    const reason = result.value || 'Bulk archived from lead master';
+    try {
+      toast('Archiving ' + ids.length + '…', 'info');
+      const res = await api.archiveLeads({ leadIds: ids, reason });
+      const archived = (res && res.archived) || [];
+      const failed = (res && res.failed) || [];
+      archived.forEach(id => AppCache.removeRow('leads', 'Lead ID', id));
+      AppCache.invalidate('followups');
+      _leadSelected.clear();
+      _leadUpdateBulkBar();
+      if (window.leadTable) {
+        leadTable.replaceData(AppCache.getRows('leads'));
+        if (typeof applyLeadFilters === 'function') applyLeadFilters();
+      }
+      if (typeof _renderLeadKpis === 'function') _renderLeadKpis(AppCache.getRows('leads'));
+      if (typeof renderSidebar === 'function') renderSidebar();
+      if (failed.length) toast('Archived ' + archived.length + ', ' + failed.length + ' failed', 'error');
+      else toast('Archived ' + archived.length + ' lead' + (archived.length > 1 ? 's' : ''));
+    } catch (err) {
+      toast('Bulk archive failed: ' + (err.message || err), 'error');
+      _refreshLeadsCache().catch(() => {});
+    }
+  }
+  window._leadBulkArchive = _leadBulkArchive;
 
   // Shared filter predicate: used both by Tabulator (to filter rows) and by
   // _renderLeadKpis (so the upper KPI cards always reflect what the user sees).
