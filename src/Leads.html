@@ -270,11 +270,11 @@
       },
       columns: [
         ...(canArchiveLead ? [{
-          title: '<input type="checkbox" class="lead-sel-all" title="Select all" onclick="_leadToggleSelectAll(this)">',
+          title: '<input type="checkbox" class="lead-sel-all" title="Select all" onmousedown="event.preventDefault()" onclick="_leadToggleSelectAll(this)">',
           field: 'Lead ID', width: 40, hozAlign: 'center', headerSort: false, resizable: false, cssClass: 'lead-sel-col',
           formatter: function (cell) {
             const id = _leadRowId(cell.getRow().getData());
-            return '<input type="checkbox" class="lead-sel-cb" tabindex="-1" ' + (_leadSelected.has(id) ? 'checked' : '') + '>';
+            return '<input type="checkbox" class="lead-sel-cb" tabindex="-1" onmousedown="event.preventDefault()" ' + (_leadSelected.has(id) ? 'checked' : '') + '>';
           },
           cellClick: function (e, cell) {
             e.stopPropagation();
@@ -397,7 +397,7 @@
     });
 
     leadTable.on('rowClick', function (e, row) {
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button') || e.target.closest('.lead-sel-col')) return;
       openLeadDetail(_leadRowId(row.getData()));
     });
 
