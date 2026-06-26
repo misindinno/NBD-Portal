@@ -270,19 +270,19 @@
       },
       columns: [
         ...(canArchiveLead ? [{
-          title: '<input type="checkbox" class="lead-sel-all" title="Select all" onmousedown="event.preventDefault()" onclick="_leadToggleSelectAll(this)">',
+          title: '<span class="lead-cbx lead-sel-all" title="Select all" onclick="_leadToggleSelectAll(this)"></span>',
           field: 'Lead ID', width: 40, hozAlign: 'center', headerSort: false, resizable: false, cssClass: 'lead-sel-col',
           formatter: function (cell) {
             const id = _leadRowId(cell.getRow().getData());
-            return '<input type="checkbox" class="lead-sel-cb" tabindex="-1" onmousedown="event.preventDefault()" ' + (_leadSelected.has(id) ? 'checked' : '') + '>';
+            return '<span class="lead-cbx' + (_leadSelected.has(id) ? ' on' : '') + '"></span>';
           },
           cellClick: function (e, cell) {
             e.stopPropagation();
             const id = _leadRowId(cell.getRow().getData());
             if (!id) return;
             if (_leadSelected.has(id)) _leadSelected.delete(id); else _leadSelected.add(id);
-            const cb = cell.getElement().querySelector('input');
-            if (cb) cb.checked = _leadSelected.has(id);
+            const box = cell.getElement().querySelector('.lead-cbx');
+            if (box) box.classList.toggle('on', _leadSelected.has(id));
             _leadUpdateBulkBar();
           }
         }] : []),
@@ -444,7 +444,7 @@
     if (!n) {
       bar.style.display = 'none';
       bar.innerHTML = '';
-      const all = document.querySelector('.lead-sel-all'); if (all) all.checked = false;
+      const all = document.querySelector('.lead-sel-all'); if (all) all.classList.remove('on');
       return;
     }
     bar.style.display = '';
@@ -455,11 +455,13 @@
     renderIcons(bar);
   }
 
-  function _leadToggleSelectAll(cb) {
-    const on = !!(cb && cb.checked);
+  function _leadToggleSelectAll(elm) {
     const rows = (window.leadTable && leadTable.getData('active')) || AppCache.getRows('leads');
+    const allIds = rows.map(r => _leadRowId(r)).filter(Boolean);
+    const turnOn = _leadSelected.size < allIds.length;   // not all selected → select all; else clear
     _leadSelected.clear();
-    if (on) rows.forEach(r => { const id = _leadRowId(r); if (id) _leadSelected.add(id); });
+    if (turnOn) allIds.forEach(id => _leadSelected.add(id));
+    if (elm) elm.classList.toggle('on', turnOn);
     if (window.leadTable) leadTable.redraw(true);
     _leadUpdateBulkBar();
   }

@@ -970,6 +970,8 @@
   .lead-bulk-clear { background: #fff; color: #6f6c84; border: 1px solid #e6e5f0; }
   .lead-bulk-clear:hover { color: #e11d48; border-color: #f3b4bf; background: #fef4f6; }
   #leads-worklist .lead-sel-col { cursor: pointer; }
-  #leads-worklist .lead-sel-cb, .lead-sel-all { width: 15px; height: 15px; accent-color: #6C5CE7; cursor: pointer; vertical-align: middle; }
+  .lead-cbx { display: inline-block; box-sizing: border-box; width: 16px; height: 16px; border: 2px solid #cfcddd; border-radius: 5px; background: #fff; vertical-align: middle; cursor: pointer; position: relative; transition: background .12s ease, border-color .12s ease; }
+  .lead-cbx.on { background: #6C5CE7; border-color: #6C5CE7; }
+  .lead-cbx.on::after { content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 
 </style>
