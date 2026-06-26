@@ -95,6 +95,48 @@ function _pipelineClearFilters() {
 }
 window._pipelineClearFilters = _pipelineClearFilters;
 
+// ── Card quick actions (archive / delete) ──────────────────────────────────────
+async function _pipelineArchiveCard(leadId) {
+  if (!leadId) return;
+  let reason = 'Archived from pipeline';
+  if (typeof Swal !== 'undefined') {
+    const res = await Swal.fire({
+      title: 'Archive lead?', input: 'text', inputPlaceholder: 'Reason (optional)',
+      showCancelButton: true, confirmButtonText: 'Archive', confirmButtonColor: '#6C5CE7'
+    });
+    if (!res.isConfirmed) return;
+    reason = res.value || reason;
+  } else if (!confirm('Archive this lead?')) return;
+  try {
+    AppCache.removeRow('leads', 'Lead ID', leadId);
+    loadPipeline();
+    toast('Archiving…', 'info');
+    await api.archiveLead({ leadId, reason });
+    toast('Lead archived');
+  } catch (err) {
+    toast('Archive failed: ' + (err.message || err), 'error');
+    _refreshLeadsCache().catch(() => {});
+  }
+}
+window._pipelineArchiveCard = _pipelineArchiveCard;
+
+async function _pipelineDeleteCard(leadId) {
+  if (!leadId) return;
+  if (!confirm('Delete this lead and all related follow-ups, history, activity logs and custom fields? This cannot be undone.')) return;
+  try {
+    if (typeof _removeLeadRelatedRowsFromCache === 'function') _removeLeadRelatedRowsFromCache(leadId);
+    else AppCache.removeRow('leads', 'Lead ID', leadId);
+    loadPipeline();
+    toast('Deleting…', 'info');
+    await api.deleteLead(leadId);
+    toast('Lead deleted');
+  } catch (err) {
+    toast('Delete failed: ' + (err.message || err), 'error');
+    _refreshLeadsCache().catch(() => {});
+  }
+}
+window._pipelineDeleteCard = _pipelineDeleteCard;
+
 async function loadPipeline() {
   el('page-title').textContent = 'Pipeline';
   if (!AppCache.isLoaded('leads')) {
@@ -186,40 +228,41 @@ async function loadPipeline() {
     const dueDate      = lead['Next Follow-up Date'];
     const nbdLocked    = !!(lead['NBD Lead ID'] || lead['Pushed To NBD At']);
     const tooltip      = [lead['Company Name'], lead['Contact Person'], lead['Phone'], lead['Email'], lead['City'], lead['State'], lead['Client Description']].filter(Boolean).join(' · ');
-    const overdueLabel = od.overdue ? `&#9888; ${od.daysOver}d over TAT` : '';
+    const overdueLabel = od.overdue ? `${od.daysOver}d over TAT` : '';
 
-    return `<div class="pipeline-card ${nbdLocked ? 'pipeline-card-nbd-locked' : ''}" data-lead-id="${escapeHtml(lead['Lead ID'])}" title="${escapeHtml(tooltip)}">
-      <div class="pc-edge ${edgeCls}"></div>
-      <div class="pc-body">
-        <div class="pc-title">${title}</div>
-        ${nbdLocked ? `<div class="pc-nbd-lock">${icon('lock', 11)} Moved to NBD</div>` : ''}
-        ${contactPerson   ? `<div class="pc-contact">${contactPerson}</div>` : ''}
-        <div class="pc-fields">
-          ${assignedName ? `<div class="pc-field">${icon('user', 10)} ${escapeHtml(assignedName)}</div>` : ''}
-          ${phone    ? `<div class="pc-field">${icon('phone', 10)} ${phone}${altPhone ? ` &nbsp;·&nbsp; ${altPhone}` : ''}</div>` : (altPhone ? `<div class="pc-field">${icon('phone', 10)} ${altPhone}</div>` : '')}
-          ${email    ? `<div class="pc-field">${icon('mail', 10)} ${email}</div>` : ''}
-          ${cityState? `<div class="pc-field">${icon('map-pin', 10)} ${cityState}</div>` : ''}
-          ${category ? `<div class="pc-field">${icon('tag', 10)} ${category}</div>` : ''}
-          ${source   ? `<div class="pc-field">${icon('share-2', 10)} ${source}</div>` : ''}
-          ${product  ? `<div class="pc-field">${icon('package', 10)} ${product}</div>` : ''}
+    const leadId  = escapeHtml(lead['Lead ID']);
+    const pcls    = String(priority || '').toLowerCase();
+    const canArchive = App.user.role === 'ADMIN' || (typeof hasModule === 'function' && hasModule('Archive'));
+    const canDelete  = App.user.role === 'ADMIN' || String(App.user.department || '').trim().toUpperCase() === 'MIS';
+    const actions = nbdLocked ? '' : `<div class="pc-actions">
+        ${canArchive ? `<button type="button" class="pc-act pc-act-archive" title="Archive" data-lead-id="${leadId}" onclick="event.stopPropagation();_pipelineArchiveCard(this.dataset.leadId)">${icon('archive', 14)}</button>` : ''}
+        ${canDelete ? `<button type="button" class="pc-act pc-act-delete" title="Delete" data-lead-id="${leadId}" onclick="event.stopPropagation();_pipelineDeleteCard(this.dataset.leadId)">${icon('trash-2', 14)}</button>` : ''}
+      </div>`;
+
+    return `<div class="pipeline-card ${nbdLocked ? 'pipeline-card-nbd-locked' : ''}" data-lead-id="${leadId}" title="${escapeHtml(tooltip)}">
+      <div class="pc-head">
+        <div class="pc-head-id">
+          <div class="pc-title">${title || '—'}</div>
+          ${contactPerson ? `<div class="pc-contact">${contactPerson}</div>` : ''}
         </div>
-        ${(priority || od.overdue) ? `<div class="pc-tags">
-          ${priority  ? `<span class="badge badge-${escapeHtml(priority.toLowerCase())}">${escapeHtml(priority)}</span>` : ''}
-          ${od.overdue ? `<span class="pc-overdue-flag">${overdueLabel}</span>` : ''}
-        </div>` : ''}
-        <div class="pc-footer">
-          <div class="pc-assignee">
-            ${assignedName
-              ? `<div class="pc-avatar" style="background:${_avatarBg(assignedName)}">${_initials(assignedName)}</div>
-                 <span class="pc-assignee-name" title="${escapeHtml(assignedName)}">${escapeHtml(assignedName)}</span>`
-              : ''
-            }
-          </div>
-          <div class="pc-footer-right">
-            <span class="pc-lead-ref">${leadRef}</span>
-            ${dueDate ? `<span class="pc-due">${icon('calendar', 10)} ${formatDate(dueDate)}</span>` : ''}
-          </div>
+        ${priority ? `<span class="pc-pri pc-pri-${pcls}">${icon('flame', 10)} ${escapeHtml(priority)}</span>` : ''}
+      </div>
+      ${remark ? `<div class="pc-desc">${remark}</div>` : ''}
+      ${(phone || cityState) ? `<div class="pc-meta">
+        ${phone ? `<span>${icon('phone', 12)} ${phone}</span>` : ''}
+        ${cityState ? `<span>${icon('map-pin', 12)} ${cityState}</span>` : ''}
+      </div>` : ''}
+      ${(nbdLocked || od.overdue) ? `<div class="pc-flags">
+        ${nbdLocked ? `<span class="pc-nbd-lock">${icon('lock', 10)} Moved to NBD</span>` : ''}
+        ${od.overdue ? `<span class="pc-overdue-flag">${icon('alert-triangle', 10)} ${overdueLabel}</span>` : ''}
+      </div>` : ''}
+      <div class="pc-foot">
+        <div class="pc-assignee">
+          ${assignedName
+            ? `<span class="pc-avatar" style="background:${_avatarBg(assignedName)}">${_initials(assignedName)}</span><span class="pc-assignee-name" title="${escapeHtml(assignedName)}">${escapeHtml(assignedName)}</span>`
+            : '<span class="pc-assignee-name" style="color:#b4b2c4">Unassigned</span>'}
         </div>
+        ${actions}
       </div>
     </div>`;
   }
