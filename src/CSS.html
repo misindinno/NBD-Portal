@@ -22,7 +22,7 @@
     --sb-border:    rgba(255,255,255,0.12);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; background: var(--md-surface); color: var(--md-text); -webkit-font-smoothing: antialiased; }
+  body { font-family: 'Manrope', system-ui, sans-serif; background: var(--md-surface); color: var(--md-text); -webkit-font-smoothing: antialiased; }
 
   /* Layout */
   #app-shell { display: flex; height: 100vh; overflow: hidden; }
@@ -716,5 +716,71 @@
   /* fields with skip-only visibility start hidden â€” JS controls them */
   .custom-field-section[data-skippable="true"] .lead-custom-field[data-skip-vis="skip_only"] {
     display: none;
+  }
+
+  /* ════════ Vela skin — global chrome (sidebar + topbar) ════════ */
+  #sidebar {
+    background: linear-gradient(185deg, #2f6ae8 0%, #2151c8 52%, #1c3ea6 100%);
+    border-right: none; box-shadow: 8px 0 28px -18px rgba(20,30,90,.7);
+    font-family: 'Manrope', system-ui, sans-serif;
+  }
+  .sb-header { border-bottom-color: rgba(255,255,255,.12); }
+  .sb-logo-wrap {
+    background: linear-gradient(135deg, #6C5CE7, #22C7E6); border-radius: 11px;
+    box-shadow: 0 8px 18px -6px rgba(10,20,80,.6);
+  }
+  .sb-brand-name { font-family: 'Space Grotesk', sans-serif; }
+  .sb-brand-sub { color: #aac4f4; }
+  .sb-toggle { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.16); color: #cdddfb; border-radius: 9px; }
+  .sb-toggle:hover { background: rgba(255,255,255,.16); color: #fff; }
+  .nav-section { color: #8fb0ee; }
+  .sb-nav a { color: #d3e2fb; border-radius: 11px; font-weight: 600; }
+  .sb-nav a:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .sb-nav a.active { background: rgba(255,255,255,.16); color: #fff; }
+  .sb-nav a.active::before { background: #fff; }
+  .nav-badge { background: rgba(255,255,255,.18); }
+  .sb-footer { border-top-color: rgba(255,255,255,.12); }
+  .sb-user-card { background: rgba(255,255,255,.08); border: none; border-radius: 12px; }
+  .sb-user-card:hover { background: rgba(255,255,255,.14); }
+  .sb-user-avatar { background: rgba(255,255,255,.18); border-radius: 10px; }
+  .sb-user-role { color: #aac4f4; }
+
+  #topbar {
+    height: 68px; border-bottom-color: #ecebf4;
+    box-shadow: 0 4px 18px -16px rgba(40,30,80,.5);
+    font-family: 'Manrope', system-ui, sans-serif;
+  }
+  .tb-breadcrumb-app { color: #9c9ab0; }
+  .tb-breadcrumb-page { color: #6f6c84; }
+  #page-title { font-family: 'Space Grotesk', sans-serif; color: #161427; }
+  .tb-search { border-radius: 22px; background: #f5f5fa; border-color: #ececf3; height: 42px; }
+  .tb-search:focus-within { border-color: #6C5CE7; background: #fff; box-shadow: 0 0 0 4px rgba(108,92,231,.12); }
+  .tb-icon-btn { width: 40px; height: 40px; border-radius: 11px; border: 1px solid #ececf3; background: #fff; color: #6f6c84; }
+  .tb-icon-btn:hover { background: #f7f7fb; color: #6C5CE7; }
+  .tb-divider { height: 30px; background: #ececf3; }
+  .tb-user-chip { border-radius: 12px; border: none; }
+  .tb-user-chip:hover { background: #f7f7fb; }
+  .tb-user-avatar { background: linear-gradient(135deg, #2151c8, #2f6ae8); border-radius: 10px; }
+  .tb-user-name { color: #1d1b30; }
+  .tb-user-role { color: #918fa5; }
+  .tb-logout-btn { height: 40px; border-radius: 11px; border-color: #e3e2ee; color: #2a2840; }
+  .tb-logout-btn:hover { background: #fef4f6; color: #e11d48; border-color: #f3b4bf; }
+  .tb-search-drop { border-radius: 14px; box-shadow: 0 24px 56px -22px rgba(30,25,70,.55); }
+
+  /* Today page — chart/pill polish (KPIs/tabs/table already Vela via .fu-page) */
+  .td-page .td-chart-box { border-radius: 14px; border: 1px solid #ecebf4; background: #fff; box-shadow: 0 4px 14px -10px rgba(40,30,80,.5); }
+  .td-page .td-chart-title { font-family: 'Space Grotesk', sans-serif; color: #161427; }
+
+  /* ════════ Global typography — one font system across the whole app ════════
+     Body = Manrope (set on <body> above), headings = Space Grotesk. Form controls
+     and third-party widgets ship their own fonts, so force them onto the same stack. */
+  h1, h2, h3, h4, h5, h6 { font-family: 'Space Grotesk', 'Manrope', system-ui, sans-serif; }
+  button, input, select, textarea, optgroup { font-family: inherit; }
+  .tabulator, .tabulator-header, .tabulator-col, .tabulator-cell, .tabulator-footer,
+  .swal2-popup, .toastify,
+  .handsontable, .handsontable td, .handsontable th, .htMenu,
+  .flatpickr-calendar,
+  .choices, .choices__list, .choices__input {
+    font-family: 'Manrope', system-ui, sans-serif;
   }
 </style>
