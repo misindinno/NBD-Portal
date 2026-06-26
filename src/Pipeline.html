@@ -267,16 +267,33 @@ async function loadPipeline() {
     </div>`;
   }
 
+  function _hexToRgb(hex) {
+    const h = String(hex || '').replace('#', '').trim();
+    if (h.length === 3) return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)];
+    if (h.length >= 6) return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    return null;
+  }
+  // Soft tint of a stage colour over white (frac = how much of the colour shows, 0..1).
+  function _mixWhite(hex, frac) {
+    const rgb = _hexToRgb(hex);
+    if (!rgb || rgb.some(isNaN)) return '#ffffff';
+    const m = c => Math.round(c * frac + 255 * (1 - frac));
+    return 'rgb(' + m(rgb[0]) + ',' + m(rgb[1]) + ',' + m(rgb[2]) + ')';
+  }
+
   function renderCol(col) {
     const tat = col.stage['TAT Days'] ? `<span class="pipeline-col-tat" title="TAT: ${escapeHtml(col.stage['TAT Days'])} days">TAT ${escapeHtml(col.stage['TAT Days'])}d</span>` : '';
-    return `<div class="pipeline-col">
-      <div class="pipeline-col-header">
+    const accent = safeColor(col.stage.Color) || '#6C5CE7';
+    const tint = _mixWhite(accent, 0.07);
+    const border = _mixWhite(accent, 0.28);
+    return `<div class="pipeline-col" style="background:${tint};border-color:${border}">
+      <div class="pipeline-col-header" style="border-bottom-color:${border}">
         <div class="pipeline-col-header-left">
-          <div class="pipeline-col-dot" style="background:${safeColor(col.stage.Color)}"></div>
+          <div class="pipeline-col-dot" style="background:${accent}"></div>
           <span class="pipeline-col-name">${escapeHtml(col.stage['Stage Name'])}</span>
           ${tat}
         </div>
-        <span class="pipeline-col-count">${col.leads.length}</span>
+        <span class="pipeline-col-count" style="color:${accent};border-color:${border}">${col.leads.length}</span>
       </div>
       <div class="pipeline-cards" data-stage-id="${col.stage['Stage ID']}">
         ${col.leads.length
