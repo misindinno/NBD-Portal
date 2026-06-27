@@ -48,14 +48,38 @@
     display: flex; flex-direction: column; flex-shrink: 0;
     transition: width 0.22s cubic-bezier(.4,0,.2,1);
     overflow: hidden;
+    position: relative;
   }
   #sidebar.collapsed { width: var(--sb-collapsed); }
+
+  /* Sidebar ambient FX — glowing brand blobs, scrolling grid, drifting particles
+     (mirrors the login hero; themed by --brand* over the --sb-bg gradient). */
+  .sb-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  .sb-fx .sb-blob { position: absolute; border-radius: 50%; filter: blur(40px); }
+  .sb-fx .sb-blob.b1 { width: 220px; height: 220px; left: -70px; top: -54px;
+    background: radial-gradient(circle at 40% 40%, var(--brand-3), transparent 66%);
+    opacity: .55; animation: blob1 18s ease-in-out infinite; }
+  .sb-fx .sb-blob.b2 { width: 210px; height: 210px; right: -90px; top: 30%;
+    background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--brand-2) 72%, #fff), transparent 68%);
+    opacity: .4; animation: blob3 22s ease-in-out infinite; }
+  .sb-fx .sb-blob.b3 { width: 250px; height: 250px; left: -64px; bottom: -96px;
+    background: radial-gradient(circle at 50% 50%, rgba(255,255,255,.5), transparent 70%);
+    opacity: .28; animation: blob2 20s ease-in-out infinite; }
+  .sb-fx .sb-grid { position: absolute; inset: -44px 0;
+    background-image: linear-gradient(to right, rgba(255,255,255,.5) 1px, transparent 1px),
+                      linear-gradient(to bottom, rgba(255,255,255,.5) 1px, transparent 1px);
+    background-size: 44px 44px; opacity: .045; animation: gridScroll 8s linear infinite; }
+  .sb-fx .sb-particle { position: absolute; bottom: 0; width: 4px; height: 4px; border-radius: 50%;
+    background: #fff; opacity: 0; animation-name: floatUp; animation-timing-function: linear;
+    animation-iteration-count: infinite; }
+  @media (prefers-reduced-motion: reduce) { .sb-fx * { animation: none !important; } }
 
   /* Header */
   .sb-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 18px 14px 14px; border-bottom: 1px solid var(--sb-border);
     flex-shrink: 0; gap: 8px; overflow: hidden; white-space: nowrap;
+    position: relative; z-index: 1;
   }
   .sb-brand { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
   .sb-logo-wrap {
@@ -95,6 +119,7 @@
   .sb-nav {
     flex: 1; overflow-y: auto; overflow-x: hidden;
     padding: 8px 10px 12px; display: flex; flex-direction: column;
+    position: relative; z-index: 1;
   }
   .sb-nav::-webkit-scrollbar { width: 3px; }
   .sb-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
@@ -106,12 +131,23 @@
   #sidebar.collapsed .nav-section { visibility: hidden; padding-top: 12px; }
   .sb-nav a {
     display: flex; align-items: center; gap: 10px; padding: 0 10px; height: 44px;
-    border-radius: 8px; color: var(--sb-text); text-decoration: none;
+    border-radius: 10px; color: var(--sb-text); text-decoration: none;
     font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden;
-    transition: background .16s, color .16s; position: relative; cursor: pointer;
+    border: 1px solid transparent;
+    transition: background .16s, color .16s, border-color .16s, box-shadow .16s;
+    position: relative; cursor: pointer;
   }
-  .sb-nav a:hover { background: var(--sb-hover-bg); color: rgba(255,255,255,.95); }
-  .sb-nav a.active { background: var(--sb-active-bg); color: #fff; }
+  .sb-nav a:hover {
+    background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.14);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    color: rgba(255,255,255,.98);
+  }
+  .sb-nav a.active {
+    background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.28);
+    -webkit-backdrop-filter: blur(12px) saturate(1.3); backdrop-filter: blur(12px) saturate(1.3);
+    box-shadow: 0 8px 22px -10px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.3);
+    color: #fff;
+  }
   .sb-nav a.active::before {
     content: ''; position: absolute; left: 0; top: 22%; bottom: 22%;
     width: 3px; border-radius: 0 3px 3px 0; background: var(--sb-accent);
@@ -149,14 +185,15 @@
   #sidebar.collapsed .sb-nav a[data-tooltip]:hover::after { opacity: 1; }
 
   /* Footer user card */
-  .sb-footer { padding: 10px; border-top: 1px solid var(--sb-border); flex-shrink: 0; }
+  .sb-footer { padding: 10px; border-top: 1px solid var(--sb-border); flex-shrink: 0; position: relative; z-index: 1; }
   .sb-user-card {
     display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-    border-radius: 8px; background: rgba(255,255,255,.04);
-    border: 1px solid var(--sb-border); overflow: hidden; white-space: nowrap;
+    border-radius: 10px; background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.16); overflow: hidden; white-space: nowrap;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     transition: background .15s; cursor: default;
   }
-  .sb-user-card:hover { background: rgba(255,255,255,.08); }
+  .sb-user-card:hover { background: rgba(255,255,255,.14); }
   .sb-user-avatar {
     width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
     background: rgba(255,255,255,0.18);
