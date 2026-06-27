@@ -113,7 +113,7 @@ function _renderToday() {
             <div id="td-chart-type" class="td-chart-svg"></div>
           </div>
           <div class="td-chart-box">
-            <div class="td-chart-title">${icon('trending-up', 13)} Daily Trend (7 days)</div>
+            <div class="td-chart-title">${icon('trending-up', 13)} Daily Trend <span id="td-trend-range" style="color:#918fa5;font-weight:600"></span></div>
             <div id="td-chart-trend" class="td-chart-svg"></div>
           </div>
           <div class="td-chart-box">
@@ -453,7 +453,7 @@ function _todayApply() {
 
   _todayDestroyCharts();
   _todayChartType(history);
-  _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap);
+  _todayChartTrend(from, to, userFilter, typeFilter, leadMap);
   _todayChartContactMode(history);
 
   const logRows = actLogs.map(r => {
@@ -665,46 +665,87 @@ function _todayChartType(history) {
   box.innerHTML = '<div class="tdb-bars">' + bars + '</div><div class="tdb-lbls">' + lbls + '</div>';
 }
 
-function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
+function _todayChartTrend(from, to, userFilter, typeFilter, leadMap) {
   const box = el('td-chart-trend');
   if (!box) return;
   const BRAND = brandPrimary(), BRAND2 = brandPrimaryLight();
+
+  // Window = the selected range, but never shorter than 7 days, ending at the range
+  // end — so a single-day range (Today/Yesterday) still shows a meaningful trend.
+  const endStr   = to || localDateInputValue();
+  const endD     = new Date(endStr + 'T00:00:00');
+  let startD     = new Date((from || endStr) + 'T00:00:00');
+  const minStart = new Date(endD); minStart.setDate(minStart.getDate() - 6);
+  if (startD > minStart) startD = minStart;
   const days = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    days.push(localDateInputValue(d));   // local-date buckets, matching how stored dates are compared
+  for (let d = new Date(startD), g = 0; d <= endD && g < 370; d.setDate(d.getDate() + 1), g++) {
+    days.push(localDateInputValue(d));
   }
-  const allHistory = AppCache.getRows('followupHistory');
-  const counts = days.map(day => {
-    let rows = allHistory.filter(r => _fmtDate(r['Created At'] || r['Done Date'] || r['Follow-up Date'] || '') === day);
-    if (userFilter) rows = rows.filter(r => r['Created By'] === userFilter || leadMap[r['Lead ID']]?.['Assigned To'] === userFilter);
-    if (typeFilter) rows = rows.filter(r => r['Follow-up Type'] === typeFilter);
-    return rows.length;
-  });
-  const labels = days.map(d => { const dt = new Date(d + 'T00:00:00'); return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); });
+  if (!days.length) days.push(endStr);
+
+  // Count from followupHistory using the SAME user/type filter + date expression as
+  // the rest of the page, so the line matches the cards and respects the filters.
+  let rows = AppCache.getRows('followupHistory');
+  if (userFilter) rows = rows.filter(r => r['Done By'] === userFilter || r['Created By'] === userFilter || (leadMap && leadMap[r['Lead ID']] && leadMap[r['Lead ID']]['Assigned To'] === userFilter));
+  if (typeFilter) rows = rows.filter(r => r['Follow-up Type'] === typeFilter);
+  const byDay = {};
+  rows.forEach(r => { const day = _fmtDate(r['Created At'] || r['Done Date'] || ''); if (day) byDay[day] = (byDay[day] || 0) + 1; });
+  const counts = days.map(d => byDay[d] || 0);
+
+  const sub = el('td-trend-range');
+  if (sub) sub.textContent = '(' + days.length + (days.length === 1 ? ' day)' : ' days)');
+
+  if (!counts.some(c => c > 0)) {
+    box.innerHTML = '<div style="padding:46px 10px;text-align:center;color:#918fa5;font-size:13px">No follow-up activity in this range</div>';
+    return;
+  }
+
+  const fmtLbl = ds => { const dt = new Date(ds + 'T00:00:00'); return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); };
+  const n = days.length;
+  const left = 16, right = 684, top = 26, bot = 182;
   const max = Math.max(1, ...counts);
-  const left = 10, right = 690, top = 28, bot = 182, stepX = (right - left) / 6;
-  const pts = counts.map((c, i) => [
-    Math.round((left + i * stepX) * 10) / 10,
-    Math.round((bot - (c / max) * (bot - top)) * 10) / 10
-  ]);
+  const px = i => n === 1 ? (left + right) / 2 : Math.round((left + (i * (right - left)) / (n - 1)) * 10) / 10;
+  const py = c => Math.round((bot - (c / max) * (bot - top)) * 10) / 10;
+  const pts = counts.map((c, i) => [px(i), py(c)]);
+
   const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
-  const area = line + ' L' + right + ' ' + bot + ' L' + left + ' ' + bot + ' Z';
-  const dots = pts.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4" fill="#fff" stroke="' + BRAND + '" stroke-width="2.5"/>').join('');
+  const area = n > 1 ? line + ' L' + pts[n - 1][0] + ' ' + bot + ' L' + pts[0][0] + ' ' + bot + ' Z' : '';
+  const dots = pts.map((p, i) =>
+    '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4" fill="#fff" stroke="' + BRAND + '" stroke-width="2.5">' +
+    '<title>' + escapeHtml(fmtLbl(days[i]) + ': ' + counts[i]) + '</title></circle>').join('');
+
+  // Always-visible value labels for readable ranges; hover tooltips (above) cover the rest.
+  const vals = n <= 12 ? pts.map((p, i) => counts[i] > 0
+    ? '<span style="left:' + (p[0] / 700 * 100).toFixed(2) + '%;top:' + (p[1] / 210 * 100).toFixed(2) + '%">' + counts[i] + '</span>'
+    : '').join('') : '';
+
   box.innerHTML =
-    '<svg viewBox="0 0 700 210" width="100%" height="170" preserveAspectRatio="none" style="display:block;overflow:visible">' +
-      '<defs>' +
-        '<linearGradient id="ta-area" x1="0" y1="0" x2="0" y2="210" gradientUnits="userSpaceOnUse"><stop stop-color="' + BRAND + '" stop-opacity=".28"/><stop offset="1" stop-color="' + BRAND + '" stop-opacity="0"/></linearGradient>' +
-        '<linearGradient id="ta-line" x1="0" y1="0" x2="700" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="' + BRAND2 + '"/><stop offset="1" stop-color="' + BRAND + '"/></linearGradient>' +
-      '</defs>' +
-      '<line x1="10" y1="182" x2="690" y2="182" stroke="#f0eff6" stroke-width="1"/>' +
-      '<line x1="10" y1="105" x2="690" y2="105" stroke="#f5f4fa" stroke-width="1"/>' +
-      '<line x1="10" y1="28" x2="690" y2="28" stroke="#f5f4fa" stroke-width="1"/>' +
-      '<path d="' + area + '" fill="url(#ta-area)"/>' +
-      '<path d="' + line + '" fill="none" stroke="url(#ta-line)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1100" stroke-dashoffset="1100" style="animation:drawLine 1.4s ease forwards"/>' +
-      dots +
-    '</svg>' +
-    '<div class="tdt-lbls">' + labels.map(l => '<span>' + escapeHtml(l) + '</span>').join('') + '</div>';
+    '<div class="tdt-plot">' +
+      '<svg viewBox="0 0 700 210" width="100%" height="170" preserveAspectRatio="none" style="display:block;overflow:visible">' +
+        '<defs>' +
+          '<linearGradient id="ta-area" x1="0" y1="0" x2="0" y2="210" gradientUnits="userSpaceOnUse"><stop stop-color="' + BRAND + '" stop-opacity=".28"/><stop offset="1" stop-color="' + BRAND + '" stop-opacity="0"/></linearGradient>' +
+          '<linearGradient id="ta-line" x1="0" y1="0" x2="700" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="' + BRAND2 + '"/><stop offset="1" stop-color="' + BRAND + '"/></linearGradient>' +
+        '</defs>' +
+        '<line x1="16" y1="182" x2="684" y2="182" stroke="#f0eff6" stroke-width="1"/>' +
+        '<line x1="16" y1="105" x2="684" y2="105" stroke="#f5f4fa" stroke-width="1"/>' +
+        '<line x1="16" y1="28" x2="684" y2="28" stroke="#f5f4fa" stroke-width="1"/>' +
+        (area ? '<path d="' + area + '" fill="url(#ta-area)"/>' : '') +
+        (n > 1 ? '<path d="' + line + '" fill="none" stroke="url(#ta-line)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' : '') +
+        dots +
+      '</svg>' +
+      (vals ? '<div class="tdt-vals">' + vals + '</div>' : '') +
+    '</div>' +
+    '<div class="tdt-lbls">' + _todayTrendLabels(days, fmtLbl) + '</div>';
+}
+
+function _todayTrendLabels(days, fmtLbl) {
+  const n = days.length;
+  if (n <= 1) return '<span>' + escapeHtml(fmtLbl(days[0])) + '</span>';
+  const step = n <= 12 ? 1 : Math.ceil(n / 8);
+  const out = [];
+  for (let i = 0; i < n; i += step) out.push('<span>' + escapeHtml(fmtLbl(days[i])) + '</span>');
+  if ((n - 1) % step !== 0) out.push('<span>' + escapeHtml(fmtLbl(days[n - 1])) + '</span>');
+  return out.join('');
 }
 
 function _todayChartContactMode(history) {
