@@ -121,7 +121,7 @@ function _applyChangeLog(changes) {
 
   if (modules['leads'] || collections.leads) {
     QueueManager.onServerChange('leads');
-    if (['leads', 'pipeline', 'dashboard'].includes(App.currentPage)) _refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed', e));
+    if (['leads', 'pipeline', 'dashboard', 'today'].includes(App.currentPage)) _refreshLeadsCache().catch(e => console.warn('[AppData] Lead refresh failed', e));
   }
   if (modules['followups'] || collections.followups) {
     QueueManager.onServerChange('followups');
@@ -206,6 +206,26 @@ function _recoverFailedQueueJob(job) {
   _refreshAfterQueueJob(job);
 }
 
+// Today renders from cache and is otherwise never re-rendered on a background
+// refresh, so it goes stale mid-view. Re-render it from the now-fresh cache
+// (no skeleton, no refetch) when it is the active page, coalescing the several
+// per-tick collection refreshes into one render and preserving worklist scroll.
+let _todayRerenderQueued = false;
+function _rerenderTodayIfActive() {
+  if (App.currentPage !== 'today' || typeof _renderToday !== 'function') return;
+  if (_todayRerenderQueued) return;
+  _todayRerenderQueued = true;
+  setTimeout(() => {
+    _todayRerenderQueued = false;
+    if (App.currentPage !== 'today') return;
+    const sc = document.querySelector('#today-page .fu-table-scroll');
+    const top = sc ? sc.scrollTop : 0;
+    try { _renderToday(); } catch (e) { return; }
+    const sc2 = document.querySelector('#today-page .fu-table-scroll');
+    if (sc2 && top) sc2.scrollTop = top;
+  }, 0);
+}
+
 async function _refreshLeadsCache() {
   const rows = await api.getLeads().catch(() => api.getFollowupLeads());
   AppCache.setRows('leads', await _applyPendingLeadQueueOverlay(rows));
@@ -221,6 +241,7 @@ async function _refreshLeadsCache() {
   } else if (pg === 'dashboard') {
     loadDashboard();
   }
+  _rerenderTodayIfActive();
 }
 
 async function _applyPendingLeadQueueOverlay(rows) {
@@ -272,6 +293,7 @@ async function _refreshFollowupsCache() {
   } else if (pg === 'dashboard') {
     loadDashboard();
   }
+  _rerenderTodayIfActive();
 }
 
 async function _applyPendingFollowupQueueOverlay(rows) {
@@ -369,11 +391,13 @@ async function _refreshFollowupHistoryCache() {
   AppCache.setRows('followupHistory', rows);
   const pg = App.currentPage;
   if (pg && pg.startsWith('followups')) _renderFUTab(window.currentFollowupTab || 'all', true);
+  _rerenderTodayIfActive();
 }
 
 async function _refreshActivityLogsCache() {
   const rows = await api.getLeadActivityLogs({});
   AppCache.setRows('activityLogs', rows);
+  _rerenderTodayIfActive();
 }
 
 async function _refreshAppConfig() {
