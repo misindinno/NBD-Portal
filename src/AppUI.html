@@ -438,6 +438,72 @@ async function _runPageLoader(page, loaderName, args = []) {
 }
 window._runPageLoader = _runPageLoader;
 
+// ─── Lazy-loaded libraries ────────────────────────────────────────────────────
+// Heavy CDN libs are no longer loaded up-front in Index.html. Each is fetched the
+// first time a page that needs it is opened, then cached. navigate() awaits the
+// active page's libs before running its loader, so first paint stays fast.
+const _libCache = {};
+function _loadScriptOnce(url) {
+  if (_libCache[url]) return _libCache[url];
+  _libCache[url] = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = url; s.async = true;
+    s.onload = () => resolve(true);
+    s.onerror = () => { delete _libCache[url]; reject(new Error('Failed to load ' + url)); };
+    document.head.appendChild(s);
+  });
+  return _libCache[url];
+}
+function _loadStyleOnce(url) {
+  const key = 'css:' + url;
+  if (_libCache[key]) return _libCache[key];
+  _libCache[key] = new Promise(resolve => {
+    const l = document.createElement('link');
+    l.rel = 'stylesheet'; l.href = url;
+    l.onload = () => resolve(true);
+    l.onerror = () => resolve(false); // a missing stylesheet shouldn't block the page
+    document.head.appendChild(l);
+  });
+  return _libCache[key];
+}
+
+const LIB_URLS = {
+  tabulatorCss: 'https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_materialize.min.css',
+  tabulatorJs:  'https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js',
+  sortable:     'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js',
+  chartjs:      'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js',
+  gcharts:      'https://www.gstatic.com/charts/loader.js',
+  hotCss:       'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css',
+  hotJs:        'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js',
+  papa:         'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js'
+};
+
+function ensureTabulator()    { return Promise.all([_loadStyleOnce(LIB_URLS.tabulatorCss), _loadScriptOnce(LIB_URLS.tabulatorJs)]); }
+function ensureSortable()     { return _loadScriptOnce(LIB_URLS.sortable); }
+function ensureChartJs()      { return _loadScriptOnce(LIB_URLS.chartjs); }
+function ensureHandsontable() { return Promise.all([_loadStyleOnce(LIB_URLS.hotCss), _loadScriptOnce(LIB_URLS.hotJs)]); }
+function ensurePapaparse()    { return _loadScriptOnce(LIB_URLS.papa); }
+function ensureGoogleCharts() {
+  return _loadScriptOnce(LIB_URLS.gcharts).then(() => {
+    if (!window._gchartsLoad) window._gchartsLoad = google.charts.load('current', { packages: ['geochart'] });
+    return window._gchartsLoad;
+  });
+}
+
+// page id → function returning a Promise that resolves when that page's libs are ready
+const _PAGE_LIBS = {
+  leads:     ensureTabulator,
+  pipeline:  ensureSortable,
+  config:    ensureSortable,
+  dashboard: () => Promise.all([ensureChartJs(), ensureGoogleCharts()]),
+  bulkview:  () => Promise.all([ensureHandsontable(), ensurePapaparse()])
+};
+async function ensurePageLibs(page) {
+  const fn = _PAGE_LIBS[page];
+  if (!fn) return;
+  try { await fn(); } catch (e) { console.warn('[LazyLibs] load failed for ' + page, e); }
+}
+
 async function navigate(page) {
   const contentEl = el('content');
   const titleEl = el('page-title');
@@ -460,6 +526,7 @@ async function navigate(page) {
   const crumbEl = el('tb-breadcrumb-page');
   if (crumbEl) crumbEl.textContent = meta.crumb;
   setContentLoading(pageSkeletonType(page));
+  await ensurePageLibs(page);
   try {
     if      (page === 'dashboard')         await _runPageLoader(page, 'loadDashboard');
     else if (page === 'today')             await _runPageLoader(page, 'loadToday');
