@@ -105,7 +105,7 @@ function _initOverlayGoogleAuth(overlay) {
 
   const loadingHTML =
     '<div style="height:46px;display:flex;align-items:center;justify-content:center">' +
-    '<span style="width:18px;height:18px;border:2.4px solid rgba(108,92,231,.25);border-top-color:var(--lo-acc);border-radius:50%;animation:spin .7s linear infinite;display:inline-block"></span></div>';
+    '<span style="width:18px;height:18px;border:2.4px solid color-mix(in srgb,var(--brand) 25%,transparent);border-top-color:var(--lo-acc);border-radius:50%;animation:spin .7s linear infinite;display:inline-block"></span></div>';
 
   if (!clientId) {
     if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Google sign-in is temporarily unavailable. Please use email login.'; }
@@ -179,10 +179,10 @@ function showLoginOverlay(errorMsg, errorType) {
       <!-- ── Left hero panel ── -->
       <div class="lo-side">
         <!-- glowing mesh blobs -->
-        <div style="position:absolute;width:560px;height:560px;left:-140px;top:-150px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#6C5CE7,transparent 64%);filter:blur(58px);opacity:.9;animation:blob1 17s ease-in-out infinite;"></div>
-        <div style="position:absolute;width:480px;height:480px;right:-120px;top:8%;border-radius:50%;background:radial-gradient(circle at 50% 50%,#22C7E6,transparent 66%);filter:blur(60px);opacity:.7;animation:blob2 21s ease-in-out infinite;"></div>
+        <div style="position:absolute;width:560px;height:560px;left:-140px;top:-150px;border-radius:50%;background:radial-gradient(circle at 35% 35%,var(--brand),transparent 64%);filter:blur(58px);opacity:.9;animation:blob1 17s ease-in-out infinite;"></div>
+        <div style="position:absolute;width:480px;height:480px;right:-120px;top:8%;border-radius:50%;background:radial-gradient(circle at 50% 50%,var(--brand-3),transparent 66%);filter:blur(60px);opacity:.7;animation:blob2 21s ease-in-out infinite;"></div>
         <div style="position:absolute;width:520px;height:520px;left:12%;bottom:-180px;border-radius:50%;background:radial-gradient(circle at 50% 50%,#E879F9,transparent 66%);filter:blur(70px);opacity:.55;animation:blob3 19s ease-in-out infinite;"></div>
-        <div style="position:absolute;width:420px;height:420px;right:6%;bottom:-120px;border-radius:50%;background:radial-gradient(circle at 50% 50%,#5B7CFA,transparent 66%);filter:blur(56px);opacity:.65;animation:blob4 23s ease-in-out infinite;"></div>
+        <div style="position:absolute;width:420px;height:420px;right:6%;bottom:-120px;border-radius:50%;background:radial-gradient(circle at 50% 50%,var(--brand-2),transparent 66%);filter:blur(56px);opacity:.65;animation:blob4 23s ease-in-out infinite;"></div>
 
         <!-- scrolling grid -->
         <div style="position:absolute;inset:-44px 0;background-image:linear-gradient(to right,rgba(255,255,255,.5) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,.5) 1px,transparent 1px);background-size:44px 44px;opacity:.05;animation:gridScroll 8s linear infinite;"></div>
@@ -226,29 +226,29 @@ function showLoginOverlay(errorMsg, errorType) {
                 </div>
                 <svg width="100%" height="78" viewBox="0 0 316 78" fill="none" preserveAspectRatio="none" style="display:block;">
                   <defs>
-                    <linearGradient id="vela-line" x1="0" y1="0" x2="316" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#22C7E6"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
-                    <linearGradient id="vela-area" x1="0" y1="0" x2="0" y2="78" gradientUnits="userSpaceOnUse"><stop stop-color="#6C5CE7" stop-opacity=".35"/><stop offset="1" stop-color="#6C5CE7" stop-opacity="0"/></linearGradient>
+                    <linearGradient id="vela-line" x1="0" y1="0" x2="316" y2="0" gradientUnits="userSpaceOnUse"><stop style="stop-color:var(--brand-3)"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+                    <linearGradient id="vela-area" x1="0" y1="0" x2="0" y2="78" gradientUnits="userSpaceOnUse"><stop style="stop-color:var(--brand)" stop-opacity=".35"/><stop offset="1" style="stop-color:var(--brand)" stop-opacity="0"/></linearGradient>
                   </defs>
                   <path d="M0 60 L44 46 L88 52 L132 30 L176 38 L220 18 L264 26 L316 8 L316 78 L0 78 Z" fill="url(#vela-area)"/>
                   <path d="M0 60 L44 46 L88 52 L132 30 L176 38 L220 18 L264 26 L316 8" stroke="url(#vela-line)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="460" stroke-dashoffset="460" style="animation:drawLine 1.8s cubic-bezier(.4,0,.2,1) forwards;animation-delay:.7s;"/>
                   <circle cx="316" cy="8" r="4" fill="#fff" style="filter:drop-shadow(0 0 6px #A78BFA);"/>
                 </svg>
                 <div style="display:flex;align-items:flex-end;gap:7px;height:56px;margin-top:16px;">
-                  <div style="flex:1;height:60%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#6C5CE7,#4338ca);transform-origin:bottom;animation:barLive 2.4s ease-in-out infinite;animation-delay:0s;"></div>
+                  <div style="flex:1;height:60%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,var(--brand),#4338ca);transform-origin:bottom;animation:barLive 2.4s ease-in-out infinite;animation-delay:0s;"></div>
                   <div style="flex:1;height:82%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#7C6CF0,#4f46e5);transform-origin:bottom;animation:barLive 2.6s ease-in-out infinite;animation-delay:.25s;"></div>
-                  <div style="flex:1;height:50%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#5B7CFA,#3b5bdb);transform-origin:bottom;animation:barLive 2.2s ease-in-out infinite;animation-delay:.5s;"></div>
-                  <div style="flex:1;height:94%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#22C7E6,#0e9bc4);transform-origin:bottom;animation:barLive 2.8s ease-in-out infinite;animation-delay:.15s;"></div>
-                  <div style="flex:1;height:68%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#6C5CE7,#4338ca);transform-origin:bottom;animation:barLive 2.3s ease-in-out infinite;animation-delay:.4s;"></div>
+                  <div style="flex:1;height:50%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,var(--brand-2),#3b5bdb);transform-origin:bottom;animation:barLive 2.2s ease-in-out infinite;animation-delay:.5s;"></div>
+                  <div style="flex:1;height:94%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,var(--brand-3),#0e9bc4);transform-origin:bottom;animation:barLive 2.8s ease-in-out infinite;animation-delay:.15s;"></div>
+                  <div style="flex:1;height:68%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,var(--brand),#4338ca);transform-origin:bottom;animation:barLive 2.3s ease-in-out infinite;animation-delay:.4s;"></div>
                   <div style="flex:1;height:88%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#A78BFA,#7c3aed);transform-origin:bottom;animation:barLive 2.7s ease-in-out infinite;animation-delay:.6s;"></div>
-                  <div style="flex:1;height:56%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#5B7CFA,#3b5bdb);transform-origin:bottom;animation:barLive 2.5s ease-in-out infinite;animation-delay:.3s;"></div>
-                  <div style="flex:1;height:76%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#22C7E6,#0e9bc4);transform-origin:bottom;animation:barLive 2.9s ease-in-out infinite;animation-delay:.55s;"></div>
-                  <div style="flex:1;height:64%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,#6C5CE7,#4338ca);transform-origin:bottom;animation:barLive 2.4s ease-in-out infinite;animation-delay:.7s;"></div>
+                  <div style="flex:1;height:56%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,var(--brand-2),#3b5bdb);transform-origin:bottom;animation:barLive 2.5s ease-in-out infinite;animation-delay:.3s;"></div>
+                  <div style="flex:1;height:76%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,var(--brand-3),#0e9bc4);transform-origin:bottom;animation:barLive 2.9s ease-in-out infinite;animation-delay:.55s;"></div>
+                  <div style="flex:1;height:64%;border-radius:4px 4px 2px 2px;background:linear-gradient(180deg,var(--brand),#4338ca);transform-origin:bottom;animation:barLive 2.4s ease-in-out infinite;animation-delay:.7s;"></div>
                 </div>
               </div>
 
               <!-- floating chips -->
               <div style="position:absolute;top:-26px;right:-34px;display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:14px;background:rgba(255,255,255,.92);box-shadow:0 18px 40px -14px rgba(10,6,40,.6);animation:floatChipA 6s ease-in-out infinite;">
-                <div style="width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#34E5C4,#22C7E6);display:flex;align-items:center;justify-content:center;">
+                <div style="width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#34E5C4,var(--brand-3));display:flex;align-items:center;justify-content:center;">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2v20M5 9h9a3 3 0 0 1 0 6H7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </div>
                 <div>
@@ -258,7 +258,7 @@ function showLoginOverlay(errorMsg, errorType) {
               </div>
 
               <div style="position:absolute;bottom:-22px;left:-38px;display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:14px;background:rgba(255,255,255,.92);box-shadow:0 18px 40px -14px rgba(10,6,40,.6);animation:floatChipB 7.5s ease-in-out infinite;">
-                <div style="width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#6C5CE7,#A78BFA);display:flex;align-items:center;justify-content:center;">
+                <div style="width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,var(--brand),#A78BFA);display:flex;align-items:center;justify-content:center;">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 6 L9 17 L4 12" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </div>
                 <div>
@@ -272,9 +272,9 @@ function showLoginOverlay(errorMsg, errorType) {
           <!-- footer quote -->
           <div style="display:flex;align-items:center;gap:14px;animation:revealUp .8s cubic-bezier(.2,.7,.2,1) both;animation-delay:.4s;">
             <div style="display:flex;">
-              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#6C5CE7,#22C7E6);border:2px solid #241c5e;"></div>
-              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#E879F9,#6C5CE7);border:2px solid #241c5e;margin-left:-12px;"></div>
-              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#34E5C4,#5B7CFA);border:2px solid #241c5e;margin-left:-12px;"></div>
+              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--brand),var(--brand-3));border:2px solid #241c5e;"></div>
+              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#E879F9,var(--brand));border:2px solid #241c5e;margin-left:-12px;"></div>
+              <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#34E5C4,var(--brand-2));border:2px solid #241c5e;margin-left:-12px;"></div>
             </div>
             <p style="font-size:13px;color:rgba(255,255,255,.62);margin:0;line-height:1.45;">Trusted by <strong style="color:#fff;font-weight:700;">12,000+</strong> data teams<br>at fast-moving companies.</p>
           </div>

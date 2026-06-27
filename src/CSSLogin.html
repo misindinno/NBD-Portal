@@ -1,7 +1,7 @@
 <style>
   /* ── Login overlay (Vela) ───────────────────────────────────────────────── */
   #nbd-login-overlay {
-    --lo-acc:    #6C5CE7;
+    --lo-acc:    var(--brand);
     --lo-acc-h:  #5546d6;
     --lo-ink:    #161427;
     --lo-ink2:   #3a3850;
@@ -20,7 +20,7 @@
     overflow-y: auto;
   }
   #nbd-login-overlay *, #nbd-login-overlay *::before, #nbd-login-overlay *::after { box-sizing: border-box; }
-  #nbd-login-overlay ::selection { background: #6C5CE7; color: #fff; }
+  #nbd-login-overlay ::selection { background: var(--brand); color: #fff; }
   #nbd-login-overlay input:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #fff inset; }
 
   .lo-stage { display: flex; width: 100%; min-height: 100vh; }
@@ -70,7 +70,7 @@
   }
   .lo-input.pad-r { padding-right: 44px; }
   .lo-input::placeholder { color: var(--lo-muted2); }
-  .lo-input:focus { border-color: var(--lo-acc); box-shadow: 0 0 0 4px rgba(108,92,231,.13); }
+  .lo-input:focus { border-color: var(--lo-acc); box-shadow: 0 0 0 4px color-mix(in srgb,var(--brand) 13%,transparent); }
   .lo-input.err { border-color: var(--lo-err); box-shadow: 0 0 0 4px rgba(239,68,68,.12); }
   .lo-field-err { font-size: 12px; color: var(--lo-err); margin-top: 6px; }
 
@@ -98,7 +98,7 @@
   .lo-check svg { opacity: 0; transition: opacity .12s ease; }
   .lo-remember > input:checked + .lo-check { background: var(--lo-acc); border-color: var(--lo-acc); }
   .lo-remember > input:checked + .lo-check svg { opacity: 1; }
-  .lo-remember > input:focus-visible + .lo-check { box-shadow: 0 0 0 4px rgba(108,92,231,.18); }
+  .lo-remember > input:focus-visible + .lo-check { box-shadow: 0 0 0 4px color-mix(in srgb,var(--brand) 18%,transparent); }
   .lo-remember-txt { font-size: 13.5px; color: #4a4860; font-weight: 500; }
 
   /* Submit */
@@ -106,14 +106,14 @@
     position: relative; overflow: hidden; width: 100%; height: 50px; margin-top: 8px;
     border: none; border-radius: 12px; cursor: pointer; font-family: inherit;
     font-size: 15px; font-weight: 700; color: #fff;
-    background: linear-gradient(120deg, #6C5CE7, #5B7CFA 48%, #22C7E6);
-    box-shadow: 0 10px 26px -8px rgba(108,92,231,.6);
+    background: linear-gradient(120deg, var(--brand), var(--brand-2) 48%, var(--brand-3));
+    box-shadow: 0 10px 26px -8px color-mix(in srgb,var(--brand) 60%,transparent);
     display: flex; align-items: center; justify-content: center; gap: 9px;
     transition: transform .16s ease, box-shadow .16s ease, opacity .16s ease;
   }
-  .lo-btn:hover { transform: translateY(-2px); box-shadow: 0 16px 34px -8px rgba(108,92,231,.72); }
+  .lo-btn:hover { transform: translateY(-2px); box-shadow: 0 16px 34px -8px color-mix(in srgb,var(--brand) 72%,transparent); }
   .lo-btn:active { transform: translateY(0) scale(.97); }
-  .lo-btn:disabled { opacity: .72; cursor: default; transform: none; box-shadow: 0 8px 20px -8px rgba(108,92,231,.5); }
+  .lo-btn:disabled { opacity: .72; cursor: default; transform: none; box-shadow: 0 8px 20px -8px color-mix(in srgb,var(--brand) 50%,transparent); }
   .lo-btn-content { display: inline-flex; align-items: center; gap: 9px; animation: btnContentIn .3s ease both; }
 
   /* Footer note */
@@ -126,7 +126,7 @@
     animation: lo-in .2s ease;
   }
   .lo-err-msg { background: rgba(239,68,68,.07); border: 1px solid rgba(239,68,68,.2); color: #B91C1C; }
-  .lo-info-msg { background: rgba(108,92,231,.07); border: 1px solid rgba(108,92,231,.2); color: #4338CA; }
+  .lo-info-msg { background: color-mix(in srgb,var(--brand) 7%,transparent); border: 1px solid color-mix(in srgb,var(--brand) 20%,transparent); color: #4338CA; }
   .lo-err-msg svg, .lo-info-msg svg { flex-shrink: 0; margin-top: 1px; }
 
   .lo-spinner {

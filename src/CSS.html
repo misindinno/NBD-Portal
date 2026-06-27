@@ -20,6 +20,18 @@
     --sb-text:      rgba(255,255,255,0.85);
     --sb-text-dim:  rgba(255,255,255,0.45);
     --sb-border:    rgba(255,255,255,0.12);
+
+    /* Brand tokens — derived from this portal's CLIENT_CONFIG.THEME (config-driven).
+       --md-primary / --md-primary-light are injected per-portal in Index.html. */
+    --brand:        var(--md-primary);
+    --brand-2:      var(--md-primary-light);
+    --brand-3:      color-mix(in srgb, var(--md-primary-light) 65%, #ffffff);
+    --brand-grad:   linear-gradient(135deg, var(--md-primary), var(--md-primary-light));
+    --brand-soft:   color-mix(in srgb, var(--md-primary) 9%, #ffffff);
+    --brand-soft-2: color-mix(in srgb, var(--md-primary) 5%, #ffffff);
+    --brand-tint:   color-mix(in srgb, var(--md-primary) 14%, #ffffff);
+    --brand-border: color-mix(in srgb, var(--md-primary) 22%, #ffffff);
+    --brand-ring:   color-mix(in srgb, var(--md-primary) 35%, transparent);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Manrope', system-ui, sans-serif; background: var(--md-surface); color: var(--md-text); -webkit-font-smoothing: antialiased; }
@@ -720,14 +732,14 @@
 
   /* ════════ Vela skin — global chrome (sidebar + topbar) ════════ */
   #sidebar {
-    background: linear-gradient(185deg, #2f6ae8 0%, #2151c8 52%, #1c3ea6 100%);
+    background: linear-gradient(185deg, var(--sb-bg-from) 0%, color-mix(in srgb,var(--sb-bg-from) 45%,var(--sb-bg-to)) 52%, var(--sb-bg-to) 100%);
     border-right: none; box-shadow: 8px 0 28px -18px rgba(20,30,90,.7);
     font-family: 'Manrope', system-ui, sans-serif;
   }
   .sb-header { padding: 18px 16px; border-bottom-color: rgba(255,255,255,.12); }
   .sb-logo-wrap {
     width: 38px; height: 38px; border-radius: 11px;
-    background: linear-gradient(135deg, #6C5CE7, #22C7E6);
+    background: linear-gradient(135deg, var(--brand), var(--brand-3));
     box-shadow: 0 8px 18px -6px rgba(10,20,80,.6);
   }
   .sb-logo-wrap .lucide { width: 20px; height: 20px; }
@@ -763,13 +775,13 @@
   .tb-breadcrumb-page { color: #6f6c84; }
   #page-title { font-family: 'Space Grotesk', sans-serif; color: #161427; }
   .tb-search { border-radius: 22px; background: #f5f5fa; border-color: #ececf3; height: 42px; }
-  .tb-search:focus-within { border-color: #6C5CE7; background: #fff; box-shadow: 0 0 0 4px rgba(108,92,231,.12); }
+  .tb-search:focus-within { border-color: var(--brand); background: #fff; box-shadow: 0 0 0 4px color-mix(in srgb,var(--brand) 12%,transparent); }
   .tb-icon-btn { width: 40px; height: 40px; border-radius: 11px; border: 1px solid #ececf3; background: #fff; color: #6f6c84; }
-  .tb-icon-btn:hover { background: #f7f7fb; color: #6C5CE7; }
+  .tb-icon-btn:hover { background: #f7f7fb; color: var(--brand); }
   .tb-divider { height: 30px; background: #ececf3; }
   .tb-user-chip { border-radius: 12px; border: none; }
   .tb-user-chip:hover { background: #f7f7fb; }
-  .tb-user-avatar { background: linear-gradient(135deg, #2151c8, #2f6ae8); border-radius: 10px; }
+  .tb-user-avatar { background: linear-gradient(135deg, color-mix(in srgb,var(--sb-bg-from) 45%,var(--sb-bg-to)), var(--sb-bg-from)); border-radius: 10px; }
   .tb-user-name { color: #1d1b30; }
   .tb-user-role { color: #918fa5; }
   .tb-logout-btn { height: 40px; border-radius: 11px; border-color: #e3e2ee; color: #2a2840; }

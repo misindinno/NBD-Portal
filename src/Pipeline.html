@@ -102,7 +102,7 @@ async function _pipelineArchiveCard(leadId) {
   if (typeof Swal !== 'undefined') {
     const res = await Swal.fire({
       title: 'Archive lead?', input: 'text', inputPlaceholder: 'Reason (optional)',
-      showCancelButton: true, confirmButtonText: 'Archive', confirmButtonColor: '#6C5CE7'
+      showCancelButton: true, confirmButtonText: 'Archive', confirmButtonColor: brandPrimary()
     });
     if (!res.isConfirmed) return;
     reason = res.value || reason;
@@ -283,7 +283,7 @@ async function loadPipeline() {
 
   function renderCol(col) {
     const tat = col.stage['TAT Days'] ? `<span class="pipeline-col-tat" title="TAT: ${escapeHtml(col.stage['TAT Days'])} days">TAT ${escapeHtml(col.stage['TAT Days'])}d</span>` : '';
-    const accent = safeColor(col.stage.Color) || '#6C5CE7';
+    const accent = safeColor(col.stage.Color, brandPrimary());
     const tint = _mixWhite(accent, 0.07);
     const border = _mixWhite(accent, 0.28);
     return `<div class="pipeline-col" style="background:${tint};border-color:${border}">

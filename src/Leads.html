@@ -480,7 +480,7 @@
     const result = await Swal.fire({
       title: 'Archive ' + ids.length + ' lead' + (ids.length > 1 ? 's' : '') + '?',
       input: 'textarea', inputLabel: 'Archive reason', inputPlaceholder: 'Reason for archive',
-      showCancelButton: true, confirmButtonText: 'Archive', confirmButtonColor: '#6C5CE7'
+      showCancelButton: true, confirmButtonText: 'Archive', confirmButtonColor: brandPrimary()
     });
     if (!result.isConfirmed) return;
     const reason = result.value || 'Bulk archived from lead master';

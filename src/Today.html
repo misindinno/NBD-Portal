@@ -649,13 +649,14 @@ function _todayChartType(history) {
   const counts = types.map(t => history.filter(r => r['Follow-up Type'] === t).length);
   const max = Math.max(1, ...counts);
   const topIdx = counts.indexOf(Math.max(...counts));
+  const BRAND = brandPrimary(), BRAND2 = brandPrimaryLight();
   const bars = types.map((t, i) => {
     const c = counts[i];
     const h = c > 0 ? Math.max(6, Math.round(c / max * 100)) : 3;
     const bg = c > 0
-      ? (i === topIdx ? 'linear-gradient(180deg,#6C5CE7,#5B7CFA)' : 'linear-gradient(180deg,#a99cf0,#bcc6fb)')
+      ? (i === topIdx ? `linear-gradient(180deg,${BRAND},${BRAND2})` : `linear-gradient(180deg,color-mix(in srgb,${BRAND} 45%,#fff),color-mix(in srgb,${BRAND2} 35%,#fff))`)
       : '#ecebf4';
-    const shadow = (c > 0 && i === topIdx) ? 'box-shadow:0 8px 18px -8px rgba(108,92,231,.55);' : '';
+    const shadow = (c > 0 && i === topIdx) ? `box-shadow:0 8px 18px -8px color-mix(in srgb,${BRAND} 55%,transparent);` : '';
     return '<div class="tdb-col"><span class="tdb-val">' + (c > 0 ? c : '') + '</span>' +
       '<div class="tdb-bar" style="height:' + h + '%;background:' + bg + ';' + shadow + '"></div></div>';
   }).join('');
@@ -667,6 +668,7 @@ function _todayChartType(history) {
 function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
   const box = el('td-chart-trend');
   if (!box) return;
+  const BRAND = brandPrimary(), BRAND2 = brandPrimaryLight();
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
@@ -688,12 +690,12 @@ function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
   ]);
   const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
   const area = line + ' L' + right + ' ' + bot + ' L' + left + ' ' + bot + ' Z';
-  const dots = pts.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4" fill="#fff" stroke="#6C5CE7" stroke-width="2.5"/>').join('');
+  const dots = pts.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4" fill="#fff" stroke="' + BRAND + '" stroke-width="2.5"/>').join('');
   box.innerHTML =
     '<svg viewBox="0 0 700 210" width="100%" height="170" preserveAspectRatio="none" style="display:block;overflow:visible">' +
       '<defs>' +
-        '<linearGradient id="ta-area" x1="0" y1="0" x2="0" y2="210" gradientUnits="userSpaceOnUse"><stop stop-color="#6C5CE7" stop-opacity=".28"/><stop offset="1" stop-color="#6C5CE7" stop-opacity="0"/></linearGradient>' +
-        '<linearGradient id="ta-line" x1="0" y1="0" x2="700" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5B7CFA"/><stop offset="1" stop-color="#6C5CE7"/></linearGradient>' +
+        '<linearGradient id="ta-area" x1="0" y1="0" x2="0" y2="210" gradientUnits="userSpaceOnUse"><stop stop-color="' + BRAND + '" stop-opacity=".28"/><stop offset="1" stop-color="' + BRAND + '" stop-opacity="0"/></linearGradient>' +
+        '<linearGradient id="ta-line" x1="0" y1="0" x2="700" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="' + BRAND2 + '"/><stop offset="1" stop-color="' + BRAND + '"/></linearGradient>' +
       '</defs>' +
       '<line x1="10" y1="182" x2="690" y2="182" stroke="#f0eff6" stroke-width="1"/>' +
       '<line x1="10" y1="105" x2="690" y2="105" stroke="#f5f4fa" stroke-width="1"/>' +
@@ -713,7 +715,7 @@ function _todayChartContactMode(history) {
   const entries = Object.entries(modeMap).sort((a, b) => b[1] - a[1]);
   const total = entries.reduce((s, e) => s + e[1], 0);
   if (!total) { box.innerHTML = '<div style="padding:40px;text-align:center;color:#918fa5;font-size:13px">No contact data yet</div>'; return; }
-  const palette = ['#16a34a', '#ef4444', '#2563eb', '#6C5CE7', '#d97706', '#0d9488', '#7c3aed', '#64748b'];
+  const palette = ['#16a34a', '#ef4444', '#2563eb', brandPrimary(), '#d97706', '#0d9488', '#7c3aed', '#64748b'];
   const C = 2 * Math.PI * 54;
   let acc = 0;
   const segs = entries.map((e, i) => {
