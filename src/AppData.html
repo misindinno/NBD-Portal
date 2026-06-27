@@ -57,9 +57,7 @@ async function _checkCacheStamps() {
     const _stamp = key => { const n = Number(stamps[key]); return n > 0 ? n : null; };
     const _stale = (key, col) => { const s = _stamp(key); return s !== null && s > AppCache.getServerSyncedAt(col); };
     if (_stale('leads',          'leads'))          await _refreshLeadsCache();
-    if (_stale('followups',      'followups') && !String(App.currentPage || '').startsWith('followups')) {
-      await _refreshFollowupsCache();
-    }
+    if (_stale('followups', 'followups')) await _refreshFollowupsCache();
     if (_stale('followupHistory','followupHistory') && !String(App.currentPage || '').startsWith('followups')) {
       await _refreshFollowupHistoryCache();
     }
@@ -287,15 +285,21 @@ async function _applyPendingLeadQueueOverlay(rows) {
 }
 
 async function _refreshFollowupsCache() {
+  const pg = App.currentPage;
+  // On the Follow-ups page, refresh from a fresh snapshot IN PLACE: keep the table
+  // scroll position and show no skeleton, so a background update isn't disruptive.
+  if (pg && pg.startsWith('followups')) {
+    const top = (document.querySelector('.fu-table-scroll') || {}).scrollTop || 0;
+    await _renderFUTab(window.currentFollowupTab || 'all', true);
+    const sc = document.querySelector('.fu-table-scroll');
+    if (sc && top) sc.scrollTop = top;
+    try { renderSidebar(); } catch (e) {}
+    return;
+  }
   const rows = await api.getFollowups({});
   AppCache.setRows('followups', await _applyPendingFollowupQueueOverlay(rows));
   try { renderSidebar(); } catch (e) {}
-  const pg = App.currentPage;
-  if (pg && pg.startsWith('followups')) {
-    _renderFUTab(window.currentFollowupTab || 'all', true);
-  } else if (pg === 'dashboard') {
-    loadDashboard();
-  }
+  if (pg === 'dashboard') loadDashboard();
   _rerenderTodayIfActive();
 }
 
@@ -411,7 +415,12 @@ async function _refreshAppConfig() {
 }
 
 function startCacheRevalidation() {
-  // Cache system removed: no background polling. Every page fetches fresh data
-  // from the server (Sheets API primary, SpreadsheetApp fallback) on navigation.
+  // No cross-navigation cache, but a lightweight on-change poll keeps the current
+  // page live: it detects server changes via stamps (PropertiesService) + the change
+  // log (SpreadsheetApp tail-read) — no Sheets API, no quota — and refreshes the
+  // visible data IN PLACE, never reloading or interrupting the view.
+  window.addEventListener('focus', _checkCacheStamps);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkCacheStamps(); });
+  setInterval(_checkCacheStamps, 15_000);
 }
 </script>

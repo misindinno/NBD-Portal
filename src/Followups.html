@@ -341,6 +341,9 @@ async function _getFollowupPageSnapshot(force = false, options = {}) {
     fetchedAt: data.fetchedAt || ''
   };
   _fuStateStale = false;
+  // Mirror the snapshot's follow-ups into AppCache so the on-change poll measures
+  // real changes (and refreshes only then) instead of firing on every tick here.
+  try { AppCache.setRows('followups', _fuPageSnapshot.followups); } catch (e) {}
   return _fuPageSnapshot;
 }
 
