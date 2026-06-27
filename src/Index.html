@@ -14,12 +14,27 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest"></script>
 
-  <!-- Heavy libs (Tabulator, SortableJS, Chart.js, Google Charts, Handsontable,
-       Papaparse) are loaded on demand per page via ensurePageLibs() in AppUI,
-       so they no longer block first paint. -->
+  <!-- Tabulator -->
+  <link href="https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_materialize.min.css" rel="stylesheet">
+  <script src="https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js"></script>
+
+  <!-- SortableJS -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <!-- Google Charts (GeoChart for India map) -->
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+  <script>google.charts.load('current', { packages: ['geochart'] });</script>
 
   <!-- SweetAlert2 -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- Bulk Entry libraries -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <!-- Toastify -->
   <link href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" rel="stylesheet">
