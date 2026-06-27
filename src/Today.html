@@ -672,11 +672,11 @@ function _todayChartTrend(from, to, userFilter, typeFilter, userMap, leadMap) {
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    days.push(_fmtDate(d.toISOString()));
+    days.push(localDateInputValue(d));   // local-date buckets, matching how stored dates are compared
   }
   const allHistory = AppCache.getRows('followupHistory');
   const counts = days.map(day => {
-    let rows = allHistory.filter(r => _fmtDate(r['Created At'] || r['Follow-up Date'] || '') === day);
+    let rows = allHistory.filter(r => _fmtDate(r['Created At'] || r['Done Date'] || r['Follow-up Date'] || '') === day);
     if (userFilter) rows = rows.filter(r => r['Created By'] === userFilter || leadMap[r['Lead ID']]?.['Assigned To'] === userFilter);
     if (typeFilter) rows = rows.filter(r => r['Follow-up Type'] === typeFilter);
     return rows.length;

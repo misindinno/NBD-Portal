@@ -864,6 +864,9 @@
   .fu-page .fu-kpis { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 14px; padding-bottom: 4px; }
   .fu-page .fu-kpis::-webkit-scrollbar { height: 7px; }
   .fu-page .fu-kpis::-webkit-scrollbar-thumb { background: #d9d8e6; border-radius: 7px; }
+  /* Today / Activity keeps the original wrapping grid (not the one-line strip) */
+  .fu-page.td-page .fu-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); overflow-x: visible; gap: 14px; padding-bottom: 0; }
+  .fu-page.td-page .fu-kpi { flex: initial; }
   .fu-page .fu-kpi {
     flex: 1 0 165px; display: block; position: relative; min-height: 0;
     background: #fff; border: 1px solid #ecebf4; border-left-width: 3px;
