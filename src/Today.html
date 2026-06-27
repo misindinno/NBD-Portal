@@ -270,13 +270,13 @@ function _todayDateRange() {
     from = to = todayStr;
   } else if (range === 'yesterday') {
     const d = new Date(); d.setDate(d.getDate() - 1);
-    from = to = _fmtDate(d.toISOString());
+    from = to = localDateInputValue(d);
   } else if (range === '7d') {
     const d = new Date(); d.setDate(d.getDate() - 6);
-    from = _fmtDate(d.toISOString()); to = todayStr;
+    from = localDateInputValue(d); to = todayStr;
   } else if (range === '30d') {
     const d = new Date(); d.setDate(1);
-    from = _fmtDate(d.toISOString()); to = todayStr;
+    from = localDateInputValue(d); to = todayStr;
   } else {
     from = el('td-from')?.value || todayStr;
     to   = el('td-to')?.value   || todayStr;
