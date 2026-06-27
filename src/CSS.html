@@ -56,15 +56,18 @@
      (mirrors the login hero; themed by --brand* over the --sb-bg gradient). */
   .sb-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
   .sb-fx .sb-blob { position: absolute; border-radius: 50%; filter: blur(40px); }
-  .sb-fx .sb-blob.b1 { width: 220px; height: 220px; left: -70px; top: -54px;
+  .sb-fx .sb-blob.b1 { width: 210px; height: 210px; left: -66px; top: -46px;
     background: radial-gradient(circle at 40% 40%, var(--brand-3), transparent 66%);
-    opacity: .55; animation: blob1 18s ease-in-out infinite; }
-  .sb-fx .sb-blob.b2 { width: 210px; height: 210px; right: -90px; top: 30%;
+    opacity: .5; animation: blob1 18s ease-in-out infinite; }
+  .sb-fx .sb-blob.b2 { width: 200px; height: 200px; right: -84px; top: 24%;
     background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--brand-2) 72%, #fff), transparent 68%);
     opacity: .4; animation: blob3 22s ease-in-out infinite; }
-  .sb-fx .sb-blob.b3 { width: 250px; height: 250px; left: -64px; bottom: -96px;
+  .sb-fx .sb-blob.b3 { width: 210px; height: 210px; left: -70px; top: 50%;
     background: radial-gradient(circle at 50% 50%, rgba(255,255,255,.5), transparent 70%);
-    opacity: .28; animation: blob2 20s ease-in-out infinite; }
+    opacity: .26; animation: blob2 20s ease-in-out infinite; }
+  .sb-fx .sb-blob.b4 { width: 240px; height: 240px; right: -72px; bottom: -52px;
+    background: radial-gradient(circle at 50% 45%, var(--brand-3), transparent 68%);
+    opacity: .42; animation: blob4 24s ease-in-out infinite; }
   .sb-fx .sb-grid { position: absolute; inset: -44px 0;
     background-image: linear-gradient(to right, rgba(255,255,255,.5) 1px, transparent 1px),
                       linear-gradient(to bottom, rgba(255,255,255,.5) 1px, transparent 1px);
