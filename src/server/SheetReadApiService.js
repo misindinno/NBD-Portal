@@ -218,12 +218,19 @@ function _sheetApiValuesToRows_(values) {
 }
 
 function getTodayActivitySnapshotFast_(user) {
-  const rows = sheetApiBatchGetRows_([
-    { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
-    { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
-    { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' },
-    { sheetName: SHEET_NAMES.LEAD_ACTIVITY_LOGS, range: 'A:H' }
-  ]);
+  // One-shot, per-navigation read: use the Sheets API batchGet path (a single call
+  // for just these ranges) instead of full-sheet SpreadsheetApp reads. The circuit
+  // breaker + SpreadsheetApp fallback still apply.
+  _bootstrapReadMode_ = true;
+  let rows;
+  try {
+    rows = sheetApiBatchGetRows_([
+      { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+      { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
+      { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' },
+      { sheetName: SHEET_NAMES.LEAD_ACTIVITY_LOGS, range: 'A:H' }
+    ]);
+  } finally { _bootstrapReadMode_ = false; }
   const leads = (rows[SHEET_NAMES.LEADS] || []).filter(lead => !_isArchivedLead_(lead));
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
@@ -249,7 +256,13 @@ function getFollowupPageSnapshotFast_(user, options) {
     { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' }
   ];
   if (includeHistory) specs.push({ sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' });
-  const rows = sheetApiBatchGetRows_(specs);
+  // One-shot, per-navigation read (not the 15s poll): use the Sheets API batchGet
+  // path — a single call for just these ranges — instead of three full-sheet
+  // SpreadsheetApp reads. The circuit breaker + SpreadsheetApp fallback still apply.
+  _bootstrapReadMode_ = true;
+  let rows;
+  try { rows = sheetApiBatchGetRows_(specs); }
+  finally { _bootstrapReadMode_ = false; }
   const leads = (rows[SHEET_NAMES.LEADS] || []).filter(lead => !_isArchivedLead_(lead));
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
