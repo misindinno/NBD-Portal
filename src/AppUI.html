@@ -420,7 +420,6 @@ const _PAGE_META = {
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
   config:    { title: 'Config',           crumb: 'Config' },
-  queue:     { title: 'Queue',            crumb: 'Queue' },
 };
 
 async function _runPageLoader(page, loaderName, args = []) {
@@ -478,7 +477,6 @@ async function navigate(page) {
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
     else if (page === 'archive')           await _runPageLoader(page, 'loadArchive', ['archived']);
     else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');
-    else if (page === 'queue')             await _runPageLoader(page, 'loadQueuePage');
     else el('content').innerHTML = '<p>Page not found.</p>';
   } catch(err) {
     console.error('[navigate] page loader threw for "' + page + '":', err);
@@ -546,7 +544,6 @@ function renderSidebar() {
     !_finalStageIds.has(l['Stage ID']) &&
     String(l['Lead Status'] || 'Open').toLowerCase() === 'open'
   ).length;
-  const queueCount = typeof QueueManager !== 'undefined' ? QueueManager.pendingCount() : 0;
   const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
   const canUseBulkEntry = isLqPortal ? show('BulkEntry') : u.role === 'ADMIN';
   const badge = (n, title) => n > 0 ? `<span class="nav-badge"${title ? ` title="${title}"` : ''}>${n > 99 ? '99+' : n}</span>` : '';
@@ -586,10 +583,8 @@ function renderSidebar() {
     if (leadItems) html += `<div class="nav-section">Leads</div>${leadItems}`;
   }
 
-  // Queue — visible to all authenticated users
-  html += `<div class="nav-section">System</div>`;
-  html += navItem('queue', 'list-checks', 'Queue', badge(queueCount));
   if (u.canEditConfig || u.canManageUsers) {
+    html += `<div class="nav-section">System</div>`;
     html += navItem('config', 'settings-2', 'Config');
   }
 
@@ -642,15 +637,14 @@ function canNavigate(page) {
   };
   // Dashboard page only reachable from the dashboard-only portal
   if (page === 'dashboard') return dashboardOnly && hasModule('Dashboard');
-  // In the dashboard-only portal, restrict to dashboard + today + queue + config
-  if (dashboardOnly && !['today','queue','config'].includes(page)) return false;
+  // In the dashboard-only portal, restrict to dashboard + today + config
+  if (dashboardOnly && !['today','config'].includes(page)) return false;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
   if (page === 'bulkview') {
     const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
     return isLqPortal ? (hasModule('BulkEntry') || App.user.role === 'ADMIN') : App.user.role === 'ADMIN';
   }
-  if (page === 'queue')     return !!App.user;
   if (page === 'today')     return !!App.user;
   return hasModule(moduleMap[page] || page);
 }
@@ -660,7 +654,7 @@ function defaultPageForUser() {
     if (canNavigate('dashboard')) return 'dashboard';
     if (canNavigate('today')) return 'today';
     if (App.user?.canEditConfig || App.user?.canManageUsers) return 'config';
-    return 'queue';
+    return 'today';
   }
   const ordered = [
     ['today', 'Today'], ['followups', 'Followups'], ['pipeline', 'Pipeline'],
@@ -669,7 +663,7 @@ function defaultPageForUser() {
   const match = ordered.find(([page]) => canNavigate(page));
   if (match) return match[0];
   if (App.user?.canEditConfig || App.user?.canManageUsers) return 'config';
-  return 'queue';
+  return 'today';
 }
 
 function toggleSidebar() {

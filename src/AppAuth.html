@@ -3,7 +3,6 @@
 async function init() {
   renderIcons();
   renderInitialLoading();
-  QueueManager.init();
 
   const token = localStorage.getItem('nbd_token');
   if (!token) { showLoginOverlay(); return; }
