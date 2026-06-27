@@ -3,7 +3,8 @@
 const _fetching = {};
 
 function _ensureCached(col, fetchFn) {
-  if (AppCache.isLoaded(col)) return Promise.resolve();
+  // Cache removed: always fetch fresh. The in-flight guard only prevents a double
+  // fetch of the same collection within a single render, not across navigations.
   if (_fetching[col]) return _fetching[col];
   _fetching[col] = fetchFn()
     .then(rows => col === 'leads'
@@ -410,8 +411,7 @@ async function _refreshAppConfig() {
 }
 
 function startCacheRevalidation() {
-  window.addEventListener('focus', _checkCacheStamps);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkCacheStamps(); });
-  setInterval(_checkCacheStamps, 15_000);
+  // Cache system removed: no background polling. Every page fetches fresh data
+  // from the server (Sheets API primary, SpreadsheetApp fallback) on navigation.
 }
 </script>

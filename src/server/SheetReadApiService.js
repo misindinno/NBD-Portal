@@ -143,7 +143,7 @@ function readAllRowsWithFallback_(sheetName) {
 
   let rows = null;
   const ssId = _spreadsheetIdForSheet_(sheetName);
-  if (ssId && _bootstrapReadMode_ && _sheetsApiAvailable_()) {
+  if (ssId && _sheetsApiAvailable_()) {
     try {
       const a1 = "'" + normalizeSheetName(sheetName).replace(/'/g, "''") + "'";
       const res = Sheets.Spreadsheets.Values.get(ssId, a1, {
@@ -180,7 +180,7 @@ function sheetApiBatchGetRows_(sheetNames) {
     .filter(spec => spec.sheetName);
   if (!specs.length) return {};
 
-  if (_bootstrapReadMode_ && _sheetsApiAvailable_()) {
+  if (_sheetsApiAvailable_()) {
     try {
       const ranges = specs.map(spec => "'" + String(spec.sheetName).replace(/'/g, "''") + "'!" + spec.range);
       const result = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {

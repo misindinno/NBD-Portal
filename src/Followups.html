@@ -15,6 +15,7 @@ async function loadFollowups(tab = 'all') {
   el('page-title').textContent = 'Follow-ups';
   _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
   _fuPage = 1;
+  _fuPageSnapshot = null; // cache removed — refetch fresh each time Follow-ups is opened (tab switches reuse this visit's data)
 
   const grp = el('nav-group-fu');
   if (grp) grp.classList.add('open');
