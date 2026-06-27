@@ -46,10 +46,12 @@
   <?!= include('CSSLogin'); ?>
   <style>
     :root {
-      --md-primary:       <?= CLIENT_CONFIG.THEME.PRIMARY ?>;
-      --md-primary-light: <?= CLIENT_CONFIG.THEME.PRIMARY_LIGHT ?>;
-      --sb-bg-from:       <?= CLIENT_CONFIG.THEME.SB_FROM ?>;
-      --sb-bg-to:         <?= CLIENT_CONFIG.THEME.SB_TO ?>;
+      /* Whole portal keys off the LOGIN accent (THEME.LO_ACC*) so the sidebar,
+         buttons, KPIs and the login page all share one consistent color. */
+      --md-primary:       <?= CLIENT_CONFIG.THEME.LO_ACC ?>;
+      --md-primary-light: <?= CLIENT_CONFIG.THEME.LO_ACC2 || CLIENT_CONFIG.THEME.PRIMARY_LIGHT ?>;
+      --sb-bg-from:       <?= CLIENT_CONFIG.THEME.LO_ACC ?>;
+      --sb-bg-to:         <?= CLIENT_CONFIG.THEME.LO_ACC_H ?>;
     }
     #nbd-login-overlay {
       --lo-acc:         <?= CLIENT_CONFIG.THEME.LO_ACC ?>;
