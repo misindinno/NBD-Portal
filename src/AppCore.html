@@ -114,9 +114,6 @@ const api = {
   saveBulkRows:        (rows, mode)  => api._authedRead('apiSaveBulkRows', rows, mode || 'create'),
   saveBulkRow:         (row, rowNumber, mode) => api._authedRead('apiSaveBulkRow', row, rowNumber, mode || 'create'),
   createBulkFollowupOnlyRow: (row, rowNumber) => api._authedRead('apiCreateBulkFollowupOnlyRow', row, rowNumber),
-  getBulkProgress:     (id)    => api._authedRead('apiGetBulkProgress', id),
-  getBulkQueueSummary: (limit, includeRows) => api._authedRead('apiGetBulkQueueSummary', limit || 100, includeRows !== false),
-  getBulkQueueJobDetail: (requestId) => api._authedRead('apiGetBulkQueueJobDetail', requestId || ''),
   createErrorCsv:      (rows)  => api._authedRead('apiCreateErrorCsv', rows),
 
   // ── Admin ─────────────────────────────────────────────────────────────────
@@ -128,16 +125,5 @@ const api = {
   reorderStages: (ids)                       => api._authedRead('apiReorderStages', ids || []),
   saveFieldConfig: (p)                       => api._authedRead('apiSaveFieldConfig', p || {}),
   saveUser: (p)                              => api._authedRead('apiSaveUser', p || {}),
-
-  // ── Queue endpoints ───────────────────────────────────────────────────────
-  enqueueJob:      (mod, act, payload, rid) => api._authedRead('apiEnqueueJob', mod, act, payload, rid),
-  getJobStatuses:  (ids)                    => api._authedRead('apiGetJobStatuses', ids),
-  getChanges:      (seq)                    => api._authedRead('apiGetChanges', seq),
-  getQueueHistory:    (limit)               => api._authedRead('apiGetQueueHistory', limit || 50),
-  getQueueHealth:     (filterEmail)         => api._authedRead('apiGetQueueHealth', filterEmail || ''),
-  getAllQueueHistory:  (filterEmail, limit) => api._authedRead('apiGetAllQueueHistory', filterEmail || '', limit || 100),
-  processQueueNow:    ()                    => api._authedRead('apiProcessQueueNow'),
-  kickQueue:          ()                    => api._authedRead('apiKickQueue'),
-  retryQueueJob:      (requestId)           => api._authedRead('apiRetryQueueJob', requestId),
 };
 </script>

@@ -1,9 +1,8 @@
 // ─── Code.gs ─────────────────────────────────────────────────────────────────
 // Runtime setup:
 //   - doGet serves the portal UI.
-//   - google.script.run API calls read data and enqueue write jobs.
-//   - processQueue runs from the installed time trigger and performs writes
-//     through trusted user context.
+//   - google.script.run API calls read and write data synchronously (Sheets API
+//     primary, SpreadsheetApp fallback). The async job queue has been removed.
 
 function doGet(e) {
   return withServerContext_(() => {
@@ -80,11 +79,6 @@ function onOpen() {
     .addItem('🧭 Rebuild Indexes', 'rebuildAllIndexes')
     .addItem('📅 Reopen Closed Non-final Follow-ups', 'reopenClosedNonFinalFollowupsFromMenu')
     .addSeparator()
-    .addItem('▶️ Install Queue Trigger', 'setupQueueTrigger')
-    .addItem('⏹️ Remove Queue Trigger', 'removeQueueTrigger')
-    .addItem('📋 Queue Trigger Status', '_showQueueStatus')
-    .addItem('⚡ Process Queue Now', 'processQueue')
-    .addSeparator()
     .addItem('🔗 Open Portal', 'openPortal');
   if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq')) {
     menu.addItem('Bulk Entry', 'openBulkEntry');
@@ -142,11 +136,6 @@ function updatePermissions() {
     : '\n\nFailed scopes need attention. Check oauthScopes in appsscript.json.';
 
   ui.alert(title, body + note, ui.ButtonSet.OK);
-}
-
-function _showQueueStatus() {
-  const status = getQueueTriggerStatus();
-  SpreadsheetApp.getUi().alert('Queue Trigger Status', status, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 // Bumps APP_VERSION so every open browser tab detects the change and reloads.
@@ -277,15 +266,6 @@ function setupSheets() {
     ]);
     safeInitHeaders(SHEET_NAMES.CONFIG, [
       'Config ID','Config Type','Value','Status'
-    ]);
-    safeInitHeaders(SHEET_NAMES.QUEUE, [
-      'Request ID','Status','Created At','Updated At',
-      'User Email','Module Name','Action Type','Payload JSON',
-      'Attempt Count','Max Attempts','Next Retry At',
-      'Lease Until','Lock Owner','Last Error','Processed At','Final Record ID'
-    ]);
-    safeInitHeaders(SHEET_NAMES.CHANGE_LOG, [
-      'Sequence','Timestamp','Module','Record ID','Action Type','Changed By'
     ]);
     if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq') && typeof _ensureBulkSheets_ === 'function') {
       _ensureBulkSheets_();
