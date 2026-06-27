@@ -456,7 +456,8 @@ async function loadPipeline() {
         _updatePipelineEmptyStates();
         try {
           toast('Moving lead...', 'info');
-          await api.updateLeadStage({ leadId, stageId: newStageId, fromStageId: oldStageId, note: '' });
+          const res = await api.updateLeadStage({ leadId, stageId: newStageId, fromStageId: oldStageId, note: '' });
+          if (res) _applyPipelineStageResult(leadId, newStageId, res);
           toast('Stage updated!');
         } catch (err) {
           toast('Stage update failed: ' + (err.message || err), 'error');
@@ -536,9 +537,9 @@ function _applyPipelineStageResult(leadId, stageId, result, extraPatch = {}) {
     ...(result?.patch || {}),
     ...extraPatch,
     'Stage ID': stageId,
-    'Stage Updated At': new Date().toISOString(),
+    'Stage Updated At': result?.patch?.['Stage Updated At'] || _nowStr(),
     'Lead Status': status,
-    'Updated At': _nowStr()
+    'Updated At': result?.patch?.['Updated At'] || _nowStr()
   };
   if (status === 'Won' || status === 'Lost' || status === 'Disqualified') patch['Next Follow-up Date'] = '';
   AppCache.patchRow('leads', 'Lead ID', leadId, patch);
@@ -605,7 +606,8 @@ function openPipelineStageFieldsDialog(leadId, stageId, fields = _pipelineStageF
       loadPipeline();
       try {
         toast('Moving lead...', 'info');
-        await api.moveLeadStageWithFields({ leadId, stageId, fromStageId: lead?.['Stage ID'] || '', fields: { ...(fieldPayload || {}), __stage_skipped: skipped ? 'true' : '' }, note: '' });
+        const res = await api.moveLeadStageWithFields({ leadId, stageId, fromStageId: lead?.['Stage ID'] || '', fields: { ...(fieldPayload || {}), __stage_skipped: skipped ? 'true' : '' }, note: '' });
+        if (res) _applyPipelineStageResult(leadId, stageId, res);
         toast('Stage updated!');
         if (AppCache.isLoaded('followups')) _refreshFollowupsCache().catch(() => {});
       } catch (err) {

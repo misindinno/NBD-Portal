@@ -1,21 +1,25 @@
 <script>
 // ─── AppCache — single in-memory store for all data collections ───────────────
-// Each collection entry: { rows: [], loadedAt: <Unix ms> }
-// loadedAt is also bumped on every optimistic write, so stamp checks
-// against server (Number(serverStamp) > loadedAt) only trigger a refetch
-// when another user's write occurred AFTER our last load/write.
+// Each collection entry: { rows: [], loadedAt, serverSyncedAt }.
+//   loadedAt       — bumped on every read AND every optimistic local write, so
+//                    isLoaded stays true and _ensureCached won't refetch.
+//   serverSyncedAt — bumped ONLY by setRows() (a real server fetch). The
+//                    revalidation poll compares server stamps against THIS, so an
+//                    optimistic write never suppresses the corrective refetch that
+//                    pulls authoritative server-computed fields back into cache.
 
 const AppCache = (() => {
   const _c = {};
 
   function _e(col) {
-    if (!_c[col]) _c[col] = { rows: [], loadedAt: 0 };
+    if (!_c[col]) _c[col] = { rows: [], loadedAt: 0, serverSyncedAt: 0 };
     return _c[col];
   }
 
   // Replace entire collection. Called after a successful API fetch.
   function setRows(col, rows) {
-    _c[col] = { rows: Array.isArray(rows) ? rows : [], loadedAt: Date.now() };
+    const now = Date.now();
+    _c[col] = { rows: Array.isArray(rows) ? rows : [], loadedAt: now, serverSyncedAt: now };
   }
 
   // Read rows for a collection.
@@ -23,6 +27,11 @@ const AppCache = (() => {
 
   // Unix ms timestamp of when this collection was last fetched or locally written.
   function getLoadedAt(col) { return _c[col]?.loadedAt || 0; }
+
+  // Unix ms timestamp of the last real server fetch (setRows). Stamp-based
+  // revalidation compares against this so our own optimistic writes don't mask a
+  // needed refetch of server-computed fields.
+  function getServerSyncedAt(col) { return _c[col]?.serverSyncedAt || 0; }
 
   // True once the collection has been fetched at least once.
   function isLoaded(col) { return !!(_c[col]?.loadedAt); }
@@ -37,7 +46,7 @@ const AppCache = (() => {
     const e = _e(col);
     const idx = e.rows.findIndex(r => r[keyField] === id);
     if (idx !== -1) e.rows[idx] = { ...e.rows[idx], ...patch };
-    e.loadedAt = Date.now(); // bump so revalidation doesn't immediately refetch our own write
+    e.loadedAt = Date.now(); // keep isLoaded true; serverSyncedAt stays stale so the poll still heals
   }
 
   // Prepend a new row (most-recent-first order).
@@ -55,11 +64,11 @@ const AppCache = (() => {
   }
 
   // Reset a single collection so the next _ensureCached call re-fetches it.
-  function invalidate(col) { if (_c[col]) _c[col].loadedAt = 0; }
+  function invalidate(col) { if (_c[col]) { _c[col].loadedAt = 0; _c[col].serverSyncedAt = 0; } }
 
   // Reset all collections at once (used by topbar refresh).
   function invalidateAll() { Object.keys(_c).forEach(col => invalidate(col)); }
 
-  return { setRows, getRows, getLoadedAt, isLoaded, touch, patchRow, addRow, removeRow, invalidate, invalidateAll };
+  return { setRows, getRows, getLoadedAt, getServerSyncedAt, isLoaded, touch, patchRow, addRow, removeRow, invalidate, invalidateAll };
 })();
 </script>

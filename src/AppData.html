@@ -54,7 +54,7 @@ async function _checkCacheStamps() {
     }
 
     const _stamp = key => { const n = Number(stamps[key]); return n > 0 ? n : null; };
-    const _stale = (key, col) => { const s = _stamp(key); return s !== null && s > AppCache.getLoadedAt(col); };
+    const _stale = (key, col) => { const s = _stamp(key); return s !== null && s > AppCache.getServerSyncedAt(col); };
     if (_stale('leads',          'leads'))          await _refreshLeadsCache();
     if (_stale('followups',      'followups') && !String(App.currentPage || '').startsWith('followups')) {
       await _refreshFollowupsCache();
