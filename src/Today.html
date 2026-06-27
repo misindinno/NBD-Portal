@@ -292,6 +292,17 @@ function _todayDateRange() {
   return { from, to };
 }
 
+// Returns a matcher that accepts a stored user identifier (id, email, or name)
+// and reports whether it belongs to the selected user — so the User filter works
+// regardless of which identifier the sheet happens to store.
+function _todayUserMatcher(userFilter) {
+  if (!userFilter) return function() { return true; };
+  const u = (App.config.users || []).find(function(x) { return String(x.id) === String(userFilter); }) || {};
+  const keys = {};
+  [userFilter, u.id, u.email, u.name].forEach(function(k) { if (k) keys[String(k)] = true; });
+  return function(v) { return !!keys[String(v == null ? '' : v)]; };
+}
+
 function _todayApply() {
   // Bail early if the Today page is no longer in the DOM (user navigated away
   // while async work was still in flight) — prevents null.innerHTML crashes.
@@ -306,25 +317,27 @@ function _todayApply() {
     if (u.email) userMap[u.email] = u.name;
   });
   const leadMap  = AppCache.getRows('leads').reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
+  const matchUser = _todayUserMatcher(userFilter);
+  const _rowUser = r => matchUser(r['Done By']) || matchUser(r['Created By']) || matchUser(leadMap[r['Lead ID']] && leadMap[r['Lead ID']]['Assigned To']);
 
   let history = AppCache.getRows('followupHistory').filter(r => {
     const d = _fmtDate(r['Created At'] || r['Done Date'] || '');
     return d >= from && d <= to;
   });
-  if (userFilter) history = history.filter(r => r['Done By'] === userFilter || r['Created By'] === userFilter || leadMap[r['Lead ID']]?.['Assigned To'] === userFilter);
+  if (userFilter) history = history.filter(_rowUser);
   if (typeFilter) history = history.filter(r => r['Follow-up Type'] === typeFilter);
 
   let actLogs = AppCache.getRows('activityLogs').filter(r => {
     const d = _fmtDate(r['Created At'] || '');
     return d >= from && d <= to;
   });
-  if (userFilter) actLogs = actLogs.filter(r => r['Created By'] === userFilter);
+  if (userFilter) actLogs = actLogs.filter(r => matchUser(r['Created By']) || matchUser(leadMap[r['Lead ID']] && leadMap[r['Lead ID']]['Assigned To']));
 
   let newLeads = AppCache.getRows('leads').filter(r => {
     const d = _fmtDate(r['Created At'] || '');
     return d >= from && d <= to;
   });
-  if (userFilter) newLeads = newLeads.filter(r => r['Assigned To'] === userFilter || r['Created By'] === userFilter);
+  if (userFilter) newLeads = newLeads.filter(r => matchUser(r['Assigned To']) || matchUser(r['Created By']));
 
   const MISSED_MODES = new Set(['Not Picked']);
   const missedHistory  = history.filter(r => MISSED_MODES.has(r['Contact Mode'] || ''));
@@ -347,7 +360,10 @@ function _todayApply() {
     m[status] = (m[status] || 0) + 1;
     return m;
   }, {});
-  const statusLeadCounts = AppCache.getRows('leads').reduce((m, l) => {
+  const scopedLeads = userFilter
+    ? AppCache.getRows('leads').filter(l => matchUser(l['Assigned To']) || matchUser(l['Created By']))
+    : AppCache.getRows('leads');
+  const statusLeadCounts = scopedLeads.reduce((m, l) => {
     const status = _todayLeadStatusFromLead(l);
     m[status] = (m[status] || 0) + 1;
     return m;
@@ -377,8 +393,8 @@ function _todayApply() {
   if (userFilter) {
     // Scope pending follow-ups to selected user when set
     var pendingFuFiltered = pendingFu.filter(r =>
-      r['Created By'] === userFilter || r['Done By'] === userFilter ||
-      leadMap[r['Lead ID']]?.['Assigned To'] === userFilter
+      matchUser(r['Created By']) || matchUser(r['Done By']) ||
+      matchUser(leadMap[r['Lead ID']] && leadMap[r['Lead ID']]['Assigned To'])
     );
   } else { var pendingFuFiltered = pendingFu; }
   const _fuLeadIds = new Set(
@@ -390,7 +406,7 @@ function _todayApply() {
     String(l['Lead Status'] || 'Open').toLowerCase() === 'open' &&
     !(l['NBD Lead ID'] || l['Pushed To NBD At']) &&
     !_fuLeadIds.has(l['Lead ID']) &&
-    (!userFilter || l['Assigned To'] === userFilter || l['Created By'] === userFilter)
+    (!userFilter || matchUser(l['Assigned To']) || matchUser(l['Created By']))
   );
   const pendingCount = pendingFuFiltered.length + leadsNoFu.length;
 
@@ -686,7 +702,8 @@ function _todayChartTrend(from, to, userFilter, typeFilter, leadMap) {
   // Count from followupHistory using the SAME user/type filter + date expression as
   // the rest of the page, so the line matches the cards and respects the filters.
   let rows = AppCache.getRows('followupHistory');
-  if (userFilter) rows = rows.filter(r => r['Done By'] === userFilter || r['Created By'] === userFilter || (leadMap && leadMap[r['Lead ID']] && leadMap[r['Lead ID']]['Assigned To'] === userFilter));
+  const matchUser = _todayUserMatcher(userFilter);
+  if (userFilter) rows = rows.filter(r => matchUser(r['Done By']) || matchUser(r['Created By']) || (leadMap && leadMap[r['Lead ID']] && matchUser(leadMap[r['Lead ID']]['Assigned To'])));
   if (typeFilter) rows = rows.filter(r => r['Follow-up Type'] === typeFilter);
   const byDay = {};
   rows.forEach(r => { const day = _fmtDate(r['Created At'] || r['Done Date'] || ''); if (day) byDay[day] = (byDay[day] || 0) + 1; });
