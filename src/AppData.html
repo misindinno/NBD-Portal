@@ -220,7 +220,9 @@ function _rerenderTodayIfActive() {
     if (App.currentPage !== 'today') return;
     const sc = document.querySelector('#today-page .fu-table-scroll');
     const top = sc ? sc.scrollTop : 0;
-    try { _renderToday(); } catch (e) { return; }
+    window._todayBgRender = true;
+    try { _renderToday(); } catch (e) { window._todayBgRender = false; return; }
+    window._todayBgRender = false;
     const sc2 = document.querySelector('#today-page .fu-table-scroll');
     if (sc2 && top) sc2.scrollTop = top;
   }, 0);
