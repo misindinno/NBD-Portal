@@ -398,25 +398,51 @@ function appendChangeLog_(moduleName, recordId, actionType, changedBy) {
   const sheet   = getSheet(SHEET_NAMES.CHANGE_LOG);
   const headers = getHeaders(SHEET_NAMES.CHANGE_LOG);
   sheet.appendRow(headers.map(h => row[h] !== undefined ? row[h] : ''));
+  try { _trimChangeLog_(sheet, 2000, 500); } catch (e) {} // keep bounded; never fail the write
   return seq;
 }
 
-// Returns all CHANGE_LOG rows with Sequence > lastSeq (max 200 rows).
+// Keep CHANGE_LOG bounded so getChangesAfter_ and the sheet itself don't grow
+// forever. When data rows exceed keep + slack, delete the oldest down to keep.
+// Trimmed entries are already past every client's lastSeq, so dropping them is safe.
+function _trimChangeLog_(sheet, keep, slack) {
+  const lastRow  = sheet.getLastRow();
+  const dataRows = lastRow - 1; // exclude header
+  if (dataRows <= keep + slack) return;
+  sheet.deleteRows(2, dataRows - keep); // rows are oldest-first; header is row 1
+}
+
+// Returns CHANGE_LOG rows with Sequence > lastSeq (max 200). Reads only the tail
+// of the sheet, not the whole (ever-growing) log, so the 15s poll stays cheap.
 function getChangesAfter_(lastSeq) {
   assertServerContext_();
-  const after = Number(lastSeq) || 0;
-  const rows  = getAllRows(SHEET_NAMES.CHANGE_LOG);
-  return rows
-    .filter(r => Number(r['Sequence'] || 0) > after)
-    .slice(-200) // cap at 200 rows
-    .map(r => ({
-      sequence:   Number(r['Sequence']),
-      timestamp:  r['Timestamp']   || '',
-      module:     r['Module']      || '',
-      recordId:   r['Record ID']   || '',
-      actionType: r['Action Type'] || '',
-      changedBy:  r['Changed By']  || ''
-}));
+  const after   = Number(lastSeq) || 0;
+  const sheet   = getSheet(SHEET_NAMES.CHANGE_LOG);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const headers = getHeaders(SHEET_NAMES.CHANGE_LOG);
+  const idx  = name => headers.indexOf(name);
+  const cSeq = idx('Sequence'), cTs = idx('Timestamp'), cMod = idx('Module'),
+        cRec = idx('Record ID'), cAct = idx('Action Type'), cBy = idx('Changed By');
+  // Tail window comfortably exceeds the 200-row return cap, so no change is
+  // missed between polls under any realistic write rate.
+  const TAIL     = 250;
+  const startRow = Math.max(2, lastRow - TAIL + 1);
+  const values   = sheet.getRange(startRow, 1, lastRow - startRow + 1, headers.length).getValues();
+  const out = [];
+  for (let i = 0; i < values.length; i++) {
+    const v   = values[i];
+    const seq = Number(v[cSeq] || 0);
+    if (seq > after) out.push({
+      sequence:   seq,
+      timestamp:  v[cTs]  || '',
+      module:     v[cMod] || '',
+      recordId:   v[cRec] || '',
+      actionType: v[cAct] || '',
+      changedBy:  v[cBy]  || ''
+    });
+  }
+  return out.slice(-200);
 }
 
 function _queuePendingPayload_(row) {
