@@ -896,6 +896,14 @@
   .fu-page .fu-kpi-warning .fu-kpi-icon { background: #fdf2e3; color: #d97706; }
   .fu-page .fu-kpi-purple  .fu-kpi-icon { background: #f1eafe; color: #7c3aed; }
 
+  /* Follow-ups + Lead Master: compact, single-line KPI strip (Today keeps its grid) */
+  .fu-page:not(.td-page) .fu-kpis { gap: 10px; }
+  .fu-page:not(.td-page) .fu-kpi { flex: 1 1 116px; border-radius: 12px; padding: 9px 11px; box-shadow: 0 3px 10px -8px rgba(40,30,80,.5); }
+  .fu-page:not(.td-page) .fu-kpi-value { font-size: 18px; padding-right: 24px; }
+  .fu-page:not(.td-page) .fu-kpi-label { margin-top: 5px; font-size: 11px; }
+  .fu-page:not(.td-page) .fu-kpi-sub { margin-top: 1px; font-size: 10px; }
+  .fu-page:not(.td-page) .fu-kpi-icon { top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 7px; }
+
   /* Tabs */
   .fu-page .fu-tabs { border-bottom: none; gap: 9px; }
   .fu-page .fu-tab { height: 38px; border: 1px solid #e6e5f0; border-radius: 10px; color: #4a4860; font-size: 13.5px; box-shadow: none; }
