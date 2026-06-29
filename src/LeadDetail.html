@@ -1,34 +1,29 @@
 <script>
 async function openLeadDetail(leadId) {
-    // Serve from cache; use the single-lead endpoint when heavy detail caches are absent.
+    // The dialog renders the cached lead immediately; only the Follow-up History
+    // and Activity Logs tabs need the heavier per-lead read (full history/log
+    // sheet scans), so they load in the background and fill in — the dialog no
+    // longer blocks on a server round-trip.
     let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
-    let followups = AppCache.isLoaded('followups')
-      ? AppCache.getRows('followups').filter(f => f['Lead ID'] === leadId)
-      : [];
-    let followupHistory = AppCache.isLoaded('followupHistory')
-      ? AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId)
-      : [];
-    let activityLogs = AppCache.isLoaded('activityLogs')
-      ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId)
-      : [];
+    const histLoaded = AppCache.isLoaded('followupHistory');
+    const logLoaded  = AppCache.isLoaded('activityLogs');
+    let followupHistory = histLoaded ? AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId) : [];
+    let activityLogs    = logLoaded  ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId) : [];
+    let detailPending = !histLoaded || !logLoaded;
 
-    const needsLeadDetail = !lead || !AppCache.isLoaded('followups') || !AppCache.isLoaded('followupHistory') || !AppCache.isLoaded('activityLogs');
-    if (needsLeadDetail) {
-      const data = await api.getLead(leadId);
-      if (!lead) lead = data.lead;
-      if (!AppCache.isLoaded('followups')) followups = data.followups || [];
-      if (!AppCache.isLoaded('followupHistory')) followupHistory = data.followupHistory || [];
-      if (!AppCache.isLoaded('activityLogs')) activityLogs = data.activityLogs || [];
-    }
+    // Only block the open when the lead itself isn't cached (rare — leads load at
+    // bootstrap). Otherwise render now and lazy-fill the history/log tabs.
     if (!lead) {
-      showToast('Lead not found or no longer available.', 'error');
-      return;
+      const data = await api.getLead(leadId);
+      if (!data || !data.lead) { showToast('Lead not found or no longer available.', 'error'); return; }
+      lead = data.lead;
+      followupHistory = data.followupHistory || [];
+      activityLogs    = data.activityLogs || [];
+      detailPending = false;
     }
-    followups = followups.sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
     const leadFields = App.config.leadFields || [];
     const configOptions = _configOptionsMap(App.config._allConfigs || []);
     const fuContext = _buildFollowupContext([lead]);
-    const visibleFollowups = followups.filter(f => !_isActivityLog(f) && _isOpenFollowupRow(f) && !!_fmtDate(_fuPlannedDate(f)));
     const stageMap = App.config.stages.reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
     const stage = stageMap[lead['Stage ID']];
     const showNbdPush = _canPushLeadToNbd(lead);
@@ -104,10 +99,10 @@ async function openLeadDetail(leadId) {
       </div>
     </div>
     <div id="tab-history" class="tab-pane">
-      ${_followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
+      ${detailPending ? _leadDetailTabLoading() : _followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
     </div>
     <div id="tab-log" class="tab-pane" style="display:none">
-      ${_activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
+      ${detailPending ? _leadDetailTabLoading() : _activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
     </div>
     ${isNbdLocked ? `<div class="locked-panel">
       ${icon('lock', 18)}
@@ -142,6 +137,30 @@ async function openLeadDetail(leadId) {
     }
     initLeadCustomFields(overlay);
     _initStateCityDropdowns(overlay, lead['State'] || '', lead['City'] || '');
+
+    // History + activity logs weren't cached yet — fetch them in the background and
+    // fill the tabs without blocking the dialog open.
+    if (detailPending) {
+      api.getLead(leadId).then(data => {
+        if (!data || !overlay || !overlay.isConnected) return;
+        const hEl = overlay.querySelector('#tab-history');
+        const lEl = overlay.querySelector('#tab-log');
+        if (hEl) hEl.innerHTML = _followupHistoryTable(data.followupHistory || [], 'No follow-up history yet.', fuContext);
+        if (lEl) lEl.innerHTML = _activityLogTable(data.activityLogs || [], 'No activity logs yet.', fuContext);
+        renderIcons(overlay);
+      }).catch(() => {
+        const hEl = overlay && overlay.querySelector('#tab-history');
+        const lEl = overlay && overlay.querySelector('#tab-log');
+        const msg = '<div style="padding:24px;color:#b45309;font-size:13px">Could not load this section. Close and reopen to retry.</div>';
+        if (hEl) hEl.innerHTML = msg;
+        if (lEl) lEl.innerHTML = msg;
+      });
+    }
+  }
+
+  function _leadDetailTabLoading() {
+    return '<div style="padding:36px 20px;text-align:center;color:#9ca3af;font-size:13px">'
+      + '<span class="spinner" style="display:block;margin:0 auto 12px"></span>Loading…</div>';
   }
 
   function switchTab(btn, tabId) {
