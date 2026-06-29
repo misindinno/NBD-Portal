@@ -431,6 +431,20 @@ async function _runPageLoader(page, loaderName, args = []) {
 }
 window._runPageLoader = _runPageLoader;
 
+// Marks the current page's sidebar item active. Re-applied after every
+// renderSidebar() (which rebuilds nav innerHTML) so background data refreshes
+// don't drop the selected-menu highlight. Follow-up sub-pages map to the
+// single "followups" nav item.
+function _setActiveNav(page) {
+  const navEl = qs('#sidebar nav');
+  if (!navEl) return;
+  const key = (page && String(page).indexOf('followups') === 0) ? 'followups' : page;
+  navEl.querySelectorAll('a').forEach(a => a.classList.remove('active'));
+  const link = navEl.querySelector(`a[data-page="${key}"]`);
+  if (link) link.classList.add('active');
+}
+window._setActiveNav = _setActiveNav;
+
 async function navigate(page) {
   const contentEl = el('content');
   const titleEl = el('page-title');
@@ -445,9 +459,7 @@ async function navigate(page) {
   }
   Store.dispatch('SET_PAGE', page);
   contentEl.setAttribute('data-page', page);
-  document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.remove('active'));
-  const link = document.querySelector(`#sidebar nav a[data-page="${page}"]`);
-  if (link) link.classList.add('active');
+  _setActiveNav(page);
   const meta = _PAGE_META[page] || { title: page.charAt(0).toUpperCase() + page.slice(1), crumb: page };
   if (titleEl) titleEl.textContent = meta.title;
   const crumbEl = el('tb-breadcrumb-page');
@@ -577,6 +589,9 @@ function renderSidebar() {
   }
 
   nav.innerHTML = html;
+  // Rebuilding nav innerHTML drops the active class — restore it for the current
+  // page so background refreshes (15s poll) don't visually deselect the menu.
+  _setActiveNav((typeof Store !== 'undefined' && Store.getState && Store.getState().currentPage) || (App && App.currentPage) || '');
 
   const displayName = u.title || u.name || u.email || '';
   const role        = { ADMIN: 'Administrator', MANAGER: 'Manager', SALES: 'Sales', USER: 'User' }[u.role] || u.role || '';
