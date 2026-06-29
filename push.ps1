@@ -1,4 +1,4 @@
-# push.ps1 - Manually deploy code to all GAS clients
+﻿# push.ps1 - Manually deploy code to all GAS clients
 # Usage: .\push.ps1
 
 $ErrorActionPreference = "Stop"
