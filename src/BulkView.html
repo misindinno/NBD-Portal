@@ -8,6 +8,36 @@ const BulkView = (() => {
   let bulkTab = 'entry';
   const BULK_CHUNK_SIZE = 25;
 
+  // ── Lazy-load Handsontable + Papaparse on demand ─────────────────────────────
+  // These are heavy (~1 MB) and only the Bulk Entry page needs them, so they are
+  // NOT in the eager <head>. We inject them the first time this page opens and
+  // poll for the globals (the GAS sandbox iframe doesn't always fire script
+  // onload reliably, so polling the global is the source of truth).
+  let _bulkLibsPromise = null;
+  function _injectBulkLib(tag, key, attrs) {
+    if (document.querySelector(tag + '[data-bulklib="' + key + '"]')) return;
+    const node = document.createElement(tag);
+    node.setAttribute('data-bulklib', key);
+    Object.keys(attrs).forEach(k => node.setAttribute(k, attrs[k]));
+    document.head.appendChild(node);
+  }
+  function ensureBulkLibs() {
+    if (typeof Handsontable !== 'undefined' && typeof Papa !== 'undefined') return Promise.resolve(true);
+    if (_bulkLibsPromise) return _bulkLibsPromise;
+    _bulkLibsPromise = new Promise(resolve => {
+      _injectBulkLib('link', 'hot-css', { rel: 'stylesheet', href: 'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css' });
+      _injectBulkLib('script', 'hot-js', { src: 'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js' });
+      _injectBulkLib('script', 'papa-js', { src: 'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js' });
+      const deadline = Date.now() + 25000;
+      (function poll() {
+        if (typeof Handsontable !== 'undefined' && typeof Papa !== 'undefined') return resolve(true);
+        if (Date.now() > deadline) { _bulkLibsPromise = null; return resolve(false); }
+        setTimeout(poll, 120);
+      })();
+    });
+    return _bulkLibsPromise;
+  }
+
   function _html() {
     return `
     <div class="bulk-page">
@@ -361,8 +391,10 @@ const BulkView = (() => {
   async function load() {
     el('content').innerHTML = _html();
     renderIcons(el('content'));
-    if (typeof Handsontable === 'undefined') {
-      el('bulk-hot').innerHTML = '<div style="padding:24px;color:#991b1b">Handsontable did not load. Check CDN/network access.</div>';
+    el('bulk-hot').innerHTML = '<div class="bulk-grid-loading">Loading bulk editor…</div>';
+    const ready = await ensureBulkLibs();
+    if (!ready || typeof Handsontable === 'undefined') {
+      el('bulk-hot').innerHTML = '<div style="padding:24px;color:#991b1b">Bulk editor could not load. Check your network and reload the page.</div>';
       return;
     }
     el('bulk-hot').innerHTML = '<div class="bulk-grid-loading">Loading Excel view...</div>';

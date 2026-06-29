@@ -436,7 +436,7 @@ function apiGetLeadActivityLogs(token, filters) {
 function apiGetTodayActivitySnapshot(token) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    const user = _requireAnyModule(['Dashboard', 'Followups', 'Leads']);
+    const user = _requireAnyModule(['Followups', 'Leads']);
     return respond(getTodayActivitySnapshotFast_(user));
   });
 }

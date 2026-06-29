@@ -1,13 +1,13 @@
 <script>
 const _CONFIG_IS_LQ_PORTAL = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
-const USER_MODULES = ['Dashboard','Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm']
+const USER_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm']
   .concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []);
 const USER_ROLE_MODULES = {
-  ADMIN:   ['Dashboard','Leads','Pipeline','Followups','Reports','Archive','Config','Users'].concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []),
-  MANAGER: ['Dashboard','Leads','Pipeline','Followups','Reports'],
-  SALES:   ['Dashboard','Leads','Pipeline','Followups'],
-  USER:    ['Dashboard','Followups'],
-  VIEWER:  ['Dashboard','Leads','Pipeline','Followups','Reports']
+  ADMIN:   ['Leads','Pipeline','Followups','Reports','Archive','Config','Users'].concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []),
+  MANAGER: ['Leads','Pipeline','Followups','Reports'],
+  SALES:   ['Leads','Pipeline','Followups'],
+  USER:    ['Followups'],
+  VIEWER:  ['Leads','Pipeline','Followups','Reports']
 };
 
 function _userPermission(user = {}) {

@@ -124,13 +124,6 @@ function skeletonPage(type = 'table') {
         ${repeat(3, () => '<div class="sk sk-pcard"></div>')}</div>`;
     return `<div class="sk-page">${topbar}<div class="sk-kan">${repeat(5, () => col)}</div></div>`;
   }
-  if (type === 'dashboard') {
-    const stats = `<div class="sk-stats">${repeat(6, () => '<div class="sk sk-stat"></div>')}</div>`;
-    const chart = (h) => `<div class="sk-chart">${sk('150px', '13px')}${sk('100%', h + 'px', 'margin-top:14px;border-radius:10px')}</div>`;
-    return `<div class="sk-page">${topbar}${stats}
-      <div class="sk-charts">${chart(210)}${chart(210)}</div>${stats}
-      <div class="sk-charts">${chart(260)}${chart(260)}</div></div>`;
-  }
   if (type === 'form') {
     return `<div class="sk-page">${topbar}
       <div class="sk-card" style="padding:20px">
@@ -195,7 +188,6 @@ function resetButtonLoading(btn) {
 }
 
 function pageSkeletonType(page) {
-  if (page === 'dashboard') return 'dashboard';
   if (page === 'pipeline')  return 'kanban';
   if (page === 'today')     return 'today';
   if (page === 'leads')     return 'fu';

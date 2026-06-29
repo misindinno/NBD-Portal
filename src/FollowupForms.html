@@ -115,7 +115,6 @@ async function openFollowupForm(leadId = '', leadName = '') {
       overlay.remove();
       _applyFollowupSaveResult(payload, saveResult);
       if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
-      if (App.currentPage === 'dashboard') loadDashboard();
       toast('Follow-up saved' + (saveResult ? ': ' + saveResult : '') + '!');
     } catch (err) {
       toast(err.message || String(err), 'error');
@@ -377,7 +376,6 @@ async function openMarkFollowupDoneForm(followupId) {
       overlay.remove();
       _applyFollowupDoneResult(result);
       if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
-      if (App.currentPage === 'dashboard') loadDashboard();
       toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
     } catch (err) {
       toast(err.message || String(err), 'error');

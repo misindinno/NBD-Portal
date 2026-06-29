@@ -128,8 +128,6 @@ async function _refreshLeadsCache() {
     } else { loadLeads(); }
   } else if (pg === 'pipeline') {
     loadPipeline();
-  } else if (pg === 'dashboard') {
-    loadDashboard();
   }
   _rerenderTodayIfActive();
 }
@@ -149,7 +147,6 @@ async function _refreshFollowupsCache() {
   const rows = await api.getFollowups({});
   AppCache.setRows('followups', rows);
   try { renderSidebar(); } catch (e) {}
-  if (pg === 'dashboard') loadDashboard();
   _rerenderTodayIfActive();
 }
 

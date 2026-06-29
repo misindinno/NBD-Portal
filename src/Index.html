@@ -21,20 +21,11 @@
   <!-- SortableJS -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-
-  <!-- Google Charts (GeoChart for India map) -->
-  <script src="https://www.gstatic.com/charts/loader.js"></script>
-  <script>google.charts.load('current', { packages: ['geochart'] });</script>
-
   <!-- SweetAlert2 -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-  <!-- Bulk Entry libraries -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Bulk Entry libraries (Handsontable + Papaparse) are loaded on demand
+       when the Bulk Entry page opens — see ensureBulkLibs() in BulkView. -->
 
   <!-- Toastify -->
   <link href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" rel="stylesheet">
@@ -116,10 +107,10 @@
           <div class="tb-breadcrumb">
             <span class="tb-breadcrumb-app"><?= CLIENT_CONFIG.APP_TITLE ?></span>
             <i data-lucide="chevron-right" style="width:12px;height:12px;"></i>
-            <span class="tb-breadcrumb-page" id="tb-breadcrumb-page">Dashboard</span>
+            <span class="tb-breadcrumb-page" id="tb-breadcrumb-page">Today's Activity</span>
           </div>
           <div class="tb-title-row">
-            <h1 id="page-title">Dashboard</h1>
+            <h1 id="page-title">Today's Activity</h1>
           </div>
         </div>
 
@@ -165,26 +156,13 @@
         <span id="user-name" style="display:none;"></span>
       </div>
       <div id="content">
-        <div class="skeleton-page skeleton-dashboard">
+        <div class="skeleton-page">
           <div class="skeleton-block" style="height:48px;border-radius:8px"></div>
           <div class="skeleton-stat-grid">
             <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
             <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
-            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
           </div>
-          <div class="skeleton-stat-grid">
-            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
-            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
-            <div class="skeleton-block skeleton-stat"></div><div class="skeleton-block skeleton-stat"></div>
-          </div>
-          <div style="display:grid;grid-template-columns:3fr 2fr;gap:16px">
-            <div class="skeleton-block" style="height:260px"></div>
-            <div class="skeleton-block" style="height:260px"></div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-            <div class="skeleton-block" style="height:230px"></div>
-            <div class="skeleton-block" style="height:230px"></div>
-          </div>
+          <div class="skeleton-block" style="height:320px;border-radius:10px"></div>
         </div>
       </div>
     </div>
@@ -199,25 +177,17 @@
   <?!= include('AppCore'); ?>
   <?!= include('AppData'); ?>
   <?!= include('AppAuth'); ?>
-  <? if (CLIENT_CONFIG.PORTAL_KIND === 'dashboard') { ?>
-    <?!= include('Dashboard'); ?>
-    <?!= include('DashboardHelpers'); ?>
-    <?!= include('DashboardGeo'); ?>
-    <?!= include('DashboardTables'); ?>
-    <?!= include('DashboardEngine'); ?>
-  <? } else { ?>
-    <?!= include('Leads'); ?>
-    <?!= include('LeadDetail'); ?>
-    <?!= include('LeadFormShared'); ?>
-    <?!= include('LeadCustomFields'); ?>
-    <?!= include('Pipeline'); ?>
-    <?!= include('Followups'); ?>
-    <?!= include('FollowupQuery'); ?>
-    <?!= include('FollowupForms'); ?>
-    <?!= include('Archive'); ?>
-    <?!= include('LeadForm'); ?>
-    <?!= include('BulkView'); ?>
-  <? } ?>
+  <?!= include('Leads'); ?>
+  <?!= include('LeadDetail'); ?>
+  <?!= include('LeadFormShared'); ?>
+  <?!= include('LeadCustomFields'); ?>
+  <?!= include('Pipeline'); ?>
+  <?!= include('Followups'); ?>
+  <?!= include('FollowupQuery'); ?>
+  <?!= include('FollowupForms'); ?>
+  <?!= include('Archive'); ?>
+  <?!= include('LeadForm'); ?>
+  <?!= include('BulkView'); ?>
   <?!= include('Today'); ?>
   <?!= include('Config'); ?>
   <?!= include('ConfigStages'); ?>

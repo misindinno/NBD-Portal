@@ -1,13 +1,13 @@
 // ─── AuthService.js ──────────────────────────────────────────────────────────
 
 const ROLE_PERMISSIONS = {
-  ADMIN:   ['Dashboard','Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry'],
-  MANAGER: ['Dashboard','Leads','Pipeline','Followups','Reports'],
-  SALES:   ['Dashboard','Leads','Pipeline','Followups'],
-  USER:    ['Dashboard','Followups'],
-  VIEWER:  ['Dashboard','Leads','Pipeline','Followups','Reports']
+  ADMIN:   ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry'],
+  MANAGER: ['Leads','Pipeline','Followups','Reports'],
+  SALES:   ['Leads','Pipeline','Followups'],
+  USER:    ['Followups'],
+  VIEWER:  ['Leads','Pipeline','Followups','Reports']
 };
-const ALL_MODULES = ['Dashboard','Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry'];
+const ALL_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry'];
 let TRUSTED_WRITE_EMAIL = '';
 
 function withTrustedWriteUser_(email, fn) {
