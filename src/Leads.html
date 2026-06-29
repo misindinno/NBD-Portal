@@ -10,11 +10,11 @@
     el('page-title').textContent = 'Leads';
     _leadSelected.clear();
     if (force) {
-      setContentLoading('table');
+      setContentLoading('fu');
       const rows = await api.getLeads();
       AppCache.setRows('leads', rows);
     } else if (!AppCache.isLoaded('leads')) {
-      setContentLoading('table');
+      setContentLoading('fu');
       await _ensureCached('leads', () => api.getLeads());
     }
     // Load followup history in background to drive Connection / Conversion rate cards

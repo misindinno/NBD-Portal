@@ -19,7 +19,7 @@ window._todayCardClick = _todayCardClick;
 
 async function loadToday() {
   // Cache removed: always fetch a fresh snapshot on navigation.
-  el('content').innerHTML = `<div id="today-wrap">${skeletonPage('table')}</div>`;
+  el('content').innerHTML = `<div id="today-wrap">${skeletonPage('today')}</div>`;
 
   try {
     const snapshot = await api.getTodayActivitySnapshot();

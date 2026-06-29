@@ -547,6 +547,46 @@
   .w-40 { width: 40%; } .w-50 { width: 50%; } .w-70 { width: 70%; }
   @keyframes skeleton-shimmer { 100% { transform: translateX(100%); } }
 
+  /* ── Page-matched loading skeletons (sk-*) ──────────────────────────────────── */
+  .sk { position: relative; overflow: hidden; background: #E8EDF4; border-radius: 6px; }
+  .sk::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.65), transparent);
+    animation: skeleton-shimmer 1.25s infinite; }
+  .sk-page { display: flex; flex-direction: column; gap: 14px; width: 100%; padding: 2px; }
+  .sk-row { display: flex; align-items: center; gap: 12px; }
+  .sk-stack { display: flex; flex-direction: column; gap: 8px; }
+  .sk-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .sk-hero { width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0; }
+  .sk-btn { width: 104px; height: 34px; border-radius: 9px; flex-shrink: 0; }
+  .sk-kpis { display: flex; gap: 12px; flex-wrap: nowrap; overflow: hidden; }
+  .sk-kpis .sk-kpi { flex: 1 0 150px; }
+  .sk-kpis.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .sk-kpis.grid .sk-kpi { flex: initial; }
+  .sk-kpi { position: relative; background: #fff; border: 1px solid #ecebf4; border-left: 3px solid #e3e1ef;
+    border-radius: 14px; padding: 13px 14px; min-height: 74px; }
+  .sk-kpi .sk-ic { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; border-radius: 9px; }
+  .sk-tabs { display: flex; gap: 8px; border-bottom: 1px solid #eceaf4; padding-bottom: 8px; }
+  .sk-tab { width: 86px; height: 30px; border-radius: 9px; flex-shrink: 0; }
+  .sk-filter { height: 44px; border-radius: 12px; }
+  .sk-card { background: #fff; border: 1px solid #ecebf4; border-radius: 16px;
+    box-shadow: 0 10px 30px -22px rgba(40,30,80,.5); overflow: hidden; }
+  .sk-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 16px; border-bottom: 1px solid #f1f0f7; }
+  .sk-table { padding: 4px 16px 12px; }
+  .sk-trow { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-bottom: 1px solid #f4f3f9; }
+  .sk-trow:last-child { border-bottom: 0; }
+  .sk-av { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; }
+  .sk-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .sk-chart { background: #fff; border: 1px solid #ecebf4; border-radius: 14px; padding: 14px;
+    box-shadow: 0 4px 14px -10px rgba(40,30,80,.5); }
+  .sk-kan { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 4px; }
+  .sk-col { width: 300px; flex-shrink: 0; background: #f3f2f8; border: 1px solid #ecebf4; border-radius: 16px; padding: 12px; }
+  .sk-pcard { background: #fff; border-radius: 12px; height: 96px; margin-top: 10px; }
+  .sk-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .sk-stat { height: 92px; border-radius: 14px; }
+  .sk-formgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .sk-field { display: flex; flex-direction: column; gap: 8px; }
+
   /* Legacy nav-group (unused, kept for safety) */
   #sidebar nav .nav-sub { display: none; }
 
