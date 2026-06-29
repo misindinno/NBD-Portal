@@ -42,6 +42,10 @@ async function _continueAppInit(token) {
   // Hydrate state from the single payload — pages then render with no extra fetches.
   if (Array.isArray(boot.leads))     AppCache.setRows('leads', boot.leads);
   if (Array.isArray(boot.followups)) AppCache.setRows('followups', boot.followups);
+  // Bootstrap already loaded leads + follow-ups, so the first Today render can paint
+  // from them immediately and fetch only history + activity logs (instead of a second
+  // full snapshot round-trip). One-shot: cleared after the first loadToday.
+  window._todayBootstrapReuse = Array.isArray(boot.leads) && Array.isArray(boot.followups);
   if (boot.stamps && boot.stamps.appVersion && boot.stamps.appVersion !== '0') {
     _knownAppVersion = boot.stamps.appVersion;
   }

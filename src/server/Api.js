@@ -78,7 +78,9 @@ function apiBootstrapData(token) {
       }
 
       const leads = _scopeAssignedRows(_leadRows(), user);
-      const followups = _scopeFollowupRows(getFollowups({}), user)
+      // Follow-ups feed only the sidebar counts + Today view here, which use master
+      // fields only — skip the custom-field join + formula engine for speed.
+      const followups = _scopeFollowupRows(getFollowups({}, false), user)
         .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
 
       return respond({ user, config, leads, followups, stamps: _bootstrapStamps_() });

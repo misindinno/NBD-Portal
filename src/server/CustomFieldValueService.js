@@ -17,13 +17,20 @@ const FOLLOWUP_MASTER_FIELDS = [
   'Done Date','Done By','Stage ID','Updated Stage ID','Created By','Created At','Updated At'
 ];
 
+// Per-execution guard: GAS globals reset on every request, so this ensures the
+// header check (which invalidates the read cache + does extra Sheets round-trips
+// via safeInitHeaders) runs at most once per execution instead of on every
+// custom-field read.
+let _cfvSheetsEnsured_ = false;
 function ensureCustomFieldValueSheets_() {
+  if (_cfvSheetsEnsured_) return;
   safeInitHeaders(SHEET_NAMES.LEAD_FIELD_VALUES, [
     'Value ID','Lead ID','Field ID','Column Key','Field Value','File URL','Updated By','Updated At'
   ]);
   safeInitHeaders(SHEET_NAMES.FOLLOWUP_FIELD_VALUES, [
     'Value ID','Follow-up ID','Field ID','Column Key','Field Value','File URL','Updated By','Updated At'
   ]);
+  _cfvSheetsEnsured_ = true;
 }
 
 function getRowsWithCustomFieldValues_(sheetName, rows) {

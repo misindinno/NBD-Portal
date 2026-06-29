@@ -15,8 +15,8 @@ function ensureFollowupSheets_() {
   ]);
 }
 
-function getFollowups(filters) {
-  let rows = _followupRows();
+function getFollowups(filters, withCustomFields) {
+  let rows = _followupRows(withCustomFields);
   if (filters && filters.leadId) rows = rows.filter(r => r['Lead ID'] === filters.leadId);
   const status = String(filters && filters.status || '').trim().toLowerCase();
   const includeClosed = !!(filters && (filters.includeClosed || status === 'all'));
@@ -399,13 +399,18 @@ function _nextMondayDateString_() {
   return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
-function _followupRows() {
+function _followupRows(withCustomFields) {
   if (isAggregatePortal()) {
     return getAggregatedRows(SHEET_NAMES.FOLLOWUPS)
       .filter(_isFollowupTaskRow)
       .map(_normalizeFollowupRow);
   }
-  return getRowsWithCustomFieldValues_('Followups', getAllRows(SHEET_NAMES.FOLLOWUPS))
+  // withCustomFields === false skips the custom-field value join + formula engine
+  // (used by the bootstrap, where only master fields feed the sidebar/Today view).
+  const base = withCustomFields === false
+    ? getAllRows(SHEET_NAMES.FOLLOWUPS)
+    : getRowsWithCustomFieldValues_('Followups', getAllRows(SHEET_NAMES.FOLLOWUPS));
+  return base
     .filter(_isFollowupTaskRow)
     .map(_normalizeFollowupRow);
 }

@@ -18,9 +18,25 @@ function _todayCardClick(key) {
 window._todayCardClick = _todayCardClick;
 
 async function loadToday() {
-  // Cache removed: always fetch a fresh snapshot on navigation.
   el('content').innerHTML = `<div id="today-wrap">${skeletonPage('today')}</div>`;
 
+  // First load right after bootstrap: leads + follow-ups are already cached. Paint
+  // immediately from them, then fetch only history + activity logs in the background
+  // — avoids a redundant second full snapshot of leads/follow-ups on initial load.
+  if (window._todayBootstrapReuse && AppCache.isLoaded('leads') && AppCache.isLoaded('followups')) {
+    window._todayBootstrapReuse = false;
+    if (App.currentPage === 'today') _renderToday();
+    const need = [];
+    if (!AppCache.isLoaded('followupHistory')) need.push(_ensureCached('followupHistory', () => api.getFollowupHistory({})));
+    if (!AppCache.isLoaded('activityLogs'))    need.push(_ensureCached('activityLogs',    () => api.getLeadActivityLogs({})));
+    if (need.length) {
+      try { await Promise.all(need); } catch (e) {}
+      if (App.currentPage === 'today') _renderToday();
+    }
+    return;
+  }
+
+  // Normal open / manual refresh: always fetch a fresh snapshot.
   try {
     const snapshot = await api.getTodayActivitySnapshot();
     AppCache.setRows('leads', snapshot.leads || []);
