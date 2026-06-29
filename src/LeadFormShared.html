@@ -67,7 +67,7 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
             ${cfg.users.map(u => `<option value="${escapeHtml(u.id)}" ${d['Assigned To'] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
           </select></div>` : ''}
       </div>
-    ${buildLeadCustomFieldsHTML(d, customFields, configOptions)}
+    ${leadId ? '' : buildLeadCustomFieldsHTML(d, customFields, configOptions)}
     <div class="modal-footer">
       <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>
