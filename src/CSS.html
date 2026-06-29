@@ -210,13 +210,20 @@
   #sidebar.collapsed .sb-user-card { justify-content: center; padding: 8px; }
   #sidebar.collapsed .sb-user-info { display: none; }
 
-  /* Skeleton nav */
-  .nav-skeleton-item { display: flex; align-items: center; gap: 10px; padding: 0 10px; height: 44px; }
-  .skeleton-nav-icon { width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0; display: inline-block; background: rgba(255,255,255,.12); position: relative; overflow: hidden; }
-  .skeleton-nav-line { width: 108px; height: 12px; border-radius: 4px; display: inline-block; background: rgba(255,255,255,.10); position: relative; overflow: hidden; }
-  .skeleton-nav-icon::after, .skeleton-nav-line::after {
+  /* Skeleton nav — glass cards that match the real menu items */
+  .nav-skeleton-section { padding: 18px 6px 8px; }
+  .sk-navsec { height: 9px; border-radius: 4px; display: block; background: rgba(255,255,255,.16); position: relative; overflow: hidden; }
+  .nav-skeleton-item {
+    display: flex; align-items: center; gap: 10px; padding: 0 10px; height: 44px; margin-bottom: 6px;
+    border-radius: 10px; border: 1px solid rgba(255,255,255,.13); background: rgba(255,255,255,.07);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .skeleton-nav-icon { width: 18px; height: 18px; border-radius: 6px; flex-shrink: 0; display: inline-block; background: rgba(255,255,255,.18); position: relative; overflow: hidden; }
+  .skeleton-nav-line { height: 11px; border-radius: 4px; display: inline-block; background: rgba(255,255,255,.14); position: relative; overflow: hidden; }
+  .sk-navbadge { width: 22px; height: 16px; border-radius: 20px; flex-shrink: 0; display: inline-block; background: rgba(255,255,255,.18); position: relative; overflow: hidden; }
+  .skeleton-nav-icon::after, .skeleton-nav-line::after, .sk-navsec::after, .sk-navbadge::after {
     content: ''; position: absolute; inset: 0; transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,.2), transparent);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
     animation: skeleton-shimmer 1.25s infinite;
   }
   #main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }

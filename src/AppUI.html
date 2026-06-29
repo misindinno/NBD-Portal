@@ -488,11 +488,18 @@ async function navigate(page) {
 function renderInitialLoading() {
   const nav = qs('#sidebar nav');
   if (nav) {
-    nav.innerHTML = Array.from({ length: 5 }, () => `
-      <div class="nav-skeleton-item">
+    const item = (w, badge) => `<div class="nav-skeleton-item">
         <span class="skeleton-nav-icon"></span>
-        <span class="skeleton-nav-line"></span>
-      </div>`).join('');
+        <span class="skeleton-nav-line" style="width:${w}px"></span>
+        ${badge ? '<span style="flex:1"></span><span class="sk-navbadge"></span>' : ''}
+      </div>`;
+    const section = (w, items) =>
+      `<div class="nav-skeleton-section"><span class="sk-navsec" style="width:${w}px"></span></div>` +
+      items.map(([lw, b]) => item(lw, b)).join('');
+    nav.innerHTML =
+      section(38, [[70], [96, true], [82, true]]) +
+      section(46, [[100, true], [76], [64], [88]]) +
+      section(56, [[60]]);
   }
   setContentLoading(_isDashboardPortal() ? 'dashboard' : 'today');
 }
