@@ -101,16 +101,22 @@ function skeletonPage(type = 'table') {
       <div class="sk-row"><div class="sk sk-btn"></div><div class="sk sk-btn" style="width:124px"></div></div>
     </div>`;
   const kpis = (n, grid) => `<div class="sk-kpis${grid ? ' grid' : ''}">${repeat(n, () =>
-    `<div class="sk-kpi"><div class="sk sk-ic"></div>${sk('46px', '26px')}${sk('72%', '10px', 'margin-top:10px')}${sk('48%', '9px', 'margin-top:7px')}</div>`)}</div>`;
-  const tabs = `<div class="sk-tabs">${repeat(5, () => '<div class="sk sk-tab"></div>')}</div>`;
-  const filter = '<div class="sk sk-filter"></div>';
+    `<div class="sk-kpi"><div class="sk sk-ic"></div><div class="sk-kpi-lines">${sk('44px', '17px')}${sk('80%', '9px', 'margin-top:5px')}${sk('56%', '8px', 'margin-top:5px')}</div></div>`)}</div>`;
+  // Tabs row mirrors the real fu-tabs: pill group on the left, filter toggle on the right.
+  const tabs = `<div class="sk-tabs">
+      <div class="sk-row" style="gap:8px">${repeat(4, () => '<div class="sk sk-tab"></div>')}</div>
+      <div class="sk sk-tab" style="width:94px"></div>
+    </div>`;
   const row = (av) => `<div class="sk-trow">${av ? '<div class="sk sk-av"></div>' : ''}${sk('22%', '12px')}${sk('15%', '12px')}${sk('19%', '12px')}${sk('13%', '12px')}<div style="flex:1"></div>${sk('62px', '20px', 'border-radius:20px')}</div>`;
   const worklist = (rows, av = true) => `<div class="sk-card">
-      <div class="sk-card-head">${sk('170px', '15px')}<div class="sk-row">${sk('92px', '28px', 'border-radius:9px')}${sk('70px', '28px', 'border-radius:9px')}</div></div>
+      <div class="sk-card-head"><div class="sk-row" style="gap:8px">${sk('120px', '15px')}${sk('34px', '18px', 'border-radius:20px')}</div><div class="sk-row">${sk('92px', '28px', 'border-radius:9px')}${sk('70px', '28px', 'border-radius:9px')}</div></div>
       <div class="sk-table">${repeat(rows, () => row(av))}</div></div>`;
 
   if (type === 'fu') {
-    return `<div class="sk-page">${topbar}${kpis(6)}${tabs}${filter}${worklist(9)}</div>`;
+    // Mirrors the real Follow-up / Lead Master page: topbar, compact KPI strip,
+    // tabs+filter-toggle, then the worklist table (no expanded filter bar — that
+    // is collapsed behind the toggle on the real page).
+    return `<div class="sk-page">${topbar}${kpis(6)}${tabs}${worklist(9)}</div>`;
   }
   if (type === 'today') {
     const chart = `<div class="sk-chart">${sk('120px', '13px')}${sk('100%', '150px', 'margin-top:14px;border-radius:10px')}</div>`;

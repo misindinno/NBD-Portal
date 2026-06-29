@@ -551,16 +551,17 @@
   .sk-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .sk-hero { width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0; }
   .sk-btn { width: 104px; height: 34px; border-radius: 9px; flex-shrink: 0; }
-  .sk-kpis { display: flex; gap: 12px; flex-wrap: nowrap; overflow: hidden; }
-  .sk-kpis .sk-kpi { flex: 1 0 150px; }
-  .sk-kpis.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-  .sk-kpis.grid .sk-kpi { flex: initial; }
-  .sk-kpi { position: relative; background: #fff; border: 1px solid #ecebf4; border-left: 3px solid #e3e1ef;
-    border-radius: 14px; padding: 13px 14px; min-height: 74px; }
-  .sk-kpi .sk-ic { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; border-radius: 9px; }
-  .sk-tabs { display: flex; gap: 8px; border-bottom: 1px solid #eceaf4; padding-bottom: 8px; }
+  /* KPI strip mirrors the real .fu-kpis grid + .fu-kpi card (icon left, 3 lines right). */
+  .sk-kpis, .sk-kpis.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+  .sk-kpi { background: linear-gradient(180deg, #ffffff 0%, #FAFBFF 100%);
+    border: 1px solid #ecebf4; border-left: 3px solid #e3e1ef; border-radius: 10px;
+    padding: 9px 11px; min-height: 62px;
+    display: grid; grid-template-columns: auto 1fr; column-gap: 9px; align-items: center; }
+  .sk-kpi .sk-ic { width: 28px; height: 28px; border-radius: 7px; }
+  .sk-kpi-lines { display: flex; flex-direction: column; min-width: 0; }
+  .sk-tabs { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    border-bottom: 1px solid #eceaf4; padding-bottom: 8px; }
   .sk-tab { width: 86px; height: 30px; border-radius: 9px; flex-shrink: 0; }
-  .sk-filter { height: 44px; border-radius: 12px; }
   .sk-card { background: #fff; border: 1px solid #ecebf4; border-radius: 16px;
     box-shadow: 0 10px 30px -22px rgba(40,30,80,.5); overflow: hidden; }
   .sk-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
