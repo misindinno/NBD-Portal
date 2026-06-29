@@ -394,22 +394,6 @@ function getAllStagesFast_() {
   return _stageRowsFromSheetsApi_().sort(_stageOrderSort_);
 }
 
-function getActiveStagesFast_() {
-  return _stageRowsFromSheetsApi_()
-    .filter(stage => stage['Is Active'] === true || stage['Is Active'] === 'TRUE' || String(stage['Is Active']).toLowerCase() === 'true')
-    .sort(_stageOrderSort_);
-}
-
-function getConfigByTypeFast_(type) {
-  return _configRowsFromSheetsApi_()
-    .filter(row => row['Config Type'] === type && row['Status'] === 'Active')
-    .map(row => row['Value']);
-}
-
-function getFieldConfigFast_(sheetName) {
-  return _fieldConfigRowsFast_(sheetName, false);
-}
-
 function getAllFieldConfigsFast_(sheetName) {
   return _fieldConfigRowsFast_(sheetName, true);
 }

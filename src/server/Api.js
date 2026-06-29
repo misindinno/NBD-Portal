@@ -126,19 +126,6 @@ function apiGetCurrentUser() {
   });
 }
 
-function apiBootstrap() {
-  return apiGuard_(() => {
-    const email = Session.getActiveUser().getEmail();
-    if (!email) return respond(null, 'Session email is empty.');
-    const userResult = getCurrentUser('', false);
-    if (!userResult.success && userResult.error === 'ACCESS_DENIED') return respond(null, 'ACCESS_DENIED for ' + email);
-    if (!userResult.success) return userResult;
-    const configResult = getAppConfig();
-    if (!configResult.success) return configResult;
-    return respond({ user: userResult.data, config: configResult.data });
-  });
-}
-
 // ── Permission probe (admin only) ─────────────────────────────────────────────
 function apiUpdatePermissions(token) {
   return apiGuard_(() => {
@@ -229,19 +216,6 @@ function apiGetAllConfigs(token) {
     } catch (e) {
       Logger.log('[Config] Sheets API configs fallback: ' + e.message);
       return respond(getAllRows(SHEET_NAMES.CONFIG));
-    }
-  });
-}
-
-function apiGetFieldConfig(token, sheet) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    _requireConfigReader();
-    try {
-      return respond(getFieldConfigFast_(sheet));
-    } catch (e) {
-      Logger.log('[Config] Sheets API field config fallback: ' + e.message);
-      return respond(getFieldConfig(sheet));
     }
   });
 }
@@ -457,15 +431,6 @@ function apiRunSheetsApiSampleWrite(token, payload) {
   });
 }
 
-function apiDiagnoseSheetRanges(token) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _apiUser();
-    if (user.role !== 'ADMIN') throw new Error('Permission denied.');
-    return respond(diagnoseSheetRanges_());
-  });
-}
-
 function apiSavePortalSettings(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -652,14 +617,6 @@ function apiSaveBulkRows(token, rows, mode) {
   });
 }
 
-function apiSaveBulkRow(token, row, rowNumber, mode) {
-  _currentApiToken_ = token || '';
-  return apiGuard_(() => {
-    const user = _requireBulkEntry_();
-    return respond(saveBulkRow(row || {}, Number(rowNumber) || 1, user.email, mode || 'create'));
-  });
-}
-
 function apiCreateBulkFollowupOnlyRow(token, row, rowNumber) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -743,7 +700,7 @@ function _assertCanEnqueueJob_(user, moduleName, actionType) {
     if (!canWriteLead) throw new Error('Permission denied.');
     return;
   }
-  if (['saveFollowup', 'markFollowupDone', 'deleteFollowup'].includes(actionType)) {
+  if (['saveFollowup', 'markFollowupDone'].includes(actionType)) {
     if (!canWriteFollowup) throw new Error('Permission denied.');
     return;
   }

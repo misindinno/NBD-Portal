@@ -77,12 +77,10 @@ const api = {
   logout:              (t)     => api._read('apiLogout', t),
 
   // ── Reads ─────────────────────────────────────────────────────────────────
-  bootstrap:           ()      => api._read('apiBootstrap'),
   getDataStamps:       ()      => api._authedRead('apiGetDataStamps'),
   getAppConfig:        ()      => api._authedRead('apiGetAppConfig'),
   getAllStages:         ()      => api._authedRead('apiGetAllStages'),
   getAllConfigs:        ()      => api._authedRead('apiGetAllConfigs'),
-  getFieldConfig:      (s)     => api._authedRead('apiGetFieldConfig', s),
   getAllFieldConfigs:   (s)     => api._authedRead('apiGetAllFieldConfigs', s),
   getLeads:            ()      => api._authedRead('apiGetLeads'),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
@@ -112,7 +110,6 @@ const api = {
   getBulkConfig:       ()      => api._authedRead('apiGetBulkConfig'),
   validateBulkRows:    (rows, mode)  => api._authedRead('apiValidateBulkRows', rows, mode || 'create'),
   saveBulkRows:        (rows, mode)  => api._authedRead('apiSaveBulkRows', rows, mode || 'create'),
-  saveBulkRow:         (row, rowNumber, mode) => api._authedRead('apiSaveBulkRow', row, rowNumber, mode || 'create'),
   createBulkFollowupOnlyRow: (row, rowNumber) => api._authedRead('apiCreateBulkFollowupOnlyRow', row, rowNumber),
   createErrorCsv:      (rows)  => api._authedRead('apiCreateErrorCsv', rows),
 

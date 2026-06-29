@@ -301,24 +301,6 @@ function _prepareFollowupPayload(data) {
   return payload;
 }
 
-function deleteFollowup(followupId, email) {
-  const trustedEmail = TRUSTED_WRITE_EMAIL;
-  if (!trustedEmail) throw new Error('Direct write calls are disabled.');
-  const result = getCurrentUserByEmail_(trustedEmail);
-  if (!result.success) throw new Error(result.error);
-  const user = result.data;
-  const isMIS = String(user.department || '').trim().toUpperCase() === 'MIS';
-  if (!isMIS && user.role !== 'ADMIN') throw new Error('Permission denied. Only MIS or Admin users can delete follow-ups.');
-  const row = getRowByIndexedId_(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
-  const lead = row && row['Lead ID']
-    ? getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', row['Lead ID'])
-    : null;
-  if (_isLeadPushedToNbd_(lead)) throw new Error('Lead is already pushed to NBD and follow-ups are locked in LQ.');
-  deleteRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
-  _bumpStamp('followups');
-  return respond(true);
-}
-
 function reopenClosedNonFinalFollowupsFromMenu() {
   const ui = SpreadsheetApp.getUi();
   try {

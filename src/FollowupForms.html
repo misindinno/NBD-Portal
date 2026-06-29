@@ -388,7 +388,6 @@ async function openMarkFollowupDoneForm(followupId) {
 
 function _applyFollowupSaveResult(payload, followupId) {
   if (!_fuPageSnapshot) return;
-  _fuStateStale = false;
   const id = String(followupId || '').trim();
   const nowStr = _nowStr();
   const row = {
@@ -415,7 +414,6 @@ function _applyFollowupSaveResult(payload, followupId) {
 function _applyFollowupDoneResult(result) {
   if (!result) return;
   if (!_fuPageSnapshot) return;
-  _fuStateStale = false;
   const followup = result.followup || {};
   const followupId = followup['Follow-up ID'] || result.followupId || '';
   if (followupId) {

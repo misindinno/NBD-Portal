@@ -26,12 +26,6 @@ function doGet(e) {
   });
 }
 
-function getGoogleClientId() {
-  try {
-    return PropertiesService.getScriptProperties().getProperty('GOOGLE_CLIENT_ID') || '';
-  } catch(e) { return ''; }
-}
-
 function _handleGoogleAuthRedirect_(idToken) {
   try {
     const verified = _verifyGoogleIdToken_(idToken);
@@ -161,31 +155,6 @@ function openBulkEntry() {
     HtmlService.createHtmlOutput(html).setWidth(1).setHeight(1),
     'Opening Bulk Entry...'
   );
-}
-
-// ── Write dispatcher ──────────────────────────────────────────────────────────
-function _dispatchWrite(fn, email, payload) {
-  switch (fn) {
-    // ── Leads
-    case 'saveLead':          return saveLead(payload, email);
-    case 'deleteLead':        return deleteLead(payload.id, email);
-    case 'updateLeadStage':   return updateLeadStage(payload.leadId, payload.stageId, payload.note, email, payload.fromStageId || '');
-    case 'moveLeadStageWithFields':
-      return moveLeadStageWithFields(payload.leadId, payload.stageId, payload.fields || {}, payload.note, email, payload.fromStageId || '');
-    // ── Follow-ups
-    case 'saveFollowup':      return saveFollowup(payload, email);
-    case 'markFollowupDone':  return markFollowupDone(payload.id, payload.data || {}, email);
-    case 'deleteFollowup':    return deleteFollowup(payload.id, email);
-    // ── Config (admin only — role checked inside each fn)
-    case 'addConfig':         return addConfig(payload.type, payload.value, email);
-    case 'updateConfigStatus':return updateConfigStatus(payload.id, payload.status, email);
-    case 'saveStage':         return saveStage(payload, email);
-    case 'reorderStages':     return reorderStages(payload.ids, email);
-    case 'saveFieldConfig':   return saveFieldConfig(payload, email);
-    case 'savePortalSettings':return savePortalSettings(payload, email);
-    case 'saveUser':          return _saveUser(payload, email);
-    default: throw new Error(`Unknown write function: ${fn}`);
-  }
 }
 
 function _saveUser(data, email) {

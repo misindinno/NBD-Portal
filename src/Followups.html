@@ -8,7 +8,6 @@ let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_
 let _fuFiltersOpen = false;
 let _fuPageSnapshot = null;
 let _fuShellReady = false;
-let _fuStateStale = false;
 
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
@@ -340,19 +339,11 @@ async function _getFollowupPageSnapshot(force = false, options = {}) {
     browserMs,
     fetchedAt: data.fetchedAt || ''
   };
-  _fuStateStale = false;
   // Mirror the snapshot's follow-ups into AppCache so the on-change poll measures
   // real changes (and refreshes only then) instead of firing on every tick here.
   try { AppCache.setRows('followups', _fuPageSnapshot.followups); } catch (e) {}
   return _fuPageSnapshot;
 }
-
-function _fuMarkStateStale() {
-  _fuStateStale = true;
-  const badge = el('fu-state-stale-badge');
-  if (badge) badge.style.display = '';
-}
-window._fuMarkStateStale = _fuMarkStateStale;
 
 function _fuAttachScrollCollapse() {
   const scroll = document.querySelector('.fu-table-scroll');
@@ -445,7 +436,7 @@ function _fuFetchBadge(snapshot) {
     <span class="fu-kpi-icon">${icon('gauge', 17)}</span>
     <span class="fu-kpi-value">${escapeHtml(browserMs || serverMs || '-')} ms</span>
     <span class="fu-kpi-label">API Fetch</span>
-    <span class="fu-kpi-sub">${escapeHtml(snapshot.source || 'api')} / server ${serverMs || '-'} ms <span id="fu-state-stale-badge" style="display:${_fuStateStale ? '' : 'none'};color:#b45309"> stale</span></span>
+    <span class="fu-kpi-sub">${escapeHtml(snapshot.source || 'api')} / server ${serverMs || '-'} ms</span>
   </div>`;
 }
 

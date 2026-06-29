@@ -142,17 +142,6 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
     rowResults.push(result);
     if (result.saved) saved++;
     else errors++;
-    _bulkSetProgress_(batchId, {
-      batchId,
-      mode,
-      status: 'PROCESSING',
-      percent: Math.round(((i + 1) / sourceRows.length) * 100),
-      total: sourceRows.length,
-      saved,
-      errors,
-      currentRow: result.rowNumber,
-      rowResults: _bulkPublicRowResults_(rowResults)
-    });
   });
   const summary = {
     batchId,
@@ -162,16 +151,6 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
     errors,
     saved
   };
-  _bulkSetProgress_(batchId, {
-    batchId,
-    mode,
-    status: 'DONE',
-    percent: 100,
-    total: sourceRows.length,
-    saved,
-    errors,
-    rowResults: _bulkPublicRowResults_(rowResults)
-  });
   logBulkImport(summary, userEmail);
   return {
     batchId,
@@ -183,12 +162,6 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
       fieldErrors: r.fieldErrors || []
     }))
   };
-}
-
-function saveBulkRow(row, rowNumber, userEmail) {
-  const mode = _bulkMode_(arguments.length >= 4 ? arguments[3] : '');
-  assertServerContext_();
-  return _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode);
 }
 
 function _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode) {
@@ -379,16 +352,6 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
     };
   });
   const summary = { batchId, mode: 'create', total: sourceRows.length, valid: saved, errors, saved };
-  _bulkSetProgress_(batchId, {
-    batchId,
-    mode: 'create',
-    status: 'DONE',
-    percent: 100,
-    total: sourceRows.length,
-    saved,
-    errors,
-    rowResults: _bulkPublicRowResults_(rowResults)
-  });
   if (saved) {
     _bumpStamp('leads');
     _bumpStamp('followups');
@@ -556,17 +519,6 @@ function createBulkFollowupOnlyRow(row, rowNumber, userEmail) {
   }
 }
 
-function getBulkProgress(batchId) {
-  assertServerContext_();
-  const key = 'BULK_PROGRESS_' + String(batchId || '');
-  try {
-    const raw = PropertiesService.getScriptProperties().getProperty(key);
-    return raw ? JSON.parse(raw) : { batchId, status: 'UNKNOWN', percent: 0 };
-  } catch (e) {
-    return { batchId, status: 'UNKNOWN', percent: 0 };
-  }
-}
-
 function createErrorCsv(errorRows) {
   assertServerContext_();
   const rows = Array.isArray(errorRows) ? errorRows : [];
@@ -649,10 +601,6 @@ function _bulkBatchDuplicate_(row, batchMap, mode) {
   if (email) batchMap.email[email] = true;
   if (company) batchMap.company[company] = true;
   return '';
-}
-
-function writeBulkRows(validRows, batchId) {
-  throw new Error('Direct bulk sheet writes are disabled. Use saveBulkRow/saveBulkRows so lead creation rules run.');
 }
 
 function logBulkImport(summary, userEmail) {
@@ -879,10 +827,3 @@ function _bulkInitialStageId_() {
   return initial ? initial['Stage ID'] || '' : '';
 }
 
-function _bulkSetProgress_(batchId, data) {
-  if (!batchId) return;
-  try {
-    PropertiesService.getScriptProperties()
-      .setProperty('BULK_PROGRESS_' + batchId, JSON.stringify(data || {}));
-  } catch (e) {}
-}
