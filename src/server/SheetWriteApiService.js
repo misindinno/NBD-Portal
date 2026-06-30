@@ -53,11 +53,19 @@ function _a1Sheet_(normName) {
   return "'" + String(normName).replace(/'/g, "''") + "'";
 }
 
-// True when no value would lose fidelity through a RAW Sheets API write. Date objects must
-// go through SpreadsheetApp (setValues preserves their date type); the app normally passes
-// date strings, so this guard is a safety net rather than a common path.
+// A yyyy-MM-dd or yyyy-MM-dd HH:mm[:ss] string (the formats produced by formatDate()/now()).
+// A RAW Sheets API write stores these as TEXT, which Google Sheets flags with a leading
+// apostrophe (e.g. '2026-06-30) and breaks date sorting/filtering. Routing the row to
+// SpreadsheetApp instead stores a real date — matching the legacy setValues() behaviour.
+function _looksLikeDateString_(v) {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(v);
+}
+
+// True when no value would lose fidelity through a RAW Sheets API write. Date objects and
+// date-shaped strings must go through SpreadsheetApp (which stores a real date instead of
+// apostrophe-prefixed text), so any row containing one falls back to the legacy path.
 function _rawWriteSafe_(values) {
-  return !(values || []).some(v => v instanceof Date);
+  return !(values || []).some(v => v instanceof Date || _looksLikeDateString_(v));
 }
 
 // Reads a single 1-based row, padded to colCount, as raw UNFORMATTED/SERIAL values.
