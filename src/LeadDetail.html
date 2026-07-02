@@ -80,9 +80,9 @@ async function openLeadDetail(leadId) {
     ${buildLeadCustomFieldSummary(lead, leadFields, configOptions)}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <div class="tabs" style="margin-bottom:0;border:none">
-        <button class="tab-btn active" onclick="switchTab(this,'tab-history')">Follow-up History</button>
-        <button class="tab-btn" onclick="switchTab(this,'tab-log')">Activity Logs</button>
-        ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead</button>`}
+        <button class="tab-btn active" onclick="switchTab(this,'tab-history')">Follow-up History <kbd class="tab-kbd">1</kbd></button>
+        <button class="tab-btn" onclick="switchTab(this,'tab-log')">Activity Logs <kbd class="tab-kbd">2</kbd></button>
+        ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead <kbd class="tab-kbd">3</kbd></button>`}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : ''}

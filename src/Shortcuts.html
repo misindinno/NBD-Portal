@@ -53,6 +53,26 @@
   .sc-prev-tip { margin-top: 14px; font-size: 11.5px; color: #9ca3af; display: flex;
     align-items: center; justify-content: center; gap: 5px; }
   .sc-prev-tip svg { width: 13px; height: 13px; }
+
+  /* Visible Esc hint on dialog close buttons */
+  .modal-esc-hint { margin-left: auto; margin-right: 8px; align-self: center;
+    font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 700;
+    color: #8b93ad; background: #f2f3f8; border: 1px solid #e2e4ee; border-radius: 5px; padding: 2px 7px; line-height: 1.4; }
+
+  /* Keyboard focus visibility across the whole app */
+  :focus-visible { outline: 2px solid var(--brand, #6366f1); outline-offset: 2px; border-radius: 5px; }
+
+  /* Follow-up worklist keyboard selector */
+  .fu-row.kb-sel > td { background: var(--brand-soft, rgba(99,102,241,.12)) !important; }
+  .fu-row.kb-sel > td:first-child { box-shadow: inset 3px 0 0 var(--brand, #6366f1); }
+  .fu-kbd-hint { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #9aa0b5; white-space: nowrap; }
+  .fu-kbd-hint svg { width: 12px; height: 12px; }
+
+  /* Tab number hints (lead detail) */
+  .tab-kbd { margin-left: 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9.5px;
+    font-weight: 700; color: #9aa0b5; background: #f0f1f6; border: 1px solid #e2e4ee; border-radius: 4px;
+    padding: 1px 5px; vertical-align: middle; }
+  .tab-btn.active .tab-kbd { color: var(--brand, #6366f1); border-color: var(--brand, #6366f1); }
 </style>
 <script>
 // ── Keyboard shortcuts / command palette ────────────────────────────────────────
@@ -94,6 +114,11 @@ function _scGo(page) {
 }
 function _scRefresh() { if (typeof _topbarRefresh === 'function') _topbarRefresh(el('tb-refresh-btn')); }
 function _scFocusSearch() { const si = el('tb-search-input'); if (si) { si.focus(); si.select && si.select(); } }
+function _scIsTypingEl(t) {
+  if (!t) return false;
+  const tag = (t.tagName || '').toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
+}
 
 document.addEventListener('keydown', function (e) {
   // Esc works everywhere (even inside inputs) so it can always close a dialog.
@@ -107,6 +132,16 @@ document.addEventListener('keydown', function (e) {
     const k = (e.key || '').toLowerCase();
     if (k === 'k') { e.preventDefault(); openCommandPalette(); return; }
     if (k === '/') { e.preventDefault(); openShortcutsDialog(); return; }
+  }
+  // Number keys switch tabs inside the top-most dialog (e.g. lead detail: 1/2/3).
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[1-9]$/.test(e.key) && !_scIsTypingEl(e.target)) {
+    const overlays = document.querySelectorAll('.modal-overlay');
+    const top = overlays[overlays.length - 1];
+    if (top) {
+      const tabs = top.querySelectorAll('.tab-btn');
+      const t = tabs[Number(e.key) - 1];
+      if (t) { e.preventDefault(); t.click(); }
+    }
   }
 });
 
@@ -207,6 +242,16 @@ function openShortcutsDialog() {
       ['↑ ↓', 'Move between results'],
       ['Enter', 'Run the selected command'],
       ['Esc', 'Dismiss the menu'],
+    ] },
+    { title: 'Follow-up list', icon: 'list', items: [
+      ['↑ ↓', 'Move between rows (also J / K)'],
+      ['Enter', 'Open the lead & history'],
+      ['D', 'Mark the selected follow-up done'],
+      ['Home / End', 'Jump to first / last row'],
+    ] },
+    { title: 'Dialogs', icon: 'layout-panel-top', items: [
+      ['1 – 9', 'Switch tabs (e.g. lead History / Logs / Edit)'],
+      ['Esc', 'Close the dialog'],
     ] },
   ];
   const groupsHtml = groups.map(g => `
