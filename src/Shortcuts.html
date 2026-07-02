@@ -1,14 +1,6 @@
 <style>
-  /* Sidebar nav shortcut hints */
-  .nav-kbd { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9.5px; font-weight: 600;
-    color: rgba(255,255,255,.62); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);
-    border-radius: 5px; padding: 1px 5px; line-height: 1.5; letter-spacing: .02em; flex-shrink: 0;
-    opacity: .7; transition: opacity .15s; }
-  #sidebar nav a:hover .nav-kbd, #sidebar nav a.active .nav-kbd { opacity: 1; }
-  #sidebar.collapsed .nav-kbd { display: none; }
-
   /* Shortcut cheatsheet dialog */
-  .sc-dialog { min-width: min(540px, 86vw); }
+  .sc-dialog { min-width: min(500px, 86vw); }
   .sc-groups { display: flex; flex-direction: column; gap: 16px; }
   .sc-group-title { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 800;
     text-transform: uppercase; letter-spacing: .05em; color: var(--brand, #6366f1); margin: 0 0 6px; }
@@ -23,7 +15,27 @@
   .sc-kbd { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 700;
     color: #1f2440; background: #fff; border: 1px solid #d7d9e6; border-bottom-width: 2px;
     border-radius: 6px; padding: 3px 8px; box-shadow: 0 1px 0 rgba(0,0,0,.02); white-space: nowrap; }
-  .sc-foot { margin-top: 14px; font-size: 11.5px; color: #9ca3af; text-align: center; }
+  .sc-foot { margin-top: 14px; font-size: 12px; color: #9ca3af; text-align: center; line-height: 1.5; }
+
+  /* Command palette (Ctrl/Cmd + K) */
+  .modal.cmdk-modal { padding: 0; max-width: 560px; width: min(560px, 92vw); overflow: hidden; }
+  .cmdk { display: flex; flex-direction: column; max-height: min(70vh, 520px); }
+  .cmdk-search { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #eceaf4; }
+  .cmdk-search svg { color: #9ca3af; flex-shrink: 0; }
+  .cmdk-search input { flex: 1; border: none; outline: none; font-size: 15px; color: #111827; background: transparent; }
+  .cmdk-list { overflow-y: auto; padding: 8px; }
+  .cmdk-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 9px; cursor: pointer; }
+  .cmdk-item.active { background: var(--brand-soft, rgba(99,102,241,.12)); }
+  .cmdk-ic { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center;
+    justify-content: center; background: #f3f2f8; color: #4b5563; flex-shrink: 0; }
+  .cmdk-item.active .cmdk-ic { background: #fff; color: var(--brand, #6366f1); }
+  .cmdk-label { flex: 1; font-size: 13.5px; color: #1f2440; font-weight: 600; }
+  .cmdk-group { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #9ca3af; }
+  .cmdk-empty { padding: 28px; text-align: center; color: #9ca3af; font-size: 13px; }
+  .cmdk-foot { display: flex; gap: 16px; justify-content: flex-end; padding: 9px 14px;
+    border-top: 1px solid #eceaf4; font-size: 11px; color: #9ca3af; }
+  .cmdk-foot span { display: inline-flex; align-items: center; gap: 4px; }
+  .cmdk-foot svg { width: 12px; height: 12px; }
 
   /* First-time preview */
   .sc-prev-modal { text-align: center; max-width: 440px; }
@@ -43,30 +55,24 @@
   .sc-prev-tip svg { width: 13px; height: 13px; }
 </style>
 <script>
-// ── Keyboard shortcuts ─────────────────────────────────────────────────────────
-// Page go-to keys (pressed after "g") — shared with renderSidebar's navItem hints.
-const NAV_SHORTCUTS = {
-  today: 'T', followups: 'F', pipeline: 'P', leads: 'L',
-  leadform: 'N', archive: 'A', bulkview: 'B', config: 'C'
-};
+// ── Keyboard shortcuts / command palette ────────────────────────────────────────
+// Enterprise-style command keys: Ctrl/Cmd+K opens a searchable command palette
+// (navigate + actions), Ctrl/Cmd+/ opens the shortcut cheatsheet, Esc closes the
+// top dialog. No bare single-letter shortcuts.
+const _IS_MAC = /Mac|iPhone|iPad|iPod/.test((navigator.platform || '') + ' ' + (navigator.userAgent || ''));
+const CMD = _IS_MAC ? '⌘' : 'Ctrl';   // ⌘ on Mac, Ctrl elsewhere
+
 const _NAV_LABELS = {
   today: "Today's Activity", followups: 'Follow Up', pipeline: 'Pipeline', leads: 'Lead Master',
   leadform: 'Lead Form', archive: 'Archive', bulkview: 'Bulk Entry', config: 'Config'
 };
+const _NAV_ICONS = {
+  today: 'activity', followups: 'phone-call', pipeline: 'kanban', leads: 'list-todo',
+  leadform: 'file-plus', archive: 'archive', bulkview: 'table-2', config: 'settings-2'
+};
+const _NAV_ORDER = ['today', 'followups', 'pipeline', 'leads', 'leadform', 'archive', 'bulkview', 'config'];
 
-function _scIsTyping(e) {
-  const t = e && e.target;
-  if (!t) return false;
-  const tag = (t.tagName || '').toUpperCase();
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
-}
-
-function _scPageForGoKey(key) {
-  const k = String(key || '').toUpperCase();
-  return Object.keys(NAV_SHORTCUTS).find(p => NAV_SHORTCUTS[p] === k) || null;
-}
-
-// Esc: close the top-most modal, else the search dropdown. Returns true if it handled something.
+// Esc: close the top-most modal, else the search dropdown. Returns true if handled.
 function _shortcutsCloseTop() {
   const overlays = document.querySelectorAll('.modal-overlay');
   if (overlays.length) { overlays[overlays.length - 1].remove(); return true; }
@@ -86,30 +92,9 @@ function _scGo(page) {
   }
   navigate(page);
 }
+function _scRefresh() { if (typeof _topbarRefresh === 'function') _topbarRefresh(el('tb-refresh-btn')); }
+function _scFocusSearch() { const si = el('tb-search-input'); if (si) { si.focus(); si.select && si.select(); } }
 
-function _scRefresh() {
-  const btn = el('tb-refresh-btn');
-  if (typeof _topbarRefresh === 'function') _topbarRefresh(btn);
-}
-
-function _scNew() {
-  const p = String((window.App && App.currentPage) || '');
-  if (p.indexOf('followups') === 0) {
-    if (typeof _canAddFollowup === 'function' && _canAddFollowup() && typeof openFollowupForm === 'function') openFollowupForm();
-    else toast('Only admins can add follow-ups.', 'error');
-  } else if (p === 'leads' || p === 'pipeline') {
-    if (typeof openLeadForm === 'function') openLeadForm({});
-  } else if (typeof canNavigate === 'function' && canNavigate('leadform')) {
-    navigate('leadform');
-  }
-}
-
-function _scFocusSearch() {
-  const si = el('tb-search-input');
-  if (si) { si.focus(); si.select && si.select(); }
-}
-
-let _scGoArmed = false, _scGoTimer = null;
 document.addEventListener('keydown', function (e) {
   // Esc works everywhere (even inside inputs) so it can always close a dialog.
   if (e.key === 'Escape') {
@@ -117,57 +102,114 @@ document.addEventListener('keydown', function (e) {
     if (_shortcutsCloseTop()) e.preventDefault();
     return;
   }
-  if (e.ctrlKey || e.metaKey || e.altKey) return;   // leave browser/OS combos alone
-  if (_scIsTyping(e)) return;                         // never hijack typing
-  if (document.querySelector('.modal-overlay')) return; // a dialog is open → only Esc
-
-  const key = e.key;
-  if (key === '?') { e.preventDefault(); openShortcutsDialog(); return; }
-  if (!(window.App && App.user)) return;             // remaining shortcuts need a signed-in app
-
-  if (_scGoArmed) {
-    _scGoArmed = false; if (_scGoTimer) clearTimeout(_scGoTimer);
-    const page = _scPageForGoKey(key);
-    if (page) { e.preventDefault(); _scGo(page); }
-    return;
+  // Command keys — Ctrl (or ⌘ on Mac), no Alt/Shift. Work even while typing.
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+    const k = (e.key || '').toLowerCase();
+    if (k === 'k') { e.preventDefault(); openCommandPalette(); return; }
+    if (k === '/') { e.preventDefault(); openShortcutsDialog(); return; }
   }
-  if (key === 'g' || key === 'G') {
-    _scGoArmed = true;
-    _scGoTimer = setTimeout(() => { _scGoArmed = false; }, 1300);
-    return;
-  }
-  if (key === '/') { e.preventDefault(); _scFocusSearch(); return; }
-  if (key === 'r' || key === 'R') { e.preventDefault(); _scRefresh(); return; }
-  if (key === 'n' || key === 'N') { e.preventDefault(); _scNew(); return; }
 });
+
+// ── Command palette ──────────────────────────────────────────────────────────────
+function _buildCommands() {
+  const canNav = (p) => (typeof canNavigate !== 'function') || canNavigate(p);
+  const cmds = [];
+  _NAV_ORDER.filter(canNav).forEach(p =>
+    cmds.push({ label: 'Go to ' + _NAV_LABELS[p], icon: _NAV_ICONS[p] || 'chevron-right', group: 'Navigate', run: () => _scGo(p) })
+  );
+  cmds.push({ label: 'Search leads & clients', icon: 'search', group: 'Action', run: _scFocusSearch });
+  cmds.push({ label: 'Refresh current page', icon: 'refresh-cw', group: 'Action', run: _scRefresh });
+  if (typeof _canAddFollowup === 'function' && _canAddFollowup() && typeof openFollowupForm === 'function') {
+    cmds.push({ label: 'Add follow-up', icon: 'plus', group: 'Action', run: () => openFollowupForm() });
+  }
+  if (typeof openLeadForm === 'function' && canNav('leads')) {
+    cmds.push({ label: 'Add lead', icon: 'file-plus', group: 'Action', run: () => openLeadForm({}) });
+  }
+  cmds.push({ label: 'Keyboard shortcuts', icon: 'keyboard', group: 'Help', run: openShortcutsDialog });
+  return cmds;
+}
+
+function openCommandPalette() {
+  if (document.getElementById('cmdk-input')) return; // already open
+  const cmds = _buildCommands();
+  const overlay = showModal(`
+    <div class="cmdk">
+      <div class="cmdk-search">${icon('search', 16)}
+        <input id="cmdk-input" type="text" placeholder="Search commands, or jump to a page…" autocomplete="off" spellcheck="false">
+        <kbd class="sc-kbd">Esc</kbd>
+      </div>
+      <div class="cmdk-list" id="cmdk-list"></div>
+      <div class="cmdk-foot">
+        <span>${icon('corner-down-left', 12)} select</span>
+        <span>${icon('arrow-up', 12)}${icon('arrow-down', 12)} navigate</span>
+      </div>
+    </div>`);
+  const modal = overlay.querySelector('.modal'); if (modal) modal.classList.add('cmdk-modal');
+  const input = overlay.querySelector('#cmdk-input');
+  const listEl = overlay.querySelector('#cmdk-list');
+  let filtered = cmds, sel = 0;
+
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    filtered = q ? cmds.filter(c => (c.label + ' ' + c.group).toLowerCase().includes(q)) : cmds;
+    if (sel >= filtered.length) sel = Math.max(0, filtered.length - 1);
+    listEl.innerHTML = filtered.length
+      ? filtered.map((c, i) => `
+          <div class="cmdk-item${i === sel ? ' active' : ''}" data-idx="${i}">
+            <span class="cmdk-ic">${icon(c.icon, 16)}</span>
+            <span class="cmdk-label">${escapeHtml(c.label)}</span>
+            <span class="cmdk-group">${escapeHtml(c.group || '')}</span>
+          </div>`).join('')
+      : '<div class="cmdk-empty">No matching commands</div>';
+    renderIcons(listEl);
+  };
+  const scrollToActive = () => { const a = listEl.querySelector('.cmdk-item.active'); if (a) a.scrollIntoView({ block: 'nearest' }); };
+  const run = (i) => {
+    const c = filtered[i]; if (!c) return;
+    overlay.remove();
+    setTimeout(() => { try { c.run(); } catch (err) { console.error('[cmdk] command failed', err); } }, 0);
+  };
+
+  input.addEventListener('input', () => { sel = 0; render(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(filtered.length - 1, sel + 1); render(); scrollToActive(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); render(); scrollToActive(); }
+    else if (e.key === 'Enter') { e.preventDefault(); run(sel); }
+  });
+  listEl.addEventListener('click', (e) => { const it = e.target.closest('.cmdk-item'); if (it) run(Number(it.dataset.idx)); });
+  listEl.addEventListener('mousemove', (e) => {
+    const it = e.target.closest('.cmdk-item'); if (!it) return;
+    const i = Number(it.dataset.idx); if (i !== sel) { sel = i; render(); }
+  });
+
+  render();
+  setTimeout(() => input.focus(), 30);
+  return overlay;
+}
+window.openCommandPalette = openCommandPalette;
 
 // ── Cheatsheet dialog ──────────────────────────────────────────────────────────
 function _scKeys(combo) {
-  // "G then F" → two kbd chips with a "then"; "Esc" → single chip.
   const parts = String(combo).split(' then ');
   return '<span class="sc-keys">' +
     parts.map(p => `<kbd class="sc-kbd">${escapeHtml(p)}</kbd>`).join('<span class="sc-sep">then</span>') +
     '</span>';
 }
 
-function _scGroups() {
-  const canNav = (p) => (typeof canNavigate !== 'function') || canNavigate(p);
-  const nav = Object.keys(NAV_SHORTCUTS).filter(canNav)
-    .map(p => ['G then ' + NAV_SHORTCUTS[p], _NAV_LABELS[p]]);
-  return [
-    { title: 'Go to a page', icon: 'compass', items: nav },
-    { title: 'Actions', icon: 'zap', items: [
-      ['/', 'Focus search'],
-      ['R', 'Refresh the current page'],
-      ['N', 'New — add follow-up / lead (depends on page)'],
-      ['?', 'Open this shortcuts panel'],
+function openShortcutsDialog() {
+  const groups = [
+    { title: 'Global', icon: 'command', items: [
+      [CMD + ' K', 'Open the command menu — search & jump to anything'],
+      [CMD + ' /', 'Open this keyboard shortcuts panel'],
       ['Esc', 'Close any dialog / cancel'],
     ] },
+    { title: 'Inside the command menu', icon: 'search', items: [
+      ['↑ ↓', 'Move between results'],
+      ['Enter', 'Run the selected command'],
+      ['Esc', 'Dismiss the menu'],
+    ] },
   ];
-}
-
-function openShortcutsDialog() {
-  const groups = _scGroups().map(g => `
+  const groupsHtml = groups.map(g => `
     <div class="sc-group">
       <div class="sc-group-title">${icon(g.icon, 14)} ${g.title}</div>
       ${g.items.map(([k, label]) => `
@@ -176,11 +218,11 @@ function openShortcutsDialog() {
     </div>`).join('');
   const overlay = showModal(`
     <div class="modal-header">
-      <h2 style="display:flex;align-items:center;gap:8px">${icon('keyboard', 18)} Keyboard Shortcuts</h2>
+      <h2 style="display:flex;align-items:center;gap:8px">${icon('command', 18)} Keyboard Shortcuts</h2>
       <button class="modal-close" title="Close (Esc)" onclick="this.closest('.modal-overlay').remove()">&#x2715;</button>
     </div>
-    <div class="sc-dialog"><div class="sc-groups">${groups}</div>
-      <div class="sc-foot">Tip: press <kbd class="sc-kbd">?</kbd> anytime to reopen this panel.</div>
+    <div class="sc-dialog"><div class="sc-groups">${groupsHtml}</div>
+      <div class="sc-foot">Press <kbd class="sc-kbd">${CMD} K</kbd> and start typing a page (Follow Up, Pipeline…) or an action (Refresh, Add lead).</div>
     </div>`);
   return overlay;
 }
@@ -189,7 +231,7 @@ window.openShortcutsDialog = openShortcutsDialog;
 // ── First-time preview ─────────────────────────────────────────────────────────
 function _scPreviewKey() {
   const uid = (window.App && App.user && (App.user.id || App.user.email)) || 'anon';
-  return 'nbd_sc_preview_v1_' + uid;
+  return 'nbd_sc_preview_v2_' + uid;
 }
 
 function _shortcutsFirstRunPreview() {
@@ -206,27 +248,25 @@ function _showShortcutsPreview() {
   const overlay = showModal(`
     <div class="sc-prev">
       <div class="sc-prev-badge">NEW</div>
-      <div class="sc-prev-icon">${icon('keyboard', 30)}</div>
-      <h2 class="sc-prev-title">Keyboard Shortcuts</h2>
-      <p class="sc-prev-sub">Work faster without the mouse. A few to get you started:</p>
+      <div class="sc-prev-icon">${icon('command', 30)}</div>
+      <h2 class="sc-prev-title">Command Menu &amp; Shortcuts</h2>
+      <p class="sc-prev-sub">Work faster without the mouse. Press one key combo, then type to go anywhere:</p>
       <div class="sc-prev-list">
-        ${row('?', 'Open the full shortcut list')}
+        ${row(CMD + ' K', 'Open the command menu — jump to any page or action')}
+        ${row(CMD + ' /', 'See all keyboard shortcuts')}
         ${row('Esc', 'Close any dialog')}
-        ${row('G then F', 'Jump to Follow Up')}
-        ${row('/', 'Search')}
-        ${row('R', 'Refresh the page')}
       </div>
       <div class="sc-prev-actions">
-        <button class="btn btn-outlined" id="sc-prev-all">See all shortcuts</button>
+        <button class="btn btn-outlined" id="sc-prev-open">Open command menu</button>
         <button class="btn btn-primary" id="sc-prev-got">Got it</button>
       </div>
-      <div class="sc-prev-tip">${icon('keyboard', 13)} Reopen anytime from the top bar.</div>
+      <div class="sc-prev-tip">${icon('command', 13)} Reopen anytime from the top bar.</div>
     </div>`);
-  overlay.querySelector('.modal') && overlay.querySelector('.modal').classList.add('sc-prev-modal');
+  const modal = overlay.querySelector('.modal'); if (modal) modal.classList.add('sc-prev-modal');
   const remember = () => { try { localStorage.setItem(_scPreviewKey(), '1'); } catch (e) {} };
   const got = overlay.querySelector('#sc-prev-got');
-  const all = overlay.querySelector('#sc-prev-all');
+  const open = overlay.querySelector('#sc-prev-open');
   if (got) got.onclick = () => { remember(); overlay.remove(); };
-  if (all) all.onclick = () => { remember(); overlay.remove(); openShortcutsDialog(); };
+  if (open) open.onclick = () => { remember(); overlay.remove(); openCommandPalette(); };
 }
 </script>
