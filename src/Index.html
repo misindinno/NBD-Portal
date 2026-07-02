@@ -132,8 +132,11 @@
 
         <!-- Right: actions + user -->
         <div class="tb-right">
-          <button class="tb-icon-btn" id="tb-refresh-btn" title="Refresh data" onclick="_topbarRefresh(this)">
+          <button class="tb-icon-btn" id="tb-refresh-btn" title="Refresh data (R)" onclick="_topbarRefresh(this)">
             <i data-lucide="refresh-cw"></i>
+          </button>
+          <button class="tb-icon-btn" id="tb-shortcuts-btn" title="Keyboard shortcuts (press ?)" onclick="openShortcutsDialog()">
+            <i data-lucide="keyboard"></i>
           </button>
           <button class="tb-icon-btn" title="Help" onclick="_topbarHelp()">
             <i data-lucide="help-circle"></i>
@@ -196,6 +199,7 @@
   <?!= include('ConfigUserHelpers'); ?>
   <?!= include('ConfigUsers'); ?>
   <?!= include('AppUI'); ?>
+  <?!= include('Shortcuts'); ?>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script>
     const GOOGLE_CLIENT_ID = '<?!= (function(){ try { return PropertiesService.getScriptProperties().getProperty("GOOGLE_CLIENT_ID") || ""; } catch(e) { return ""; } })() ?>';

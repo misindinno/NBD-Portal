@@ -55,6 +55,10 @@ function showModal(html) {
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `<div class="modal">${html}</div>`;
   document.body.appendChild(overlay);
+  // Every dialog closes with Esc — surface that on its close button.
+  overlay.querySelectorAll('.modal-close').forEach(b => {
+    if (!b.getAttribute('title')) b.setAttribute('title', 'Close (Esc)');
+  });
   renderIcons(overlay);
   return overlay;
 }

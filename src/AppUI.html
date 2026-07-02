@@ -560,12 +560,17 @@ function renderSidebar() {
   const canUseBulkEntry = isLqPortal ? show('BulkEntry') : u.role === 'ADMIN';
   const badge = (n, title) => n > 0 ? `<span class="nav-badge"${title ? ` title="${title}"` : ''}>${n > 99 ? '99+' : n}</span>` : '';
 
-  const navItem = (page, lucideIcon, label, extraBadge = '') =>
-    `<a href="#" data-page="${page}" data-tooltip="${label}" onclick="navigate('${page}');return false;">
+  const navSc = (typeof NAV_SHORTCUTS !== 'undefined') ? NAV_SHORTCUTS : {};
+  const navItem = (page, lucideIcon, label, extraBadge = '') => {
+    const sc = navSc[page];
+    const tip = sc ? `${label} — press G then ${sc}` : label;
+    return `<a href="#" data-page="${page}" data-tooltip="${tip}" onclick="navigate('${page}');return false;">
       ${icon(lucideIcon, 18)}
       <span class="nav-item-label">${label}</span>
       ${extraBadge}
+      ${sc ? `<kbd class="nav-kbd">${sc}</kbd>` : ''}
     </a>`;
+  };
 
   let html = '';
   const mainItems = [

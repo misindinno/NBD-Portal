@@ -1,0 +1,232 @@
+<style>
+  /* Sidebar nav shortcut hints */
+  .nav-kbd { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 9.5px; font-weight: 600;
+    color: rgba(255,255,255,.62); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);
+    border-radius: 5px; padding: 1px 5px; line-height: 1.5; letter-spacing: .02em; flex-shrink: 0;
+    opacity: .7; transition: opacity .15s; }
+  #sidebar nav a:hover .nav-kbd, #sidebar nav a.active .nav-kbd { opacity: 1; }
+  #sidebar.collapsed .nav-kbd { display: none; }
+
+  /* Shortcut cheatsheet dialog */
+  .sc-dialog { min-width: min(540px, 86vw); }
+  .sc-groups { display: flex; flex-direction: column; gap: 16px; }
+  .sc-group-title { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .05em; color: var(--brand, #6366f1); margin: 0 0 6px; }
+  .sc-group-title svg { width: 14px; height: 14px; }
+  .sc-item { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 7px 10px; border-radius: 9px; }
+  .sc-item + .sc-item { border-top: 1px solid #f3f2f9; }
+  .sc-item:hover { background: #f6f7fb; }
+  .sc-item-label { font-size: 13px; color: #374151; }
+  .sc-keys { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .sc-keys .sc-sep { color: #9ca3af; font-size: 11px; }
+  .sc-kbd { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 700;
+    color: #1f2440; background: #fff; border: 1px solid #d7d9e6; border-bottom-width: 2px;
+    border-radius: 6px; padding: 3px 8px; box-shadow: 0 1px 0 rgba(0,0,0,.02); white-space: nowrap; }
+  .sc-foot { margin-top: 14px; font-size: 11.5px; color: #9ca3af; text-align: center; }
+
+  /* First-time preview */
+  .sc-prev-modal { text-align: center; max-width: 440px; }
+  .sc-prev-badge { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .08em;
+    color: #fff; background: var(--brand, #6366f1); border-radius: 20px; padding: 3px 11px; margin-bottom: 12px; }
+  .sc-prev-icon { width: 60px; height: 60px; margin: 0 auto 12px; border-radius: 16px; display: flex;
+    align-items: center; justify-content: center; color: var(--brand, #6366f1);
+    background: var(--brand-soft, rgba(99,102,241,.12)); }
+  .sc-prev-icon svg { width: 30px; height: 30px; }
+  .sc-prev-title { font-size: 20px; font-weight: 800; color: #111827; margin: 0 0 6px; }
+  .sc-prev-sub { font-size: 13.5px; color: #6b7280; margin: 0 0 16px; line-height: 1.5; }
+  .sc-prev-list { text-align: left; display: flex; flex-direction: column; gap: 9px; margin-bottom: 18px; }
+  .sc-prev-row { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #374151; }
+  .sc-prev-actions { display: flex; gap: 10px; justify-content: center; }
+  .sc-prev-tip { margin-top: 14px; font-size: 11.5px; color: #9ca3af; display: flex;
+    align-items: center; justify-content: center; gap: 5px; }
+  .sc-prev-tip svg { width: 13px; height: 13px; }
+</style>
+<script>
+// ── Keyboard shortcuts ─────────────────────────────────────────────────────────
+// Page go-to keys (pressed after "g") — shared with renderSidebar's navItem hints.
+const NAV_SHORTCUTS = {
+  today: 'T', followups: 'F', pipeline: 'P', leads: 'L',
+  leadform: 'N', archive: 'A', bulkview: 'B', config: 'C'
+};
+const _NAV_LABELS = {
+  today: "Today's Activity", followups: 'Follow Up', pipeline: 'Pipeline', leads: 'Lead Master',
+  leadform: 'Lead Form', archive: 'Archive', bulkview: 'Bulk Entry', config: 'Config'
+};
+
+function _scIsTyping(e) {
+  const t = e && e.target;
+  if (!t) return false;
+  const tag = (t.tagName || '').toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
+}
+
+function _scPageForGoKey(key) {
+  const k = String(key || '').toUpperCase();
+  return Object.keys(NAV_SHORTCUTS).find(p => NAV_SHORTCUTS[p] === k) || null;
+}
+
+// Esc: close the top-most modal, else the search dropdown. Returns true if it handled something.
+function _shortcutsCloseTop() {
+  const overlays = document.querySelectorAll('.modal-overlay');
+  if (overlays.length) { overlays[overlays.length - 1].remove(); return true; }
+  const drop = el('tb-search-drop');
+  if (drop && drop.style.display !== 'none') {
+    if (typeof _closeSearchDrop === 'function') _closeSearchDrop();
+    const si = el('tb-search-input'); if (si) si.blur();
+    return true;
+  }
+  return false;
+}
+
+function _scGo(page) {
+  if (typeof canNavigate === 'function' && !canNavigate(page)) {
+    toast('You do not have access to ' + (_NAV_LABELS[page] || page) + '.', 'error');
+    return;
+  }
+  navigate(page);
+}
+
+function _scRefresh() {
+  const btn = el('tb-refresh-btn');
+  if (typeof _topbarRefresh === 'function') _topbarRefresh(btn);
+}
+
+function _scNew() {
+  const p = String((window.App && App.currentPage) || '');
+  if (p.indexOf('followups') === 0) {
+    if (typeof _canAddFollowup === 'function' && _canAddFollowup() && typeof openFollowupForm === 'function') openFollowupForm();
+    else toast('Only admins can add follow-ups.', 'error');
+  } else if (p === 'leads' || p === 'pipeline') {
+    if (typeof openLeadForm === 'function') openLeadForm({});
+  } else if (typeof canNavigate === 'function' && canNavigate('leadform')) {
+    navigate('leadform');
+  }
+}
+
+function _scFocusSearch() {
+  const si = el('tb-search-input');
+  if (si) { si.focus(); si.select && si.select(); }
+}
+
+let _scGoArmed = false, _scGoTimer = null;
+document.addEventListener('keydown', function (e) {
+  // Esc works everywhere (even inside inputs) so it can always close a dialog.
+  if (e.key === 'Escape') {
+    if (typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible()) return; // SweetAlert handles its own Esc
+    if (_shortcutsCloseTop()) e.preventDefault();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;   // leave browser/OS combos alone
+  if (_scIsTyping(e)) return;                         // never hijack typing
+  if (document.querySelector('.modal-overlay')) return; // a dialog is open → only Esc
+
+  const key = e.key;
+  if (key === '?') { e.preventDefault(); openShortcutsDialog(); return; }
+  if (!(window.App && App.user)) return;             // remaining shortcuts need a signed-in app
+
+  if (_scGoArmed) {
+    _scGoArmed = false; if (_scGoTimer) clearTimeout(_scGoTimer);
+    const page = _scPageForGoKey(key);
+    if (page) { e.preventDefault(); _scGo(page); }
+    return;
+  }
+  if (key === 'g' || key === 'G') {
+    _scGoArmed = true;
+    _scGoTimer = setTimeout(() => { _scGoArmed = false; }, 1300);
+    return;
+  }
+  if (key === '/') { e.preventDefault(); _scFocusSearch(); return; }
+  if (key === 'r' || key === 'R') { e.preventDefault(); _scRefresh(); return; }
+  if (key === 'n' || key === 'N') { e.preventDefault(); _scNew(); return; }
+});
+
+// ── Cheatsheet dialog ──────────────────────────────────────────────────────────
+function _scKeys(combo) {
+  // "G then F" → two kbd chips with a "then"; "Esc" → single chip.
+  const parts = String(combo).split(' then ');
+  return '<span class="sc-keys">' +
+    parts.map(p => `<kbd class="sc-kbd">${escapeHtml(p)}</kbd>`).join('<span class="sc-sep">then</span>') +
+    '</span>';
+}
+
+function _scGroups() {
+  const canNav = (p) => (typeof canNavigate !== 'function') || canNavigate(p);
+  const nav = Object.keys(NAV_SHORTCUTS).filter(canNav)
+    .map(p => ['G then ' + NAV_SHORTCUTS[p], _NAV_LABELS[p]]);
+  return [
+    { title: 'Go to a page', icon: 'compass', items: nav },
+    { title: 'Actions', icon: 'zap', items: [
+      ['/', 'Focus search'],
+      ['R', 'Refresh the current page'],
+      ['N', 'New — add follow-up / lead (depends on page)'],
+      ['?', 'Open this shortcuts panel'],
+      ['Esc', 'Close any dialog / cancel'],
+    ] },
+  ];
+}
+
+function openShortcutsDialog() {
+  const groups = _scGroups().map(g => `
+    <div class="sc-group">
+      <div class="sc-group-title">${icon(g.icon, 14)} ${g.title}</div>
+      ${g.items.map(([k, label]) => `
+        <div class="sc-item"><span class="sc-item-label">${escapeHtml(label)}</span>${_scKeys(k)}</div>
+      `).join('')}
+    </div>`).join('');
+  const overlay = showModal(`
+    <div class="modal-header">
+      <h2 style="display:flex;align-items:center;gap:8px">${icon('keyboard', 18)} Keyboard Shortcuts</h2>
+      <button class="modal-close" title="Close (Esc)" onclick="this.closest('.modal-overlay').remove()">&#x2715;</button>
+    </div>
+    <div class="sc-dialog"><div class="sc-groups">${groups}</div>
+      <div class="sc-foot">Tip: press <kbd class="sc-kbd">?</kbd> anytime to reopen this panel.</div>
+    </div>`);
+  return overlay;
+}
+window.openShortcutsDialog = openShortcutsDialog;
+
+// ── First-time preview ─────────────────────────────────────────────────────────
+function _scPreviewKey() {
+  const uid = (window.App && App.user && (App.user.id || App.user.email)) || 'anon';
+  return 'nbd_sc_preview_v1_' + uid;
+}
+
+function _shortcutsFirstRunPreview() {
+  let seen = false;
+  try { seen = !!localStorage.getItem(_scPreviewKey()); } catch (e) {}
+  if (seen) return;
+  setTimeout(_showShortcutsPreview, 900);
+}
+window._shortcutsFirstRunPreview = _shortcutsFirstRunPreview;
+
+function _showShortcutsPreview() {
+  if (document.getElementById('sc-prev-got')) return; // already open
+  const row = (k, l) => `<div class="sc-prev-row">${_scKeys(k)}<span>${escapeHtml(l)}</span></div>`;
+  const overlay = showModal(`
+    <div class="sc-prev">
+      <div class="sc-prev-badge">NEW</div>
+      <div class="sc-prev-icon">${icon('keyboard', 30)}</div>
+      <h2 class="sc-prev-title">Keyboard Shortcuts</h2>
+      <p class="sc-prev-sub">Work faster without the mouse. A few to get you started:</p>
+      <div class="sc-prev-list">
+        ${row('?', 'Open the full shortcut list')}
+        ${row('Esc', 'Close any dialog')}
+        ${row('G then F', 'Jump to Follow Up')}
+        ${row('/', 'Search')}
+        ${row('R', 'Refresh the page')}
+      </div>
+      <div class="sc-prev-actions">
+        <button class="btn btn-outlined" id="sc-prev-all">See all shortcuts</button>
+        <button class="btn btn-primary" id="sc-prev-got">Got it</button>
+      </div>
+      <div class="sc-prev-tip">${icon('keyboard', 13)} Reopen anytime from the top bar.</div>
+    </div>`);
+  overlay.querySelector('.modal') && overlay.querySelector('.modal').classList.add('sc-prev-modal');
+  const remember = () => { try { localStorage.setItem(_scPreviewKey(), '1'); } catch (e) {} };
+  const got = overlay.querySelector('#sc-prev-got');
+  const all = overlay.querySelector('#sc-prev-all');
+  if (got) got.onclick = () => { remember(); overlay.remove(); };
+  if (all) all.onclick = () => { remember(); overlay.remove(); openShortcutsDialog(); };
+}
+</script>

@@ -65,6 +65,7 @@ async function _continueAppInit(token) {
   navigate(defaultPage);
   startCacheRevalidation();
   _prefetchSecondary_();
+  try { if (typeof _shortcutsFirstRunPreview === 'function') _shortcutsFirstRunPreview(); } catch (e) {}
 }
 
 // After first paint, warm the heavy collections (follow-up history + activity logs) in
