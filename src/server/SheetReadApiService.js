@@ -45,11 +45,15 @@ function _isQuotaError_(e) {
   return /quota|rate.?limit|too many|429|user rate|limit exceeded|resource has been exhausted|exceeded/.test(msg);
 }
 
-// Trips the cooldown on quota/rate errors so the rest of this minute uses SpreadsheetApp.
+// Trips the cooldown so the rest of the window uses SpreadsheetApp instead of retrying a
+// failing Sheets API. Quota/rate errors clear within a minute (short cooldown); every other
+// failure — most importantly the Google Sheets API not being enabled in a newly-switched GCP
+// project, plus permission/config errors — is persistent, so back off much longer to avoid
+// slow failed API calls on every single read/write.
 function _noteSheetsApiError_(e) {
-  if (!_isQuotaError_(e)) return;
   _sheetsApiCooldownActive_ = true;
-  try { CacheService.getScriptCache().put(_SHEETS_API_COOLDOWN_KEY_, '1', 90); } catch (_) {}
+  const ttl = _isQuotaError_(e) ? 90 : 600;
+  try { CacheService.getScriptCache().put(_SHEETS_API_COOLDOWN_KEY_, '1', ttl); } catch (_) {}
 }
 
 // Routes user/auth sheets to the user-database spreadsheet, everything else to the
