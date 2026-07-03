@@ -151,13 +151,23 @@ function bqQuery(sql) {
   return { rows: _bqRowsToObjects_(fields, rows), ms: Date.now() - t0, totalRows: Number(res.totalRows || 0) };
 }
 
-// Times the current Sheets path vs the BigQuery query for each page.
-function _bqBench_(label, sheetFn, bqFn) {
+// Times three data-fetch mechanisms per page: SpreadsheetApp (getValues), the
+// Sheets API (batchGet — the path the Today/Follow-up snapshots use), and BigQuery.
+function _bqBench_(label, sheetFn, apiFn, bqFn) {
   var r = { page: label };
   try { var s = sheetFn(); r.sheetMs = s.ms; r.sheetRows = s.rows; } catch (e) { r.sheetErr = String(e && e.message || e); }
+  try { var a = apiFn(); r.apiMs = a.ms; r.apiRows = a.rows; } catch (e) { r.apiErr = String(e && e.message || e); }
   try { var b = bqFn(); r.bqMs = b.ms; r.bqRows = b.rows; } catch (e) { r.bqErr = String(e && e.message || e); }
   return r;
 }
+
+// Reads sheets through the Advanced Sheets service batchGet, then restores the flag.
+function _bqApiRead_(specs) {
+  _bootstrapReadMode_ = true;
+  try { return sheetApiBatchGetRows_(specs); }
+  finally { _bootstrapReadMode_ = false; }
+}
+function _bqApiRows_(map, sheetName) { return (map && map[normalizeSheetName(sheetName)]) || []; }
 
 function bqBenchmark() {
   if (!_bqReady_()) throw new Error('BigQuery advanced service not enabled for this deployment.');
@@ -167,67 +177,62 @@ function bqBenchmark() {
 function _bqBenchmarkInner_() {
   var cfg = _bqCfg_();
   var where = ' WHERE portal = "' + cfg.portal + '"';
+  var L = SHEET_NAMES.LEADS, F = SHEET_NAMES.FOLLOWUPS, H = SHEET_NAMES.FOLLOWUP_HISTORY;
   var out = [];
 
   out.push(_bqBench_('Leads',
-    function () { var t = Date.now(); var n = getLeads().length; return { ms: Date.now() - t, rows: n }; },
+    function () { var t = Date.now(); var n = (getAllRows(L) || []).length; return { ms: Date.now() - t, rows: n }; },
+    function () { var t = Date.now(); var m = _bqApiRead_([{ sheetName: L, range: 'A:AC' }]); return { ms: Date.now() - t, rows: _bqApiRows_(m, L).length }; },
     function () { var q = bqQuery('SELECT * FROM ' + _bqTableRef_('leads') + where); return { ms: q.ms, rows: q.rows.length }; }
   ));
 
   out.push(_bqBench_('Follow-ups',
-    function () { var t = Date.now(); var n = getFollowups({}).length; return { ms: Date.now() - t, rows: n }; },
+    function () { var t = Date.now(); var n = (getAllRows(F) || []).length; return { ms: Date.now() - t, rows: n }; },
+    function () { var t = Date.now(); var m = _bqApiRead_([{ sheetName: F, range: 'A:Q' }]); return { ms: Date.now() - t, rows: _bqApiRows_(m, F).length }; },
     function () { var q = bqQuery('SELECT * FROM ' + _bqTableRef_('followups') + where); return { ms: q.ms, rows: q.rows.length }; }
   ));
 
   out.push(_bqBench_('Follow-up history',
-    function () { var t = Date.now(); var n = (_followupHistoryRows() || []).length; return { ms: Date.now() - t, rows: n }; },
+    function () { var t = Date.now(); var n = (getAllRows(H) || []).length; return { ms: Date.now() - t, rows: n }; },
+    function () { var t = Date.now(); var m = _bqApiRead_([{ sheetName: H, range: 'A:Z' }]); return { ms: Date.now() - t, rows: _bqApiRows_(m, H).length }; },
     function () { var q = bqQuery('SELECT * FROM ' + _bqTableRef_('followup_history') + where); return { ms: q.ms, rows: q.rows.length }; }
   ));
 
+  function _aggStreak(rows) {
+    var m = {};
+    (rows || []).forEach(function (r) { if (String(r['Contact Mode'] || '') === 'Call Connected') { var id = r['Lead ID']; m[id] = (m[id] || 0) + 1; } });
+    return Object.keys(m).filter(function (k) { return m[k] >= 7; }).length;
+  }
   out.push(_bqBench_('Archive suggestions (aggregation)',
+    function () { var t = Date.now(); var n = _aggStreak(getAllRows(H)); return { ms: Date.now() - t, rows: n }; },
+    function () { var t = Date.now(); var n = _aggStreak(_bqApiRows_(_bqApiRead_([{ sheetName: H, range: 'A:Z' }]), H)); return { ms: Date.now() - t, rows: n }; },
     function () {
-      var t = Date.now();
-      var rows = _followupHistoryRows() || [];
-      var m = {};
-      rows.forEach(function (r) { if (String(r['Contact Mode'] || '') === 'Call Connected') { var id = r['Lead ID']; m[id] = (m[id] || 0) + 1; } });
-      var n = Object.keys(m).filter(function (k) { return m[k] >= 7; }).length;
-      return { ms: Date.now() - t, rows: n };
-    },
-    function () {
-      var q = bqQuery(
-        'SELECT Lead_ID, COUNT(1) c FROM ' + _bqTableRef_('followup_history') +
-        where + ' AND Contact_Mode = "Call Connected" GROUP BY Lead_ID HAVING c >= 7'
-      );
+      var q = bqQuery('SELECT Lead_ID, COUNT(1) c FROM ' + _bqTableRef_('followup_history') + where + ' AND Contact_Mode = "Call Connected" GROUP BY Lead_ID HAVING c >= 7');
       return { ms: q.ms, rows: q.rows.length };
     }
   ));
 
+  function _joinLeadsHistory(leads, hist) {
+    var byLead = {};
+    (hist || []).forEach(function (h) {
+      var id = String(h['Lead ID'] || ''); if (!id) return;
+      var b = byLead[id] || (byLead[id] = { c: 0, last: '' });
+      b.c++; var d = String(h['Done Date'] || h['Created At'] || ''); if (d > b.last) b.last = d;
+    });
+    return (leads || []).map(function (l) {
+      var s = byLead[String(l['Lead ID'] || '')] || { c: 0, last: '' };
+      return { id: l['Lead ID'], name: l['Company Name'], history_count: s.c, last_activity: s.last };
+    }).length;
+  }
   out.push(_bqBench_('Leads + linked history (join)',
-    function () {
-      var t = Date.now();
-      var leads = getAllRows(SHEET_NAMES.LEADS) || [];
-      var hist = getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY) || [];
-      var byLead = {};
-      hist.forEach(function (h) {
-        var id = String(h['Lead ID'] || ''); if (!id) return;
-        var b = byLead[id] || (byLead[id] = { c: 0, last: '' });
-        b.c++;
-        var d = String(h['Done Date'] || h['Created At'] || '');
-        if (d > b.last) b.last = d;
-      });
-      var joined = leads.map(function (l) {
-        var s = byLead[String(l['Lead ID'] || '')] || { c: 0, last: '' };
-        return { id: l['Lead ID'], name: l['Company Name'], history_count: s.c, last_activity: s.last };
-      });
-      return { ms: Date.now() - t, rows: joined.length };
-    },
+    function () { var t = Date.now(); var n = _joinLeadsHistory(getAllRows(L), getAllRows(H)); return { ms: Date.now() - t, rows: n }; },
+    function () { var t = Date.now(); var m = _bqApiRead_([{ sheetName: L, range: 'A:AC' }, { sheetName: H, range: 'A:Z' }]); var n = _joinLeadsHistory(_bqApiRows_(m, L), _bqApiRows_(m, H)); return { ms: Date.now() - t, rows: n }; },
     function () {
       var q = bqQuery(
         'SELECT l.Lead_ID, l.Company_Name, COUNT(h.History_ID) AS history_count, MAX(h.Done_Date) AS last_activity ' +
         'FROM ' + _bqTableRef_('leads') + ' l ' +
         'LEFT JOIN ' + _bqTableRef_('followup_history') + ' h ON h.portal = l.portal AND h.Lead_ID = l.Lead_ID ' +
-        'WHERE l.portal = "' + cfg.portal + '" ' +
-        'GROUP BY l.Lead_ID, l.Company_Name'
+        'WHERE l.portal = "' + cfg.portal + '" GROUP BY l.Lead_ID, l.Company_Name'
       );
       return { ms: q.ms, rows: q.rows.length };
     }
@@ -251,11 +256,13 @@ function bqBenchmarkFromMenu() {
   var ui = SpreadsheetApp.getUi();
   try {
     var b = bqBenchmark();
+    var cell = function (ms, rows, err) { return err ? ('ERR ' + err) : (ms + ' ms / ' + rows + ' rows'); };
     var lines = b.map(function (r) {
-      var sheet = (r.sheetErr ? 'ERR ' + r.sheetErr : (r.sheetMs + ' ms / ' + r.sheetRows + ' rows'));
-      var bq = (r.bqErr ? 'ERR ' + r.bqErr : (r.bqMs + ' ms / ' + r.bqRows + ' rows'));
-      return r.page + '\n   Sheets:   ' + sheet + '\n   BigQuery: ' + bq;
+      return r.page +
+        '\n   SpreadsheetApp: ' + cell(r.sheetMs, r.sheetRows, r.sheetErr) +
+        '\n   Sheets API:     ' + cell(r.apiMs, r.apiRows, r.apiErr) +
+        '\n   BigQuery:       ' + cell(r.bqMs, r.bqRows, r.bqErr);
     });
-    ui.alert('Per-page speed: Sheets vs BigQuery', lines.join('\n\n'), ui.ButtonSet.OK);
+    ui.alert('Per-page speed: SpreadsheetApp vs Sheets API vs BigQuery', lines.join('\n\n'), ui.ButtonSet.OK);
   } catch (e) { ui.alert('Benchmark failed', String(e && e.message || e), ui.ButtonSet.OK); }
 }
