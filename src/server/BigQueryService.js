@@ -202,6 +202,37 @@ function _bqBenchmarkInner_() {
     }
   ));
 
+  out.push(_bqBench_('Leads + linked history (join)',
+    function () {
+      var t = Date.now();
+      var leads = getAllRows(SHEET_NAMES.LEADS) || [];
+      var hist = getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY) || [];
+      var byLead = {};
+      hist.forEach(function (h) {
+        var id = String(h['Lead ID'] || ''); if (!id) return;
+        var b = byLead[id] || (byLead[id] = { c: 0, last: '' });
+        b.c++;
+        var d = String(h['Done Date'] || h['Created At'] || '');
+        if (d > b.last) b.last = d;
+      });
+      var joined = leads.map(function (l) {
+        var s = byLead[String(l['Lead ID'] || '')] || { c: 0, last: '' };
+        return { id: l['Lead ID'], name: l['Company Name'], history_count: s.c, last_activity: s.last };
+      });
+      return { ms: Date.now() - t, rows: joined.length };
+    },
+    function () {
+      var q = bqQuery(
+        'SELECT l.Lead_ID, l.Company_Name, COUNT(h.History_ID) AS history_count, MAX(h.Done_Date) AS last_activity ' +
+        'FROM ' + _bqTableRef_('leads') + ' l ' +
+        'LEFT JOIN ' + _bqTableRef_('followup_history') + ' h ON h.portal = l.portal AND h.Lead_ID = l.Lead_ID ' +
+        'WHERE l.portal = "' + cfg.portal + '" ' +
+        'GROUP BY l.Lead_ID, l.Company_Name'
+      );
+      return { ms: q.ms, rows: q.rows.length };
+    }
+  ));
+
   return out;
 }
 
