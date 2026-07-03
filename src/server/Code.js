@@ -77,6 +77,10 @@ function onOpen() {
   if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq')) {
     menu.addItem('Bulk Entry', 'openBulkEntry');
   }
+  menu.addSeparator();
+  menu.addSubMenu(SpreadsheetApp.getUi().createMenu('🧪 BigQuery (test)')
+    .addItem('Seed data → BigQuery (once)', 'bqSeedFromMenu')
+    .addItem('Run speed benchmark', 'bqBenchmarkFromMenu'));
   menu.addToUi();
 }
 
