@@ -67,12 +67,24 @@ function getArchiveSuggestionsFast_(user) {
   try {
     rows = sheetApiBatchGetRows_([
       { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
-      { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:Z' }
+      { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:Z' },
+      { sheetName: SHEET_NAMES.STAGES, range: 'A:K' }
     ]);
   } finally { _bootstrapReadMode_ = false; }
 
+  // Leads in a final stage are excluded — they're won/closed, not archive candidates.
+  const finalStageIds = {};
+  (rows[SHEET_NAMES.STAGES] || []).forEach(s => {
+    const isFinal = s['Is Final Stage'] === true || String(s['Is Final Stage'] || '').trim().toLowerCase() === 'true';
+    if (isFinal) finalStageIds[String(s['Stage ID'] || '').trim()] = true;
+  });
+
   const leads = _scopeAssignedRows(
-    (rows[SHEET_NAMES.LEADS] || []).filter(l => !_isArchivedLead_(l) && !_isLeadPushedToNbd_(l)),
+    (rows[SHEET_NAMES.LEADS] || []).filter(l =>
+      !_isArchivedLead_(l) &&
+      !_isLeadPushedToNbd_(l) &&
+      !finalStageIds[String(l['Stage ID'] || '').trim()]
+    ),
     user
   );
   const history = rows[SHEET_NAMES.FOLLOWUP_HISTORY] || [];
@@ -127,6 +139,7 @@ function archiveLead(leadId, reason, email) {
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canReadAssignedRow(lead, user)) return respond(null, 'Permission denied.');
   if (_isArchivedLead_(lead)) return respond(leadId);
+  if (_isLeadInFinalStage_(lead)) return respond(null, 'This lead is in a final stage and cannot be archived.');
 
   const ts = now();
   const patch = {

@@ -582,6 +582,14 @@ function _leadStageIsFinal_(stage) {
   return stage && (stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE');
 }
 
+// True when the lead currently sits in a stage flagged "Is Final Stage".
+function _isLeadInFinalStage_(lead) {
+  const stageId = String(lead && lead['Stage ID'] || '').trim();
+  if (!stageId) return false;
+  const stage = getAllStages().find(s => String(s['Stage ID'] || '').trim() === stageId);
+  return !!_leadStageIsFinal_(stage);
+}
+
 function _leadStageIsLostOrDisqualified_(stage) {
   const outcome = String(stage && stage['Stage Outcome'] || '').trim().toLowerCase();
   const name = String(stage && stage['Stage Name'] || '').trim().toLowerCase();

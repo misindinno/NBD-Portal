@@ -31,6 +31,7 @@ async function openLeadDetail(leadId) {
     const isArchivedLead = _isArchivedLeadForUI(lead);
     const canArchiveLead = App.user.role === 'ADMIN' || hasModule('Archive');
     const canDeleteLead = String(App.user.department || '').trim().toUpperCase() === 'MIS' || App.user.role === 'ADMIN';
+    const isFinalStageLead = !!(stage && (stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE'));
     const _sc = safeColor(stage?.Color) || '#6366f1';
     const _stageVal = '<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:' + _sc + ';flex-shrink:0;display:inline-block"></span>' + escapeHtml(stage?.['Stage Name'] || '—') + '</span>';
     const overlay = showModal(`
@@ -92,7 +93,7 @@ async function openLeadDetail(leadId) {
         </button>` : ''}
         ${canArchiveLead ? (isArchivedLead
           ? `<button class="btn btn-outlined btn-sm" onclick="restoreLeadFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'))">${icon('rotate-ccw', 14)} Restore</button>`
-          : `<button class="btn btn-outlined btn-sm" onclick="archiveLeadFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'))">${icon('archive', 14)} Archive</button>`) : ''}
+          : (isFinalStageLead ? '' : `<button class="btn btn-outlined btn-sm" onclick="archiveLeadFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'))">${icon('archive', 14)} Archive</button>`)) : ''}
         ${canDeleteLead ? `<button class="btn btn-outlined btn-sm" style="color:#D32F2F;border-color:#D32F2F" onclick="deleteLeadConfirm('${escapeHtml(String(lead['Lead ID'] || ''))}', this.closest('.modal-overlay'))">
           ${icon('trash-2', 14)} Delete
         </button>` : ''}
