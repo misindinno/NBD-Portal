@@ -1,7 +1,89 @@
+<style>
+  #archive-page { display: flex; flex-direction: column; }
+  .arch-head { margin-bottom: 2px; }
+  .arch-title { font-size: 28px; font-weight: 800; color: #0f172a; letter-spacing: -.01em; margin: 0; line-height: 1.15; }
+  .arch-sub { font-size: 13.5px; color: #475569; margin: 5px 0 0; line-height: 1.5; max-width: 660px; }
+  .arch-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 16px 0 14px; }
+  .arch-tabs { display: inline-flex; gap: 4px; background: #eef0f6; border: 1px solid #e2e5ef; border-radius: 12px; padding: 4px; }
+  .arch-tab { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 16px; border: none; background: transparent; border-radius: 9px; font-size: 13px; font-weight: 600; color: #64748b; cursor: pointer; transition: all .15s; }
+  .arch-tab svg { width: 15px; height: 15px; }
+  .arch-tab:hover { color: #334155; }
+  .arch-tab.active { background: #fff; color: var(--brand, #6366f1); font-weight: 800; box-shadow: 0 2px 6px rgba(15,23,42,.12); }
+  .arch-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .arch-search { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; background: #fff; border: 1px solid #d7dbe8; border-radius: 10px; min-width: 230px; }
+  .arch-search svg { width: 15px; height: 15px; color: #94a3b8; flex-shrink: 0; }
+  .arch-search input { border: none; outline: none; font-size: 13px; color: #0f172a; width: 100%; background: transparent; }
+  .arch-select { height: 36px; border: 1px solid #d7dbe8; border-radius: 10px; background: #fff; color: #334155; font-size: 13px; padding: 0 10px; cursor: pointer; }
+  .arch-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border: 1px solid #d7dbe8; border-radius: 10px; background: #fff; color: #334155; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .arch-btn svg { width: 14px; height: 14px; }
+  .arch-btn:hover { background: #f8fafc; border-color: #c3c9db; }
+  .arch-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .arch-kpi { display: flex; align-items: center; gap: 13px; padding: 14px 16px; background: #fff; border: 1px solid #e6e8f0; border-radius: 12px; cursor: pointer; transition: all .15s; text-align: left; width: 100%; }
+  .arch-kpi:hover { border-color: #c7cbe0; box-shadow: 0 4px 14px rgba(15,23,42,.07); transform: translateY(-1px); }
+  .arch-kpi.active { border-color: var(--kpi-c, #6366f1); box-shadow: 0 0 0 2px var(--kpi-ring, rgba(99,102,241,.25)); }
+  .arch-kpi.static { cursor: default; }
+  .arch-kpi.static:hover { transform: none; box-shadow: none; border-color: #e6e8f0; }
+  .arch-kpi-ic { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--kpi-bg, #eef2ff); color: var(--kpi-c, #4f46e5); }
+  .arch-kpi-ic svg { width: 20px; height: 20px; }
+  .arch-kpi-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .arch-kpi-val { font-size: 24px; font-weight: 800; color: #0f172a; line-height: 1; }
+  .arch-kpi-label { font-size: 12.5px; font-weight: 700; color: #334155; }
+  .arch-kpi-sub { font-size: 11px; color: #64748b; }
+  .arch-kpi--total { --kpi-c: #2563eb; --kpi-bg: #eff6ff; --kpi-ring: rgba(37,99,235,.22); }
+  .arch-kpi--warn  { --kpi-c: #d97706; --kpi-bg: #fff7ed; --kpi-ring: rgba(217,119,6,.22); }
+  .arch-kpi--crit  { --kpi-c: #dc2626; --kpi-bg: #fef2f2; --kpi-ring: rgba(220,38,38,.22); }
+  .arch-kpi--neutral { --kpi-c: #475569; --kpi-bg: #f1f5f9; --kpi-ring: rgba(71,85,105,.2); }
+  .arch-card { background: #fff; border: 1px solid #e6e8f0; border-radius: 12px; overflow: hidden; }
+  .arch-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #eef0f6; flex-wrap: wrap; }
+  .arch-card-title { font-size: 14.5px; font-weight: 800; color: #0f172a; }
+  .arch-card-sub { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .arch-table-wrap { overflow-x: auto; }
+  .arch-table { width: 100%; border-collapse: collapse; }
+  .arch-table th { text-align: left; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #475569; background: #f8fafc; padding: 11px 14px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+  .arch-table th.sortable { cursor: pointer; user-select: none; }
+  .arch-table th.sortable:hover { color: #1e293b; }
+  .arch-sort-ic { display: inline-block; margin-left: 3px; opacity: .45; }
+  .arch-table th.sorted { color: #1e293b; }
+  .arch-table th.sorted .arch-sort-ic { opacity: 1; color: var(--brand, #6366f1); }
+  .arch-table td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; color: #1e293b; font-size: 13px; height: 58px; }
+  .arch-table tbody tr:hover td { background: #f8fafc; }
+  .arch-lead-title { font-weight: 700; color: #0f172a; font-size: 13.5px; }
+  .arch-lead-sub { font-size: 13px; color: #475569; margin-top: 2px; }
+  .arch-owner { display: inline-flex; align-items: center; gap: 8px; }
+  .arch-owner-av { width: 26px; height: 26px; border-radius: 50%; background: #e0e7ff; color: #4338ca; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .arch-badge { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: 108px; height: 27px; border-radius: 8px; font-size: 12px; font-weight: 800; }
+  .arch-badge svg { width: 12px; height: 12px; }
+  .arch-badge--crit { background: #fee2e2; color: #991b1b; }
+  .arch-badge--warn { background: #ffedd5; color: #9a3412; }
+  .arch-archive-btn { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #475569; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .arch-archive-btn:hover { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+  .arch-archive-btn svg { width: 13px; height: 13px; }
+  .arch-check { width: 16px; height: 16px; accent-color: var(--brand, #6366f1); cursor: pointer; margin: 0; }
+  .arch-bulkbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #eff6ff; border-bottom: 1px solid #dbeafe; flex-wrap: wrap; }
+  .arch-bulkbar-text { font-size: 13px; font-weight: 800; color: #1e40af; margin-right: 2px; }
+  .arch-pag { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid #eef0f6; flex-wrap: wrap; }
+  .arch-pag-info { font-size: 12.5px; color: #64748b; }
+  .arch-pag-btns { display: inline-flex; align-items: center; gap: 4px; }
+  .arch-pag-btn { min-width: 32px; height: 32px; padding: 0 6px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #334155; font-size: 12.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .arch-pag-btn:hover:not(:disabled) { background: #eef2ff; border-color: #c7d2fe; }
+  .arch-pag-btn.active { background: var(--brand, #6366f1); color: #fff; border-color: var(--brand, #6366f1); }
+  .arch-pag-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .arch-pag-btn svg { width: 14px; height: 14px; }
+  .arch-pag-dots { padding: 0 4px; color: #94a3b8; }
+  .arch-empty { text-align: center; padding: 56px 24px; }
+  .arch-empty-ic { width: 66px; height: 66px; margin: 0 auto 14px; border-radius: 18px; background: #ecfdf5; color: #059669; display: flex; align-items: center; justify-content: center; }
+  .arch-empty-ic svg { width: 30px; height: 30px; }
+  .arch-empty-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 5px; }
+  .arch-empty-text { font-size: 13px; color: #64748b; }
+  /* Shared table polish for the Archived tab too (darker headers, taller rows) */
+  #archive-page .fu-table th { color: #475569; }
+  #archive-page .fu-table td { height: 58px; }
+</style>
 <script>
 let _archiveTab = 'archived';
 let _archiveData = { alerts: [], archived: [] };
 let _archiveSuggestions = null;
+let _archSug = null;
 
 async function loadArchive(tab = 'archived', force = false) {
   _archiveTab = (tab === 'suggestions') ? 'suggestions' : 'archived';
@@ -10,26 +92,21 @@ async function loadArchive(tab = 'archived', force = false) {
   if (!content) return;
   content.innerHTML = `
     <div id="archive-page" class="page-shell">
-      <div class="fu-hero">
-        <div class="fu-hero-left">
-          <div class="fu-hero-icon" style="background:#F1F5F9;color:#334155">${icon('archive', 16)}</div>
-          <div>
-            <div class="fu-hero-title">Archive</div>
-            <div class="fu-hero-sub">Review stale leads, act on archive suggestions, and keep archived records separate from active work.</div>
-          </div>
+      <div class="arch-head">
+        <h1 class="arch-title">Archive</h1>
+        <p class="arch-sub">Review stale leads, act on archive suggestions, and keep archived records separate from active work.</p>
+      </div>
+      <div class="arch-controls">
+        <div class="arch-tabs" role="tablist">
+          <button class="arch-tab ${t === 'archived' ? 'active' : ''}" onclick="_archiveSwitchTab('archived')">${icon('archive', 15)} Archived</button>
+          <button class="arch-tab ${t === 'suggestions' ? 'active' : ''}" onclick="_archiveSwitchTab('suggestions')">${icon('lightbulb', 15)} Suggestions</button>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          ${t === 'archived' ? `<button class="btn btn-outlined btn-sm" onclick="_exportArchiveCsv()">${icon('download', 13)} Export</button>` : ''}
-          <button class="btn btn-outlined btn-sm" onclick="loadArchive('${t}', true)">${icon('refresh-cw', 13)} Refresh</button>
+        <div class="arch-tools">
+          ${t === 'archived' ? `<button class="arch-btn" onclick="_exportArchiveCsv()">${icon('download', 14)} Export</button>` : ''}
+          <button class="arch-btn" onclick="loadArchive('${t}', true)">${icon('refresh-cw', 14)} Refresh</button>
         </div>
       </div>
-      <div class="fu-tabs" style="margin-bottom:12px">
-        <div class="fu-tabs-left">
-          <button class="fu-tab ${t === 'archived' ? 'active' : ''}" onclick="_archiveSwitchTab('archived')">${icon('archive', 14)} <span>Archived</span></button>
-          <button class="fu-tab ${t === 'suggestions' ? 'active' : ''}" onclick="_archiveSwitchTab('suggestions')">${icon('lightbulb', 14)} <span>Suggestions</span></button>
-        </div>
-      </div>
-      <div id="archive-kpis" class="fu-kpis" style="margin-bottom:14px"></div>
+      <div id="archive-kpis" class="arch-kpis"></div>
       <div id="archive-body">${skeletonPage('table')}</div>
     </div>`;
   renderIcons(content);
@@ -48,70 +125,238 @@ async function loadArchive(tab = 'archived', force = false) {
 function _archiveSwitchTab(tab) { if (tab !== _archiveTab) loadArchive(tab); }
 window._archiveSwitchTab = _archiveSwitchTab;
 
+function _archKpi(o) {
+  const clickable = !!o.onclick;
+  const cls = `arch-kpi arch-kpi--${o.variant || 'total'}${clickable ? '' : ' static'}${o.active ? ' active' : ''}`;
+  return `<${clickable ? 'button' : 'div'} class="${cls}"${clickable ? ` onclick="${o.onclick}"` : ''}>
+    <span class="arch-kpi-ic">${icon(o.ic, 20)}</span>
+    <span class="arch-kpi-body">
+      <span class="arch-kpi-val">${escapeHtml(o.val)}</span>
+      <span class="arch-kpi-label">${escapeHtml(o.label)}</span>
+      <span class="arch-kpi-sub">${escapeHtml(o.sub)}</span>
+    </span>
+  </${clickable ? 'button' : 'div'}>`;
+}
+
+function _archFmtDate(v) {
+  if (v === undefined || v === null || v === '') return '—';
+  let d;
+  if (typeof v === 'number') d = new Date(Math.round((v - 25569) * 86400000));
+  else d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `${String(d.getDate()).padStart(2, '0')} ${mon} ${d.getFullYear()}`;
+}
+
 async function _renderArchiveSuggestions(force) {
   const body = el('archive-body');
   if (force || !_archiveSuggestions) {
+    if (body) body.innerHTML = skeletonPage('table');
     try {
       _archiveSuggestions = await api.getArchiveSuggestions();
     } catch (e) {
-      if (body) body.innerHTML = `<div class="fu-worklist-card" style="padding:24px;color:#991b1b">Could not load suggestions: ${escapeHtml(e && e.message || e)}</div>`;
+      if (body) body.innerHTML = `<div class="arch-card" style="padding:24px;color:#991b1b">Could not load suggestions: ${escapeHtml(e && e.message || e)}</div>`;
       return;
     }
+    _archSug = { all: _archiveSuggestions || [], search: '', owner: '', severity: 'all', sortKey: 'streak', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() };
+  } else if (!_archSug) {
+    _archSug = { all: _archiveSuggestions || [], search: '', owner: '', severity: 'all', sortKey: 'streak', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() };
   }
-  const rows = _archiveSuggestions || [];
+  _archSugRender();
+}
+
+function _archSugOwners() {
+  const map = {};
+  (_archSug.all || []).forEach(r => {
+    const id = r['Assigned To']; if (!id) return;
+    map[id] = (App.config.userNameMap && App.config.userNameMap[id]) || id;
+  });
+  return Object.keys(map).map(id => ({ id, name: map[id] })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+function _archSugFiltered() {
+  const s = _archSug;
+  let rows = (s.all || []).slice();
+  if (s.severity === 'warn') rows = rows.filter(r => Number(r._connectedStreak) === 7);
+  else if (s.severity === 'crit') rows = rows.filter(r => Number(r._connectedStreak) >= 8);
+  if (s.owner) rows = rows.filter(r => String(r['Assigned To'] || '') === s.owner);
+  if (s.search) {
+    const q = s.search.toLowerCase();
+    rows = rows.filter(r => {
+      const owner = (App.config.userNameMap && App.config.userNameMap[r['Assigned To']]) || r['Assigned To'] || '';
+      return [r['Company Name'], r['Client Description'], r['City'], r['State'], owner, r['Lead ID']]
+        .map(x => String(x || '')).join(' ').toLowerCase().includes(q);
+    });
+  }
+  const dir = s.sortDir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (s.sortKey === 'total') { av = Number(a._connectedTotal || 0); bv = Number(b._connectedTotal || 0); }
+    else if (s.sortKey === 'last') { av = _archFmtTime(a._lastConnectedDate); bv = _archFmtTime(b._lastConnectedDate); }
+    else { av = Number(a._connectedStreak || 0); bv = Number(b._connectedStreak || 0); }
+    return (av - bv) * dir;
+  });
+  return rows;
+}
+function _archFmtTime(v) { if (v == null || v === '') return 0; if (typeof v === 'number') return v; const t = new Date(v).getTime(); return isNaN(t) ? 0 : t; }
+
+function _archSugTh(key, label) {
+  const s = _archSug;
+  const sorted = s.sortKey === key;
+  const ar = sorted ? (s.sortDir === 'asc' ? '▲' : '▼') : '↕';
+  return `<th class="sortable${sorted ? ' sorted' : ''}" onclick="_archSugSetSort('${key}')">${escapeHtml(label)} <span class="arch-sort-ic">${ar}</span></th>`;
+}
+
+function _archSugRender() {
+  const s = _archSug;
+  const all = s.all || [];
+  const crit = all.filter(r => Number(r._connectedStreak) >= 8).length;
+  const warn = all.filter(r => Number(r._connectedStreak) === 7).length;
+
   const kpis = el('archive-kpis');
   if (kpis) {
-    const maxStreak = rows.reduce((m, r) => Math.max(m, Number(r._connectedStreak || 0)), 0);
     kpis.innerHTML = [
-      _archiveKpi('Suggestions', rows.length, '7+ connected calls in a row', 'lightbulb', 'warning'),
-      _archiveKpi('Longest Streak', maxStreak, 'most consecutive connects', 'flame', 'danger'),
-      _archiveKpi('Total Connects', rows.reduce((n, r) => n + Number(r._connectedTotal || 0), 0), 'across flagged leads', 'phone-call', 'blue')
+      _archKpi({ label: 'Total suggestions', val: all.length, sub: 'leads flagged for review', ic: 'inbox', variant: 'total', onclick: `_archSugSetSeverity('all')`, active: s.severity === 'all' }),
+      _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 connects in a row', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: s.severity === 'warn' }),
+      _archKpi({ label: 'Critical', val: crit, sub: '8+ connects in a row', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: s.severity === 'crit' })
     ].join('');
     renderIcons(kpis);
   }
+
+  const rows = _archSugFiltered();
+  const total = rows.length;
+  const pageCount = Math.max(1, Math.ceil(total / s.pageSize));
+  if (s.page > pageCount) s.page = pageCount;
+  const start = (s.page - 1) * s.pageSize;
+  const paged = rows.slice(start, start + s.pageSize);
+  const owners = _archSugOwners();
+  const selCount = s.selected.size;
+  const allOnPageSelected = paged.length > 0 && paged.every(r => s.selected.has(String(r['Lead ID'])));
+
+  const body = el('archive-body');
   if (!body) return;
   body.innerHTML = `
-    <div class="fu-worklist-card">
-      <div class="fu-worklist-head">
+    <div class="arch-card">
+      <div class="arch-card-head">
         <div>
-          <div class="fu-worklist-title">Archive Suggestions <span class="fu-worklist-count">${rows.length}</span></div>
-          <div style="font-size:12px;color:#64748b">Leads connected on a call 7 or more times in a row with no conversion — likely ready to archive.</div>
+          <div class="arch-card-title">Archive Suggestions</div>
+          <div class="arch-card-sub">Leads connected on a call 7+ times in a row with no conversion.</div>
+        </div>
+        <div class="arch-tools">
+          <div class="arch-search">${icon('search', 15)}<input type="text" placeholder="Search lead or owner…" value="${escapeHtml(s.search)}" oninput="_archSugSetSearch(this.value)"></div>
+          <select class="arch-select" onchange="_archSugSetOwner(this.value)" title="Filter by owner">
+            <option value="">All owners</option>
+            ${owners.map(o => `<option value="${escapeHtml(o.id)}"${o.id === s.owner ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
+          </select>
         </div>
       </div>
-      <div class="fu-table-scroll">
-        <table class="fu-table">
-          <thead><tr>
-            <th>Lead</th><th>Owner</th><th>Connected calls (in a row)</th><th>Total connects</th><th>Last connect</th><th></th>
-          </tr></thead>
-          <tbody>${rows.length ? rows.map(_archiveSuggestionRowHTML).join('') : `<tr><td colspan="6" class="empty-table-cell">No leads with 7+ consecutive connected calls.</td></tr>`}</tbody>
-        </table>
-      </div>
+      ${selCount ? `<div class="arch-bulkbar">
+        <span class="arch-bulkbar-text">${selCount} selected</span>
+        <button class="arch-btn" onclick="_archSugBulkArchive()">${icon('archive', 14)} Archive selected</button>
+        <button class="arch-btn" onclick="_archSugClearSel()">${icon('x', 14)} Clear</button>
+      </div>` : ''}
+      ${paged.length ? `
+        <div class="arch-table-wrap">
+          <table class="arch-table">
+            <thead><tr>
+              <th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPageSelected ? 'checked' : ''} onclick="_archSugToggleAll(this.checked)" title="Select all on this page"></th>
+              <th>Lead</th><th>Owner</th>
+              ${_archSugTh('streak', 'Connected calls')}
+              ${_archSugTh('total', 'Total connects')}
+              ${_archSugTh('last', 'Last connect')}
+              <th style="width:1%"></th>
+            </tr></thead>
+            <tbody>${paged.map(_archSugRow).join('')}</tbody>
+          </table>
+        </div>
+        ${_archSugPagination(total, start, paged.length, pageCount)}
+      ` : _archSugEmpty(all.length)}
     </div>`;
   renderIcons(body);
 }
 
-function _archiveSuggestionRowHTML(row) {
+function _archSugRow(row) {
   const leadId = String(row['Lead ID'] || '');
   const owner = (App.config.userNameMap && App.config.userNameMap[row['Assigned To']]) || row['Assigned To'] || '—';
   const title = row['Company Name'] || row['Client Description'] || leadId || '—';
-  const place = [row['City'], row['State']].filter(Boolean).join(', ');
+  const place = [row['City'], row['State']].filter(Boolean).join(', ') || leadId;
   const streak = Number(row._connectedStreak || 0);
-  const streakStyle = streak >= 8 ? 'background:#FEE2E2;color:#991B1B' : 'background:#FEF3C7;color:#92400E';
-  const last = row._lastConnectedDate ? formatDate(row._lastConnectedDate) : '—';
-  return `<tr class="fu-row">
+  const crit = streak >= 8;
+  const checked = _archSug.selected.has(leadId);
+  const initial = String(owner).trim().charAt(0).toUpperCase() || '?';
+  return `<tr>
+    <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archSugToggle('${escapeHtml(leadId)}', this.checked)"></td>
     <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
-      <div class="fu-lead-title">${escapeHtml(title)}</div>
-      <div class="fu-lead-sub">${escapeHtml(place || leadId)}</div>
+      <div class="arch-lead-title">${escapeHtml(title)}</div>
+      <div class="arch-lead-sub">${escapeHtml(place)}</div>
     </td>
-    <td>${escapeHtml(owner)}</td>
-    <td><span class="badge" style="${streakStyle};font-weight:700;display:inline-flex;align-items:center;gap:4px">${icon('phone-call', 11)} ${escapeHtml(streak)} in a row</span></td>
+    <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
+    <td><span class="arch-badge arch-badge--${crit ? 'crit' : 'warn'}">${icon('phone-call', 12)} ${escapeHtml(streak)} in a row</span></td>
     <td>${escapeHtml(row._connectedTotal || 0)}</td>
-    <td>${escapeHtml(last)}</td>
-    <td style="text-align:right">
-      <button class="btn btn-outlined btn-sm" onclick="_archiveSuggestionLead('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button>
-    </td>
+    <td>${escapeHtml(_archFmtDate(row._lastConnectedDate))}</td>
+    <td style="text-align:right"><button class="arch-archive-btn" onclick="_archiveSuggestionLead('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button></td>
   </tr>`;
 }
+
+function _archSugEmpty(totalAll) {
+  if (totalAll === 0) {
+    return `<div class="arch-empty">
+      <div class="arch-empty-ic">${icon('party-popper', 30)}</div>
+      <div class="arch-empty-title">No archive suggestions</div>
+      <div class="arch-empty-text">All connected leads look healthy — nothing has 7+ connected calls in a row.</div>
+    </div>`;
+  }
+  return `<div class="arch-empty">
+    <div class="arch-empty-ic" style="background:#f1f5f9;color:#64748b">${icon('search-x', 30)}</div>
+    <div class="arch-empty-title">No matching leads</div>
+    <div class="arch-empty-text">Try clearing the search, owner, or severity filter.</div>
+  </div>`;
+}
+
+function _archSugPagination(total, start, count, pageCount) {
+  const s = _archSug;
+  const from = total ? start + 1 : 0;
+  const to = start + count;
+  const btn = (label, page, opts) => `<button class="arch-pag-btn${opts && opts.active ? ' active' : ''}" ${opts && opts.disabled ? 'disabled' : ''} onclick="_archSugSetPage(${page})">${label}</button>`;
+  let nums = '';
+  const push = (p) => { nums += btn(String(p), p, { active: p === s.page }); };
+  const dots = () => { nums += '<span class="arch-pag-dots">…</span>'; };
+  if (pageCount <= 7) { for (let p = 1; p <= pageCount; p++) push(p); }
+  else {
+    push(1);
+    if (s.page > 3) dots();
+    for (let p = Math.max(2, s.page - 1); p <= Math.min(pageCount - 1, s.page + 1); p++) push(p);
+    if (s.page < pageCount - 2) dots();
+    push(pageCount);
+  }
+  return `<div class="arch-pag">
+    <span class="arch-pag-info">Showing ${from}–${to} of ${total}</span>
+    <span class="arch-pag-btns">${btn(icon('chevron-left', 14), s.page - 1, { disabled: s.page <= 1 })}${nums}${btn(icon('chevron-right', 14), s.page + 1, { disabled: s.page >= pageCount })}</span>
+  </div>`;
+}
+
+function _archSugSetSearch(v) { _archSug.search = v; _archSug.page = 1; _archSugRender(); const i = document.querySelector('#archive-body .arch-search input'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+function _archSugSetOwner(v) { _archSug.owner = v; _archSug.page = 1; _archSugRender(); }
+function _archSugSetSeverity(k) { _archSug.severity = (k === 'all') ? 'all' : (_archSug.severity === k ? 'all' : k); _archSug.page = 1; _archSugRender(); }
+function _archSugSetSort(k) { const s = _archSug; if (s.sortKey === k) s.sortDir = s.sortDir === 'asc' ? 'desc' : 'asc'; else { s.sortKey = k; s.sortDir = 'desc'; } _archSugRender(); }
+function _archSugSetPage(p) { _archSug.page = Math.max(1, p); _archSugRender(); }
+function _archSugToggle(id, checked) { if (checked) _archSug.selected.add(id); else _archSug.selected.delete(id); _archSugRender(); }
+function _archSugToggleAll(checked) {
+  const rows = _archSugFiltered();
+  const s = _archSug;
+  const paged = rows.slice((s.page - 1) * s.pageSize, (s.page - 1) * s.pageSize + s.pageSize);
+  paged.forEach(r => { const id = String(r['Lead ID']); if (checked) s.selected.add(id); else s.selected.delete(id); });
+  _archSugRender();
+}
+function _archSugClearSel() { _archSug.selected.clear(); _archSugRender(); }
+window._archSugSetSearch = _archSugSetSearch;
+window._archSugSetOwner = _archSugSetOwner;
+window._archSugSetSeverity = _archSugSetSeverity;
+window._archSugSetSort = _archSugSetSort;
+window._archSugSetPage = _archSugSetPage;
+window._archSugToggle = _archSugToggle;
+window._archSugToggleAll = _archSugToggleAll;
+window._archSugClearSel = _archSugClearSel;
 
 async function _archiveSuggestionLead(leadId) {
   const result = await Swal.fire({
@@ -128,23 +373,51 @@ async function _archiveSuggestionLead(leadId) {
     await api.archiveLead({ leadId, reason: (result.value || '').trim() || '7+ connected calls, no conversion' });
   } catch (e) { toast(e && e.message || e, 'error'); return; }
   toast('Lead archived.');
+  _afterArchiveMutation();
+}
+window._archiveSuggestionLead = _archiveSuggestionLead;
+
+async function _archSugBulkArchive() {
+  const ids = Array.from(_archSug.selected);
+  if (!ids.length) return;
+  const result = await Swal.fire({
+    title: `Archive ${ids.length} lead${ids.length > 1 ? 's' : ''}?`,
+    text: 'They will move to Archived and out of active work.',
+    icon: 'question',
+    input: 'text',
+    inputPlaceholder: 'Reason (optional)',
+    showCancelButton: true,
+    confirmButtonText: 'Archive'
+  });
+  if (!result.isConfirmed) return;
+  let res;
+  try {
+    res = await api.archiveLeads({ leadIds: ids, reason: (result.value || '').trim() || '7+ connected calls, no conversion' });
+  } catch (e) { toast(e && e.message || e, 'error'); return; }
+  const done = (res && res.archived && res.archived.length) || ids.length;
+  toast(`${done} lead${done > 1 ? 's' : ''} archived.`);
+  _afterArchiveMutation();
+}
+window._archSugBulkArchive = _archSugBulkArchive;
+
+function _afterArchiveMutation() {
   AppCache.invalidate('leads');
   AppCache.invalidate('followups');
   _archiveSuggestions = null;
+  _archSug = null;
   _archiveData._loaded = false;
-  await loadArchive('suggestions', true);
+  loadArchive('suggestions', true);
   if (typeof renderSidebar === 'function') renderSidebar();
 }
-window._archiveSuggestionLead = _archiveSuggestionLead;
 
 function _renderArchive() {
   const archived = _archiveData.archived || [];
   const kpis = el('archive-kpis');
   if (kpis) {
     kpis.innerHTML = [
-      _archiveKpi('Archived Leads', archived.length, 'hidden from active work', 'archive', 'neutral'),
-      _archiveKpi('Archived Follow-ups', archived.reduce((n, r) => n + Number(r._followupCount || 0), 0), 'linked records archived', 'phone', 'blue'),
-      _archiveKpi('Not Picked Count', archived.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), 'before archive', 'phone-missed', 'danger')
+      _archKpi({ label: 'Archived Leads', val: archived.length, sub: 'hidden from active work', ic: 'archive', variant: 'neutral' }),
+      _archKpi({ label: 'Archived Follow-ups', val: archived.reduce((n, r) => n + Number(r._followupCount || 0), 0), sub: 'linked records archived', ic: 'phone', variant: 'total' }),
+      _archKpi({ label: 'Not Picked Count', val: archived.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), sub: 'before archive', ic: 'phone-missed', variant: 'crit' })
     ].join('');
     renderIcons(kpis);
   }
@@ -169,15 +442,6 @@ function _renderArchive() {
       </div>
     </div>`;
   renderIcons(body);
-}
-
-function _archiveKpi(label, value, sub, ic, cls) {
-  return `<div class="fu-kpi fu-kpi-${cls}">
-    <span class="fu-kpi-icon">${icon(ic, 17)}</span>
-    <span class="fu-kpi-value">${escapeHtml(value)}</span>
-    <span class="fu-kpi-label">${escapeHtml(label)}</span>
-    <span class="fu-kpi-sub">${escapeHtml(sub)}</span>
-  </div>`;
 }
 
 function _archiveRowHTML(row) {
