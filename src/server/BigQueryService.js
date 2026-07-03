@@ -107,12 +107,14 @@ function _bqLoadTable_(tableId, sheetName) {
 function bqSeedOnce() {
   if (!_bqReady_()) throw new Error('BigQuery advanced service not enabled. Add it in appsscript.json and enable the BigQuery API.');
   bqEnsureDataset_();
-  return [
-    _bqLoadTable_('leads',            SHEET_NAMES.LEADS),
-    _bqLoadTable_('followups',        SHEET_NAMES.FOLLOWUPS),
-    _bqLoadTable_('followup_history', SHEET_NAMES.FOLLOWUP_HISTORY),
-    _bqLoadTable_('activity_logs',    SHEET_NAMES.LEAD_ACTIVITY_LOGS)
-  ];
+  return withServerContext_(function () {
+    return [
+      _bqLoadTable_('leads',            SHEET_NAMES.LEADS),
+      _bqLoadTable_('followups',        SHEET_NAMES.FOLLOWUPS),
+      _bqLoadTable_('followup_history', SHEET_NAMES.FOLLOWUP_HISTORY),
+      _bqLoadTable_('activity_logs',    SHEET_NAMES.LEAD_ACTIVITY_LOGS)
+    ];
+  });
 }
 
 function _bqRowsToObjects_(fields, rows) {
@@ -159,6 +161,10 @@ function _bqBench_(label, sheetFn, bqFn) {
 
 function bqBenchmark() {
   if (!_bqReady_()) throw new Error('BigQuery advanced service not enabled for this deployment.');
+  return withServerContext_(_bqBenchmarkInner_);
+}
+
+function _bqBenchmarkInner_() {
   var cfg = _bqCfg_();
   var where = ' WHERE portal = "' + cfg.portal + '"';
   var out = [];
