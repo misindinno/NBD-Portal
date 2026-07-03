@@ -43,6 +43,77 @@ function getArchiveData(user) {
   };
 }
 
+// ── Archive suggestions ─────────────────────────────────────────────────────────
+// Leads that have been "connected" on a call this many times in a row (no break) are
+// likely being chased with no result → suggested for archiving.
+const ARCHIVE_SUGGESTION_CONNECTED_ = { 'Call Connected': true };
+const ARCHIVE_SUGGESTION_MIN_STREAK_ = 7;
+
+function _archiveHistTime_(h) {
+  const v = (h && (h['Done Date'] || h['Created At'])) || '';
+  if (v === '' || v == null) return 0;
+  if (typeof v === 'number') return v;                 // Sheets serial — monotonic, fine for sorting
+  const t = new Date(v).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+// Reads leads + follow-up history via the Advanced Sheets service (batchGet) and returns
+// the leads whose follow-up history contains a run of >= MIN_STREAK consecutive
+// "Call Connected" contacts. SpreadsheetApp fallback is handled inside sheetApiBatchGetRows_.
+function getArchiveSuggestionsFast_(user) {
+  ensureArchiveSchema_();
+  _bootstrapReadMode_ = true;
+  let rows;
+  try {
+    rows = sheetApiBatchGetRows_([
+      { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+      { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:Z' }
+    ]);
+  } finally { _bootstrapReadMode_ = false; }
+
+  const leads = _scopeAssignedRows(
+    (rows[SHEET_NAMES.LEADS] || []).filter(l => !_isArchivedLead_(l) && !_isLeadPushedToNbd_(l)),
+    user
+  );
+  const history = rows[SHEET_NAMES.FOLLOWUP_HISTORY] || [];
+
+  const byLead = {};
+  history.forEach(h => {
+    const id = String(h['Lead ID'] || '').trim();
+    if (!id) return;
+    (byLead[id] || (byLead[id] = [])).push(h);
+  });
+
+  const suggestions = [];
+  leads.forEach(lead => {
+    const id = String(lead['Lead ID'] || '').trim();
+    if (!id) return;
+    const hist = (byLead[id] || []).slice().sort((a, b) => _archiveHistTime_(a) - _archiveHistTime_(b));
+    let streak = 0, maxStreak = 0, total = 0, lastConnected = '';
+    hist.forEach(h => {
+      const mode = String(h['Contact Mode'] || '').trim();
+      if (!mode) return;                                 // system / stage-change rows: not a contact attempt
+      if (ARCHIVE_SUGGESTION_CONNECTED_[mode]) {
+        streak++; total++;
+        if (streak > maxStreak) maxStreak = streak;
+        lastConnected = h['Done Date'] || h['Created At'] || lastConnected;
+      } else {
+        streak = 0;                                      // Not Picked / other contact breaks the run
+      }
+    });
+    if (maxStreak >= ARCHIVE_SUGGESTION_MIN_STREAK_) {
+      suggestions.push(Object.assign({}, lead, {
+        _connectedStreak: maxStreak,
+        _connectedTotal: total,
+        _lastConnectedDate: lastConnected
+      }));
+    }
+  });
+  return suggestions.sort((a, b) =>
+    (b._connectedStreak - a._connectedStreak) || (b._connectedTotal - a._connectedTotal)
+  );
+}
+
 function archiveLead(leadId, reason, email) {
   ensureArchiveSchema_();
   const trustedEmail = TRUSTED_WRITE_EMAIL;

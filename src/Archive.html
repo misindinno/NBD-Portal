@@ -1,9 +1,11 @@
 <script>
 let _archiveTab = 'archived';
 let _archiveData = { alerts: [], archived: [] };
+let _archiveSuggestions = null;
 
 async function loadArchive(tab = 'archived', force = false) {
-  _archiveTab = 'archived';
+  _archiveTab = (tab === 'suggestions') ? 'suggestions' : 'archived';
+  const t = _archiveTab;
   const content = el('content');
   if (!content) return;
   content.innerHTML = `
@@ -13,12 +15,18 @@ async function loadArchive(tab = 'archived', force = false) {
           <div class="fu-hero-icon" style="background:#F1F5F9;color:#334155">${icon('archive', 16)}</div>
           <div>
             <div class="fu-hero-title">Archive</div>
-            <div class="fu-hero-sub">Review stale leads, archive them, and keep archived records separate from active work.</div>
+            <div class="fu-hero-sub">Review stale leads, act on archive suggestions, and keep archived records separate from active work.</div>
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-outlined btn-sm" onclick="_exportArchiveCsv()">${icon('download', 13)} Export</button>
-          <button class="btn btn-outlined btn-sm" onclick="loadArchive(_archiveTab, true)">${icon('refresh-cw', 13)} Refresh</button>
+          ${t === 'archived' ? `<button class="btn btn-outlined btn-sm" onclick="_exportArchiveCsv()">${icon('download', 13)} Export</button>` : ''}
+          <button class="btn btn-outlined btn-sm" onclick="loadArchive('${t}', true)">${icon('refresh-cw', 13)} Refresh</button>
+        </div>
+      </div>
+      <div class="fu-tabs" style="margin-bottom:12px">
+        <div class="fu-tabs-left">
+          <button class="fu-tab ${t === 'archived' ? 'active' : ''}" onclick="_archiveSwitchTab('archived')">${icon('archive', 14)} <span>Archived</span></button>
+          <button class="fu-tab ${t === 'suggestions' ? 'active' : ''}" onclick="_archiveSwitchTab('suggestions')">${icon('lightbulb', 14)} <span>Suggestions</span></button>
         </div>
       </div>
       <div id="archive-kpis" class="fu-kpis" style="margin-bottom:14px"></div>
@@ -26,12 +34,108 @@ async function loadArchive(tab = 'archived', force = false) {
     </div>`;
   renderIcons(content);
 
+  if (t === 'suggestions') {
+    await _renderArchiveSuggestions(force);
+    return;
+  }
   if (force || !_archiveData._loaded) {
     _archiveData = await api.getArchiveData();
     _archiveData._loaded = true;
   }
   _renderArchive();
 }
+
+function _archiveSwitchTab(tab) { if (tab !== _archiveTab) loadArchive(tab); }
+window._archiveSwitchTab = _archiveSwitchTab;
+
+async function _renderArchiveSuggestions(force) {
+  const body = el('archive-body');
+  if (force || !_archiveSuggestions) {
+    try {
+      _archiveSuggestions = await api.getArchiveSuggestions();
+    } catch (e) {
+      if (body) body.innerHTML = `<div class="fu-worklist-card" style="padding:24px;color:#991b1b">Could not load suggestions: ${escapeHtml(e && e.message || e)}</div>`;
+      return;
+    }
+  }
+  const rows = _archiveSuggestions || [];
+  const kpis = el('archive-kpis');
+  if (kpis) {
+    const maxStreak = rows.reduce((m, r) => Math.max(m, Number(r._connectedStreak || 0)), 0);
+    kpis.innerHTML = [
+      _archiveKpi('Suggestions', rows.length, '7+ connected calls in a row', 'lightbulb', 'warning'),
+      _archiveKpi('Longest Streak', maxStreak, 'most consecutive connects', 'flame', 'danger'),
+      _archiveKpi('Total Connects', rows.reduce((n, r) => n + Number(r._connectedTotal || 0), 0), 'across flagged leads', 'phone-call', 'blue')
+    ].join('');
+    renderIcons(kpis);
+  }
+  if (!body) return;
+  body.innerHTML = `
+    <div class="fu-worklist-card">
+      <div class="fu-worklist-head">
+        <div>
+          <div class="fu-worklist-title">Archive Suggestions <span class="fu-worklist-count">${rows.length}</span></div>
+          <div style="font-size:12px;color:#64748b">Leads connected on a call 7 or more times in a row with no conversion — likely ready to archive.</div>
+        </div>
+      </div>
+      <div class="fu-table-scroll">
+        <table class="fu-table">
+          <thead><tr>
+            <th>Lead</th><th>Owner</th><th>Connected calls (in a row)</th><th>Total connects</th><th>Last connect</th><th></th>
+          </tr></thead>
+          <tbody>${rows.length ? rows.map(_archiveSuggestionRowHTML).join('') : `<tr><td colspan="6" class="empty-table-cell">No leads with 7+ consecutive connected calls.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+  renderIcons(body);
+}
+
+function _archiveSuggestionRowHTML(row) {
+  const leadId = String(row['Lead ID'] || '');
+  const owner = (App.config.userNameMap && App.config.userNameMap[row['Assigned To']]) || row['Assigned To'] || '—';
+  const title = row['Company Name'] || row['Client Description'] || leadId || '—';
+  const place = [row['City'], row['State']].filter(Boolean).join(', ');
+  const streak = Number(row._connectedStreak || 0);
+  const streakStyle = streak >= 8 ? 'background:#FEE2E2;color:#991B1B' : 'background:#FEF3C7;color:#92400E';
+  const last = row._lastConnectedDate ? formatDate(row._lastConnectedDate) : '—';
+  return `<tr class="fu-row">
+    <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
+      <div class="fu-lead-title">${escapeHtml(title)}</div>
+      <div class="fu-lead-sub">${escapeHtml(place || leadId)}</div>
+    </td>
+    <td>${escapeHtml(owner)}</td>
+    <td><span class="badge" style="${streakStyle};font-weight:700;display:inline-flex;align-items:center;gap:4px">${icon('phone-call', 11)} ${escapeHtml(streak)} in a row</span></td>
+    <td>${escapeHtml(row._connectedTotal || 0)}</td>
+    <td>${escapeHtml(last)}</td>
+    <td style="text-align:right">
+      <button class="btn btn-outlined btn-sm" onclick="_archiveSuggestionLead('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button>
+    </td>
+  </tr>`;
+}
+
+async function _archiveSuggestionLead(leadId) {
+  const result = await Swal.fire({
+    title: 'Archive this lead?',
+    text: 'It will move to Archived and out of active work.',
+    icon: 'question',
+    input: 'text',
+    inputPlaceholder: 'Reason (optional)',
+    showCancelButton: true,
+    confirmButtonText: 'Archive'
+  });
+  if (!result.isConfirmed) return;
+  try {
+    await api.archiveLead({ leadId, reason: (result.value || '').trim() || '7+ connected calls, no conversion' });
+  } catch (e) { toast(e && e.message || e, 'error'); return; }
+  toast('Lead archived.');
+  AppCache.invalidate('leads');
+  AppCache.invalidate('followups');
+  _archiveSuggestions = null;
+  _archiveData._loaded = false;
+  await loadArchive('suggestions', true);
+  if (typeof renderSidebar === 'function') renderSidebar();
+}
+window._archiveSuggestionLead = _archiveSuggestionLead;
 
 function _renderArchive() {
   const archived = _archiveData.archived || [];

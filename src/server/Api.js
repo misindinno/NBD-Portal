@@ -304,6 +304,14 @@ function apiGetArchiveData(token) {
   });
 }
 
+function apiGetArchiveSuggestions(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Archive');
+    return respond(getArchiveSuggestionsFast_(user));
+  });
+}
+
 function apiArchiveLead(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
