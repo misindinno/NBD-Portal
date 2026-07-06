@@ -154,14 +154,21 @@ function archiveLead(leadId, reason, email) {
   const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(patch));
   if (!updated) return respond(null, 'Lead not found.');
 
+  // Archiving a lead closes its open follow-ups so nobody is prompted to chase it.
   getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId).forEach(followup => {
     if (!followup['Follow-up ID']) return;
-    updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], {
-      'Status': 'Archived',
+    const fuPatch = {
+      'Status': 'Closed',
       'Next Follow-up Date': '',
       'Planned Date': '',
       'Updated At': ts
-    });
+    };
+    // Tag only the ones that weren't already completed, so a restore can reopen exactly these.
+    if (!followup['Outcome'] && !followup['Done Date']) {
+      fuPatch['Outcome'] = 'Lead archived';
+      fuPatch['Done Date'] = today();
+    }
+    updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], fuPatch);
   });
   insertLeadActivityLog_(leadId, 'Archive Lead', '', 'Archived', patch['Archive Reason'], user.id);
   _bumpArchiveStamps_();
@@ -190,10 +197,15 @@ function restoreArchivedLead(leadId, email) {
     'Archive Reason': '',
     'Updated At': ts
   }));
+  // Reopen only the follow-ups that were auto-closed by archiving this lead.
   getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId).forEach(followup => {
-    if (String(followup['Status'] || '') !== 'Archived' || !followup['Follow-up ID']) return;
+    if (!followup['Follow-up ID']) return;
+    const wasAutoClosed = String(followup['Status'] || '') === 'Closed' && String(followup['Outcome'] || '') === 'Lead archived';
+    if (!wasAutoClosed) return;
     updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], {
       'Status': 'Open',
+      'Outcome': '',
+      'Done Date': '',
       'Updated At': ts
     });
   });
