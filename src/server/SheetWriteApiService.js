@@ -53,19 +53,15 @@ function _a1Sheet_(normName) {
   return "'" + String(normName).replace(/'/g, "''") + "'";
 }
 
-// A yyyy-MM-dd or yyyy-MM-dd HH:mm[:ss] string (the formats produced by formatDate()/now()).
-// A RAW Sheets API write stores these as TEXT, which Google Sheets flags with a leading
-// apostrophe (e.g. '2026-06-30) and breaks date sorting/filtering. Routing the row to
-// SpreadsheetApp instead stores a real date — matching the legacy setValues() behaviour.
-function _looksLikeDateString_(v) {
-  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(v);
-}
-
-// True when no value would lose fidelity through a RAW Sheets API write. Date objects and
-// date-shaped strings must go through SpreadsheetApp (which stores a real date instead of
-// apostrophe-prefixed text), so any row containing one falls back to the legacy path.
+// Always route writes through SpreadsheetApp instead of a RAW Sheets API write.
+// A RAW write stores every value as a literal string, so numeric- or date-looking
+// values ("919876", "2026-06-30") land as TEXT and Google Sheets flags them with a
+// leading apostrophe (e.g. '919876) — also breaking number/date sorting. SpreadsheetApp
+// setValues()/appendRow() parse values as if typed, storing real numbers and dates with
+// no apostrophe (the original portal behaviour). Writes are not the performance
+// bottleneck, so this is the safe, correct default; the read fast-path is unaffected.
 function _rawWriteSafe_(values) {
-  return !(values || []).some(v => v instanceof Date || _looksLikeDateString_(v));
+  return false;
 }
 
 // Reads a single 1-based row, padded to colCount, as raw UNFORMATTED/SERIAL values.
