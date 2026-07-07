@@ -44,12 +44,11 @@ function getArchiveData(user) {
 }
 
 // ── Archive suggestions ─────────────────────────────────────────────────────────
-// Leads that have been "connected" on a call this many times (heavily chased with no
-// result) are suggested for archiving. We flag on the TOTAL number of connected calls
-// (not a strict unbroken run — real history is interspersed with misses/stage changes,
-// so an "in a row" rule almost never triggers); the longest run is kept as extra info.
-const ARCHIVE_SUGGESTION_CONNECTED_ = { 'Call Connected': true };
-const ARCHIVE_SUGGESTION_MIN_CONNECTED_ = 7;
+// Leads that were called this many times but never picked up ("Not Picked") are
+// unreachable/dead → suggested for archiving. We flag on the TOTAL number of Not Picked
+// contacts; the longest consecutive run of Not Picked is kept as extra info.
+const ARCHIVE_SUGGESTION_MODE_ = 'Not Picked';
+const ARCHIVE_SUGGESTION_MIN_ = 7;
 
 function _archiveHistTime_(h) {
   const v = (h && (h['Done Date'] || h['Created At'])) || '';
@@ -60,8 +59,8 @@ function _archiveHistTime_(h) {
 }
 
 // Reads leads + follow-up history via the Advanced Sheets service (batchGet) and returns
-// the leads with >= MIN_CONNECTED total "Call Connected" contacts (final-stage, archived
-// and NBD-pushed leads excluded). SpreadsheetApp fallback is handled in sheetApiBatchGetRows_.
+// the leads with >= MIN total "Not Picked" contacts (final-stage, archived and NBD-pushed
+// leads excluded). SpreadsheetApp fallback is handled in sheetApiBatchGetRows_.
 function getArchiveSuggestionsFast_(user) {
   ensureArchiveSchema_();
   _bootstrapReadMode_ = true;
@@ -103,28 +102,28 @@ function getArchiveSuggestionsFast_(user) {
     const id = String(lead['Lead ID'] || '').trim();
     if (!id) return;
     const hist = (byLead[id] || []).slice().sort((a, b) => _archiveHistTime_(a) - _archiveHistTime_(b));
-    let streak = 0, maxStreak = 0, total = 0, lastConnected = '';
+    let streak = 0, maxStreak = 0, total = 0, lastDate = '';
     hist.forEach(h => {
       const mode = String(h['Contact Mode'] || '').trim();
       if (!mode) return;                                 // system / stage-change rows: not a contact attempt
-      if (ARCHIVE_SUGGESTION_CONNECTED_[mode]) {
+      if (mode === ARCHIVE_SUGGESTION_MODE_) {
         streak++; total++;
         if (streak > maxStreak) maxStreak = streak;
-        lastConnected = h['Done Date'] || h['Created At'] || lastConnected;
+        lastDate = h['Done Date'] || h['Created At'] || lastDate;
       } else {
-        streak = 0;                                      // Not Picked / other contact breaks the run
+        streak = 0;                                      // any answered/other contact breaks the run
       }
     });
-    if (total >= ARCHIVE_SUGGESTION_MIN_CONNECTED_) {
+    if (total >= ARCHIVE_SUGGESTION_MIN_) {
       suggestions.push(Object.assign({}, lead, {
-        _connectedTotal: total,
-        _connectedStreak: maxStreak,
-        _lastConnectedDate: lastConnected
+        _notPickedTotal: total,
+        _notPickedStreak: maxStreak,
+        _lastNotPickedDate: lastDate
       }));
     }
   });
   return suggestions.sort((a, b) =>
-    (b._connectedTotal - a._connectedTotal) || (b._connectedStreak - a._connectedStreak)
+    (b._notPickedTotal - a._notPickedTotal) || (b._notPickedStreak - a._notPickedStreak)
   );
 }
 

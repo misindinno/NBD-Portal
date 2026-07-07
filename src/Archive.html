@@ -177,8 +177,8 @@ function _archSugOwners() {
 function _archSugFiltered() {
   const s = _archSug;
   let rows = (s.all || []).slice();
-  if (s.severity === 'warn') rows = rows.filter(r => Number(r._connectedTotal) === 7);
-  else if (s.severity === 'crit') rows = rows.filter(r => Number(r._connectedTotal) >= 8);
+  if (s.severity === 'warn') rows = rows.filter(r => Number(r._notPickedTotal) === 7);
+  else if (s.severity === 'crit') rows = rows.filter(r => Number(r._notPickedTotal) >= 8);
   if (s.owner) rows = rows.filter(r => String(r['Assigned To'] || '') === s.owner);
   if (s.search) {
     const q = s.search.toLowerCase();
@@ -191,9 +191,9 @@ function _archSugFiltered() {
   const dir = s.sortDir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
     let av, bv;
-    if (s.sortKey === 'streak') { av = Number(a._connectedStreak || 0); bv = Number(b._connectedStreak || 0); }
-    else if (s.sortKey === 'last') { av = _archFmtTime(a._lastConnectedDate); bv = _archFmtTime(b._lastConnectedDate); }
-    else { av = Number(a._connectedTotal || 0); bv = Number(b._connectedTotal || 0); }
+    if (s.sortKey === 'streak') { av = Number(a._notPickedStreak || 0); bv = Number(b._notPickedStreak || 0); }
+    else if (s.sortKey === 'last') { av = _archFmtTime(a._lastNotPickedDate); bv = _archFmtTime(b._lastNotPickedDate); }
+    else { av = Number(a._notPickedTotal || 0); bv = Number(b._notPickedTotal || 0); }
     return (av - bv) * dir;
   });
   return rows;
@@ -210,15 +210,15 @@ function _archSugTh(key, label) {
 function _archSugRender() {
   const s = _archSug;
   const all = s.all || [];
-  const crit = all.filter(r => Number(r._connectedTotal) >= 8).length;
-  const warn = all.filter(r => Number(r._connectedTotal) === 7).length;
+  const crit = all.filter(r => Number(r._notPickedTotal) >= 8).length;
+  const warn = all.filter(r => Number(r._notPickedTotal) === 7).length;
 
   const kpis = el('archive-kpis');
   if (kpis) {
     kpis.innerHTML = [
       _archKpi({ label: 'Total suggestions', val: all.length, sub: 'leads flagged for review', ic: 'inbox', variant: 'total', onclick: `_archSugSetSeverity('all')`, active: s.severity === 'all' }),
-      _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 connected calls', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: s.severity === 'warn' }),
-      _archKpi({ label: 'Critical', val: crit, sub: '8+ connected calls', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: s.severity === 'crit' })
+      _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 not-picked calls', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: s.severity === 'warn' }),
+      _archKpi({ label: 'Critical', val: crit, sub: '8+ not-picked calls', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: s.severity === 'crit' })
     ].join('');
     renderIcons(kpis);
   }
@@ -240,7 +240,7 @@ function _archSugRender() {
       <div class="arch-card-head">
         <div>
           <div class="arch-card-title">Archive Suggestions</div>
-          <div class="arch-card-sub">Leads connected on a call 7 or more times with no conversion.</div>
+          <div class="arch-card-sub">Leads called 7 or more times that never picked up (Not Picked).</div>
         </div>
         <div class="arch-tools">
           <div class="arch-search">${icon('search', 15)}<input type="text" placeholder="Search lead or owner…" value="${escapeHtml(s.search)}" oninput="_archSugSetSearch(this.value)"></div>
@@ -261,9 +261,9 @@ function _archSugRender() {
             <thead><tr>
               <th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPageSelected ? 'checked' : ''} onclick="_archSugToggleAll(this.checked)" title="Select all on this page"></th>
               <th>Lead</th><th>Owner</th>
-              ${_archSugTh('total', 'Connected calls')}
+              ${_archSugTh('total', 'Not Picked')}
               ${_archSugTh('streak', 'Longest run')}
-              ${_archSugTh('last', 'Last connect')}
+              ${_archSugTh('last', 'Last attempt')}
               <th style="width:1%"></th>
             </tr></thead>
             <tbody>${paged.map(_archSugRow).join('')}</tbody>
@@ -280,8 +280,8 @@ function _archSugRow(row) {
   const owner = (App.config.userNameMap && App.config.userNameMap[row['Assigned To']]) || row['Assigned To'] || '—';
   const title = row['Company Name'] || row['Client Description'] || leadId || '—';
   const place = [row['City'], row['State']].filter(Boolean).join(', ') || leadId;
-  const total = Number(row._connectedTotal || 0);
-  const streak = Number(row._connectedStreak || 0);
+  const total = Number(row._notPickedTotal || 0);
+  const streak = Number(row._notPickedStreak || 0);
   const crit = total >= 8;
   const checked = _archSug.selected.has(leadId);
   const initial = String(owner).trim().charAt(0).toUpperCase() || '?';
@@ -292,9 +292,9 @@ function _archSugRow(row) {
       <div class="arch-lead-sub">${escapeHtml(place)}</div>
     </td>
     <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
-    <td><span class="arch-badge arch-badge--${crit ? 'crit' : 'warn'}">${icon('phone-call', 12)} ${escapeHtml(total)} calls</span></td>
+    <td><span class="arch-badge arch-badge--${crit ? 'crit' : 'warn'}">${icon('phone-missed', 12)} ${escapeHtml(total)} not picked</span></td>
     <td>${streak > 1 ? escapeHtml(streak) + ' in a row' : '<span style="color:#94a3b8">—</span>'}</td>
-    <td>${escapeHtml(_archFmtDate(row._lastConnectedDate))}</td>
+    <td>${escapeHtml(_archFmtDate(row._lastNotPickedDate))}</td>
     <td style="text-align:right"><button class="arch-archive-btn" onclick="_archiveSuggestionLead('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button></td>
   </tr>`;
 }
@@ -304,7 +304,7 @@ function _archSugEmpty(totalAll) {
     return `<div class="arch-empty">
       <div class="arch-empty-ic">${icon('party-popper', 30)}</div>
       <div class="arch-empty-title">No archive suggestions</div>
-      <div class="arch-empty-text">All connected leads look healthy — nothing has 7 or more connected calls.</div>
+      <div class="arch-empty-text">All good — no lead has 7 or more unanswered (Not Picked) calls.</div>
     </div>`;
   }
   return `<div class="arch-empty">
@@ -371,7 +371,7 @@ async function _archiveSuggestionLead(leadId) {
   });
   if (!result.isConfirmed) return;
   try {
-    await api.archiveLead({ leadId, reason: (result.value || '').trim() || '7+ connected calls, no conversion' });
+    await api.archiveLead({ leadId, reason: (result.value || '').trim() || '7+ unanswered calls (Not Picked)' });
   } catch (e) { toast(e && e.message || e, 'error'); return; }
   toast('Lead archived.');
   _afterArchiveMutation();
@@ -393,7 +393,7 @@ async function _archSugBulkArchive() {
   if (!result.isConfirmed) return;
   let res;
   try {
-    res = await api.archiveLeads({ leadIds: ids, reason: (result.value || '').trim() || '7+ connected calls, no conversion' });
+    res = await api.archiveLeads({ leadIds: ids, reason: (result.value || '').trim() || '7+ unanswered calls (Not Picked)' });
   } catch (e) { toast(e && e.message || e, 'error'); return; }
   const done = (res && res.archived && res.archived.length) || ids.length;
   toast(`${done} lead${done > 1 ? 's' : ''} archived.`);

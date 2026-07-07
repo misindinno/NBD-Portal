@@ -200,14 +200,14 @@ function _bqBenchmarkInner_() {
 
   function _aggStreak(rows) {
     var m = {};
-    (rows || []).forEach(function (r) { if (String(r['Contact Mode'] || '') === 'Call Connected') { var id = r['Lead ID']; m[id] = (m[id] || 0) + 1; } });
+    (rows || []).forEach(function (r) { if (String(r['Contact Mode'] || '') === 'Not Picked') { var id = r['Lead ID']; m[id] = (m[id] || 0) + 1; } });
     return Object.keys(m).filter(function (k) { return m[k] >= 7; }).length;
   }
   out.push(_bqBench_('Archive suggestions (aggregation)',
     function () { var t = Date.now(); var n = _aggStreak(getAllRows(H)); return { ms: Date.now() - t, rows: n }; },
     function () { var t = Date.now(); var n = _aggStreak(_bqApiRows_(_bqApiRead_([{ sheetName: H, range: 'A:Z' }]), H)); return { ms: Date.now() - t, rows: n }; },
     function () {
-      var q = bqQuery('SELECT Lead_ID, COUNT(1) c FROM ' + _bqTableRef_('followup_history') + where + ' AND Contact_Mode = "Call Connected" GROUP BY Lead_ID HAVING c >= 7');
+      var q = bqQuery('SELECT Lead_ID, COUNT(1) c FROM ' + _bqTableRef_('followup_history') + where + ' AND Contact_Mode = "Not Picked" GROUP BY Lead_ID HAVING c >= 7');
       return { ms: q.ms, rows: q.rows.length };
     }
   ));
