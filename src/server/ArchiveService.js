@@ -127,7 +127,7 @@ function getArchiveSuggestionsFast_(user) {
   );
 }
 
-function archiveLead(leadId, reason, email) {
+function archiveLead(leadId, reason, email, opts) {
   ensureArchiveSchema_();
   const trustedEmail = TRUSTED_WRITE_EMAIL;
   if (!trustedEmail) throw new Error('Direct write calls are disabled.');
@@ -172,7 +172,9 @@ function archiveLead(leadId, reason, email) {
     updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], fuPatch);
   });
   insertLeadActivityLog_(leadId, 'Archive Lead', '', 'Archived', patch['Archive Reason'], user.id);
-  _bumpArchiveStamps_();
+  // Bulk archive bumps once for the whole batch (3 PropertiesService writes per lead
+  // otherwise dominate large batches); single archive bumps here as before.
+  if (!(opts && opts.skipStamps)) _bumpArchiveStamps_();
   return respond({ leadId, patch });
 }
 

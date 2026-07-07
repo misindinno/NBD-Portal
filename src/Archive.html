@@ -53,16 +53,21 @@
   .arch-owner-av { width: 26px; height: 26px; border-radius: 50%; background: #e0e7ff; color: #4338ca; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .arch-badge { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: 108px; height: 27px; border-radius: 8px; font-size: 12px; font-weight: 800; }
   .arch-badge svg { width: 12px; height: 12px; }
+  .arch-badge--slim { width: auto; min-width: 54px; padding: 0 10px; }
   .arch-badge--crit { background: #fee2e2; color: #991b1b; }
   .arch-badge--warn { background: #ffedd5; color: #9a3412; }
-  .arch-archive-btn { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #475569; font-size: 12px; font-weight: 600; cursor: pointer; }
-  .arch-archive-btn:hover { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
-  .arch-archive-btn svg { width: 13px; height: 13px; }
+  .arch-row-btn { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #475569; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .arch-row-btn svg { width: 13px; height: 13px; }
+  .arch-row-btn.danger:hover { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+  .arch-row-btn.safe:hover { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
   .arch-check { width: 16px; height: 16px; accent-color: var(--brand, #6366f1); cursor: pointer; margin: 0; }
   .arch-bulkbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #eff6ff; border-bottom: 1px solid #dbeafe; flex-wrap: wrap; }
   .arch-bulkbar-text { font-size: 13px; font-weight: 800; color: #1e40af; margin-right: 2px; }
   .arch-pag { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid #eef0f6; flex-wrap: wrap; }
+  .arch-pag-left { display: inline-flex; align-items: center; gap: 12px; }
   .arch-pag-info { font-size: 12.5px; color: #64748b; }
+  .arch-pag-size { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; font-weight: 600; }
+  .arch-pag-size select { height: 30px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #334155; font-size: 12.5px; padding: 0 6px; cursor: pointer; }
   .arch-pag-btns { display: inline-flex; align-items: center; gap: 4px; }
   .arch-pag-btn { min-width: 32px; height: 32px; padding: 0 6px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #334155; font-size: 12.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
   .arch-pag-btn:hover:not(:disabled) { background: #eef2ff; border-color: #c7d2fe; }
@@ -75,11 +80,8 @@
   .arch-empty-ic svg { width: 30px; height: 30px; }
   .arch-empty-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 5px; }
   .arch-empty-text { font-size: 13px; color: #64748b; }
-  /* Shared table polish for the Archived tab too (darker headers, taller rows) */
-  #archive-page .fu-table th { color: #475569; }
-  #archive-page .fu-table td { height: 58px; }
 
-  /* Bulk-archive progress dialog (minimisable) */
+  /* Bulk progress dialog (minimisable) */
   .arch-prog-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.4); display: flex; align-items: center; justify-content: center; z-index: 1200; }
   .arch-prog-overlay.min { inset: auto; right: 20px; bottom: 20px; background: transparent; display: block; }
   .arch-prog-card { background: #fff; border-radius: 14px; width: min(420px, 92vw); padding: 20px; box-shadow: 0 14px 44px rgba(15,23,42,.28); }
@@ -98,17 +100,23 @@
   .arch-prog-spin { display: inline-flex; animation: spin 1s linear infinite; }
 </style>
 <script>
+// ── Archive page ──────────────────────────────────────────────────────────────
+// One shared shell (title + tabs + tools) with two tab states. Tab switches and
+// filter/sort/page changes re-render only what changed — the search input is never
+// rebuilt (no caret jump), and archive/restore update rows in place (no full reload).
 let _archiveTab = 'archived';
-let _archiveData = { alerts: [], archived: [] };
-let _archiveSuggestions = null;
-let _archSug = null;
+const _archTabs = {
+  archived:    { rows: null, search: '', owner: '', sortKey: 'archived', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() },
+  suggestions: { rows: null, search: '', owner: '', severity: 'all', sortKey: 'total', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() }
+};
+let _archSearchTimer = null;
+let _archLoadSeq = 0;
 
 async function loadArchive(tab = 'archived', force = false) {
-  _archiveTab = (tab === 'suggestions') ? 'suggestions' : 'archived';
-  const t = _archiveTab;
   const content = el('content');
   if (!content) return;
-  content.innerHTML = `
+  if (!el('archive-page')) {
+    content.innerHTML = `
     <div id="archive-page" class="page-shell">
       <div class="arch-head">
         <h1 class="arch-title">Archive</h1>
@@ -116,33 +124,68 @@ async function loadArchive(tab = 'archived', force = false) {
       </div>
       <div class="arch-controls">
         <div class="arch-tabs" role="tablist">
-          <button class="arch-tab ${t === 'archived' ? 'active' : ''}" onclick="_archiveSwitchTab('archived')">${icon('archive', 15)} Archived</button>
-          <button class="arch-tab ${t === 'suggestions' ? 'active' : ''}" onclick="_archiveSwitchTab('suggestions')">${icon('lightbulb', 15)} Suggestions</button>
+          <button class="arch-tab" data-tab="archived" onclick="_archiveSwitchTab('archived')">${icon('archive', 15)} Archived</button>
+          <button class="arch-tab" data-tab="suggestions" onclick="_archiveSwitchTab('suggestions')">${icon('lightbulb', 15)} Suggestions</button>
         </div>
-        <div class="arch-tools">
-          ${t === 'archived' ? `<button class="arch-btn" onclick="_exportArchiveCsv()">${icon('download', 14)} Export</button>` : ''}
-          <button class="arch-btn" onclick="loadArchive('${t}', true)">${icon('refresh-cw', 14)} Refresh</button>
-        </div>
+        <div class="arch-tools" id="arch-tools"></div>
       </div>
       <div id="archive-kpis" class="arch-kpis"></div>
-      <div id="archive-body">${skeletonPage('table')}</div>
+      <div id="archive-body"></div>
     </div>`;
-  renderIcons(content);
-
-  if (t === 'suggestions') {
-    await _renderArchiveSuggestions(force);
-    return;
+    renderIcons(content);
   }
-  if (force || !_archiveData._loaded) {
-    _archiveData = await api.getArchiveData();
-    _archiveData._loaded = true;
-  }
-  _renderArchive();
+  await _archActivateTab(tab === 'suggestions' ? 'suggestions' : 'archived', force);
 }
+window.loadArchive = loadArchive;
 
-function _archiveSwitchTab(tab) { if (tab !== _archiveTab) loadArchive(tab); }
+function _archiveSwitchTab(tab) { if (tab !== _archiveTab || !_archTabs[tab].rows) _archActivateTab(tab); }
 window._archiveSwitchTab = _archiveSwitchTab;
 
+async function _archActivateTab(tab, force) {
+  _archiveTab = tab;
+  const seq = ++_archLoadSeq;
+  document.querySelectorAll('#archive-page .arch-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  _archRenderTools();
+  const t = _archTabs[tab];
+  if (force) { t.rows = null; t.page = 1; t.selected.clear(); }
+  if (!t.rows) {
+    _archShowLoading();
+    try {
+      if (tab === 'archived') {
+        const d = await api.getArchiveData();
+        t.rows = (d && d.archived) || [];
+      } else {
+        t.rows = (await api.getArchiveSuggestions()) || [];
+      }
+    } catch (e) {
+      if (seq !== _archLoadSeq || !el('archive-body')) return;
+      el('archive-body').innerHTML = `<div class="arch-card" style="padding:24px;color:#991b1b">Could not load: ${escapeHtml(e && e.message || e)}</div>`;
+      const k = el('archive-kpis'); if (k) k.innerHTML = '';
+      return;
+    }
+    // The user may have switched tabs (or navigated) while the fetch was in flight.
+    if (seq !== _archLoadSeq || _archiveTab !== tab || !el('archive-page')) return;
+  }
+  _archRenderAll();
+}
+
+function _archRenderTools() {
+  const tools = el('arch-tools');
+  if (!tools) return;
+  tools.innerHTML =
+    (_archiveTab === 'archived' ? `<button class="arch-btn" onclick="_exportArchiveCsv()">${icon('download', 14)} Export</button>` : '') +
+    `<button class="arch-btn" onclick="loadArchive(_archiveTab, true)">${icon('refresh-cw', 14)} Refresh</button>`;
+  renderIcons(tools);
+}
+
+function _archShowLoading() {
+  const kpis = el('archive-kpis');
+  if (kpis) kpis.innerHTML = '<div class="sk" style="height:70px;border-radius:12px"></div>'.repeat(3);
+  const body = el('archive-body');
+  if (body) body.innerHTML = skeletonPage('table');
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────────────────
 function _archKpi(o) {
   const clickable = !!o.onclick;
   const cls = `arch-kpi arch-kpi--${o.variant || 'total'}${clickable ? '' : ' static'}${o.active ? ' active' : ''}`;
@@ -165,165 +208,240 @@ function _archFmtDate(v) {
   const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
   return `${String(d.getDate()).padStart(2, '0')} ${mon} ${d.getFullYear()}`;
 }
+function _archFmtTime(v) { if (v == null || v === '') return 0; if (typeof v === 'number') return v; const t = new Date(v).getTime(); return isNaN(t) ? 0 : t; }
+function _archOwnerName(id) { return (App.config.userNameMap && App.config.userNameMap[id]) || id || '—'; }
 
-async function _renderArchiveSuggestions(force) {
-  const body = el('archive-body');
-  if (force || !_archiveSuggestions) {
-    if (body) body.innerHTML = skeletonPage('table');
-    try {
-      _archiveSuggestions = await api.getArchiveSuggestions();
-    } catch (e) {
-      if (body) body.innerHTML = `<div class="arch-card" style="padding:24px;color:#991b1b">Could not load suggestions: ${escapeHtml(e && e.message || e)}</div>`;
-      return;
-    }
-    _archSug = { all: _archiveSuggestions || [], search: '', owner: '', severity: 'all', sortKey: 'total', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() };
-  } else if (!_archSug) {
-    _archSug = { all: _archiveSuggestions || [], search: '', owner: '', severity: 'all', sortKey: 'total', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() };
-  }
-  _archSugRender();
-}
-
-function _archSugOwners() {
+function _archOwners(t) {
   const map = {};
-  (_archSug.all || []).forEach(r => {
-    const id = r['Assigned To']; if (!id) return;
-    map[id] = (App.config.userNameMap && App.config.userNameMap[id]) || id;
-  });
+  (t.rows || []).forEach(r => { const id = r['Assigned To']; if (id) map[id] = _archOwnerName(id); });
   return Object.keys(map).map(id => ({ id, name: map[id] })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
-function _archSugFiltered() {
-  const s = _archSug;
-  let rows = (s.all || []).slice();
-  if (s.severity === 'warn') rows = rows.filter(r => Number(r._notPickedTotal) === 7);
-  else if (s.severity === 'crit') rows = rows.filter(r => Number(r._notPickedTotal) >= 8);
-  if (s.owner) rows = rows.filter(r => String(r['Assigned To'] || '') === s.owner);
-  if (s.search) {
-    const q = s.search.toLowerCase();
+function _archFiltered(tab) {
+  const t = _archTabs[tab];
+  let rows = (t.rows || []).slice();
+  if (tab === 'suggestions') {
+    if (t.severity === 'warn') rows = rows.filter(r => Number(r._notPickedTotal) === 7);
+    else if (t.severity === 'crit') rows = rows.filter(r => Number(r._notPickedTotal) >= 8);
+  }
+  if (t.owner) rows = rows.filter(r => String(r['Assigned To'] || '') === t.owner);
+  if (t.search) {
+    const q = t.search.toLowerCase();
     rows = rows.filter(r => {
-      const owner = (App.config.userNameMap && App.config.userNameMap[r['Assigned To']]) || r['Assigned To'] || '';
-      return [r['Company Name'], r['Client Description'], r['City'], r['State'], owner, r['Lead ID']]
-        .map(x => String(x || '')).join(' ').toLowerCase().includes(q);
+      const hay = [r['Company Name'], r['Client Description'], r['City'], r['State'],
+        _archOwnerName(r['Assigned To']), r['Lead ID'], tab === 'archived' ? r['Archive Reason'] : '']
+        .map(x => String(x || '')).join(' ').toLowerCase();
+      return hay.includes(q);
     });
   }
-  const dir = s.sortDir === 'asc' ? 1 : -1;
-  rows.sort((a, b) => {
-    let av, bv;
-    if (s.sortKey === 'streak') { av = Number(a._notPickedStreak || 0); bv = Number(b._notPickedStreak || 0); }
-    else if (s.sortKey === 'last') { av = _archFmtTime(a._lastNotPickedDate); bv = _archFmtTime(b._lastNotPickedDate); }
-    else { av = Number(a._notPickedTotal || 0); bv = Number(b._notPickedTotal || 0); }
-    return (av - bv) * dir;
-  });
+  const dir = t.sortDir === 'asc' ? 1 : -1;
+  const val = (r) => {
+    if (tab === 'suggestions') {
+      if (t.sortKey === 'streak') return Number(r._notPickedStreak || 0);
+      if (t.sortKey === 'last') return _archFmtTime(r._lastNotPickedDate);
+      return Number(r._notPickedTotal || 0);
+    }
+    if (t.sortKey === 'pending') return Number(r._pendingDays || 0);
+    if (t.sortKey === 'notpicked') return Number(r._notPickedCount || 0);
+    if (t.sortKey === 'fu') return Number(r._followupCount || 0);
+    return _archFmtTime(r['Archived At']);
+  };
+  rows.sort((a, b) => (val(a) - val(b)) * dir);
   return rows;
 }
-function _archFmtTime(v) { if (v == null || v === '') return 0; if (typeof v === 'number') return v; const t = new Date(v).getTime(); return isNaN(t) ? 0 : t; }
 
-function _archSugTh(key, label) {
-  const s = _archSug;
-  const sorted = s.sortKey === key;
-  const ar = sorted ? (s.sortDir === 'asc' ? '▲' : '▼') : '↕';
-  return `<th class="sortable${sorted ? ' sorted' : ''}" onclick="_archSugSetSort('${key}')">${escapeHtml(label)} <span class="arch-sort-ic">${ar}</span></th>`;
+function _archTh(key, label) {
+  const t = _archTabs[_archiveTab];
+  const sorted = t.sortKey === key;
+  const ar = sorted ? (t.sortDir === 'asc' ? '▲' : '▼') : '↕';
+  return `<th class="sortable${sorted ? ' sorted' : ''}" onclick="_archSetSort('${key}')">${escapeHtml(label)} <span class="arch-sort-ic">${ar}</span></th>`;
 }
 
-function _archSugRender() {
-  const s = _archSug;
-  const all = s.all || [];
-  const crit = all.filter(r => Number(r._notPickedTotal) >= 8).length;
-  const warn = all.filter(r => Number(r._notPickedTotal) === 7).length;
+// ── Rendering ────────────────────────────────────────────────────────────────────
+function _archRenderAll() {
+  _archRenderKpis();
+  _archRenderCard();
+}
 
+function _archRenderKpis() {
   const kpis = el('archive-kpis');
-  if (kpis) {
+  if (!kpis) return;
+  if (_archiveTab === 'suggestions') {
+    const t = _archTabs.suggestions;
+    const all = t.rows || [];
+    const crit = all.filter(r => Number(r._notPickedTotal) >= 8).length;
+    const warn = all.filter(r => Number(r._notPickedTotal) === 7).length;
     kpis.innerHTML = [
-      _archKpi({ label: 'Total suggestions', val: all.length, sub: 'leads flagged for review', ic: 'inbox', variant: 'total', onclick: `_archSugSetSeverity('all')`, active: s.severity === 'all' }),
-      _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 not-picked calls', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: s.severity === 'warn' }),
-      _archKpi({ label: 'Critical', val: crit, sub: '8+ not-picked calls', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: s.severity === 'crit' })
+      _archKpi({ label: 'Total suggestions', val: all.length, sub: 'leads flagged for review', ic: 'inbox', variant: 'total', onclick: `_archSugSetSeverity('all')`, active: t.severity === 'all' }),
+      _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 not-picked calls', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: t.severity === 'warn' }),
+      _archKpi({ label: 'Critical', val: crit, sub: '8+ not-picked calls', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: t.severity === 'crit' })
     ].join('');
-    renderIcons(kpis);
+  } else {
+    const rows = _archTabs.archived.rows || [];
+    kpis.innerHTML = [
+      _archKpi({ label: 'Archived Leads', val: rows.length, sub: 'hidden from active work', ic: 'archive', variant: 'neutral' }),
+      _archKpi({ label: 'Archived Follow-ups', val: rows.reduce((n, r) => n + Number(r._followupCount || 0), 0), sub: 'linked records archived', ic: 'phone', variant: 'total' }),
+      _archKpi({ label: 'Not Picked Count', val: rows.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), sub: 'before archive', ic: 'phone-missed', variant: 'crit' })
+    ].join('');
   }
+  renderIcons(kpis);
+}
 
-  const rows = _archSugFiltered();
-  const total = rows.length;
-  const pageCount = Math.max(1, Math.ceil(total / s.pageSize));
-  if (s.page > pageCount) s.page = pageCount;
-  const start = (s.page - 1) * s.pageSize;
-  const paged = rows.slice(start, start + s.pageSize);
-  const owners = _archSugOwners();
-  const selCount = s.selected.size;
-  const allOnPageSelected = paged.length > 0 && paged.every(r => s.selected.has(String(r['Lead ID'])));
-
+// Card head (title + search + owner filter) renders once per tab load; only
+// #arch-live (bulkbar + table + pagination) re-renders on state changes, so the
+// search input keeps focus and caret while typing.
+function _archRenderCard() {
   const body = el('archive-body');
   if (!body) return;
+  const tab = _archiveTab;
+  const t = _archTabs[tab];
+  const owners = _archOwners(t);
+  const title = tab === 'suggestions' ? 'Archive Suggestions' : 'Archived Leads';
+  const sub = tab === 'suggestions'
+    ? 'Leads called 7 or more times that never picked up (Not Picked).'
+    : 'Leads marked as archived, with their linked follow-ups.';
   body.innerHTML = `
     <div class="arch-card">
       <div class="arch-card-head">
         <div>
-          <div class="arch-card-title">Archive Suggestions</div>
-          <div class="arch-card-sub">Leads called 7 or more times that never picked up (Not Picked).</div>
+          <div class="arch-card-title">${title}</div>
+          <div class="arch-card-sub">${sub}</div>
         </div>
         <div class="arch-tools">
-          <div class="arch-search">${icon('search', 15)}<input type="text" placeholder="Search lead or owner…" value="${escapeHtml(s.search)}" oninput="_archSugSetSearch(this.value)"></div>
-          <select class="arch-select" onchange="_archSugSetOwner(this.value)" title="Filter by owner">
+          <div class="arch-search">${icon('search', 15)}<input type="text" placeholder="Search lead or owner…" value="${escapeHtml(t.search)}" oninput="_archSetSearch(this.value)"></div>
+          <select class="arch-select" onchange="_archSetOwner(this.value)" title="Filter by owner">
             <option value="">All owners</option>
-            ${owners.map(o => `<option value="${escapeHtml(o.id)}"${o.id === s.owner ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
+            ${owners.map(o => `<option value="${escapeHtml(o.id)}"${o.id === t.owner ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
           </select>
         </div>
       </div>
-      ${selCount ? `<div class="arch-bulkbar">
-        <span class="arch-bulkbar-text">${selCount} selected</span>
-        <button class="arch-btn" onclick="_archSugBulkArchive()">${icon('archive', 14)} Archive selected</button>
-        <button class="arch-btn" onclick="_archSugClearSel()">${icon('x', 14)} Clear</button>
-      </div>` : ''}
-      ${paged.length ? `
-        <div class="arch-table-wrap">
-          <table class="arch-table">
-            <thead><tr>
-              <th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPageSelected ? 'checked' : ''} onclick="_archSugToggleAll(this.checked)" title="Select all on this page"></th>
-              <th>Lead</th><th>Owner</th>
-              ${_archSugTh('total', 'Not Picked')}
-              ${_archSugTh('streak', 'Longest run')}
-              ${_archSugTh('last', 'Last attempt')}
-              <th style="width:1%"></th>
-            </tr></thead>
-            <tbody>${paged.map(_archSugRow).join('')}</tbody>
-          </table>
-        </div>
-        ${_archSugPagination(total, start, paged.length, pageCount)}
-      ` : _archSugEmpty(all.length)}
+      <div id="arch-live"></div>
     </div>`;
   renderIcons(body);
+  _archRenderLive();
 }
 
-function _archSugRow(row) {
+function _archRenderLive() {
+  const live = el('arch-live');
+  if (!live) return;
+  live.innerHTML = _archLiveHTML();
+  renderIcons(live);
+}
+
+function _archLiveHTML() {
+  const tab = _archiveTab;
+  const t = _archTabs[tab];
+  const rows = _archFiltered(tab);
+  const total = rows.length;
+  const pageCount = Math.max(1, Math.ceil(total / t.pageSize));
+  if (t.page > pageCount) t.page = pageCount;
+  const start = (t.page - 1) * t.pageSize;
+  const paged = rows.slice(start, start + t.pageSize);
+  const selCount = t.selected.size;
+  const allOnPage = paged.length > 0 && paged.every(r => t.selected.has(String(r['Lead ID'])));
+
+  const bulkbar = selCount ? `<div class="arch-bulkbar">
+      <span class="arch-bulkbar-text">${selCount} selected</span>
+      ${tab === 'suggestions'
+        ? `<button class="arch-btn" onclick="_archSugBulkArchive()">${icon('archive', 14)} Archive selected</button>`
+        : `<button class="arch-btn" onclick="_archBulkRestore()">${icon('rotate-ccw', 14)} Restore selected</button>`}
+      <button class="arch-btn" onclick="_archClearSel()">${icon('x', 14)} Clear</button>
+    </div>` : '';
+
+  if (!paged.length) return bulkbar + _archEmptyHTML(tab, (t.rows || []).length);
+
+  const head = tab === 'suggestions'
+    ? `<th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPage ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all on this page"></th>
+       <th>Lead</th><th>Owner</th>
+       ${_archTh('total', 'Not Picked')}
+       ${_archTh('streak', 'Longest run')}
+       ${_archTh('last', 'Last attempt')}
+       <th style="width:1%"></th>`
+    : `<th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPage ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all on this page"></th>
+       <th>Lead</th><th>Owner</th>
+       ${_archTh('pending', 'Pending')}
+       ${_archTh('notpicked', 'Not Picked')}
+       ${_archTh('fu', 'Follow-ups')}
+       ${_archTh('archived', 'Archived')}
+       <th style="width:1%"></th>`;
+
+  return `${bulkbar}
+    <div class="arch-table-wrap">
+      <table class="arch-table">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${paged.map(tab === 'suggestions' ? _archSugRowHTML : _archArchivedRowHTML).join('')}</tbody>
+      </table>
+    </div>
+    ${_archPagHTML(total, start, paged.length, pageCount)}`;
+}
+
+function _archSugRowHTML(row) {
+  const t = _archTabs.suggestions;
   const leadId = String(row['Lead ID'] || '');
-  const owner = (App.config.userNameMap && App.config.userNameMap[row['Assigned To']]) || row['Assigned To'] || '—';
+  const owner = _archOwnerName(row['Assigned To']);
   const title = row['Company Name'] || row['Client Description'] || leadId || '—';
   const place = [row['City'], row['State']].filter(Boolean).join(', ') || leadId;
-  const total = Number(row._notPickedTotal || 0);
+  const totalNp = Number(row._notPickedTotal || 0);
   const streak = Number(row._notPickedStreak || 0);
-  const crit = total >= 8;
-  const checked = _archSug.selected.has(leadId);
+  const crit = totalNp >= 8;
+  const checked = t.selected.has(leadId);
   const initial = String(owner).trim().charAt(0).toUpperCase() || '?';
   return `<tr>
-    <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archSugToggle('${escapeHtml(leadId)}', this.checked)"></td>
+    <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)"></td>
     <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
       <div class="arch-lead-title">${escapeHtml(title)}</div>
       <div class="arch-lead-sub">${escapeHtml(place)}</div>
     </td>
     <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
-    <td><span class="arch-badge arch-badge--${crit ? 'crit' : 'warn'}">${icon('phone-missed', 12)} ${escapeHtml(total)} not picked</span></td>
+    <td><span class="arch-badge arch-badge--${crit ? 'crit' : 'warn'}">${icon('phone-missed', 12)} ${escapeHtml(totalNp)} not picked</span></td>
     <td>${streak > 1 ? escapeHtml(streak) + ' in a row' : '<span style="color:#94a3b8">—</span>'}</td>
     <td>${escapeHtml(_archFmtDate(row._lastNotPickedDate))}</td>
-    <td style="text-align:right"><button class="arch-archive-btn" onclick="_archiveSuggestionLead('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button></td>
+    <td style="text-align:right"><button class="arch-row-btn danger" onclick="_archiveSuggestionLead('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button></td>
   </tr>`;
 }
 
-function _archSugEmpty(totalAll) {
+function _archArchivedRowHTML(row) {
+  const t = _archTabs.archived;
+  const leadId = String(row['Lead ID'] || '');
+  const owner = _archOwnerName(row['Assigned To']);
+  const title = row['Company Name'] || row['Client Description'] || leadId || '—';
+  const place = [row['City'], row['State']].filter(Boolean).join(', ') || leadId;
+  const pending = Number(row._pendingDays || 0);
+  const checked = t.selected.has(leadId);
+  const initial = String(owner).trim().charAt(0).toUpperCase() || '?';
+  const reason = String(row['Archive Reason'] || '').trim();
+  const archTitle = row['Archived At'] ? `${formatDateTime(row['Archived At'])}${reason ? ' — ' + reason : ''}` : reason;
+  return `<tr>
+    <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)"></td>
+    <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
+      <div class="arch-lead-title">${escapeHtml(title)}</div>
+      <div class="arch-lead-sub">${escapeHtml(place)}</div>
+    </td>
+    <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
+    <td><span class="arch-badge arch-badge--slim arch-badge--warn">${escapeHtml(pending)} days</span></td>
+    <td><span class="arch-badge arch-badge--slim arch-badge--crit">${escapeHtml(row._notPickedCount || 0)}</span></td>
+    <td>${escapeHtml(row._followupCount || 0)}</td>
+    <td title="${escapeHtml(archTitle)}">
+      <div>${escapeHtml(_archFmtDate(row['Archived At']))}</div>
+      ${reason ? `<div class="arch-lead-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(reason)}</div>` : ''}
+    </td>
+    <td style="text-align:right"><button class="arch-row-btn safe" onclick="_restoreArchivedLead('${escapeHtml(leadId)}')">${icon('rotate-ccw', 13)} Restore</button></td>
+  </tr>`;
+}
+
+function _archEmptyHTML(tab, totalAll) {
   if (totalAll === 0) {
-    return `<div class="arch-empty">
-      <div class="arch-empty-ic">${icon('party-popper', 30)}</div>
-      <div class="arch-empty-title">No archive suggestions</div>
-      <div class="arch-empty-text">All good — no lead has 7 or more unanswered (Not Picked) calls.</div>
-    </div>`;
+    return tab === 'suggestions'
+      ? `<div class="arch-empty">
+          <div class="arch-empty-ic">${icon('party-popper', 30)}</div>
+          <div class="arch-empty-title">No archive suggestions</div>
+          <div class="arch-empty-text">All good — no lead has 7 or more unanswered (Not Picked) calls.</div>
+        </div>`
+      : `<div class="arch-empty">
+          <div class="arch-empty-ic" style="background:#f1f5f9;color:#64748b">${icon('archive', 30)}</div>
+          <div class="arch-empty-title">No archived leads</div>
+          <div class="arch-empty-text">Leads you archive will appear here.</div>
+        </div>`;
   }
   return `<div class="arch-empty">
     <div class="arch-empty-ic" style="background:#f1f5f9;color:#64748b">${icon('search-x', 30)}</div>
@@ -332,51 +450,105 @@ function _archSugEmpty(totalAll) {
   </div>`;
 }
 
-function _archSugPagination(total, start, count, pageCount) {
-  const s = _archSug;
+function _archPagHTML(total, start, count, pageCount) {
+  const t = _archTabs[_archiveTab];
   const from = total ? start + 1 : 0;
   const to = start + count;
-  const btn = (label, page, opts) => `<button class="arch-pag-btn${opts && opts.active ? ' active' : ''}" ${opts && opts.disabled ? 'disabled' : ''} onclick="_archSugSetPage(${page})">${label}</button>`;
+  const btn = (label, page, opts) => `<button class="arch-pag-btn${opts && opts.active ? ' active' : ''}" ${opts && opts.disabled ? 'disabled' : ''} onclick="_archSetPage(${page})">${label}</button>`;
   let nums = '';
-  const push = (p) => { nums += btn(String(p), p, { active: p === s.page }); };
+  const push = (p) => { nums += btn(String(p), p, { active: p === t.page }); };
   const dots = () => { nums += '<span class="arch-pag-dots">…</span>'; };
   if (pageCount <= 7) { for (let p = 1; p <= pageCount; p++) push(p); }
   else {
     push(1);
-    if (s.page > 3) dots();
-    for (let p = Math.max(2, s.page - 1); p <= Math.min(pageCount - 1, s.page + 1); p++) push(p);
-    if (s.page < pageCount - 2) dots();
+    if (t.page > 3) dots();
+    for (let p = Math.max(2, t.page - 1); p <= Math.min(pageCount - 1, t.page + 1); p++) push(p);
+    if (t.page < pageCount - 2) dots();
     push(pageCount);
   }
   return `<div class="arch-pag">
-    <span class="arch-pag-info">Showing ${from}–${to} of ${total}</span>
-    <span class="arch-pag-btns">${btn(icon('chevron-left', 14), s.page - 1, { disabled: s.page <= 1 })}${nums}${btn(icon('chevron-right', 14), s.page + 1, { disabled: s.page >= pageCount })}</span>
+    <span class="arch-pag-left">
+      <span class="arch-pag-info">Showing ${from}–${to} of ${total}</span>
+      <label class="arch-pag-size">Rows
+        <select onchange="_archSetPageSize(this.value)">
+          ${[10, 25, 50].map(n => `<option value="${n}"${n === t.pageSize ? ' selected' : ''}>${n}</option>`).join('')}
+        </select>
+      </label>
+    </span>
+    <span class="arch-pag-btns">${btn(icon('chevron-left', 14), t.page - 1, { disabled: t.page <= 1 })}${nums}${btn(icon('chevron-right', 14), t.page + 1, { disabled: t.page >= pageCount })}</span>
   </div>`;
 }
 
-function _archSugSetSearch(v) { _archSug.search = v; _archSug.page = 1; _archSugRender(); const i = document.querySelector('#archive-body .arch-search input'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
-function _archSugSetOwner(v) { _archSug.owner = v; _archSug.page = 1; _archSugRender(); }
-function _archSugSetSeverity(k) { _archSug.severity = (k === 'all') ? 'all' : (_archSug.severity === k ? 'all' : k); _archSug.page = 1; _archSugRender(); }
-function _archSugSetSort(k) { const s = _archSug; if (s.sortKey === k) s.sortDir = s.sortDir === 'asc' ? 'desc' : 'asc'; else { s.sortKey = k; s.sortDir = 'desc'; } _archSugRender(); }
-function _archSugSetPage(p) { _archSug.page = Math.max(1, p); _archSugRender(); }
-function _archSugToggle(id, checked) { if (checked) _archSug.selected.add(id); else _archSug.selected.delete(id); _archSugRender(); }
-function _archSugToggleAll(checked) {
-  const rows = _archSugFiltered();
-  const s = _archSug;
-  const paged = rows.slice((s.page - 1) * s.pageSize, (s.page - 1) * s.pageSize + s.pageSize);
-  paged.forEach(r => { const id = String(r['Lead ID']); if (checked) s.selected.add(id); else s.selected.delete(id); });
-  _archSugRender();
+// ── State setters (re-render only the live zone; search is debounced) ───────────
+function _archSetSearch(v) {
+  const t = _archTabs[_archiveTab];
+  t.search = v; t.page = 1;
+  if (_archSearchTimer) clearTimeout(_archSearchTimer);
+  _archSearchTimer = setTimeout(_archRenderLive, 200);
 }
-function _archSugClearSel() { _archSug.selected.clear(); _archSugRender(); }
-window._archSugSetSearch = _archSugSetSearch;
-window._archSugSetOwner = _archSugSetOwner;
+function _archSetOwner(v) { const t = _archTabs[_archiveTab]; t.owner = v; t.page = 1; _archRenderLive(); }
+function _archSugSetSeverity(k) {
+  const t = _archTabs.suggestions;
+  t.severity = (k === 'all') ? 'all' : (t.severity === k ? 'all' : k);
+  t.page = 1;
+  _archRenderKpis();
+  _archRenderLive();
+}
+function _archSetSort(k) { const t = _archTabs[_archiveTab]; if (t.sortKey === k) t.sortDir = t.sortDir === 'asc' ? 'desc' : 'asc'; else { t.sortKey = k; t.sortDir = 'desc'; } _archRenderLive(); }
+function _archSetPage(p) { _archTabs[_archiveTab].page = Math.max(1, p); _archRenderLive(); }
+function _archSetPageSize(n) { const t = _archTabs[_archiveTab]; t.pageSize = Math.max(10, Number(n) || 10); t.page = 1; _archRenderLive(); }
+function _archToggle(id, checked) { const t = _archTabs[_archiveTab]; if (checked) t.selected.add(id); else t.selected.delete(id); _archRenderLive(); }
+function _archToggleAll(checked) {
+  const t = _archTabs[_archiveTab];
+  const rows = _archFiltered(_archiveTab);
+  const paged = rows.slice((t.page - 1) * t.pageSize, (t.page - 1) * t.pageSize + t.pageSize);
+  paged.forEach(r => { const id = String(r['Lead ID']); if (checked) t.selected.add(id); else t.selected.delete(id); });
+  _archRenderLive();
+}
+function _archClearSel() { _archTabs[_archiveTab].selected.clear(); _archRenderLive(); }
+window._archSetSearch = _archSetSearch;
+window._archSetOwner = _archSetOwner;
 window._archSugSetSeverity = _archSugSetSeverity;
-window._archSugSetSort = _archSugSetSort;
-window._archSugSetPage = _archSugSetPage;
-window._archSugToggle = _archSugToggle;
-window._archSugToggleAll = _archSugToggleAll;
-window._archSugClearSel = _archSugClearSel;
+window._archSetSort = _archSetSort;
+window._archSetPage = _archSetPage;
+window._archSetPageSize = _archSetPageSize;
+window._archToggle = _archToggle;
+window._archToggleAll = _archToggleAll;
+window._archClearSel = _archClearSel;
 
+// ── In-place mutations (no full page reload — filters/page/tab survive) ─────────
+function _archApplyArchived(doneIds) {
+  const set = new Set((doneIds || []).map(String));
+  if (!set.size) return;
+  const t = _archTabs.suggestions;
+  if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
+  set.forEach(id => t.selected.delete(id));
+  _archTabs.archived.rows = null; // refreshed on next visit
+  AppCache.invalidate('leads');
+  AppCache.invalidate('followups');
+  if (el('archive-page') && _archiveTab === 'suggestions') { _archRenderKpis(); _archRenderLive(); }
+  try { renderSidebar(); } catch (e) {}
+}
+
+function _archApplyRestored(doneIds) {
+  const set = new Set((doneIds || []).map(String));
+  if (!set.size) return;
+  const t = _archTabs.archived;
+  if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
+  set.forEach(id => t.selected.delete(id));
+  _archTabs.suggestions.rows = null; // a restored lead may qualify again
+  AppCache.invalidate('leads');
+  AppCache.invalidate('followups');
+  if (el('archive-page') && _archiveTab === 'archived') { _archRenderKpis(); _archRenderLive(); }
+  try { renderSidebar(); } catch (e) {}
+}
+
+function _archiveOpenLead(leadId) {
+  if (leadId && typeof openLeadDetail === 'function') openLeadDetail(leadId);
+}
+window._archiveOpenLead = _archiveOpenLead;
+
+// ── Single actions ───────────────────────────────────────────────────────────────
 async function _archiveSuggestionLead(leadId) {
   const result = await Swal.fire({
     title: 'Archive this lead?',
@@ -392,12 +564,30 @@ async function _archiveSuggestionLead(leadId) {
     await api.archiveLead({ leadId, reason: (result.value || '').trim() || '7+ unanswered calls (Not Picked)' });
   } catch (e) { toast(e && e.message || e, 'error'); return; }
   toast('Lead archived.');
-  _afterArchiveMutation();
+  _archApplyArchived([leadId]);
 }
 window._archiveSuggestionLead = _archiveSuggestionLead;
 
+async function _restoreArchivedLead(leadId) {
+  const result = await Swal.fire({
+    title: 'Restore lead?',
+    text: 'This will move the lead back to active leads.',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Restore'
+  });
+  if (!result.isConfirmed) return;
+  try {
+    await api.restoreArchivedLead(leadId);
+  } catch (e) { toast(e && e.message || e, 'error'); return; }
+  toast('Lead restored.');
+  _archApplyRestored([leadId]);
+}
+window._restoreArchivedLead = _restoreArchivedLead;
+
+// ── Bulk actions (chunked, minimisable progress dialog) ─────────────────────────
 async function _archSugBulkArchive() {
-  const ids = Array.from(_archSug.selected);
+  const ids = Array.from(_archTabs.suggestions.selected);
   if (!ids.length) return;
   const result = await Swal.fire({
     title: `Archive ${ids.length} lead${ids.length > 1 ? 's' : ''}?`,
@@ -409,23 +599,58 @@ async function _archSugBulkArchive() {
     confirmButtonText: 'Archive'
   });
   if (!result.isConfirmed) return;
-  _archBulkRun(ids, (result.value || '').trim() || '7+ unanswered calls (Not Picked)');
+  const reason = (result.value || '').trim() || '7+ unanswered calls (Not Picked)';
+  _archBulkRun(ids, {
+    verb: 'Archiving leads', doneVerb: 'archived', chunk: 15,
+    exec: async (chunk) => {
+      const res = await api.archiveLeads({ leadIds: chunk, reason });
+      return { done: (res && res.archived) || [], failed: (res && res.failed || []).length };
+    },
+    after: _archApplyArchived
+  });
 }
 window._archSugBulkArchive = _archSugBulkArchive;
 
-// Processes the archive in chunks so we can show live progress and stay responsive
-// (the dialog can be minimised while it runs).
+async function _archBulkRestore() {
+  const ids = Array.from(_archTabs.archived.selected);
+  if (!ids.length) return;
+  const result = await Swal.fire({
+    title: `Restore ${ids.length} lead${ids.length > 1 ? 's' : ''}?`,
+    text: 'They will move back to active leads.',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Restore'
+  });
+  if (!result.isConfirmed) return;
+  _archBulkRun(ids, {
+    verb: 'Restoring leads', doneVerb: 'restored', chunk: 5,
+    exec: async (chunk) => {
+      const settled = await Promise.all(chunk.map(id =>
+        api.restoreArchivedLead(id).then(() => id).catch(() => null)
+      ));
+      const done = settled.filter(Boolean);
+      return { done, failed: chunk.length - done.length };
+    },
+    after: _archApplyRestored
+  });
+}
+window._archBulkRestore = _archBulkRestore;
+
 let _archBulkState = null;
-async function _archBulkRun(ids, reason) {
-  const CHUNK = 15;
-  const s = _archBulkState = { total: ids.length, done: 0, failed: 0, cancelled: false, finished: false, minimized: false };
+async function _archBulkRun(ids, opts) {
+  const s = _archBulkState = {
+    total: ids.length, done: 0, failed: 0, doneIds: [],
+    cancelled: false, finished: false, minimized: false,
+    verb: opts.verb, doneVerb: opts.doneVerb
+  };
   _archProgressOpen();
-  for (let i = 0; i < ids.length && !s.cancelled; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK);
+  for (let i = 0; i < ids.length && !s.cancelled; i += opts.chunk) {
+    const chunk = ids.slice(i, i + opts.chunk);
     try {
-      const res = await api.archiveLeads({ leadIds: chunk, reason });
-      s.done += (res && res.archived) ? res.archived.length : 0;
-      s.failed += (res && res.failed) ? res.failed.length : 0;
+      const res = await opts.exec(chunk);
+      s.doneIds = s.doneIds.concat(res.done || []);
+      s.done += (res.done || []).length;
+      s.failed += Number(res.failed || 0);
     } catch (e) {
       s.failed += chunk.length;
     }
@@ -433,26 +658,26 @@ async function _archBulkRun(ids, reason) {
   }
   s.finished = true;
   _archProgressRender();
-  toast(`${s.done} lead${s.done !== 1 ? 's' : ''} archived${s.failed ? `, ${s.failed} failed` : ''}.`);
+  toast(`${s.done} lead${s.done !== 1 ? 's' : ''} ${s.doneVerb}${s.failed ? `, ${s.failed} failed` : ''}.`);
   setTimeout(() => { if (_archBulkState && _archBulkState.finished) _archProgressRemove(); }, 4000);
-  _afterArchiveMutation();
+  opts.after(s.doneIds);
 }
 
 function _archProgressOpen() {
   _archProgressRemove();
-  const el = document.createElement('div');
-  el.id = 'arch-progress';
-  el.className = 'arch-prog-overlay';
-  document.body.appendChild(el);
+  const node = document.createElement('div');
+  node.id = 'arch-progress';
+  node.className = 'arch-prog-overlay';
+  document.body.appendChild(node);
   _archProgressRender();
 }
 function _archProgressRender() {
-  const el = document.getElementById('arch-progress');
+  const node = document.getElementById('arch-progress');
   const s = _archBulkState;
-  if (!el || !s) return;
-  el.className = 'arch-prog-overlay' + (s.minimized ? ' min' : '');
-  el.innerHTML = s.minimized ? _archProgressChipHTML() : _archProgressCardHTML();
-  renderIcons(el);
+  if (!node || !s) return;
+  node.className = 'arch-prog-overlay' + (s.minimized ? ' min' : '');
+  node.innerHTML = s.minimized ? _archProgressChipHTML() : _archProgressCardHTML();
+  renderIcons(node);
 }
 function _archProgressCardHTML() {
   const s = _archBulkState;
@@ -463,13 +688,13 @@ function _archProgressCardHTML() {
     : (s.cancelled ? `<button class="arch-btn" disabled>Cancelling…</button>` : `<button class="arch-btn" onclick="_archProgressCancel()">Cancel</button>`);
   return `<div class="arch-prog-card">
     <div class="arch-prog-head">
-      <div class="arch-prog-title">${icon(s.finished ? 'check-circle' : 'archive', 16)} ${s.finished ? 'Archive complete' : 'Archiving leads'}</div>
+      <div class="arch-prog-title">${icon(s.finished ? 'check-circle' : 'archive', 16)} ${s.finished ? 'Complete' : s.verb}</div>
       <button class="arch-prog-icon" title="Minimize" onclick="_archProgressMinimize()">${icon('minus', 15)}</button>
     </div>
     <div class="arch-prog-bar"><div class="arch-prog-bar-fill" style="width:${pct}%"></div></div>
     <div class="arch-prog-stats">
       <span><strong>${processed}</strong> of ${s.total} processed</span>
-      ${s.failed ? `<span style="color:#b91c1c">${s.failed} failed</span>` : `<span style="color:#059669">${s.done} archived</span>`}
+      ${s.failed ? `<span style="color:#b91c1c">${s.failed} failed</span>` : `<span style="color:#059669">${s.done} ${s.doneVerb}</span>`}
     </div>
     <div class="arch-prog-foot">${foot}</div>
   </div>`;
@@ -478,114 +703,24 @@ function _archProgressChipHTML() {
   const s = _archBulkState;
   const processed = s.done + s.failed;
   const pct = s.total ? Math.round(processed / s.total * 100) : 0;
-  return `<button class="arch-prog-chip" onclick="_archProgressMaximize()" title="Show archive progress">
+  return `<button class="arch-prog-chip" onclick="_archProgressMaximize()" title="Show progress">
     ${s.finished ? icon('check-circle', 15) : `<span class="arch-prog-spin">${icon('loader-circle', 15)}</span>`}
-    <span>${s.finished ? 'Archived ' + s.done : 'Archiving ' + processed + '/' + s.total}</span>
+    <span>${s.finished ? (s.done + ' ' + s.doneVerb) : (s.verb + ' ' + processed + '/' + s.total)}</span>
     <span class="arch-prog-chip-pct">${pct}%</span>
   </button>`;
 }
 function _archProgressMinimize() { if (_archBulkState) { _archBulkState.minimized = true; _archProgressRender(); } }
 function _archProgressMaximize() { if (_archBulkState) { _archBulkState.minimized = false; _archProgressRender(); } }
 function _archProgressCancel() { if (_archBulkState) { _archBulkState.cancelled = true; _archProgressRender(); } }
-function _archProgressRemove() { const el = document.getElementById('arch-progress'); if (el) el.remove(); _archBulkState = null; }
+function _archProgressRemove() { const node = document.getElementById('arch-progress'); if (node) node.remove(); _archBulkState = null; }
 window._archProgressMinimize = _archProgressMinimize;
 window._archProgressMaximize = _archProgressMaximize;
 window._archProgressCancel = _archProgressCancel;
 window._archProgressRemove = _archProgressRemove;
 
-function _afterArchiveMutation() {
-  AppCache.invalidate('leads');
-  AppCache.invalidate('followups');
-  _archiveSuggestions = null;
-  _archSug = null;
-  _archiveData._loaded = false;
-  loadArchive('suggestions', true);
-  if (typeof renderSidebar === 'function') renderSidebar();
-}
-
-function _renderArchive() {
-  const archived = _archiveData.archived || [];
-  const kpis = el('archive-kpis');
-  if (kpis) {
-    kpis.innerHTML = [
-      _archKpi({ label: 'Archived Leads', val: archived.length, sub: 'hidden from active work', ic: 'archive', variant: 'neutral' }),
-      _archKpi({ label: 'Archived Follow-ups', val: archived.reduce((n, r) => n + Number(r._followupCount || 0), 0), sub: 'linked records archived', ic: 'phone', variant: 'total' }),
-      _archKpi({ label: 'Not Picked Count', val: archived.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), sub: 'before archive', ic: 'phone-missed', variant: 'crit' })
-    ].join('');
-    renderIcons(kpis);
-  }
-  const rows = archived;
-  const body = el('archive-body');
-  if (!body) return;
-  body.innerHTML = `
-    <div class="fu-worklist-card">
-      <div class="fu-worklist-head">
-        <div>
-          <div class="fu-worklist-title">Archived Leads <span class="fu-worklist-count">${rows.length}</span></div>
-          <div style="font-size:12px;color:#64748b">Leads manually marked as archived with their linked follow-ups.</div>
-        </div>
-      </div>
-      <div class="fu-table-scroll">
-        <table class="fu-table">
-          <thead><tr>
-            <th>Lead</th><th>Owner</th><th>Pending</th><th>Not Picked</th><th>Follow-ups</th><th>Archived</th><th></th>
-          </tr></thead>
-          <tbody>${rows.length ? rows.map(_archiveRowHTML).join('') : `<tr><td colspan="7" class="empty-table-cell">No archived leads found.</td></tr>`}</tbody>
-        </table>
-      </div>
-    </div>`;
-  renderIcons(body);
-}
-
-function _archiveRowHTML(row) {
-  const leadId = String(row['Lead ID'] || '');
-  const owner = App.config.userNameMap?.[row['Assigned To']] || row['Assigned To'] || '—';
-  const title = row['Company Name'] || row['Client Description'] || leadId || '—';
-  const place = [row['City'], row['State']].filter(Boolean).join(', ');
-  const pending = Number(row._pendingDays || 0);
-  const archivedInfo = row['Archived At']
-    ? `${formatDateTime(row['Archived At'])}${row['Archive Reason'] ? ' - ' + row['Archive Reason'] : ''}`
-    : '28+ days pending and 10+ Not Picked';
-  return `<tr class="fu-row">
-    <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
-      <div class="fu-lead-title">${escapeHtml(title)}</div>
-      <div class="fu-lead-sub">${escapeHtml(place || leadId)}</div>
-    </td>
-    <td>${escapeHtml(owner)}</td>
-    <td><span class="badge" style="background:#FEF3C7;color:#92400E">${escapeHtml(pending)} days</span></td>
-    <td><span class="badge" style="background:#FEE2E2;color:#991B1B">${escapeHtml(row._notPickedCount || 0)}</span></td>
-    <td>${escapeHtml(row._followupCount || 0)}</td>
-    <td><div class="fu-discussion" title="${escapeHtml(archivedInfo)}">${escapeHtml(archivedInfo)}</div></td>
-    <td style="text-align:right">
-      <button class="btn btn-outlined btn-sm" onclick="_restoreArchivedLead('${escapeHtml(leadId)}')">${icon('rotate-ccw', 13)} Restore</button>
-    </td>
-  </tr>`;
-}
-
-function _archiveOpenLead(leadId) {
-  if (leadId && typeof openLeadDetail === 'function') openLeadDetail(leadId);
-}
-
-async function _restoreArchivedLead(leadId) {
-  const result = await Swal.fire({
-    title: 'Restore lead?',
-    text: 'This will move the lead back to active leads.',
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonText: 'Restore'
-  });
-  if (!result.isConfirmed) return;
-  await api.restoreArchivedLead(leadId);
-  toast('Lead restored.');
-  AppCache.invalidate('leads');
-  AppCache.invalidate('followups');
-  _archiveData._loaded = false;
-  await loadArchive(_archiveTab, true);
-  if (typeof renderSidebar === 'function') renderSidebar();
-}
-
+// ── CSV export (exports the filtered view of the Archived tab) ──────────────────
 function _exportArchiveCsv() {
-  const rows = _archiveData.archived || [];
+  const rows = _archTabs.archived.rows ? _archFiltered('archived') : [];
   if (!rows.length) {
     toast('No archive rows to export.', 'error');
     return;
@@ -603,7 +738,7 @@ function _exportArchiveCsv() {
     row['Email'] || '',
     row['City'] || '',
     row['State'] || '',
-    App.config.userNameMap?.[row['Assigned To']] || row['Assigned To'] || '',
+    _archOwnerName(row['Assigned To']),
     row['Lead Status'] || '',
     row['Next Follow-up Date'] || '',
     row['Last Follow-up Date'] || '',
@@ -611,7 +746,7 @@ function _exportArchiveCsv() {
     row._pendingDays || 0,
     row._followupCount || 0,
     row['Archived At'] || '',
-    App.config.userNameMap?.[row['Archived By']] || row['Archived By'] || '',
+    _archOwnerName(row['Archived By']),
     row['Archive Reason'] || ''
   ]));
   const csv = csvRows.map(cols => cols.map(_archiveCsvCell).join(',')).join('\r\n');
@@ -625,11 +760,10 @@ function _exportArchiveCsv() {
   URL.revokeObjectURL(a.href);
   a.remove();
 }
+window._exportArchiveCsv = _exportArchiveCsv;
 
 function _archiveCsvCell(value) {
   const text = String(value ?? '');
   return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
 }
-
-window.loadArchive = loadArchive;
 </script>

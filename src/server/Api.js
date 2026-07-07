@@ -336,13 +336,14 @@ function apiArchiveLeads(token, payload) {
       const archived = [], failed = [];
       ids.forEach(id => {
         try {
-          const r = archiveLead(id, reason, user.email);
+          const r = archiveLead(id, reason, user.email, { skipStamps: true });
           if (r && r.success) archived.push(id);
           else failed.push({ id: id, error: (r && r.error) || 'Archive failed' });
         } catch (e) {
           failed.push({ id: id, error: (e && e.message) || String(e) });
         }
       });
+      if (archived.length) _bumpArchiveStamps_();
       return respond({ archived: archived, failed: failed });
     });
   });
