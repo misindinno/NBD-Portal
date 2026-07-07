@@ -78,6 +78,24 @@
   /* Shared table polish for the Archived tab too (darker headers, taller rows) */
   #archive-page .fu-table th { color: #475569; }
   #archive-page .fu-table td { height: 58px; }
+
+  /* Bulk-archive progress dialog (minimisable) */
+  .arch-prog-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.4); display: flex; align-items: center; justify-content: center; z-index: 1200; }
+  .arch-prog-overlay.min { inset: auto; right: 20px; bottom: 20px; background: transparent; display: block; }
+  .arch-prog-card { background: #fff; border-radius: 14px; width: min(420px, 92vw); padding: 20px; box-shadow: 0 14px 44px rgba(15,23,42,.28); }
+  .arch-prog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .arch-prog-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800; color: #0f172a; }
+  .arch-prog-icon { width: 30px; height: 30px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; color: #475569; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .arch-prog-icon:hover { background: #f8fafc; }
+  .arch-prog-bar { height: 8px; background: #eef0f6; border-radius: 20px; overflow: hidden; margin-bottom: 10px; }
+  .arch-prog-bar-fill { height: 100%; background: var(--brand, #6366f1); border-radius: 20px; transition: width .25s ease; }
+  .arch-prog-stats { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 18px; }
+  .arch-prog-stats strong { color: #0f172a; }
+  .arch-prog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+  .arch-prog-chip { display: inline-flex; align-items: center; gap: 9px; background: #fff; border: 1px solid #e5e7eb; border-radius: 999px; padding: 9px 16px; box-shadow: 0 6px 22px rgba(15,23,42,.18); font-size: 13px; font-weight: 700; color: #0f172a; cursor: pointer; }
+  .arch-prog-chip svg { width: 15px; height: 15px; }
+  .arch-prog-chip-pct { color: var(--brand, #6366f1); }
+  .arch-prog-spin { display: inline-flex; animation: spin 1s linear infinite; }
 </style>
 <script>
 let _archiveTab = 'archived';
@@ -391,15 +409,89 @@ async function _archSugBulkArchive() {
     confirmButtonText: 'Archive'
   });
   if (!result.isConfirmed) return;
-  let res;
-  try {
-    res = await api.archiveLeads({ leadIds: ids, reason: (result.value || '').trim() || '7+ unanswered calls (Not Picked)' });
-  } catch (e) { toast(e && e.message || e, 'error'); return; }
-  const done = (res && res.archived && res.archived.length) || ids.length;
-  toast(`${done} lead${done > 1 ? 's' : ''} archived.`);
-  _afterArchiveMutation();
+  _archBulkRun(ids, (result.value || '').trim() || '7+ unanswered calls (Not Picked)');
 }
 window._archSugBulkArchive = _archSugBulkArchive;
+
+// Processes the archive in chunks so we can show live progress and stay responsive
+// (the dialog can be minimised while it runs).
+let _archBulkState = null;
+async function _archBulkRun(ids, reason) {
+  const CHUNK = 15;
+  const s = _archBulkState = { total: ids.length, done: 0, failed: 0, cancelled: false, finished: false, minimized: false };
+  _archProgressOpen();
+  for (let i = 0; i < ids.length && !s.cancelled; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    try {
+      const res = await api.archiveLeads({ leadIds: chunk, reason });
+      s.done += (res && res.archived) ? res.archived.length : 0;
+      s.failed += (res && res.failed) ? res.failed.length : 0;
+    } catch (e) {
+      s.failed += chunk.length;
+    }
+    _archProgressRender();
+  }
+  s.finished = true;
+  _archProgressRender();
+  toast(`${s.done} lead${s.done !== 1 ? 's' : ''} archived${s.failed ? `, ${s.failed} failed` : ''}.`);
+  setTimeout(() => { if (_archBulkState && _archBulkState.finished) _archProgressRemove(); }, 4000);
+  _afterArchiveMutation();
+}
+
+function _archProgressOpen() {
+  _archProgressRemove();
+  const el = document.createElement('div');
+  el.id = 'arch-progress';
+  el.className = 'arch-prog-overlay';
+  document.body.appendChild(el);
+  _archProgressRender();
+}
+function _archProgressRender() {
+  const el = document.getElementById('arch-progress');
+  const s = _archBulkState;
+  if (!el || !s) return;
+  el.className = 'arch-prog-overlay' + (s.minimized ? ' min' : '');
+  el.innerHTML = s.minimized ? _archProgressChipHTML() : _archProgressCardHTML();
+  renderIcons(el);
+}
+function _archProgressCardHTML() {
+  const s = _archBulkState;
+  const processed = s.done + s.failed;
+  const pct = s.total ? Math.round(processed / s.total * 100) : 0;
+  const foot = s.finished
+    ? `<button class="arch-btn" onclick="_archProgressRemove()" style="background:var(--brand,#6366f1);color:#fff;border-color:var(--brand,#6366f1)">Done</button>`
+    : (s.cancelled ? `<button class="arch-btn" disabled>Cancelling…</button>` : `<button class="arch-btn" onclick="_archProgressCancel()">Cancel</button>`);
+  return `<div class="arch-prog-card">
+    <div class="arch-prog-head">
+      <div class="arch-prog-title">${icon(s.finished ? 'check-circle' : 'archive', 16)} ${s.finished ? 'Archive complete' : 'Archiving leads'}</div>
+      <button class="arch-prog-icon" title="Minimize" onclick="_archProgressMinimize()">${icon('minus', 15)}</button>
+    </div>
+    <div class="arch-prog-bar"><div class="arch-prog-bar-fill" style="width:${pct}%"></div></div>
+    <div class="arch-prog-stats">
+      <span><strong>${processed}</strong> of ${s.total} processed</span>
+      ${s.failed ? `<span style="color:#b91c1c">${s.failed} failed</span>` : `<span style="color:#059669">${s.done} archived</span>`}
+    </div>
+    <div class="arch-prog-foot">${foot}</div>
+  </div>`;
+}
+function _archProgressChipHTML() {
+  const s = _archBulkState;
+  const processed = s.done + s.failed;
+  const pct = s.total ? Math.round(processed / s.total * 100) : 0;
+  return `<button class="arch-prog-chip" onclick="_archProgressMaximize()" title="Show archive progress">
+    ${s.finished ? icon('check-circle', 15) : `<span class="arch-prog-spin">${icon('loader-circle', 15)}</span>`}
+    <span>${s.finished ? 'Archived ' + s.done : 'Archiving ' + processed + '/' + s.total}</span>
+    <span class="arch-prog-chip-pct">${pct}%</span>
+  </button>`;
+}
+function _archProgressMinimize() { if (_archBulkState) { _archBulkState.minimized = true; _archProgressRender(); } }
+function _archProgressMaximize() { if (_archBulkState) { _archBulkState.minimized = false; _archProgressRender(); } }
+function _archProgressCancel() { if (_archBulkState) { _archBulkState.cancelled = true; _archProgressRender(); } }
+function _archProgressRemove() { const el = document.getElementById('arch-progress'); if (el) el.remove(); _archBulkState = null; }
+window._archProgressMinimize = _archProgressMinimize;
+window._archProgressMaximize = _archProgressMaximize;
+window._archProgressCancel = _archProgressCancel;
+window._archProgressRemove = _archProgressRemove;
 
 function _afterArchiveMutation() {
   AppCache.invalidate('leads');

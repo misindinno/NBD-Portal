@@ -245,7 +245,12 @@ function _bumpArchiveStamps_() {
   _bumpStamp('activity_logs');
 }
 
+// Per-execution guard: the header check invalidates the read cache and does Sheets
+// round-trips, so run it once per request instead of once per lead in a bulk archive.
+let _archiveSchemaEnsured_ = false;
 function ensureArchiveSchema_() {
+  if (_archiveSchemaEnsured_) return;
   safeInitHeaders(SHEET_NAMES.LEADS, LEAD_MASTER_FIELDS);
   ensureFollowupSheets_();
+  _archiveSchemaEnsured_ = true;
 }
