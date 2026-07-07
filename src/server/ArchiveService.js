@@ -44,10 +44,12 @@ function getArchiveData(user) {
 }
 
 // ── Archive suggestions ─────────────────────────────────────────────────────────
-// Leads that have been "connected" on a call this many times in a row (no break) are
-// likely being chased with no result → suggested for archiving.
+// Leads that have been "connected" on a call this many times (heavily chased with no
+// result) are suggested for archiving. We flag on the TOTAL number of connected calls
+// (not a strict unbroken run — real history is interspersed with misses/stage changes,
+// so an "in a row" rule almost never triggers); the longest run is kept as extra info.
 const ARCHIVE_SUGGESTION_CONNECTED_ = { 'Call Connected': true };
-const ARCHIVE_SUGGESTION_MIN_STREAK_ = 7;
+const ARCHIVE_SUGGESTION_MIN_CONNECTED_ = 7;
 
 function _archiveHistTime_(h) {
   const v = (h && (h['Done Date'] || h['Created At'])) || '';
@@ -58,8 +60,8 @@ function _archiveHistTime_(h) {
 }
 
 // Reads leads + follow-up history via the Advanced Sheets service (batchGet) and returns
-// the leads whose follow-up history contains a run of >= MIN_STREAK consecutive
-// "Call Connected" contacts. SpreadsheetApp fallback is handled inside sheetApiBatchGetRows_.
+// the leads with >= MIN_CONNECTED total "Call Connected" contacts (final-stage, archived
+// and NBD-pushed leads excluded). SpreadsheetApp fallback is handled in sheetApiBatchGetRows_.
 function getArchiveSuggestionsFast_(user) {
   ensureArchiveSchema_();
   _bootstrapReadMode_ = true;
@@ -113,16 +115,16 @@ function getArchiveSuggestionsFast_(user) {
         streak = 0;                                      // Not Picked / other contact breaks the run
       }
     });
-    if (maxStreak >= ARCHIVE_SUGGESTION_MIN_STREAK_) {
+    if (total >= ARCHIVE_SUGGESTION_MIN_CONNECTED_) {
       suggestions.push(Object.assign({}, lead, {
-        _connectedStreak: maxStreak,
         _connectedTotal: total,
+        _connectedStreak: maxStreak,
         _lastConnectedDate: lastConnected
       }));
     }
   });
   return suggestions.sort((a, b) =>
-    (b._connectedStreak - a._connectedStreak) || (b._connectedTotal - a._connectedTotal)
+    (b._connectedTotal - a._connectedTotal) || (b._connectedStreak - a._connectedStreak)
   );
 }
 
