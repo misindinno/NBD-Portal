@@ -1,7 +1,7 @@
 <script>
 // ─── Follow-ups Page ─────────────────────────────────────────────────────────
 
-let _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
+let _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
 let _fuPage = 1;
 let _fuPageSize = 25;
 let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_fuDensity')) || 'compact';
@@ -12,7 +12,7 @@ let _fuShellReady = false;
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
   el('page-title').textContent = 'Follow-ups';
-  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
+  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
   _fuPage = 1;
   _fuPageSnapshot = null; // cache removed — refetch fresh each time Follow-ups is opened (tab switches reuse this visit's data)
 
@@ -157,6 +157,8 @@ function _fuFilterChipsHTML() {
   if (f.assignedTo) chips.push(['assignedTo', `Owner: ${(users.find(u => u.id === f.assignedTo) || {}).name || f.assignedTo}`]);
   if (f.contactMode) chips.push(['contactMode', `Contact: ${f.contactMode}`]);
   if (f.stage) chips.push(['stage', `Stage: ${(stages.find(s => s['Stage ID'] === f.stage) || {})['Stage Name'] || f.stage}`]);
+  if (f.state) chips.push(['state', `State: ${f.state}`]);
+  if (f.city) chips.push(['city', `City: ${f.city}`]);
   if (f.dateFrom) chips.push(['dateFrom', `From: ${f.dateFrom}`]);
   if (f.dateTo) chips.push(['dateTo', `To: ${f.dateTo}`]);
   return chips.map(([key, label]) => `<button class="fu-filter-chip" onclick="_fuOnFilterChange('${key}','')">${escapeHtml(label)} ${icon('x', 11)}</button>`).join('');
@@ -164,7 +166,7 @@ function _fuFilterChipsHTML() {
 
 function _fuActiveFilterCount() {
   const f = _fuFilterState;
-  return ['type','assignedTo','contactMode','stage','dateFrom','dateTo'].filter(k => f[k]).length;
+  return ['type','assignedTo','contactMode','stage','state','city','dateFrom','dateTo'].filter(k => f[k]).length;
 }
 
 function _fuModernFilterBarHTML() {
@@ -174,6 +176,11 @@ function _fuModernFilterBarHTML() {
   const users = cfg.users || [];
   const stages = cfg.stages || cfg.allStages || [];
   const modes = ['Call Connected', 'WhatsApp Chat', 'Not Picked'];
+  const _locRows = (typeof AppCache !== 'undefined' && AppCache.getRows) ? (AppCache.getRows('leads') || []) : [];
+  const _stateSet = {}, _citySet = {};
+  _locRows.forEach(l => { const s = String(l['State'] || '').trim(); if (s) _stateSet[s] = 1; const c = String(l['City'] || '').trim(); if (c) _citySet[c] = 1; });
+  const fuStates = Object.keys(_stateSet).sort((a, b) => a.localeCompare(b));
+  const fuCities = Object.keys(_citySet).sort((a, b) => a.localeCompare(b));
   return `
   <div class="fu-filter-bar" id="fu-filter-bar" style="display:${_fuFiltersOpen ? 'block' : 'none'}">
     <div class="fu-filter-card-grid">
@@ -195,6 +202,14 @@ function _fuModernFilterBarHTML() {
       <label class="fu-filter"><span>Stage</span><select id="fu-f-stage" onchange="_fuOnFilterChange('stage',this.value)">
         <option value="">All Stages</option>
         ${stages.map(s=>`<option value="${escapeHtml(s['Stage ID'])}"${f.stage===s['Stage ID']?' selected':''}>${escapeHtml(s['Stage Name'])}</option>`).join('')}
+      </select></label>
+      <label class="fu-filter"><span>State</span><select id="fu-f-state" onchange="_fuOnFilterChange('state',this.value)">
+        <option value="">All States</option>
+        ${fuStates.map(s=>`<option value="${escapeHtml(s)}"${f.state===s?' selected':''}>${escapeHtml(s)}</option>`).join('')}
+      </select></label>
+      <label class="fu-filter"><span>City</span><select id="fu-f-city" onchange="_fuOnFilterChange('city',this.value)">
+        <option value="">All Cities</option>
+        ${fuCities.map(c=>`<option value="${escapeHtml(c)}"${f.city===c?' selected':''}>${escapeHtml(c)}</option>`).join('')}
       </select></label>
       <label class="fu-filter fu-date"><span>From</span><input type="date" id="fu-f-from" value="${escapeHtml(f.dateFrom)}" onchange="_fuOnFilterChange('dateFrom',this.value)"></label>
       <label class="fu-filter fu-date"><span>To</span><input type="date" id="fu-f-to" value="${escapeHtml(f.dateTo)}" onchange="_fuOnFilterChange('dateTo',this.value)"></label>
@@ -260,7 +275,7 @@ function _fuOnFilterChange(key, value) {
 }
 
 function _fuClearFilters() {
-  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', dateFrom: '', dateTo: '' };
+  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
   _fuPage = 1;
   // Reset the filter inputs without full page reload
   const s = el('fu-f-search'); if (s) s.value = '';
@@ -275,7 +290,7 @@ function _fuClearFilters() {
 
 function _fuApplyFilters(rows, ctx) {
   const f = _fuFilterState;
-  if (!f.search && !f.type && !f.assignedTo && !f.contactMode && !f.stage && !f.dateFrom && !f.dateTo) return rows;
+  if (!f.search && !f.type && !f.assignedTo && !f.contactMode && !f.stage && !f.state && !f.city && !f.dateFrom && !f.dateTo) return rows;
   const searchQ = f.search.toLowerCase().trim();
   return rows.filter(row => {
     const lead = ctx?.leadMap?.[row['Lead ID']];
@@ -291,6 +306,8 @@ function _fuApplyFilters(rows, ctx) {
     if (f.assignedTo && lead?.['Assigned To'] !== f.assignedTo) return false;
     if (f.contactMode && String(row['Contact Mode'] || '') !== f.contactMode) return false;
     if (f.stage && lead?.['Stage ID'] !== f.stage && row['Stage ID'] !== f.stage && row['Updated Stage ID'] !== f.stage) return false;
+    if (f.state && String(lead?.['State'] || '') !== f.state) return false;
+    if (f.city && String(lead?.['City'] || '') !== f.city) return false;
     // Closed tab rows use Done Date; open tabs use Planned Date
     const dateField = row['Done Date'] ? _fmtDate(row['Done Date']) : _fmtDate(_fuPlannedDate(row));
     if (f.dateFrom && dateField && dateField < f.dateFrom) return false;

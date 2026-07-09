@@ -65,7 +65,7 @@
   window._leadToggleFilters = _leadToggleFilters;
 
   function _leadClearFilters() {
-    ['lead-search','lead-status-f','lead-priority-f','lead-stage-f'].forEach(id => { const e = el(id); if (e) e.value = ''; });
+    ['lead-search','lead-status-f','lead-priority-f','lead-stage-f','lead-state-f','lead-city-f'].forEach(id => { const e = el(id); if (e) e.value = ''; });
     _leadKpiFilter = '';
     _leadStatusTab = 'all';
     const tabsEl = el('lead-status-tabs');
@@ -172,6 +172,11 @@
     const statusOpts = App.config.statuses.map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
     const priorityOpts = App.config.priorities.map(function (p) { return '<option>' + escapeHtml(p) + '</option>'; }).join('');
     const stageOpts = App.config.stages.map(function (s) { return '<option value="' + escapeHtml(s['Stage ID']) + '">' + escapeHtml(s['Stage Name']) + '</option>'; }).join('');
+    const _locRows = (typeof AppCache !== 'undefined' && AppCache.getRows) ? (AppCache.getRows('leads') || []) : [];
+    const _stateSet = {}, _citySet = {};
+    _locRows.forEach(function (l) { var s = String(l['State'] || '').trim(); if (s) _stateSet[s] = 1; var c = String(l['City'] || '').trim(); if (c) _citySet[c] = 1; });
+    const stateOpts = Object.keys(_stateSet).sort(function (a, b) { return a.localeCompare(b); }).map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
+    const cityOpts = Object.keys(_citySet).sort(function (a, b) { return a.localeCompare(b); }).map(function (c) { return '<option>' + escapeHtml(c) + '</option>'; }).join('');
 
     el('content').innerHTML = `
     <div class="fu-page td-page fu-density-${_leadDensity}" id="leads-page">
@@ -214,6 +219,12 @@
           </select></label>
           <label class="fu-filter"><span>Stage</span><select id="lead-stage-f" onchange="applyLeadFilters()">
             <option value="">All Stages</option>${stageOpts}
+          </select></label>
+          <label class="fu-filter"><span>State</span><select id="lead-state-f" onchange="applyLeadFilters()">
+            <option value="">All States</option>${stateOpts}
+          </select></label>
+          <label class="fu-filter"><span>City</span><select id="lead-city-f" onchange="applyLeadFilters()">
+            <option value="">All Cities</option>${cityOpts}
           </select></label>
           <button class="btn btn-outlined btn-sm fu-filter-clear-all" onclick="_leadClearFilters()">${icon('x', 13)} Clear</button>
         </div>
@@ -515,8 +526,10 @@
     const status = el('lead-status-f')?.value || '';
     const priority = el('lead-priority-f')?.value || '';
     const stage = el('lead-stage-f')?.value || '';
+    const state = el('lead-state-f')?.value || '';
+    const city = el('lead-city-f')?.value || '';
     const stageMap = (App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
-    const hasAny = !!(q || status || priority || stage || _leadKpiFilter || _leadStatusTab !== 'all');
+    const hasAny = !!(q || status || priority || stage || state || city || _leadKpiFilter || _leadStatusTab !== 'all');
     return {
       hasAny,
       test(data) {
@@ -528,6 +541,8 @@
         if (status && data['Lead Status'] !== status) return false;
         if (priority && data['Priority'] !== priority) return false;
         if (stage && data['Stage ID'] !== stage) return false;
+        if (state && String(data['State'] || '') !== state) return false;
+        if (city && String(data['City'] || '') !== city) return false;
         const stg = stageMap[data['Stage ID']] || {};
         const isFinal = stg['Is Final Stage'] === true || stg['Is Final Stage'] === 'TRUE';
         const isNbd = !!(data['NBD Lead ID'] || data['Pushed To NBD At']);
