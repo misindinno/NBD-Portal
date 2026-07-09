@@ -440,7 +440,8 @@
       if (row) row.delete();
       AppCache.invalidate('followups');
       toast('Lead archived.');
-      if (typeof renderSidebar === 'function') renderSidebar();
+      if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient([leadId]);
+      else if (typeof renderSidebar === 'function') renderSidebar();
     } catch (err) {
       toast('Archive failed: ' + (err.message || err), 'error');
       _refreshLeadsCache().catch(() => {});

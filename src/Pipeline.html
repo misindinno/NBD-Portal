@@ -113,6 +113,8 @@ async function _pipelineArchiveCard(leadId) {
     toast('Archiving…', 'info');
     await api.archiveLead({ leadId, reason });
     toast('Lead archived');
+    AppCache.invalidate('followups');
+    if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient([leadId]);
   } catch (err) {
     toast('Archive failed: ' + (err.message || err), 'error');
     _refreshLeadsCache().catch(() => {});

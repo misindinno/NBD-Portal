@@ -527,6 +527,8 @@ function _archApplyArchived(doneIds) {
   AppCache.invalidate('leads');
   AppCache.invalidate('followups');
   if (el('archive-page') && _archiveTab === 'suggestions') { _archRenderKpis(); _archRenderLive(); }
+  // Drop the archived leads' follow-ups so the sidebar count is correct immediately.
+  Array.from(set).forEach(id => { try { AppCache.removeRow('followups', 'Lead ID', id); } catch (e) {} });
   try { renderSidebar(); } catch (e) {}
 }
 

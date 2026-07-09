@@ -554,6 +554,24 @@ function _isNoNextPlannedFollowup(row) {
   return !_fmtDate(_fuPlannedDate(row));
 }
 
+// Called by every archive entry point: archiving a lead closes its follow-ups
+// server-side, so drop them from the in-memory set and re-render the Follow-up
+// worklist immediately (instead of waiting for the 15s poll to heal it).
+function _onLeadsArchivedClient(leadIds) {
+  const ids = (Array.isArray(leadIds) ? leadIds : [leadIds]).map(v => String(v || '')).filter(Boolean);
+  ids.forEach(id => { try { AppCache.removeRow('followups', 'Lead ID', id); } catch (e) {} });
+  const onFu = String(App.currentPage || '').startsWith('followups');
+  if (onFu && typeof _renderFUTab === 'function') {
+    try { _fuPageSnapshot = null; } catch (e) {}
+    _renderFUTab(window.currentFollowupTab || 'all', true)
+      .then(() => { try { renderSidebar(); } catch (e) {} })
+      .catch(() => { try { renderSidebar(); } catch (e) {} });
+  } else {
+    try { renderSidebar(); } catch (e) {}
+  }
+}
+window._onLeadsArchivedClient = _onLeadsArchivedClient;
+
 function _fuIsFinalStage(stage) {
   return !!stage && (stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE');
 }
