@@ -526,6 +526,30 @@ function _canWriteLead(lead, user) {
   return ['ADMIN', 'MANAGER'].includes(user.role) || lead['Assigned To'] === user.id;
 }
 
+// Updates a lead's custom-field values for one stage (from the Stage Fields form).
+// Does NOT change the lead's current stage — fields only.
+function saveLeadStageFields(leadId, stageId, fields, email) {
+  const trustedEmail = TRUSTED_WRITE_EMAIL;
+  if (!trustedEmail) throw new Error('Direct write calls are disabled.');
+  const result = getCurrentUserByEmail_(trustedEmail);
+  if (!result.success) throw new Error(result.error);
+  const user = result.data;
+  leadId = String(leadId || '').trim();
+  stageId = String(stageId || '').trim();
+  if (!leadId) return respond(null, 'No lead selected.');
+  if (!stageId) return respond(null, 'No stage selected.');
+  const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
+  if (!lead) return respond(null, 'Lead not found.');
+  if (!_canReadAssignedRow(lead, user)) return respond(null, 'Permission denied.');
+  if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and is locked in LQ.');
+  upsertCustomFieldValues_('Leads', leadId, fields || {}, user.id, stageId);
+  updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_({ 'Updated At': now() }));
+  const stageName = (getAllStages().find(s => String(s['Stage ID']) === stageId) || {})['Stage Name'] || stageId;
+  insertLeadActivityLog_(leadId, 'Update Stage Fields', stageName, stageName, 'Stage fields updated via form', user.id);
+  _bumpStamp('leads');
+  return respond(true);
+}
+
 function _isLeadPushedToNbd_(lead) {
   return !!(lead && (lead['NBD Lead ID'] || lead['Pushed To NBD At']));
 }

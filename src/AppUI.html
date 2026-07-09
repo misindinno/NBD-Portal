@@ -412,6 +412,7 @@ const _PAGE_META = {
   followups: { title: 'Follow Up',        crumb: 'Follow Up' },
   archive:   { title: 'Archive',          crumb: 'Archive' },
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
+  stagefields: { title: 'Stage Fields',   crumb: 'Stage Fields' },
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
   config:    { title: 'Config',           crumb: 'Config' },
 };
@@ -480,6 +481,7 @@ async function navigate(page) {
     }
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
+    else if (page === 'stagefields')       await _runPageLoader(page, 'loadStageFieldForm');
     else if (page === 'archive')           await _runPageLoader(page, 'loadArchive', ['archived']);
     else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');
     else el('content').innerHTML = '<p>Page not found.</p>';
@@ -578,6 +580,7 @@ function renderSidebar() {
   const leadItems = [
     show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master', badge(leadsCount, 'Pending (not in final stage)')) : '',
     show('LeadForm')  ? navItem('leadform', 'file-plus',  'Lead Form')   : '',
+    show('StageFields') ? navItem('stagefields', 'file-cog', 'Stage Fields') : '',
     show('Archive')   ? navItem('archive',  'archive',    'Archive')     : '',
     canUseBulkEntry ? navItem('bulkview', 'table-2',    'Bulk Entry')  : '',
   ].filter(Boolean).join('');
@@ -639,6 +642,7 @@ function canNavigate(page) {
   };
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
+  if (page === 'stagefields') return App.user.role === 'ADMIN' || hasModule('StageFields');
   if (page === 'bulkview') {
     const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
     return isLqPortal ? (hasModule('BulkEntry') || App.user.role === 'ADMIN') : App.user.role === 'ADMIN';

@@ -1,6 +1,7 @@
 <script>
 // ─── App Init ─────────────────────────────────────────────────────────────────
 async function init() {
+  if (typeof FORM_MODE !== 'undefined' && FORM_MODE === '1') document.body.classList.add('sff-kiosk');
   renderIcons();
   renderInitialLoading();
 
@@ -54,7 +55,12 @@ async function _continueAppInit(token) {
   renderSidebar();
 
   const requestedPage = _initialRequestedPage();
-  const defaultPage = requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser();
+  const kioskMode = typeof FORM_MODE !== 'undefined' && FORM_MODE === '1';
+  // Kiosk link: honor the requested page (navigate() gates access), so a form-only
+  // user lands on the form (or a clear Access-Denied) rather than the default page.
+  const defaultPage = (kioskMode && requestedPage)
+    ? requestedPage
+    : (requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser());
 
   // Legacy fallback path carries no leads — load them on demand so the sidebar fills.
   if (!AppCache.isLoaded('leads')) {

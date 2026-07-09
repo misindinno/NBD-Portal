@@ -287,6 +287,17 @@ function apiSaveLead(token, payload) {
   });
 }
 
+// Stage Fields form — updates a lead's custom fields for a chosen stage (fields only).
+function apiSaveLeadStageFields(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAnyModule(['StageFields', 'Leads', 'LeadForm']);
+    const data = payload || {};
+    return withTrustedWriteUser_(user.email, () =>
+      saveLeadStageFields(data.leadId, data.stageId, data.fields || {}, user.email));
+  });
+}
+
 function apiDeleteLead(token, leadId) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
@@ -381,7 +392,7 @@ function apiMoveLeadStageWithFields(token, payload) {
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    const user = _requireAnyModule(['Leads', 'Followups', 'Archive']);
+    const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields']);
     const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', id);
     const lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
     const followups = _scopeFollowupRows(getFollowups({ leadId: id, includeClosed: true }), user);

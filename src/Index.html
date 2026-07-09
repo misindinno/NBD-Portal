@@ -190,6 +190,7 @@
   <?!= include('FollowupForms'); ?>
   <?!= include('Archive'); ?>
   <?!= include('LeadForm'); ?>
+  <?!= include('StageFieldForm'); ?>
   <?!= include('BulkView'); ?>
   <?!= include('Today'); ?>
   <?!= include('Config'); ?>
@@ -204,6 +205,7 @@
   <script>
     const GOOGLE_CLIENT_ID = '<?!= (function(){ try { return PropertiesService.getScriptProperties().getProperty("GOOGLE_CLIENT_ID") || ""; } catch(e) { return ""; } })() ?>';
     const INITIAL_PAGE = '<?!= typeof initialPage !== "undefined" ? initialPage : "" ?>';
+    const FORM_MODE = '<?!= typeof formMode !== "undefined" ? formMode : "" ?>';
   </script>
   <?!= include('JS'); ?>
 </body>

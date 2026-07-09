@@ -1,0 +1,194 @@
+<style>
+  /* Kiosk (form-only) mode — hide app chrome so a shared link shows just the form */
+  body.sff-kiosk #sidebar { display: none !important; }
+  body.sff-kiosk #topbar { display: none !important; }
+  body.sff-kiosk #main { min-height: 100vh; }
+  body.sff-kiosk #content { padding: 0 !important; }
+  body.sff-kiosk #app-shell { background: #f5f6fb; }
+
+  .sff-wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+  .sff-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  .sff-hero-ic { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: var(--brand-soft, rgba(99,102,241,.12)); color: var(--brand, #6366f1); flex-shrink: 0; }
+  .sff-hero-ic svg { width: 22px; height: 22px; }
+  .sff-title { font-size: 22px; font-weight: 800; color: #0f172a; line-height: 1.2; }
+  .sff-sub { font-size: 13px; color: #64748b; margin-top: 2px; }
+  .sff-card { background: #fff; border: 1px solid #e6e8f0; border-radius: 14px; padding: 20px; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+  .sff-field { margin-bottom: 16px; }
+  .sff-field > label { display: block; font-size: 12.5px; font-weight: 700; color: #334155; margin-bottom: 6px; }
+  .sff-input, .sff-select { width: 100%; height: 42px; border: 1px solid #d7dbe8; border-radius: 10px; padding: 0 12px; font-size: 14px; color: #0f172a; background: #fff; box-sizing: border-box; }
+  .sff-input:focus, .sff-select:focus { outline: none; border-color: var(--brand, #6366f1); box-shadow: 0 0 0 3px var(--brand-soft, rgba(99,102,241,.15)); }
+  .sff-picker { position: relative; }
+  .sff-picker-list { position: absolute; z-index: 40; left: 0; right: 0; top: 46px; max-height: 300px; overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 8px 28px rgba(15,23,42,.14); }
+  .sff-picker-item { padding: 9px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; }
+  .sff-picker-item:last-child { border-bottom: 0; }
+  .sff-picker-item:hover { background: #eef2ff; }
+  .sff-pi-title { font-size: 13.5px; font-weight: 600; color: #0f172a; }
+  .sff-pi-sub { font-size: 12px; color: #64748b; margin-top: 1px; }
+  .sff-picker-empty { padding: 16px; text-align: center; color: #94a3b8; font-size: 13px; }
+  .sff-selected { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 10px 12px; border: 1px solid #dbeafe; background: #eff6ff; border-radius: 10px; }
+  .sff-selected .sff-pi-title { color: #1e3a8a; }
+  .sff-selected-change { background: none; border: none; color: var(--brand, #6366f1); font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .sff-fields { margin-top: 6px; }
+  .sff-hint { padding: 22px; text-align: center; color: #94a3b8; font-size: 13px; border: 1px dashed #e2e8f0; border-radius: 10px; }
+  .sff-actions { margin-top: 18px; display: flex; justify-content: flex-end; }
+</style>
+<script>
+let _sffState = { lead: null, stageId: '' };
+
+async function loadStageFieldForm() {
+  const content = el('content');
+  if (!content) return;
+  _sffState = { lead: null, stageId: '' };
+  const stages = (App.config.allStages || App.config.stages || []);
+  content.innerHTML = `
+    <div class="sff-wrap">
+      <div class="sff-header">
+        <div class="sff-hero-ic">${icon('file-cog', 22)}</div>
+        <div>
+          <div class="sff-title">Update Stage Fields</div>
+          <div class="sff-sub">Pick a lead and a stage, then edit that stage's custom fields.</div>
+        </div>
+      </div>
+      <div class="sff-card">
+        <div class="sff-field">
+          <label>Lead <span style="color:#ef4444">*</span></label>
+          <div class="sff-picker">
+            <input class="sff-input" id="sff-lead-search" type="text" autocomplete="off"
+              placeholder="Search lead by company, contact, phone or city…"
+              oninput="_sffFilterLeads(this.value)" onfocus="_sffFilterLeads(this.value)">
+            <div class="sff-picker-list" id="sff-lead-list" style="display:none"></div>
+          </div>
+          <div class="sff-selected" id="sff-selected" style="display:none"></div>
+        </div>
+        <div class="sff-field">
+          <label>Stage <span style="color:#ef4444">*</span></label>
+          <select class="sff-select" id="sff-stage" onchange="_sffOnStageChange()">
+            <option value="">Select a stage</option>
+            ${stages.map(s => `<option value="${escapeHtml(s['Stage ID'])}">${escapeHtml(s['Stage Name'])}</option>`).join('')}
+          </select>
+        </div>
+        <form id="sff-form" onsubmit="return false">
+          <div class="sff-fields" id="sff-fields"><div class="sff-hint">Select a lead and a stage to load its custom fields.</div></div>
+          <div class="sff-actions">
+            <button type="button" class="btn btn-primary" id="sff-save" onclick="_sffSave()" disabled>${icon('save', 15)} Save fields</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  renderIcons(content);
+  if (!window._sffOutsideBound) {
+    window._sffOutsideBound = true;
+    document.addEventListener('click', function (e) {
+      const picker = document.querySelector('.sff-picker');
+      const list = el('sff-lead-list');
+      if (list && picker && !picker.contains(e.target)) list.style.display = 'none';
+    }, true);
+  }
+}
+window.loadStageFieldForm = loadStageFieldForm;
+
+function _sffLeadRows() { try { return AppCache.getRows('leads') || []; } catch (e) { return []; } }
+
+function _sffFilterLeads(q) {
+  const list = el('sff-lead-list');
+  if (!list) return;
+  const query = String(q || '').trim().toLowerCase();
+  let rows = _sffLeadRows().filter(l =>
+    !(l['NBD Lead ID'] || l['Pushed To NBD At']) &&
+    String(l['Is Archived']) !== 'true' && l['Is Archived'] !== true);
+  if (query) {
+    rows = rows.filter(l => [l['Company Name'], l['Contact Person'], l['Phone'], l['City'], l['Client Description'], l['Lead ID']]
+      .map(x => String(x || '').toLowerCase()).join(' ').includes(query));
+  }
+  rows = rows.slice(0, 50);
+  list.innerHTML = rows.length
+    ? rows.map(l => `<div class="sff-picker-item" onclick="_sffSelectLead('${escapeHtml(String(l['Lead ID'] || ''))}')">
+        <div class="sff-pi-title">${escapeHtml(l['Company Name'] || l['Client Description'] || l['Lead ID'] || '—')}</div>
+        <div class="sff-pi-sub">${escapeHtml([l['Contact Person'], l['City'], l['Phone']].filter(Boolean).join(' · ') || String(l['Lead ID'] || ''))}</div>
+      </div>`).join('')
+    : '<div class="sff-picker-empty">No matching leads</div>';
+  list.style.display = 'block';
+}
+window._sffFilterLeads = _sffFilterLeads;
+
+async function _sffSelectLead(leadId) {
+  const list = el('sff-lead-list'); if (list) list.style.display = 'none';
+  let lead = _sffLeadRows().find(l => String(l['Lead ID']) === String(leadId)) || { 'Lead ID': leadId };
+  // Fetch fresh values (with custom fields) so the pre-fill is accurate.
+  try { const d = await api.getLead(leadId); if (d && d.lead) lead = d.lead; } catch (e) {}
+  _sffState.lead = lead;
+  const sel = el('sff-selected');
+  if (sel) {
+    sel.style.display = 'flex';
+    sel.innerHTML = `<div>
+        <div class="sff-pi-title">${escapeHtml(lead['Company Name'] || lead['Client Description'] || leadId)}</div>
+        <div class="sff-pi-sub">${escapeHtml([lead['Contact Person'], lead['City'], lead['Phone']].filter(Boolean).join(' · '))}</div>
+      </div>
+      <button type="button" class="sff-selected-change" onclick="_sffClearLead()">Change</button>`;
+  }
+  const search = el('sff-lead-search'); if (search) search.style.display = 'none';
+  _sffRenderFields();
+}
+window._sffSelectLead = _sffSelectLead;
+
+function _sffClearLead() {
+  _sffState.lead = null;
+  const sel = el('sff-selected'); if (sel) { sel.style.display = 'none'; sel.innerHTML = ''; }
+  const search = el('sff-lead-search'); if (search) { search.style.display = ''; search.value = ''; search.focus(); }
+  _sffRenderFields();
+}
+window._sffClearLead = _sffClearLead;
+
+function _sffOnStageChange() {
+  _sffState.stageId = el('sff-stage') ? el('sff-stage').value : '';
+  _sffRenderFields();
+}
+window._sffOnStageChange = _sffOnStageChange;
+
+function _sffRenderFields() {
+  const box = el('sff-fields');
+  const saveBtn = el('sff-save');
+  if (!box) return;
+  const lead = _sffState.lead, stageId = _sffState.stageId;
+  if (!lead || !stageId) {
+    box.innerHTML = '<div class="sff-hint">Select a lead and a stage to load its custom fields.</div>';
+    if (saveBtn) saveBtn.disabled = true;
+    return;
+  }
+  const fields = App.config.leadFields || [];
+  const configOptions = (typeof _configOptionsMap === 'function') ? _configOptionsMap(App.config._allConfigs || []) : {};
+  const d = Object.assign({}, lead, { 'Stage ID': stageId });
+  const html = (typeof buildLeadCustomFieldsHTML === 'function') ? buildLeadCustomFieldsHTML(d, fields, configOptions) : '';
+  if (!html) {
+    box.innerHTML = '<div class="sff-hint">This stage has no custom fields to edit.</div>';
+    if (saveBtn) saveBtn.disabled = true;
+    return;
+  }
+  box.innerHTML = html;
+  const form = el('sff-form');
+  try { if (typeof initLeadCustomFields === 'function') initLeadCustomFields(form); } catch (e) { console.warn('[stagefields] init', e); }
+  renderIcons(box);
+  if (saveBtn) saveBtn.disabled = false;
+}
+
+async function _sffSave() {
+  const lead = _sffState.lead, stageId = _sffState.stageId;
+  if (!lead || !stageId) { toast('Select a lead and a stage first.', 'error'); return; }
+  const form = el('sff-form');
+  if (typeof validateCfMultiselects === 'function' && !validateCfMultiselects(form)) return;
+  const btn = el('sff-save');
+  setButtonLoading(btn, 'Saving…');
+  try {
+    const payload = await collectLeadFormPayload(form);
+    delete payload['Lead ID']; delete payload['Stage ID']; delete payload['__stage_skipped'];
+    await api.saveLeadStageFields({ leadId: lead['Lead ID'], stageId: stageId, fields: payload });
+    toast('Stage fields saved!');
+    try { AppCache.invalidate('leads'); } catch (e) {}
+  } catch (err) {
+    toast(err && err.message || err, 'error');
+  } finally {
+    resetButtonLoading(btn);
+  }
+}
+window._sffSave = _sffSave;
+</script>

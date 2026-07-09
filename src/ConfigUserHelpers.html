@@ -1,9 +1,9 @@
 <script>
 const _CONFIG_IS_LQ_PORTAL = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
-const USER_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm']
+const USER_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','StageFields']
   .concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []);
 const USER_ROLE_MODULES = {
-  ADMIN:   ['Leads','Pipeline','Followups','Reports','Archive','Config','Users'].concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []),
+  ADMIN:   ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','StageFields'].concat(_CONFIG_IS_LQ_PORTAL ? ['BulkEntry'] : []),
   MANAGER: ['Leads','Pipeline','Followups','Reports'],
   SALES:   ['Leads','Pipeline','Followups'],
   USER:    ['Followups'],

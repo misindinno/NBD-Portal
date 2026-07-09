@@ -85,6 +85,7 @@ const api = {
   getLeads:            ()      => api._authedRead('apiGetLeads'),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
   saveLead:            (p)     => api._authedRead('apiSaveLead', p || {}),
+  saveLeadStageFields: (p)     => api._authedRead('apiSaveLeadStageFields', p || {}),
   deleteLead:          (id)    => api._authedRead('apiDeleteLead', id || ''),
   getArchiveData:      ()      => api._authedRead('apiGetArchiveData'),
   getArchiveSuggestions: ()    => api._authedRead('apiGetArchiveSuggestions'),
