@@ -62,8 +62,8 @@ async function loadStagesConfig() {
 
 function openStageForm(data = {}) {
   const isEdit = !!data['Stage ID'];
-  // Shown on the Stage Fields ("Update Stage") form unless this stage is in the hidden list.
-  const _sffShown = !((App.config.settings?.stageFieldFormHiddenStages || []).map(String).includes(String(data['Stage ID'] || '')));
+  // Shown on the Stage Fields ("Update Stage") form only when explicitly enabled (opt-in).
+  const _sffShown = (App.config.settings?.stageFieldFormStages || []).map(String).includes(String(data['Stage ID'] || ''));
   const stageFields = isEdit
     ? (App.config.leadFields || []).filter(f => f['Stage ID'] === data['Stage ID'])
     : [];

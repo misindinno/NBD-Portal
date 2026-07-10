@@ -42,9 +42,9 @@ async function loadStageFieldForm() {
   const content = el('content');
   if (!content) return;
   _sffState = { lead: null, stageId: '', leadId: '', valuesLoaded: false, dirty: false };
-  // Admins hide stages from this form via each stage's editor ("Show on Update Stage form").
-  const hidden = new Set(((App.config.settings && App.config.settings.stageFieldFormHiddenStages) || []).map(String));
-  const stages = (App.config.allStages || App.config.stages || []).filter(s => !hidden.has(String(s['Stage ID'])));
+  // Admins enable stages for this form via each stage's editor ("Update Stage Form", opt-in).
+  const allowed = new Set(((App.config.settings && App.config.settings.stageFieldFormStages) || []).map(String));
+  const stages = (App.config.allStages || App.config.stages || []).filter(s => allowed.has(String(s['Stage ID'])));
   // Only one stage available → pre-select it so the user just picks a lead.
   const onlyStage = stages.length === 1;
   if (onlyStage) _sffState.stageId = String(stages[0]['Stage ID']);

@@ -545,10 +545,10 @@ function saveLeadStageFields(leadId, stageId, fields, email) {
   stageId = String(stageId || '').trim();
   if (!leadId) return respond(null, 'No lead selected.');
   if (!stageId) return respond(null, 'No stage selected.');
-  // Enforce the per-stage "Show on Update Stage form" setting: a stage hidden from the
-  // form can't be saved through it (blocks a hand-crafted request for a disabled stage).
-  const hiddenStages = getPortalSettings_().stageFieldFormHiddenStages || [];
-  if (hiddenStages.indexOf(stageId) !== -1) {
+  // Enforce the per-stage "Update Stage Form" opt-in: only stages explicitly enabled for
+  // the form can be saved through it (blocks a hand-crafted request for a disabled stage).
+  const allowedStages = getPortalSettings_().stageFieldFormStages || [];
+  if (allowedStages.indexOf(stageId) === -1) {
     return respond(null, 'This stage is not enabled for the Stage Fields form.');
   }
   const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);

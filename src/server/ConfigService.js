@@ -75,8 +75,8 @@ function saveStage(stage, email) {
       "Created At": now(),
     });
   }
-  // "Show on Update Stage form" is stored as a hidden-stage deny-list (Script Property),
-  // not a sheet column — the STAGES sheet has no header for it so a column write is dropped.
+  // "Update Stage Form" is stored as an enabled-stage allow-list (Script Property), not a
+  // sheet column — the STAGES sheet has no header for it so a column write would be dropped.
   if (Object.prototype.hasOwnProperty.call(stage, "Show On Stage Field Form")) {
     const show = stage["Show On Stage Field Form"] !== false && stage["Show On Stage Field Form"] !== "FALSE";
     _setStageFieldFormVisibility_(stageId, show);
@@ -86,16 +86,16 @@ function saveStage(stage, email) {
   return respond(true);
 }
 
-// Toggles whether a stage appears on the Stage Fields form by maintaining a deny-list of
-// hidden stage IDs in Script Properties (default: shown).
+// Toggles whether a stage appears on the Stage Fields form by maintaining an allow-list of
+// enabled stage IDs in Script Properties (default: not shown until opted in).
 function _setStageFieldFormVisibility_(stageId, show) {
   const props = PropertiesService.getScriptProperties();
-  let hidden = _parseIdList_(props.getProperty('STAGE_FIELD_FORM_HIDDEN_STAGES'));
-  const has = hidden.indexOf(stageId) !== -1;
-  if (show && has) hidden = hidden.filter((id) => id !== stageId);
-  else if (!show && !has) hidden.push(stageId);
+  let allowed = _parseIdList_(props.getProperty('STAGE_FIELD_FORM_STAGES'));
+  const has = allowed.indexOf(stageId) !== -1;
+  if (show && !has) allowed.push(stageId);
+  else if (!show && has) allowed = allowed.filter((id) => id !== stageId);
   else return;
-  props.setProperty('STAGE_FIELD_FORM_HIDDEN_STAGES', hidden.join(','));
+  props.setProperty('STAGE_FIELD_FORM_STAGES', allowed.join(','));
 }
 
 function reorderStages(orderedIds, email) {
@@ -276,11 +276,11 @@ function getPortalSettings_() {
     return {
       visibleDepartments: _parseDepartmentList_(props.getProperty('PORTAL_VISIBLE_DEPARTMENTS')),
       escalateFormUrl: String(props.getProperty('PORTAL_ESCALATE_FORM_URL') || '').trim(),
-      // Stages hidden from the Stage Fields ("Update Stage") form. Empty = every stage shows.
-      stageFieldFormHiddenStages: _parseIdList_(props.getProperty('STAGE_FIELD_FORM_HIDDEN_STAGES')),
+      // Stages enabled for the Stage Fields ("Update Stage") form (opt-in). Empty = none.
+      stageFieldFormStages: _parseIdList_(props.getProperty('STAGE_FIELD_FORM_STAGES')),
     };
   } catch (e) {
-    return { visibleDepartments: [], escalateFormUrl: '', stageFieldFormHiddenStages: [] };
+    return { visibleDepartments: [], escalateFormUrl: '', stageFieldFormStages: [] };
   }
 }
 

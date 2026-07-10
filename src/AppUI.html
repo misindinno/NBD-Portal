@@ -175,7 +175,7 @@ function _installConfigRouteFallback() {
   };
   if (!window.openStageForm) window.openStageForm = function(data = {}) {
     const isEdit = !!data['Stage ID'];
-    const _sffShown = !((App.config.settings?.stageFieldFormHiddenStages || []).map(String).includes(String(data['Stage ID'] || '')));
+    const _sffShown = (App.config.settings?.stageFieldFormStages || []).map(String).includes(String(data['Stage ID'] || ''));
     const overlay = showModal(`
       <div class="modal-header">
         <h2>${isEdit ? 'Edit' : 'Add'} Stage</h2>
