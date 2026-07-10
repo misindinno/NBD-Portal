@@ -9,6 +9,13 @@ function getLeads() {
   return rows.filter(row => !_isArchivedLead_(row));
 }
 
+// Lightweight read for the Stage Fields form: the lead merged with its custom-field
+// values only (no follow-ups / history / activity logs), so lead selection stays snappy.
+function getLeadCustomValues(leadId) {
+  const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
+  return baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
+}
+
 function getLead(leadId) {
   // Defensive: any sub-call that throws "starting row of the range is too small"
   // (caused by a stale index pointing at a row that no longer exists, or a

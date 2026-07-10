@@ -84,6 +84,7 @@ const api = {
   getAllFieldConfigs:   (s)     => api._authedRead('apiGetAllFieldConfigs', s),
   getLeads:            ()      => api._authedRead('apiGetLeads'),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
+  getLeadFieldValues:  (id)    => api._authedRead('apiGetLeadFieldValues', id),
   saveLead:            (p)     => api._authedRead('apiSaveLead', p || {}),
   saveLeadStageFields: (p)     => api._authedRead('apiSaveLeadStageFields', p || {}),
   deleteLead:          (id)    => api._authedRead('apiDeleteLead', id || ''),

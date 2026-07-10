@@ -31,14 +31,17 @@
   .sff-fields { margin-top: 6px; }
   .sff-hint { padding: 22px; text-align: center; color: #94a3b8; font-size: 13px; border: 1px dashed #e2e8f0; border-radius: 10px; }
   .sff-actions { margin-top: 18px; display: flex; justify-content: flex-end; }
+  .sff-loading-note { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #94a3b8; margin-bottom: 10px; }
+  .sff-loading-note svg { width: 13px; height: 13px; animation: sff-spin .8s linear infinite; }
+  @keyframes sff-spin { to { transform: rotate(360deg); } }
 </style>
 <script>
-let _sffState = { lead: null, stageId: '' };
+let _sffState = { lead: null, stageId: '', leadId: '', valuesLoaded: false, dirty: false };
 
 async function loadStageFieldForm() {
   const content = el('content');
   if (!content) return;
-  _sffState = { lead: null, stageId: '' };
+  _sffState = { lead: null, stageId: '', leadId: '', valuesLoaded: false, dirty: false };
   const stages = (App.config.allStages || App.config.stages || []);
   content.innerHTML = `
     <div class="sff-wrap">
@@ -111,12 +114,16 @@ function _sffFilterLeads(q) {
 }
 window._sffFilterLeads = _sffFilterLeads;
 
-async function _sffSelectLead(leadId) {
+// Selecting a lead is instant: we render from the cached row right away and pull the
+// saved custom values in the background (no blocking round-trip), patching the form in
+// once they arrive — so the UI never freezes while the server responds.
+function _sffSelectLead(leadId) {
   const list = el('sff-lead-list'); if (list) list.style.display = 'none';
-  let lead = _sffLeadRows().find(l => String(l['Lead ID']) === String(leadId)) || { 'Lead ID': leadId };
-  // Fetch fresh values (with custom fields) so the pre-fill is accurate.
-  try { const d = await api.getLead(leadId); if (d && d.lead) lead = d.lead; } catch (e) {}
+  const lead = _sffLeadRows().find(l => String(l['Lead ID']) === String(leadId)) || { 'Lead ID': leadId };
   _sffState.lead = lead;
+  _sffState.leadId = String(leadId);
+  _sffState.valuesLoaded = false;
+  _sffState.dirty = false;
   const sel = el('sff-selected');
   if (sel) {
     sel.style.display = 'flex';
@@ -128,11 +135,28 @@ async function _sffSelectLead(leadId) {
   }
   const search = el('sff-lead-search'); if (search) search.style.display = 'none';
   _sffRenderFields();
+  _sffLoadValues(String(leadId));
 }
 window._sffSelectLead = _sffSelectLead;
 
+// Background: fetch the lead's saved custom-field values (lightweight endpoint) and,
+// if the user hasn't started editing yet, re-render the fields pre-filled.
+async function _sffLoadValues(leadId) {
+  try {
+    const d = await api.getLeadFieldValues(leadId);
+    if (!d || !d.lead) return;
+    if (_sffState.leadId !== String(leadId)) return; // selection changed — ignore stale result
+    _sffState.lead = d.lead;
+    _sffState.valuesLoaded = true;
+    if (!_sffState.dirty) _sffRenderFields();
+  } catch (e) { /* keep cached values; user can still edit */ }
+}
+
 function _sffClearLead() {
   _sffState.lead = null;
+  _sffState.leadId = '';
+  _sffState.valuesLoaded = false;
+  _sffState.dirty = false;
   const sel = el('sff-selected'); if (sel) { sel.style.display = 'none'; sel.innerHTML = ''; }
   const search = el('sff-lead-search'); if (search) { search.style.display = ''; search.value = ''; search.focus(); }
   _sffRenderFields();
@@ -141,6 +165,7 @@ window._sffClearLead = _sffClearLead;
 
 function _sffOnStageChange() {
   _sffState.stageId = el('sff-stage') ? el('sff-stage').value : '';
+  _sffState.dirty = false;
   _sffRenderFields();
 }
 window._sffOnStageChange = _sffOnStageChange;
@@ -164,12 +189,18 @@ function _sffRenderFields() {
     if (saveBtn) saveBtn.disabled = true;
     return;
   }
-  box.innerHTML = html;
+  const note = _sffState.valuesLoaded ? '' :
+    '<div class="sff-loading-note">' + icon('loader-2', 13) + ' Loading saved values…</div>';
+  box.innerHTML = note + html;
   const form = el('sff-form');
   try { if (typeof initLeadCustomFields === 'function') initLeadCustomFields(form); } catch (e) { console.warn('[stagefields] init', e); }
+  // Any edit marks the form dirty so a late background value-fill won't overwrite it.
+  box.addEventListener('input', _sffMarkDirty);
+  box.addEventListener('change', _sffMarkDirty);
   renderIcons(box);
   if (saveBtn) saveBtn.disabled = false;
 }
+function _sffMarkDirty() { _sffState.dirty = true; }
 
 async function _sffSave() {
   const lead = _sffState.lead, stageId = _sffState.stageId;

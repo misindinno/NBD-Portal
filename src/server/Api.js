@@ -403,6 +403,18 @@ function apiGetLead(token, id) {
   });
 }
 
+// Lightweight lead read for the Stage Fields form — just the lead + its custom-field
+// values (no follow-ups / history / logs), so selecting a lead is fast.
+function apiGetLeadFieldValues(token, id) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields']);
+    const lead = getLeadCustomValues(id);
+    if (!lead || !_canReadAssignedRow(lead, user)) return respond(null, 'Lead not found.');
+    return respond({ lead });
+  });
+}
+
 // Follow-ups
 function apiGetFollowups(token, filters) {
   _currentApiToken_ = token || '';
