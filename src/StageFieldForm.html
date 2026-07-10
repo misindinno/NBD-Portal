@@ -191,7 +191,11 @@ function _sffRenderFields() {
   }
   const note = _sffState.valuesLoaded ? '' :
     '<div class="sff-loading-note">' + icon('loader-2', 13) + ' Loading saved values…</div>';
-  box.innerHTML = note + html;
+  // initLeadCustomFields() reads the active stage from a Stage ID field INSIDE the form
+  // (our visible <select> lives outside it). Without this hidden input it can't match the
+  // stage and hides every stage-specific field. Keep it in sync with the picked stage.
+  const stageInput = `<input type="hidden" name="Stage ID" value="${escapeHtml(stageId)}">`;
+  box.innerHTML = note + stageInput + html;
   const form = el('sff-form');
   try { if (typeof initLeadCustomFields === 'function') initLeadCustomFields(form); } catch (e) { console.warn('[stagefields] init', e); }
   // Any edit marks the form dirty so a late background value-fill won't overwrite it.
