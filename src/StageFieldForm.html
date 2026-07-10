@@ -31,9 +31,9 @@
   .sff-fields { margin-top: 6px; }
   .sff-hint { padding: 22px; text-align: center; color: #94a3b8; font-size: 13px; border: 1px dashed #e2e8f0; border-radius: 10px; }
   .sff-actions { margin-top: 18px; display: flex; justify-content: flex-end; }
-  .sff-loading-note { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #94a3b8; margin-bottom: 10px; }
-  .sff-loading-note svg { width: 13px; height: 13px; animation: sff-spin .8s linear infinite; }
-  @keyframes sff-spin { to { transform: rotate(360deg); } }
+  .sff-skel-row { margin-bottom: 16px; }
+  .sff-skel-label { height: 12px; width: 130px; border-radius: 6px; margin-bottom: 8px; }
+  .sff-skel-input { height: 42px; width: 100%; border-radius: 10px; }
 </style>
 <script>
 let _sffState = { lead: null, stageId: '', leadId: '', valuesLoaded: false, dirty: false };
@@ -144,12 +144,17 @@ window._sffSelectLead = _sffSelectLead;
 async function _sffLoadValues(leadId) {
   try {
     const d = await api.getLeadFieldValues(leadId);
-    if (!d || !d.lead) return;
     if (_sffState.leadId !== String(leadId)) return; // selection changed — ignore stale result
-    _sffState.lead = d.lead;
-    _sffState.valuesLoaded = true;
-    if (!_sffState.dirty) _sffRenderFields();
+    if (d && d.lead) _sffState.lead = d.lead;
   } catch (e) { /* keep cached values; user can still edit */ }
+  finally {
+    // Always drop the skeleton once the fetch settles (even on failure) so the form is
+    // usable; only skip the re-render if the user is already editing.
+    if (_sffState.leadId === String(leadId)) {
+      _sffState.valuesLoaded = true;
+      if (!_sffState.dirty) _sffRenderFields();
+    }
+  }
 }
 
 function _sffClearLead() {
@@ -180,6 +185,13 @@ function _sffRenderFields() {
     if (saveBtn) saveBtn.disabled = true;
     return;
   }
+  // Stage chosen but the saved values are still on their way — show a skeleton for the
+  // field area (rather than empty controls) until they arrive.
+  if (!_sffState.valuesLoaded) {
+    box.innerHTML = _sffFieldsSkeleton();
+    if (saveBtn) saveBtn.disabled = true;
+    return;
+  }
   const fields = App.config.leadFields || [];
   const configOptions = (typeof _configOptionsMap === 'function') ? _configOptionsMap(App.config._allConfigs || []) : {};
   const d = Object.assign({}, lead, { 'Stage ID': stageId });
@@ -189,13 +201,11 @@ function _sffRenderFields() {
     if (saveBtn) saveBtn.disabled = true;
     return;
   }
-  const note = _sffState.valuesLoaded ? '' :
-    '<div class="sff-loading-note">' + icon('loader-2', 13) + ' Loading saved values…</div>';
   // initLeadCustomFields() reads the active stage from a Stage ID field INSIDE the form
   // (our visible <select> lives outside it). Without this hidden input it can't match the
   // stage and hides every stage-specific field. Keep it in sync with the picked stage.
   const stageInput = `<input type="hidden" name="Stage ID" value="${escapeHtml(stageId)}">`;
-  box.innerHTML = note + stageInput + html;
+  box.innerHTML = stageInput + html;
   const form = el('sff-form');
   try { if (typeof initLeadCustomFields === 'function') initLeadCustomFields(form); } catch (e) { console.warn('[stagefields] init', e); }
   // Any edit marks the form dirty so a late background value-fill won't overwrite it.
@@ -205,6 +215,15 @@ function _sffRenderFields() {
   if (saveBtn) saveBtn.disabled = false;
 }
 function _sffMarkDirty() { _sffState.dirty = true; }
+
+// Placeholder rows shown while a stage's saved values load.
+function _sffFieldsSkeleton() {
+  const row = `<div class="sff-skel-row">
+      <div class="skeleton-block sff-skel-label"></div>
+      <div class="skeleton-block sff-skel-input"></div>
+    </div>`;
+  return `<div class="sff-skel">${row + row + row + row}</div>`;
+}
 
 async function _sffSave() {
   const lead = _sffState.lead, stageId = _sffState.stageId;
