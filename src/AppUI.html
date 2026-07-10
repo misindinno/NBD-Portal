@@ -508,7 +508,16 @@ function renderInitialLoading() {
       section(46, [[100, true], [76], [64], [88]]) +
       section(56, [[60]]);
   }
-  setContentLoading('today');
+  // Match the boot skeleton to the page being opened so a deep-linked form (e.g. the
+  // Stage Fields kiosk link) shows a form skeleton, not the dashboard/today one.
+  let bootType = 'today';
+  try {
+    const raw = (typeof _initialRequestedPage === 'function')
+      ? _initialRequestedPage()
+      : String(typeof INITIAL_PAGE !== 'undefined' ? INITIAL_PAGE : '').trim().toLowerCase();
+    if (raw) bootType = pageSkeletonType(raw);
+  } catch (e) {}
+  setContentLoading(bootType);
 }
 
 function renderSidebar() {

@@ -199,6 +199,7 @@ function pageSkeletonType(page) {
   if (page === 'leads')     return 'fu';
   if (page && page.startsWith('followups')) return 'fu';
   if (page === 'leadform')  return 'form';
+  if (page === 'stagefields') return 'form';
   if (page === 'config')    return 'cards';
   return 'table';
 }
