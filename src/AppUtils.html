@@ -137,6 +137,20 @@ function skeletonPage(type = 'table') {
         <div class="sk-row" style="margin-top:22px;justify-content:flex-end">${sk('110px', '38px', 'border-radius:10px')}${sk('124px', '38px', 'border-radius:10px')}</div>
       </div></div>`;
   }
+  if (type === 'stagefields') {
+    // Mirrors the real Stage Fields form: hero-icon header, then a single card with a
+    // lead picker, a stage select, a few field rows and one right-aligned Save button.
+    const fld = (labelW) => `<div style="margin-bottom:16px">${sk(labelW, '12px')}${sk('100%', '42px', 'border-radius:10px;margin-top:8px')}</div>`;
+    return `<div class="sk-page" style="max-width:720px;margin:0 auto;padding:24px 16px">
+      <div class="sk-row" style="gap:12px">
+        <div class="sk" style="width:44px;height:44px;border-radius:12px"></div>
+        <div class="sk-stack">${sk('190px', '19px')}${sk('280px', '12px')}</div>
+      </div>
+      <div class="sk-card" style="padding:20px;border-radius:14px;box-shadow:0 1px 3px rgba(15,23,42,.05)">
+        ${fld('44px')}${fld('48px')}${fld('120px')}${fld('150px')}${fld('96px')}
+        <div class="sk-row" style="margin-top:20px;justify-content:flex-end">${sk('132px', '40px', 'border-radius:10px')}</div>
+      </div></div>`;
+  }
   if (type === 'cards') {
     return `<div class="sk-page">${repeat(6, () => `<div class="sk-card" style="padding:16px">
       <div class="sk-row" style="justify-content:space-between">${sk('230px', '14px')}${sk('80px', '28px', 'border-radius:8px')}</div>
@@ -199,7 +213,7 @@ function pageSkeletonType(page) {
   if (page === 'leads')     return 'fu';
   if (page && page.startsWith('followups')) return 'fu';
   if (page === 'leadform')  return 'form';
-  if (page === 'stagefields') return 'form';
+  if (page === 'stagefields') return 'stagefields';
   if (page === 'config')    return 'cards';
   return 'table';
 }
