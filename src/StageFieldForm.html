@@ -45,6 +45,9 @@ async function loadStageFieldForm() {
   // Admins hide stages from this form via each stage's editor ("Show on Update Stage form").
   const hidden = new Set(((App.config.settings && App.config.settings.stageFieldFormHiddenStages) || []).map(String));
   const stages = (App.config.allStages || App.config.stages || []).filter(s => !hidden.has(String(s['Stage ID'])));
+  // Only one stage available → pre-select it so the user just picks a lead.
+  const onlyStage = stages.length === 1;
+  if (onlyStage) _sffState.stageId = String(stages[0]['Stage ID']);
   content.innerHTML = `
     <div class="sff-wrap">
       <div class="sff-header">
@@ -68,8 +71,8 @@ async function loadStageFieldForm() {
         <div class="sff-field">
           <label>Stage <span style="color:#ef4444">*</span></label>
           <select class="sff-select" id="sff-stage" onchange="_sffOnStageChange()">
-            <option value="">Select a stage</option>
-            ${stages.map(s => `<option value="${escapeHtml(s['Stage ID'])}">${escapeHtml(s['Stage Name'])}</option>`).join('')}
+            ${onlyStage ? '' : '<option value="">Select a stage</option>'}
+            ${stages.map(s => `<option value="${escapeHtml(s['Stage ID'])}" ${String(s['Stage ID'])===_sffState.stageId?'selected':''}>${escapeHtml(s['Stage Name'])}</option>`).join('')}
           </select>
         </div>
         <form id="sff-form" onsubmit="return false">
