@@ -138,8 +138,10 @@ function skeletonPage(type = 'table') {
       </div></div>`;
   }
   if (type === 'stagefields') {
-    // Mirrors the real Stage Fields form: hero-icon header, then a single card with a
-    // lead picker, a stage select, a few field rows and one right-aligned Save button.
+    // Prefer the form's own skeleton (built from its .sff-* markup) so the loading state
+    // is pixel-identical to the loaded form; fall back to an sk-* approximation if the
+    // Stage Fields module hasn't loaded yet.
+    if (typeof _sffPageSkeleton === 'function') return _sffPageSkeleton();
     const fld = (labelW) => `<div style="margin-bottom:16px">${sk(labelW, '12px')}${sk('100%', '42px', 'border-radius:10px;margin-top:8px')}</div>`;
     return `<div class="sk-page" style="max-width:720px;margin:0 auto;padding:24px 16px">
       <div class="sk-row" style="gap:12px">
