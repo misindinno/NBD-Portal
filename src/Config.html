@@ -64,8 +64,6 @@ async function loadPortalSettings() {
   if (!el('cfg-settings')) return;
   const departments = App.config.departments || [];
   const selected = window._parseDepartmentList(App.config.settings?.visibleDepartments || []);
-  const sffStages = App.config.allStages || App.config.stages || [];
-  const sffSelected = (App.config.settings?.stageFieldFormStages || []).map(String);
   el('cfg-settings').innerHTML = `
     <form id="portal-settings-form" class="card" style="padding:18px;max-width:760px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;flex-wrap:wrap">
@@ -91,24 +89,6 @@ async function loadPortalSettings() {
           value="${escapeHtml(App.config?.settings?.escalateFormUrl || '')}"
           style="max-width:500px;font-size:13px">
       </div>
-      <div style="margin-bottom:18px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:8px">
-          <div>
-            <h3 style="font-size:16px;font-weight:600;margin-bottom:4px">Stage Fields Form — Visible Stages</h3>
-            <p style="color:#666;font-size:13px">Choose which pipeline stages appear in the Stage Fields form's dropdown. Leave all unchecked to show every stage.</p>
-          </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button type="button" class="btn btn-sm btn-outlined" onclick="_setAllSettingStages(this.closest('form'), true)">All</button>
-            <button type="button" class="btn btn-sm btn-outlined" onclick="_setAllSettingStages(this.closest('form'), false)">None</button>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
-          ${sffStages.map(s => `<label style="display:flex;align-items:center;gap:8px;font-size:13px">
-            <input type="checkbox" name="stageFieldFormStages" value="${escapeHtml(s['Stage ID'])}" ${sffSelected.includes(String(s['Stage ID']))?'checked':''}>
-            ${escapeHtml(s['Stage Name'] || s['Stage ID'])}
-          </label>`).join('') || '<div style="font-size:13px;color:#888">No stages found.</div>'}
-        </div>
-      </div>
       <div class="modal-footer" style="padding:0;border-top:none">
         <button type="submit" class="btn btn-primary">${icon('save', 14)} Save Settings</button>
       </div>
@@ -120,7 +100,7 @@ async function loadPortalSettings() {
     const btn = e.target.querySelector('[type=submit]');
     setButtonLoading(btn);
     try {
-      await api.savePortalSettings({ visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '', stageFieldFormStages: fd.getAll('stageFieldFormStages') });
+      await api.savePortalSettings({ visibleDepartments: fd.getAll('visibleDepartments'), escalateFormUrl: fd.get('escalateFormUrl') || '' });
       await _refreshAppConfig().catch(() => {});
       api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
       toast('Settings saved!');

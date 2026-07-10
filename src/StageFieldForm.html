@@ -42,10 +42,9 @@ async function loadStageFieldForm() {
   const content = el('content');
   if (!content) return;
   _sffState = { lead: null, stageId: '', leadId: '', valuesLoaded: false, dirty: false };
-  // Admin can restrict which stages appear here (Config → Settings). Empty list = all.
-  const allowed = new Set(((App.config.settings && App.config.settings.stageFieldFormStages) || []).map(String));
-  let stages = (App.config.allStages || App.config.stages || []);
-  if (allowed.size) stages = stages.filter(s => allowed.has(String(s['Stage ID'])));
+  // Admins hide stages from this form via each stage's editor ("Show on Update Stage form").
+  const hidden = new Set(((App.config.settings && App.config.settings.stageFieldFormHiddenStages) || []).map(String));
+  const stages = (App.config.allStages || App.config.stages || []).filter(s => !hidden.has(String(s['Stage ID'])));
   content.innerHTML = `
     <div class="sff-wrap">
       <div class="sff-header">

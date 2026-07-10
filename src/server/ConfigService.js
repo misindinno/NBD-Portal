@@ -42,11 +42,6 @@ function savePortalSettings(settings, email) {
   const props = PropertiesService.getScriptProperties();
   props.setProperty('PORTAL_VISIBLE_DEPARTMENTS', _normalizeDepartmentList_(settings && settings.visibleDepartments));
   props.setProperty('PORTAL_ESCALATE_FORM_URL', String(settings && settings.escalateFormUrl || '').trim());
-  // Only touch the allowed-stage list when the caller actually sends it, so a settings
-  // save from a form that doesn't render the stage picker can't wipe the selection.
-  if (settings && Object.prototype.hasOwnProperty.call(settings, 'stageFieldFormStages')) {
-    props.setProperty('STAGE_FIELD_FORM_STAGES', _normalizeIdList_(settings.stageFieldFormStages));
-  }
   invalidateAppConfigCache();
   _bumpStamp('config');
   return respond(true);
@@ -69,18 +64,38 @@ function getAllStages() {
 
 function saveStage(stage, email) {
   requireConfigEditor();
-  if (stage["Stage ID"]) {
-    updateRow(SHEET_NAMES.STAGES, "Stage ID", stage["Stage ID"], stage);
+  let stageId = stage["Stage ID"];
+  if (stageId) {
+    updateRow(SHEET_NAMES.STAGES, "Stage ID", stageId, stage);
   } else {
+    stageId = generateUUID();
     insertRow(SHEET_NAMES.STAGES, {
       ...stage,
-      "Stage ID": generateUUID(),
+      "Stage ID": stageId,
       "Created At": now(),
     });
+  }
+  // "Show on Update Stage form" is stored as a hidden-stage deny-list (Script Property),
+  // not a sheet column — the STAGES sheet has no header for it so a column write is dropped.
+  if (Object.prototype.hasOwnProperty.call(stage, "Show On Stage Field Form")) {
+    const show = stage["Show On Stage Field Form"] !== false && stage["Show On Stage Field Form"] !== "FALSE";
+    _setStageFieldFormVisibility_(stageId, show);
   }
   invalidateAppConfigCache();
   _bumpStamp('stages');
   return respond(true);
+}
+
+// Toggles whether a stage appears on the Stage Fields form by maintaining a deny-list of
+// hidden stage IDs in Script Properties (default: shown).
+function _setStageFieldFormVisibility_(stageId, show) {
+  const props = PropertiesService.getScriptProperties();
+  let hidden = _parseIdList_(props.getProperty('STAGE_FIELD_FORM_HIDDEN_STAGES'));
+  const has = hidden.indexOf(stageId) !== -1;
+  if (show && has) hidden = hidden.filter((id) => id !== stageId);
+  else if (!show && !has) hidden.push(stageId);
+  else return;
+  props.setProperty('STAGE_FIELD_FORM_HIDDEN_STAGES', hidden.join(','));
 }
 
 function reorderStages(orderedIds, email) {
@@ -261,14 +276,15 @@ function getPortalSettings_() {
     return {
       visibleDepartments: _parseDepartmentList_(props.getProperty('PORTAL_VISIBLE_DEPARTMENTS')),
       escalateFormUrl: String(props.getProperty('PORTAL_ESCALATE_FORM_URL') || '').trim(),
-      stageFieldFormStages: _parseIdList_(props.getProperty('STAGE_FIELD_FORM_STAGES')),
+      // Stages hidden from the Stage Fields ("Update Stage") form. Empty = every stage shows.
+      stageFieldFormHiddenStages: _parseIdList_(props.getProperty('STAGE_FIELD_FORM_HIDDEN_STAGES')),
     };
   } catch (e) {
-    return { visibleDepartments: [], escalateFormUrl: '', stageFieldFormStages: [] };
+    return { visibleDepartments: [], escalateFormUrl: '', stageFieldFormHiddenStages: [] };
   }
 }
 
-// Comma-separated ID list helpers (used for the Stage Fields form's allowed stages).
+// Parses a comma-separated ID list (used for the Stage Fields form's hidden-stage list).
 function _parseIdList_(value) {
   if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
   return String(value || "")
@@ -276,10 +292,6 @@ function _parseIdList_(value) {
     .map((v) => v.trim())
     .filter(Boolean)
     .filter((v, i, a) => a.indexOf(v) === i);
-}
-
-function _normalizeIdList_(value) {
-  return _parseIdList_(value).join(",");
 }
 
 function _activeUserDepartments_() {

@@ -51,9 +51,6 @@ function _parseDepartmentList(value) {
 function _setAllSettingDepartments(form, checked) {
   form?.querySelectorAll('[name="visibleDepartments"]').forEach(input => { input.checked = checked; });
 }
-function _setAllSettingStages(form, checked) {
-  form?.querySelectorAll('[name="stageFieldFormStages"]').forEach(input => { input.checked = checked; });
-}
 function _userCanEditConfig(user) {
   const role = _userPermission(user);
   return role === 'ADMIN' || _sheetTruthy(user['Can Edit Config'], false) || _effectiveUserModules(user).includes('Config');
@@ -129,7 +126,6 @@ window._moduleLabel = _moduleLabel;
 window._userModuleBadges = _userModuleBadges;
 window._parseDepartmentList = _parseDepartmentList;
 window._setAllSettingDepartments = _setAllSettingDepartments;
-window._setAllSettingStages = _setAllSettingStages;
 window._userCanEditConfig = _userCanEditConfig;
 window._userCanManageUsers = _userCanManageUsers;
 window._sheetTruthy = _sheetTruthy;
