@@ -42,6 +42,11 @@ function savePortalSettings(settings, email) {
   const props = PropertiesService.getScriptProperties();
   props.setProperty('PORTAL_VISIBLE_DEPARTMENTS', _normalizeDepartmentList_(settings && settings.visibleDepartments));
   props.setProperty('PORTAL_ESCALATE_FORM_URL', String(settings && settings.escalateFormUrl || '').trim());
+  // Only touch the allowed-stage list when the caller actually sends it, so a settings
+  // save from a form that doesn't render the stage picker can't wipe the selection.
+  if (settings && Object.prototype.hasOwnProperty.call(settings, 'stageFieldFormStages')) {
+    props.setProperty('STAGE_FIELD_FORM_STAGES', _normalizeIdList_(settings.stageFieldFormStages));
+  }
   invalidateAppConfigCache();
   _bumpStamp('config');
   return respond(true);
@@ -256,10 +261,25 @@ function getPortalSettings_() {
     return {
       visibleDepartments: _parseDepartmentList_(props.getProperty('PORTAL_VISIBLE_DEPARTMENTS')),
       escalateFormUrl: String(props.getProperty('PORTAL_ESCALATE_FORM_URL') || '').trim(),
+      stageFieldFormStages: _parseIdList_(props.getProperty('STAGE_FIELD_FORM_STAGES')),
     };
   } catch (e) {
-    return { visibleDepartments: [], escalateFormUrl: '' };
+    return { visibleDepartments: [], escalateFormUrl: '', stageFieldFormStages: [] };
   }
+}
+
+// Comma-separated ID list helpers (used for the Stage Fields form's allowed stages).
+function _parseIdList_(value) {
+  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+  return String(value || "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .filter((v, i, a) => a.indexOf(v) === i);
+}
+
+function _normalizeIdList_(value) {
+  return _parseIdList_(value).join(",");
 }
 
 function _activeUserDepartments_() {

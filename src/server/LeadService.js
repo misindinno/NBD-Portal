@@ -545,6 +545,12 @@ function saveLeadStageFields(leadId, stageId, fields, email) {
   stageId = String(stageId || '').trim();
   if (!leadId) return respond(null, 'No lead selected.');
   if (!stageId) return respond(null, 'No stage selected.');
+  // Enforce the admin-configured allow-list: if stages were chosen for the form, only
+  // those may be saved (blocks a hand-crafted request for a disabled stage).
+  const allowedStages = getPortalSettings_().stageFieldFormStages || [];
+  if (allowedStages.length && allowedStages.indexOf(stageId) === -1) {
+    return respond(null, 'This stage is not enabled for the Stage Fields form.');
+  }
   const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canReadAssignedRow(lead, user)) return respond(null, 'Permission denied.');
