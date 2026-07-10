@@ -357,6 +357,7 @@ function _todayApply() {
   const productiveHistory = history.filter(r => String(r['Was Productive'] || '').trim().toLowerCase() === 'yes');
   const nonProductiveHistory = history.filter(r => String(r['Was Productive'] || '').trim().toLowerCase() === 'no');
   const stageMovs  = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase().includes('stage')).length;
+  const archivedRows = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase() === 'archive lead');
   const statusChangeRows = actLogs.filter(r => {
     const action = String(r['Action Type'] || '').toLowerCase();
     const field = String(r['Field Name'] || r['Field'] || '').toLowerCase();
@@ -449,6 +450,7 @@ function _todayApply() {
   }
   const activityCards = [
     { key: 'newleads',  label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
+    { key: 'archived',  label: 'Archived',        value: archivedRows.length,  sub: 'leads archived', icon: 'archive',     cls: 'neutral' },
     { key: 'stage',     label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
     { key: 'calls',     label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
     { key: 'wa',        label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' },
@@ -519,6 +521,7 @@ function _todayApply() {
     case 'productive': allRows = [...productiveHistory]; break;
     case 'nonproductive': allRows = [...nonProductiveHistory]; break;
     case 'stage':     allRows = [...logRows.filter(r => String(r['Follow-up Type'] || '').toLowerCase().includes('stage'))]; break;
+    case 'archived':  allRows = logRows.filter(r => String(r['_rawAction'] || '').toLowerCase() === 'archive lead'); break;
     case 'newleads':
       allRows = newLeads.map(l => ({
         _isLog: true,
