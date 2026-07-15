@@ -564,6 +564,9 @@ function saveLeadStageFields(leadId, stageId, fields, email) {
   updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_({ 'Updated At': now() }));
   const stageName = (getAllStages().find(s => String(s['Stage ID']) === stageId) || {})['Stage Name'] || stageId;
   insertLeadActivityLog_(leadId, 'Update Stage Fields', stageName, stageName, 'Stage fields updated via form', user.id);
+  // WhatsApp notification with the saved stage fields (never fails the save).
+  try { sendStageFieldsWhatsApp_(lead, stageId, stageName, fields || {}, user); }
+  catch (waErr) { Logger.log('[StageFields] WhatsApp notify failed: ' + waErr); }
   _bumpStamp('leads');
   return respond(true);
 }
