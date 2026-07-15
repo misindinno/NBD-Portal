@@ -107,7 +107,7 @@
 let _archiveTab = 'archived';
 const _archTabs = {
   archived:    { rows: null, search: '', owner: '', sortKey: 'archived', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() },
-  suggestions: { rows: null, search: '', owner: '', severity: 'all', sortKey: 'total', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() }
+  suggestions: { rows: null, search: '', owner: '', severity: 'all', sortKey: 'streak', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() }
 };
 let _archSearchTimer = null;
 let _archLoadSeq = 0;
@@ -170,11 +170,12 @@ async function _archActivateTab(tab, force) {
 }
 
 // ── Suggestions: computed from the already-fetched portal cache ──────────────────
-// Suggestions = active leads with >= MIN total "Not Picked" contacts. Full-read admins
-// compute this locally from the cached leads + follow-up history — zero server call, the
-// tab opens instantly. Scoped users (or department-scoped portals) keep the server
-// endpoint: their cached history is filtered to their own scope and would undercount
-// calls logged by other users. Must mirror getArchiveSuggestionsFast_ (ArchiveService).
+// Suggestions = active leads with >= MIN CONSECUTIVE "Not Picked" contacts (any answered
+// call breaks the run). Full-read admins compute this locally from the cached leads +
+// follow-up history — zero server call, the tab opens instantly. Scoped users (or
+// department-scoped portals) keep the server endpoint: their cached history is filtered
+// to their own scope and would undercount calls logged by other users. Must mirror
+// getArchiveSuggestionsFast_ (ArchiveService).
 const _ARCH_SUG_MODE = 'Not Picked';
 const _ARCH_SUG_MIN = 7;
 
@@ -235,7 +236,7 @@ function _archComputeSuggestionsFromCache() {
         streak = 0; // any answered/other contact breaks the run
       }
     });
-    if (total >= _ARCH_SUG_MIN) {
+    if (maxStreak >= _ARCH_SUG_MIN) {
       suggestions.push(Object.assign({}, lead, {
         _notPickedTotal: total,
         _notPickedStreak: maxStreak,
@@ -244,7 +245,7 @@ function _archComputeSuggestionsFromCache() {
     }
   });
   return suggestions.sort((a, b) =>
-    (b._notPickedTotal - a._notPickedTotal) || (b._notPickedStreak - a._notPickedStreak));
+    (b._notPickedStreak - a._notPickedStreak) || (b._notPickedTotal - a._notPickedTotal));
 }
 
 function _archRenderTools() {
@@ -299,8 +300,8 @@ function _archFiltered(tab) {
   const t = _archTabs[tab];
   let rows = (t.rows || []).slice();
   if (tab === 'suggestions') {
-    if (t.severity === 'warn') rows = rows.filter(r => Number(r._notPickedTotal) === 7);
-    else if (t.severity === 'crit') rows = rows.filter(r => Number(r._notPickedTotal) >= 8);
+    if (t.severity === 'warn') rows = rows.filter(r => Number(r._notPickedStreak) === 7);
+    else if (t.severity === 'crit') rows = rows.filter(r => Number(r._notPickedStreak) >= 8);
   }
   if (t.owner) rows = rows.filter(r => String(r['Assigned To'] || '') === t.owner);
   if (t.search) {
@@ -347,12 +348,12 @@ function _archRenderKpis() {
   if (_archiveTab === 'suggestions') {
     const t = _archTabs.suggestions;
     const all = t.rows || [];
-    const crit = all.filter(r => Number(r._notPickedTotal) >= 8).length;
-    const warn = all.filter(r => Number(r._notPickedTotal) === 7).length;
+    const crit = all.filter(r => Number(r._notPickedStreak) >= 8).length;
+    const warn = all.filter(r => Number(r._notPickedStreak) === 7).length;
     kpis.innerHTML = [
       _archKpi({ label: 'Total suggestions', val: all.length, sub: 'leads flagged for review', ic: 'inbox', variant: 'total', onclick: `_archSugSetSeverity('all')`, active: t.severity === 'all' }),
-      _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 not-picked calls', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: t.severity === 'warn' }),
-      _archKpi({ label: 'Critical', val: crit, sub: '8+ not-picked calls', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: t.severity === 'crit' })
+      _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 not picked in a row', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: t.severity === 'warn' }),
+      _archKpi({ label: 'Critical', val: crit, sub: '8+ not picked in a row', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: t.severity === 'crit' })
     ].join('');
   } else {
     const rows = _archTabs.archived.rows || [];
@@ -376,7 +377,7 @@ function _archRenderCard() {
   const owners = _archOwners(t);
   const title = tab === 'suggestions' ? 'Archive Suggestions' : 'Archived Leads';
   const sub = tab === 'suggestions'
-    ? 'Leads called 7 or more times that never picked up (Not Picked).'
+    ? 'Leads with 7 or more consecutive unanswered calls (Not Picked in a row).'
     : 'Leads marked as archived, with their linked follow-ups.';
   body.innerHTML = `
     <div class="arch-card">
@@ -461,7 +462,7 @@ function _archSugRowHTML(row) {
   const place = [row['City'], row['State']].filter(Boolean).join(', ') || leadId;
   const totalNp = Number(row._notPickedTotal || 0);
   const streak = Number(row._notPickedStreak || 0);
-  const crit = totalNp >= 8;
+  const crit = streak >= 8;
   const checked = t.selected.has(leadId);
   const initial = String(owner).trim().charAt(0).toUpperCase() || '?';
   return `<tr>
@@ -669,7 +670,7 @@ async function _archiveSuggestionLead(leadId) {
     confirmButtonText: 'Archive'
   });
   if (!result.isConfirmed) return;
-  const reason = (result.value || '').trim() || '7+ unanswered calls (Not Picked)';
+  const reason = (result.value || '').trim() || '7+ consecutive unanswered calls (Not Picked)';
   try {
     await api.archiveLead({ leadId, reason });
   } catch (e) { toast(e && e.message || e, 'error'); return; }
@@ -709,7 +710,7 @@ async function _archSugBulkArchive() {
     confirmButtonText: 'Archive'
   });
   if (!result.isConfirmed) return;
-  const reason = (result.value || '').trim() || '7+ unanswered calls (Not Picked)';
+  const reason = (result.value || '').trim() || '7+ consecutive unanswered calls (Not Picked)';
   _archBulkRun(ids, {
     verb: 'Archiving leads', doneVerb: 'archived', chunk: 15,
     exec: async (chunk) => {

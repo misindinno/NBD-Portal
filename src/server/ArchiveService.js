@@ -43,9 +43,9 @@ function getArchiveData(user) {
 }
 
 // ── Archive suggestions ─────────────────────────────────────────────────────────
-// Leads that were called this many times but never picked up ("Not Picked") are
-// unreachable/dead → suggested for archiving. We flag on the TOTAL number of Not Picked
-// contacts; the longest consecutive run of Not Picked is kept as extra info.
+// Leads whose last calls went unanswered ("Not Picked") this many times IN A ROW are
+// unreachable/dead → suggested for archiving. We flag on the longest CONSECUTIVE run of
+// Not Picked contacts (any answered call breaks the run); the total is kept as extra info.
 const ARCHIVE_SUGGESTION_MODE_ = 'Not Picked';
 const ARCHIVE_SUGGESTION_MIN_ = 7;
 
@@ -113,7 +113,7 @@ function getArchiveSuggestionsFast_(user) {
         streak = 0;                                      // any answered/other contact breaks the run
       }
     });
-    if (total >= ARCHIVE_SUGGESTION_MIN_) {
+    if (maxStreak >= ARCHIVE_SUGGESTION_MIN_) {
       suggestions.push(Object.assign({}, lead, {
         _notPickedTotal: total,
         _notPickedStreak: maxStreak,
@@ -122,7 +122,7 @@ function getArchiveSuggestionsFast_(user) {
     }
   });
   return suggestions.sort((a, b) =>
-    (b._notPickedTotal - a._notPickedTotal) || (b._notPickedStreak - a._notPickedStreak)
+    (b._notPickedStreak - a._notPickedStreak) || (b._notPickedTotal - a._notPickedTotal)
   );
 }
 
