@@ -155,7 +155,7 @@ async function _archActivateTab(tab, force) {
         const d = await api.getArchiveData();
         t.rows = (d && d.archived) || [];
       } else {
-        t.rows = (await api.getArchiveSuggestions()) || [];
+        t.rows = await _archGetSuggestionRows();
       }
     } catch (e) {
       if (seq !== _archLoadSeq || !el('archive-body')) return;
@@ -167,6 +167,84 @@ async function _archActivateTab(tab, force) {
     if (seq !== _archLoadSeq || _archiveTab !== tab || !el('archive-page')) return;
   }
   _archRenderAll();
+}
+
+// ── Suggestions: computed from the already-fetched portal cache ──────────────────
+// Suggestions = active leads with >= MIN total "Not Picked" contacts. Full-read admins
+// compute this locally from the cached leads + follow-up history — zero server call, the
+// tab opens instantly. Scoped users (or department-scoped portals) keep the server
+// endpoint: their cached history is filtered to their own scope and would undercount
+// calls logged by other users. Must mirror getArchiveSuggestionsFast_ (ArchiveService).
+const _ARCH_SUG_MODE = 'Not Picked';
+const _ARCH_SUG_MIN = 7;
+
+function _archCanComputeLocally() {
+  const deptScoped = ((App.config?.settings?.visibleDepartments) || []).length > 0;
+  return !!(App.user && App.user.role === 'ADMIN' && !deptScoped);
+}
+
+async function _archGetSuggestionRows() {
+  if (!_archCanComputeLocally()) return (await api.getArchiveSuggestions()) || [];
+  if (!AppCache.isLoaded('followupHistory')) {
+    // Deep-link / early click: the history prefetch hasn't landed yet — fetch the one
+    // collection (also warms Today + lead detail) instead of the heavy endpoint.
+    try { await _ensureCached('followupHistory', () => api.getFollowupHistory({})); }
+    catch (e) { return (await api.getArchiveSuggestions()) || []; }
+  }
+  return _archComputeSuggestionsFromCache();
+}
+
+// Handles both date formats in the cache: Sheets-API serial numbers and text timestamps.
+function _archHistTime(h) {
+  const v = (h && (h['Done Date'] || h['Created At'])) || '';
+  if (v === '' || v == null) return 0;
+  if (typeof v === 'number') return v; // Sheets serial — monotonic, fine for ordering
+  const t = new Date(String(v).replace(' ', 'T')).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+function _archComputeSuggestionsFromCache() {
+  const finalStageIds = {};
+  (App.config.allStages || App.config.stages || []).forEach(s => {
+    const isFinal = s['Is Final Stage'] === true || String(s['Is Final Stage'] || '').trim().toLowerCase() === 'true';
+    if (isFinal) finalStageIds[String(s['Stage ID'] || '').trim()] = true;
+  });
+  const byLead = {};
+  (AppCache.getRows('followupHistory') || []).forEach(h => {
+    const id = String(h['Lead ID'] || '').trim();
+    if (!id) return;
+    (byLead[id] || (byLead[id] = [])).push(h);
+  });
+  const suggestions = [];
+  (AppCache.getRows('leads') || []).forEach(lead => {
+    const id = String(lead['Lead ID'] || '').trim();
+    if (!id) return;
+    if (lead['NBD Lead ID'] || lead['Pushed To NBD At']) return;
+    if (String(lead['Is Archived']).toLowerCase() === 'true' || lead['Is Archived'] === true) return;
+    if (finalStageIds[String(lead['Stage ID'] || '').trim()]) return;
+    const hist = (byLead[id] || []).slice().sort((a, b) => _archHistTime(a) - _archHistTime(b));
+    let streak = 0, maxStreak = 0, total = 0, lastDate = '';
+    hist.forEach(h => {
+      const mode = String(h['Contact Mode'] || '').trim();
+      if (!mode) return; // system / stage-change rows: not a contact attempt
+      if (mode === _ARCH_SUG_MODE) {
+        streak++; total++;
+        if (streak > maxStreak) maxStreak = streak;
+        lastDate = h['Done Date'] || h['Created At'] || lastDate;
+      } else {
+        streak = 0; // any answered/other contact breaks the run
+      }
+    });
+    if (total >= _ARCH_SUG_MIN) {
+      suggestions.push(Object.assign({}, lead, {
+        _notPickedTotal: total,
+        _notPickedStreak: maxStreak,
+        _lastNotPickedDate: lastDate
+      }));
+    }
+  });
+  return suggestions.sort((a, b) =>
+    (b._notPickedTotal - a._notPickedTotal) || (b._notPickedStreak - a._notPickedStreak));
 }
 
 function _archRenderTools() {
@@ -517,13 +595,36 @@ window._archToggleAll = _archToggleAll;
 window._archClearSel = _archClearSel;
 
 // ── In-place mutations (no full page reload — filters/page/tab survive) ─────────
-function _archApplyArchived(doneIds) {
+function _archApplyArchived(doneIds, reason) {
   const set = new Set((doneIds || []).map(String));
   if (!set.size) return;
   const t = _archTabs.suggestions;
+  // Build the archived-tab rows BEFORE touching the caches (we need the lead data).
+  // Keeping the tab's rows warm means switching to Archived right after archiving is
+  // instant — no refetch. A later force refresh still reconciles the approximations.
+  if (_archTabs.archived.rows) {
+    const ts = _nowStr();
+    const newRows = Array.from(set).map(id => {
+      const src = (t.rows || []).find(r => String(r['Lead ID']) === id)
+        || (AppCache.getRows('leads') || []).find(r => String(r['Lead ID']) === id);
+      if (!src) return null;
+      const fuCount = (AppCache.getRows('followups') || []).filter(f => String(f['Lead ID']) === id).length;
+      return Object.assign({}, src, {
+        'Lead Status': 'Archived',
+        'Is Archived': true,
+        'Archived At': ts,
+        'Archived By': (App.user && App.user.id) || '',
+        'Archive Reason': String(reason || '').trim() || 'Archived from portal',
+        _notPickedCount: Number(src._notPickedTotal || src._notPickedCount || 0),
+        _followupCount: Number(src._followupCount || fuCount || 0),
+        _latestFollowupStatus: '',
+        _pendingDays: Number(src._pendingDays || 0)
+      });
+    }).filter(Boolean);
+    _archTabs.archived.rows = [...newRows, ..._archTabs.archived.rows];
+  }
   if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
   set.forEach(id => t.selected.delete(id));
-  _archTabs.archived.rows = null; // refreshed on next visit
   if (el('archive-page') && _archiveTab === 'suggestions') { _archRenderKpis(); _archRenderLive(); }
   // In-place: drop the archived leads + their follow-ups from the cache and acknowledge
   // our own write, so the revalidation poll doesn't refetch + repaint the whole portal.
@@ -531,7 +632,7 @@ function _archApplyArchived(doneIds) {
     try { AppCache.removeRow('leads', 'Lead ID', id); } catch (e) {}
     try { AppCache.removeRow('followups', 'Lead ID', id); } catch (e) {}
   });
-  if (typeof _ackOwnArchive === 'function') _ackOwnArchive(Array.from(set), '');
+  if (typeof _ackOwnArchive === 'function') _ackOwnArchive(Array.from(set), reason || '');
   try { renderSidebar(); } catch (e) {}
 }
 
@@ -568,11 +669,12 @@ async function _archiveSuggestionLead(leadId) {
     confirmButtonText: 'Archive'
   });
   if (!result.isConfirmed) return;
+  const reason = (result.value || '').trim() || '7+ unanswered calls (Not Picked)';
   try {
-    await api.archiveLead({ leadId, reason: (result.value || '').trim() || '7+ unanswered calls (Not Picked)' });
+    await api.archiveLead({ leadId, reason });
   } catch (e) { toast(e && e.message || e, 'error'); return; }
   toast('Lead archived.');
-  _archApplyArchived([leadId]);
+  _archApplyArchived([leadId], reason);
 }
 window._archiveSuggestionLead = _archiveSuggestionLead;
 
@@ -614,7 +716,7 @@ async function _archSugBulkArchive() {
       const res = await api.archiveLeads({ leadIds: chunk, reason });
       return { done: (res && res.archived) || [], failed: (res && res.failed || []).length };
     },
-    after: _archApplyArchived
+    after: (ids) => _archApplyArchived(ids, reason)
   });
 }
 window._archSugBulkArchive = _archSugBulkArchive;

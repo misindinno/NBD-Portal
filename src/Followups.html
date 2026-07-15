@@ -560,6 +560,12 @@ function _isNoNextPlannedFollowup(row) {
 function _onLeadsArchivedClient(leadIds) {
   const ids = (Array.isArray(leadIds) ? leadIds : [leadIds]).map(v => String(v || '')).filter(Boolean);
   ids.forEach(id => { try { AppCache.removeRow('followups', 'Lead ID', id); } catch (e) {} });
+  // Archive-page tab caches would be stale now — drop them so the next Archive visit
+  // refetches/recomputes (cheap since the endpoint went on a diet). The Archive page's
+  // own actions don't come through here; they update their tabs in place.
+  try {
+    if (typeof _archTabs !== 'undefined') { _archTabs.archived.rows = null; _archTabs.suggestions.rows = null; }
+  } catch (e) {}
   const onFu = String(App.currentPage || '').startsWith('followups');
   if (onFu && typeof _renderFUTab === 'function') {
     try { _fuPageSnapshot = null; } catch (e) {}

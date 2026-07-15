@@ -1,19 +1,28 @@
 function getArchiveData(user) {
   ensureArchiveSchema_();
-  const scopedLeads = _scopeAssignedRows(
-    getRowsWithCustomFieldValues_('Leads', getAllRows(SHEET_NAMES.LEADS)),
-    user
-  );
-  const followupRows = getAllRows(SHEET_NAMES.FOLLOWUPS);
-  const historyRows = getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY);
-  const notPickedByLead = historyRows.reduce((map, row) => {
+  // One batched read (Sheets API when available, SpreadsheetApp fallback inside) instead
+  // of three sequential full scans. The archived table renders master fields only, so the
+  // custom-field join is skipped, and the old `alerts` list is gone — the client never
+  // read it (suggestions have their own computation).
+  _bootstrapReadMode_ = true;
+  let batch;
+  try {
+    batch = sheetApiBatchGetRows_([
+      { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+      { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
+      { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' }
+    ]);
+  } finally { _bootstrapReadMode_ = false; }
+
+  const scopedLeads = _scopeAssignedRows(batch[SHEET_NAMES.LEADS] || [], user);
+  const notPickedByLead = (batch[SHEET_NAMES.FOLLOWUP_HISTORY] || []).reduce((map, row) => {
     if (String(row['Contact Mode'] || '').trim() !== 'Not Picked') return map;
     const leadId = String(row['Lead ID'] || '').trim();
     if (!leadId) return map;
     map[leadId] = (map[leadId] || 0) + 1;
     return map;
   }, {});
-  const followupByLead = followupRows.reduce((map, row) => {
+  const followupByLead = (batch[SHEET_NAMES.FOLLOWUPS] || []).reduce((map, row) => {
     const leadId = String(row['Lead ID'] || '').trim();
     if (!leadId) return map;
     if (!map[leadId]) map[leadId] = [];
@@ -21,24 +30,14 @@ function getArchiveData(user) {
     return map;
   }, {});
 
-  const cutoff = new Date();
-  cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() - 28);
-
   const archived = [];
-  const alerts = [];
   scopedLeads.forEach(lead => {
+    if (!_isArchivedLead_(lead)) return;
     const leadId = String(lead['Lead ID'] || '').trim();
     if (!leadId) return;
-    const enriched = _archiveEnrichLead_(lead, followupByLead[leadId] || [], notPickedByLead[leadId] || 0);
-    if (_isArchivedLead_(lead)) {
-      archived.push(enriched);
-      return;
-    }
-    if (_archiveLeadNeedsAlert_(lead, notPickedByLead[leadId] || 0, cutoff)) alerts.push(enriched);
+    archived.push(_archiveEnrichLead_(lead, followupByLead[leadId] || [], notPickedByLead[leadId] || 0));
   });
   return {
-    alerts: alerts.sort((a, b) => Number(b._notPickedCount || 0) - Number(a._notPickedCount || 0)),
     archived: archived.sort((a, b) => new Date(b['Archived At'] || 0) - new Date(a['Archived At'] || 0))
   };
 }
@@ -215,17 +214,6 @@ function restoreArchivedLead(leadId, email) {
   insertLeadActivityLog_(leadId, 'Restore Lead', 'Archived', 'Open', 'Lead restored from archive.', user.id);
   _bumpArchiveStamps_();
   return respond({ leadId });
-}
-
-function _archiveLeadNeedsAlert_(lead, notPickedCount, cutoff) {
-  if (_isArchivedLead_(lead)) return false;
-  if (String(lead['Lead Status'] || 'Open').trim().toLowerCase() !== 'open') return false;
-  if (Number(notPickedCount || 0) < 10) return false;
-  const pendingDate = formatDate(lead['Created At'] || '');
-  if (!pendingDate) return false;
-  const pending = new Date(pendingDate);
-  pending.setHours(0, 0, 0, 0);
-  return pending <= cutoff;
 }
 
 function _archiveEnrichLead_(lead, followups, notPickedCount) {
