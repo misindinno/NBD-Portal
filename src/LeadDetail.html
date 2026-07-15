@@ -1,10 +1,14 @@
 <script>
-async function openLeadDetail(leadId) {
+async function openLeadDetail(leadId, seed) {
     // The dialog renders the cached lead immediately; only the Follow-up History
     // and Activity Logs tabs need the heavier per-lead read (full history/log
     // sheet scans), so they load in the background and fill in — the dialog no
     // longer blocks on a server round-trip.
-    let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId);
+    // `seed` = a lead row the caller already holds in state (e.g. an Archive page row).
+    // When the lead isn't in the cache the seed opens the dialog instantly with zero
+    // fetch; only its custom-field values are filled in quietly in the background.
+    let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId) || seed || null;
+    const seedOnly = !!(lead && lead === seed);
     const histLoaded = AppCache.isLoaded('followupHistory');
     const logLoaded  = AppCache.isLoaded('activityLogs');
     let followupHistory = histLoaded ? AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId) : [];
@@ -104,7 +108,7 @@ async function openLeadDetail(leadId) {
       </div>
       ${lead['Next Follow-up Date'] ? '<div style="padding:10px 16px;border-top:1px solid #e5e7eb;grid-column:1/-1;background:#f9fafb"><div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Next Follow-up</div><div style="font-weight:700;color:#111827;font-size:14px">' + formatDate(lead['Next Follow-up Date']) + '</div></div>' : ''}
     </div>
-    ${buildLeadCustomFieldSummary(lead, leadFields, configOptions)}
+    <div id="lead-cf-summary">${buildLeadCustomFieldSummary(lead, leadFields, configOptions)}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <div class="tabs" style="margin-bottom:0;border:none">
         <button class="tab-btn active" onclick="switchTab(this,'tab-history')">Follow-up History <kbd class="tab-kbd">1</kbd></button>
@@ -142,28 +146,53 @@ async function openLeadDetail(leadId) {
     </div>`}`);
     overlay.querySelector('.modal')?.classList.add('modal-wide');
 
-    const editForm = overlay.querySelector('#lead-form');
-    if (editForm) {
-      _initLeadValidator(editForm).onSuccess(async () => {
-        if (!validateCfMultiselects(editForm)) return;
-        const btn = editForm.querySelector('[type=submit]');
-        setButtonLoading(btn);
-        try {
-          const payload = await collectLeadFormPayload(editForm);
-          payload['Lead ID'] = lead['Lead ID'];
-          AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
-          await api.saveLead(payload);
-          overlay.remove();
-          _refreshLeadViewsAfterLocalChange();
-          toast('Lead saved!');
-        } catch (err) {
-          toast(err, 'error');
-          resetButtonLoading(btn);
+    let _editDirty = false;
+    const _bindEditForm = () => {
+      const editForm = overlay.querySelector('#lead-form');
+      if (editForm) {
+        editForm.addEventListener('input',  () => { _editDirty = true; });
+        editForm.addEventListener('change', () => { _editDirty = true; });
+        _initLeadValidator(editForm).onSuccess(async () => {
+          if (!validateCfMultiselects(editForm)) return;
+          const btn = editForm.querySelector('[type=submit]');
+          setButtonLoading(btn);
+          try {
+            const payload = await collectLeadFormPayload(editForm);
+            payload['Lead ID'] = lead['Lead ID'];
+            AppCache.patchRow('leads', 'Lead ID', lead['Lead ID'], { ...payload, 'Updated At': _nowStr() });
+            await api.saveLead(payload);
+            overlay.remove();
+            _refreshLeadViewsAfterLocalChange();
+            toast('Lead saved!');
+          } catch (err) {
+            toast(err, 'error');
+            resetButtonLoading(btn);
+          }
+        });
+      }
+      initLeadCustomFields(overlay);
+      _initStateCityDropdowns(overlay, lead['State'] || '', lead['City'] || '');
+    };
+    _bindEditForm();
+
+    // Seeded open (row came from page state, e.g. Archive): the dialog is already fully
+    // usable — only the custom-field VALUES are missing (archive rows skip that join).
+    // Fetch just those quietly and patch the summary + edit form, unless the user has
+    // already started editing.
+    if (seedOnly) {
+      api.getLeadFieldValues(leadId).then(data => {
+        if (!data || !data.lead || !overlay.isConnected) return;
+        lead = Object.assign({}, lead, data.lead);
+        const sum = overlay.querySelector('#lead-cf-summary');
+        if (sum) { sum.innerHTML = buildLeadCustomFieldSummary(lead, leadFields, configOptions); renderIcons(sum); }
+        const editPane = overlay.querySelector('#tab-edit');
+        if (editPane && !_editDirty) {
+          editPane.innerHTML = buildLeadFormHTML(lead, leadFields, configOptions);
+          _bindEditForm();
+          renderIcons(editPane);
         }
-      });
+      }).catch(() => {});
     }
-    initLeadCustomFields(overlay);
-    _initStateCityDropdowns(overlay, lead['State'] || '', lead['City'] || '');
 
     // History + activity logs weren't cached yet — join the in-flight boot prefetch
     // (or start the collection fetches) instead of firing the heavy per-lead getLead

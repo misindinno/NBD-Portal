@@ -654,7 +654,12 @@ function _archApplyRestored(doneIds) {
 }
 
 function _archiveOpenLead(leadId) {
-  if (leadId && typeof openLeadDetail === 'function') openLeadDetail(leadId);
+  if (!leadId || typeof openLeadDetail !== 'function') return;
+  // Pass the row we already hold in tab state so the dialog opens instantly with zero
+  // fetch (only the custom-field values are back-filled quietly).
+  const t = _archTabs[_archiveTab];
+  const seed = ((t && t.rows) || []).find(r => String(r['Lead ID']) === String(leadId)) || null;
+  openLeadDetail(leadId, seed);
 }
 window._archiveOpenLead = _archiveOpenLead;
 
