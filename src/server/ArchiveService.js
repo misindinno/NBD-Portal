@@ -8,7 +8,7 @@ function getArchiveData(user) {
   let batch;
   try {
     batch = sheetApiBatchGetRows_([
-      { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+      { sheetName: SHEET_NAMES.LEADS, range: 'A:AZ' },
       { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
       { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' }
     ]);
@@ -66,7 +66,7 @@ function getArchiveSuggestionsFast_(user) {
   let rows;
   try {
     rows = sheetApiBatchGetRows_([
-      { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+      { sheetName: SHEET_NAMES.LEADS, range: 'A:AZ' },
       { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:Z' },
       { sheetName: SHEET_NAMES.STAGES, range: 'A:K' }
     ]);

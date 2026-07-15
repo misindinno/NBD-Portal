@@ -229,7 +229,7 @@ function getTodayActivitySnapshotFast_(user) {
   let rows;
   try {
     rows = sheetApiBatchGetRows_([
-      { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+      { sheetName: SHEET_NAMES.LEADS, range: 'A:AZ' },
       { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
       { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' },
       { sheetName: SHEET_NAMES.LEAD_ACTIVITY_LOGS, range: 'A:H' }
@@ -256,7 +256,7 @@ function getFollowupPageSnapshotFast_(user, options) {
   const started = Date.now();
   const includeHistory = !!(options && options.includeHistory);
   const specs = [
-    { sheetName: SHEET_NAMES.LEADS, range: 'A:AC' },
+    { sheetName: SHEET_NAMES.LEADS, range: 'A:AZ' },
     { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' }
   ];
   if (includeHistory) specs.push({ sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' });
