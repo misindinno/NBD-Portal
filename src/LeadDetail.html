@@ -11,15 +11,41 @@ async function openLeadDetail(leadId) {
     let activityLogs    = logLoaded  ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId) : [];
     let detailPending = !histLoaded || !logLoaded;
 
-    // Only block the open when the lead itself isn't cached (rare — leads load at
-    // bootstrap). Otherwise render now and lazy-fill the history/log tabs.
+    // Lead not in the cache (archived or out-of-scope — cached leads open with zero
+    // wait): never block silently. Show a skeleton shell instantly, then fetch only the
+    // lead + its custom values (light read — no history/follow-up sheet scans; those
+    // tabs fill from the cache-join path like any other open).
     if (!lead) {
-      const data = await api.getLead(leadId);
-      if (!data || !data.lead) { showToast('Lead not found or no longer available.', 'error'); return; }
-      lead = data.lead;
-      followupHistory = data.followupHistory || [];
-      activityLogs    = data.activityLogs || [];
-      detailPending = false;
+      const shell = showModal(`
+        <div class="modal-header">
+          <h2 style="font-size:18px;font-weight:700;color:#111827">Loading lead…</h2>
+          <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+        </div>
+        <div style="display:grid;gap:10px;padding:4px 0 12px">
+          <div class="skeleton-block" style="height:46px;border-radius:10px"></div>
+          <div class="skeleton-block" style="height:130px;border-radius:10px"></div>
+          <div class="skeleton-block" style="height:46px;border-radius:10px"></div>
+          <div class="skeleton-block" style="height:90px;border-radius:10px"></div>
+        </div>`);
+      let data = null;
+      try { data = await api.getLeadFieldValues(leadId); } catch (e) {}
+      if (data && data.lead) {
+        lead = data.lead;
+      } else {
+        // Scoped users may only see this lead via its follow-ups — the light endpoint
+        // rejects those, so fall back to the fuller per-lead read.
+        try { data = await api.getLead(leadId); } catch (e) {}
+        if (data && data.lead) {
+          lead = data.lead;
+          followupHistory = data.followupHistory || [];
+          activityLogs    = data.activityLogs || [];
+          detailPending = false;
+        }
+      }
+      const shellClosed = !shell.isConnected;
+      shell.remove();
+      if (!lead) { showToast('Lead not found or no longer available.', 'error'); return; }
+      if (shellClosed) return; // user closed the loading shell — don't reopen on them
     }
     const leadFields = App.config.leadFields || [];
     const configOptions = _configOptionsMap(App.config._allConfigs || []);
