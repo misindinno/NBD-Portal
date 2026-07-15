@@ -139,22 +139,38 @@ async function openLeadDetail(leadId) {
     initLeadCustomFields(overlay);
     _initStateCityDropdowns(overlay, lead['State'] || '', lead['City'] || '');
 
-    // History + activity logs weren't cached yet — fetch them in the background and
-    // fill the tabs without blocking the dialog open.
+    // History + activity logs weren't cached yet — join the in-flight boot prefetch
+    // (or start the collection fetches) instead of firing the heavy per-lead getLead
+    // read, which re-reads the lead + custom fields + follow-ups server-side and threw
+    // the result away. This also warms the cache, so every later lead open is instant.
     if (detailPending) {
-      api.getLead(leadId).then(data => {
-        if (!data || !overlay || !overlay.isConnected) return;
+      const _fillTabs = (hist, logs) => {
+        if (!overlay || !overlay.isConnected) return;
         const hEl = overlay.querySelector('#tab-history');
         const lEl = overlay.querySelector('#tab-log');
-        if (hEl) hEl.innerHTML = _followupHistoryTable(data.followupHistory || [], 'No follow-up history yet.', fuContext);
-        if (lEl) lEl.innerHTML = _activityLogTable(data.activityLogs || [], 'No activity logs yet.', fuContext);
+        if (hEl) hEl.innerHTML = _followupHistoryTable(hist || [], 'No follow-up history yet.', fuContext);
+        if (lEl) lEl.innerHTML = _activityLogTable(logs || [], 'No activity logs yet.', fuContext);
         renderIcons(overlay);
-      }).catch(() => {
+      };
+      const _showTabError = () => {
         const hEl = overlay && overlay.querySelector('#tab-history');
         const lEl = overlay && overlay.querySelector('#tab-log');
         const msg = '<div style="padding:24px;color:#b45309;font-size:13px">Could not load this section. Close and reopen to retry.</div>';
         if (hEl) hEl.innerHTML = msg;
         if (lEl) lEl.innerHTML = msg;
+      };
+      Promise.all([
+        AppCache.isLoaded('followupHistory') ? null : _ensureCached('followupHistory', () => api.getFollowupHistory({})),
+        AppCache.isLoaded('activityLogs')    ? null : _ensureCached('activityLogs',    () => api.getLeadActivityLogs({}))
+      ]).then(() => _fillTabs(
+        AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId),
+        AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId)
+      )).catch(() => {
+        // e.g. a Leads-only user can't read the full history collection — fall back to
+        // the per-lead read the lead-detail endpoint allows.
+        api.getLead(leadId)
+          .then(data => { if (data) _fillTabs(data.followupHistory, data.activityLogs); })
+          .catch(_showTabError);
       });
     }
   }

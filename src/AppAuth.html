@@ -76,10 +76,21 @@ async function _continueAppInit(token) {
 
 // After first paint, warm the heavy collections (follow-up history + activity logs) in
 // the background so lead-detail and Today views open instantly later. Non-blocking.
+// Both come from ONE batched Sheets-API snapshot (the endpoint Today uses) instead of
+// two sequential full-sheet scans — the caches warm several times faster after login.
 function _prefetchSecondary_() {
   setTimeout(function() {
-    if (!AppCache.isLoaded('followupHistory')) _ensureCached('followupHistory', () => api.getFollowupHistory({})).catch(() => {});
-    if (!AppCache.isLoaded('activityLogs'))    _ensureCached('activityLogs',    () => api.getLeadActivityLogs({})).catch(() => {});
+    const needHist = !AppCache.isLoaded('followupHistory');
+    const needLogs = !AppCache.isLoaded('activityLogs');
+    if (!needHist && !needLogs) return;
+    let snap = null;
+    const fromSnapshot = key => () => {
+      snap = snap || api.getTodayActivitySnapshot();
+      return snap.then(s => Array.isArray(s && s[key]) ? s[key] : Promise.reject(new Error('no ' + key)));
+    };
+    // Per-collection fallback keeps older deployments / partial failures working.
+    if (needHist) _ensureCached('followupHistory', () => fromSnapshot('followupHistory')().catch(() => api.getFollowupHistory({}))).catch(() => {});
+    if (needLogs) _ensureCached('activityLogs',    () => fromSnapshot('activityLogs')().catch(() => api.getLeadActivityLogs({}))).catch(() => {});
   }, 1200);
 }
 
