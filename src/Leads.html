@@ -433,17 +433,20 @@
       confirmButtonColor: '#334155'
     });
     if (!result.isConfirmed) return;
+    const reason = result.value || 'Archived from lead master';
+    // Optimistic: the row disappears instantly; the server call completes in the
+    // background and we acknowledge our own write so the poll doesn't repaint the page.
+    AppCache.removeRow('leads', 'Lead ID', leadId);
+    if (row) row.delete();
+    if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient([leadId]);
+    else if (typeof renderSidebar === 'function') renderSidebar();
+    toast('Lead archived.');
     try {
-      toast('Archiving...', 'info');
-      await api.archiveLead({ leadId, reason: result.value || 'Archived from lead master' });
-      AppCache.removeRow('leads', 'Lead ID', leadId);
-      if (row) row.delete();
-      AppCache.invalidate('followups');
-      toast('Lead archived.');
-      if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient([leadId]);
-      else if (typeof renderSidebar === 'function') renderSidebar();
+      await api.archiveLead({ leadId, reason });
+      if (typeof _ackOwnArchive === 'function') _ackOwnArchive([leadId], reason);
     } catch (err) {
       toast('Archive failed: ' + (err.message || err), 'error');
+      AppCache.invalidate('followups');
       _refreshLeadsCache().catch(() => {});
     }
   }
@@ -502,7 +505,8 @@
       const archived = (res && res.archived) || [];
       const failed = (res && res.failed) || [];
       archived.forEach(id => AppCache.removeRow('leads', 'Lead ID', id));
-      AppCache.invalidate('followups');
+      if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient(archived);
+      if (typeof _ackOwnArchive === 'function') _ackOwnArchive(archived, reason);
       _leadSelected.clear();
       _leadUpdateBulkBar();
       if (window.leadTable) {

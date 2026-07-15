@@ -69,6 +69,14 @@ const AppCache = (() => {
   // Reset all collections at once (used by topbar refresh).
   function invalidateAll() { Object.keys(_c).forEach(col => invalidate(col)); }
 
-  return { setRows, getRows, getLoadedAt, getServerSyncedAt, isLoaded, touch, patchRow, addRow, removeRow, invalidate, invalidateAll };
+  // Acknowledge a write WE made and already applied in place: mark the collection as in
+  // sync with the server as of `ts` (the fresh server stamp) so the revalidation poll
+  // doesn't treat our own stamp bump as a foreign change and refetch + repaint the page.
+  function ackSyncedAt(col, ts) {
+    const e = _e(col);
+    e.serverSyncedAt = Math.max(e.serverSyncedAt || 0, Number(ts) || Date.now());
+  }
+
+  return { setRows, getRows, getLoadedAt, getServerSyncedAt, isLoaded, touch, patchRow, addRow, removeRow, invalidate, invalidateAll, ackSyncedAt };
 })();
 </script>

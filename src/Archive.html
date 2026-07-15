@@ -524,11 +524,14 @@ function _archApplyArchived(doneIds) {
   if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
   set.forEach(id => t.selected.delete(id));
   _archTabs.archived.rows = null; // refreshed on next visit
-  AppCache.invalidate('leads');
-  AppCache.invalidate('followups');
   if (el('archive-page') && _archiveTab === 'suggestions') { _archRenderKpis(); _archRenderLive(); }
-  // Drop the archived leads' follow-ups so the sidebar count is correct immediately.
-  Array.from(set).forEach(id => { try { AppCache.removeRow('followups', 'Lead ID', id); } catch (e) {} });
+  // In-place: drop the archived leads + their follow-ups from the cache and acknowledge
+  // our own write, so the revalidation poll doesn't refetch + repaint the whole portal.
+  Array.from(set).forEach(id => {
+    try { AppCache.removeRow('leads', 'Lead ID', id); } catch (e) {}
+    try { AppCache.removeRow('followups', 'Lead ID', id); } catch (e) {}
+  });
+  if (typeof _ackOwnArchive === 'function') _ackOwnArchive(Array.from(set), '');
   try { renderSidebar(); } catch (e) {}
 }
 
@@ -539,9 +542,12 @@ function _archApplyRestored(doneIds) {
   if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
   set.forEach(id => t.selected.delete(id));
   _archTabs.suggestions.rows = null; // a restored lead may qualify again
-  AppCache.invalidate('leads');
-  AppCache.invalidate('followups');
   if (el('archive-page') && _archiveTab === 'archived') { _archRenderKpis(); _archRenderLive(); }
+  // A restore brings back rows the client can't reconstruct (the lead row + whichever
+  // follow-ups reopened) — refresh both collections now, in place (no skeleton), rather
+  // than invalidating and letting the poll repaint later.
+  if (typeof _refreshLeadsCache === 'function') _refreshLeadsCache().catch(() => {});
+  if (typeof _refreshFollowupsCache === 'function') _refreshFollowupsCache().catch(() => {});
   try { renderSidebar(); } catch (e) {}
 }
 

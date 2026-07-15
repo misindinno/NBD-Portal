@@ -171,6 +171,37 @@ async function _refreshAppConfig() {
   AppLookup.rebuild();
 }
 
+// After a client-initiated archive the UI is already updated in place, but the server
+// bumped the leads/followups/activityLogs stamps. Without acknowledgment the next poll
+// (15s tick — or instantly on window focus after the confirm dialog) would treat our own
+// write as a foreign change and refetch + repaint everything, which reads as a full
+// portal refresh. So: synthesize the new activity-log rows locally (keeps Today's
+// Archived card correct without a refetch), then sync bookkeeping to the fresh stamps.
+async function _ackOwnArchive(leadIds, reason, action = 'Archive Lead') {
+  const ids = (Array.isArray(leadIds) ? leadIds : [leadIds]).map(v => String(v || '')).filter(Boolean);
+  const ts = _nowStr();
+  ids.forEach(id => {
+    try {
+      AppCache.addRow('activityLogs', {
+        'Log ID': 'local-' + id + '-' + Date.now(),
+        'Lead ID': id,
+        'Action Type': action,
+        'Old Value': '',
+        'New Value': 'Archived',
+        'Remark': String(reason || '').trim() || 'Archived from portal',
+        'Created By': (App.user && App.user.id) || '',
+        'Created At': ts
+      });
+    } catch (e) {}
+  });
+  try {
+    const stamps = await api.getDataStamps();
+    ['leads', 'followups', 'activityLogs'].forEach(col =>
+      AppCache.ackSyncedAt(col, Number(stamps[col]) || Date.now()));
+  } catch (e) { /* poll will heal on its own */ }
+}
+window._ackOwnArchive = _ackOwnArchive;
+
 function startCacheRevalidation() {
   // No cross-navigation cache, but a lightweight on-change poll keeps the current
   // page live: it detects server changes via data stamps (PropertiesService) — no

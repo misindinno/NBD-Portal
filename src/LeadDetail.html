@@ -199,14 +199,22 @@ async function openLeadDetail(leadId) {
       confirmButtonColor: '#334155'
     });
     if (!result.isConfirmed) return;
-    await api.archiveLead({ leadId, reason: result.value || 'Archived from lead detail' });
-    AppCache.invalidate('leads');
-    AppCache.invalidate('followups');
+    const reason = result.value || 'Archived from lead detail';
+    await api.archiveLead({ leadId, reason });
+    // In-place: drop the lead + its follow-ups from the cache and acknowledge our own
+    // write, so neither this handler nor the revalidation poll repaints the portal.
+    AppCache.removeRow('leads', 'Lead ID', leadId);
     if (overlay) overlay.remove();
     toast('Lead archived.');
     if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient([leadId]);
     else if (typeof renderSidebar === 'function') renderSidebar();
+    if (typeof _ackOwnArchive === 'function') _ackOwnArchive([leadId], reason);
     if (App.currentPage === 'archive' && typeof loadArchive === 'function') loadArchive(_archiveTab || 'archived', true);
+    else if (App.currentPage === 'leads' && window.leadTable) {
+      leadTable.replaceData(AppCache.getRows('leads'));
+      if (typeof applyLeadFilters === 'function') applyLeadFilters();
+      if (typeof _renderLeadKpis === 'function') _renderLeadKpis(AppCache.getRows('leads'));
+    }
     else if (App.currentPage === 'leads' && typeof loadLeads === 'function') loadLeads(true);
   }
 
@@ -220,13 +228,15 @@ async function openLeadDetail(leadId) {
     });
     if (!result.isConfirmed) return;
     await api.restoreArchivedLead(leadId);
-    AppCache.invalidate('leads');
-    AppCache.invalidate('followups');
     if (overlay) overlay.remove();
     toast('Lead restored.');
+    // Restore brings back rows the client can't reconstruct (the lead + reopened
+    // follow-ups) — refresh both collections in place (no skeleton, table updates
+    // in situ) instead of invalidating and letting the poll repaint later.
+    if (typeof _refreshLeadsCache === 'function') _refreshLeadsCache().catch(() => {});
+    if (typeof _refreshFollowupsCache === 'function') _refreshFollowupsCache().catch(() => {});
     if (typeof renderSidebar === 'function') renderSidebar();
     if (App.currentPage === 'archive' && typeof loadArchive === 'function') loadArchive(_archiveTab || 'archived', true);
-    else if (App.currentPage === 'leads' && typeof loadLeads === 'function') loadLeads(true);
   }
 
   function _leadStageIsWonForNbd(lead) {

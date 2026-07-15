@@ -273,7 +273,29 @@ async function _sffSave() {
     delete payload['Lead ID']; delete payload['Stage ID']; delete payload['__stage_skipped'];
     await api.saveLeadStageFields({ leadId: lead['Lead ID'], stageId: stageId, fields: payload });
     toast('Stage fields saved!');
-    try { AppCache.invalidate('leads'); } catch (e) {}
+    // Patch the cached lead in place and acknowledge our own write (the save bumps the
+    // leads + activityLogs stamps) so the revalidation poll doesn't refetch + repaint.
+    try {
+      AppCache.patchRow('leads', 'Lead ID', String(lead['Lead ID']), Object.assign({}, payload, { 'Updated At': _nowStr() }));
+      _sffState.lead = Object.assign({}, _sffState.lead, payload);
+      const stageName = ((App.config.allStages || App.config.stages || []).find(s => String(s['Stage ID']) === String(stageId)) || {})['Stage Name'] || stageId;
+      AppCache.addRow('activityLogs', {
+        'Log ID': 'local-sff-' + Date.now(),
+        'Lead ID': String(lead['Lead ID']),
+        'Action Type': 'Update Stage Fields',
+        'Old Value': stageName,
+        'New Value': stageName,
+        'Remark': 'Stage fields updated via form',
+        'Created By': (App.user && App.user.id) || '',
+        'Created At': _nowStr()
+      });
+    } catch (e) {}
+    (async () => {
+      try {
+        const stamps = await api.getDataStamps();
+        ['leads', 'activityLogs'].forEach(c => AppCache.ackSyncedAt(c, Number(stamps[c]) || Date.now()));
+      } catch (e) {}
+    })();
   } catch (err) {
     toast(err && err.message || err, 'error');
   } finally {
