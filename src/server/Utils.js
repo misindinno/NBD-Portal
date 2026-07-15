@@ -60,3 +60,10 @@ function _bumpStamp(collection) {
       .setProperty('STAMP_' + String(collection).toUpperCase(), String(Date.now()));
   } catch (e) {}
 }
+
+// Excel-PROPER-style casing: every letter run starts uppercase, rest lowercase
+// ("acme STEEL pvt. ltd" → "Acme Steel Pvt. Ltd", "l&t" → "L&T").
+function toProperCase_(value) {
+  return String(value == null ? '' : value).replace(/[A-Za-zÀ-ÖØ-öø-ÿ]+/g, w =>
+    w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}

@@ -273,6 +273,11 @@ function _leadIdFromPayload(data) {
 
 function _prepareLeadPayload(data, stageId, existing, skipped) {
   const payload = { ...data };
+  // Lead names are stored in Proper Case on every save path (Lead Form, detail edit,
+  // bulk entry) so lists, dialogs and exports show one consistent casing.
+  ['Company Name', 'Contact Person'].forEach(k => {
+    if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k]) payload[k] = toProperCase_(payload[k]);
+  });
   const fields = getLeadCustomFieldsForStage(stageId);
   fields.forEach(field => {
     const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
