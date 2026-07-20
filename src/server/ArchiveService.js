@@ -37,9 +37,43 @@ function getArchiveData(user) {
     if (!leadId) return;
     archived.push(_archiveEnrichLead_(lead, followupByLead[leadId] || [], notPickedByLead[leadId] || 0));
   });
+  // Self-heal: archiving closes a lead's follow-ups at write time, but leads archived
+  // before that shipped (or rows missed by a stale index) can still hold open ones.
+  // Both datasets are already in memory here, so sweep and close the stragglers.
+  try { _closeFollowupsForArchivedLeads_(archived, followupByLead); }
+  catch (e) { Logger.log('[Archive] follow-up self-heal failed: ' + (e && e.message || e)); }
   return {
     archived: archived.sort((a, b) => new Date(b['Archived At'] || 0) - new Date(a['Archived At'] || 0))
   };
+}
+
+// Closes any still-open follow-ups belonging to archived leads, with the same semantics
+// as archiveLead (tag auto-closed ones so a restore reopens exactly those). Capped per
+// run to bound the write burst; after the first pass this is a no-op.
+function _closeFollowupsForArchivedLeads_(archivedLeads, followupByLead) {
+  const ts = now();
+  let closed = 0;
+  (archivedLeads || []).forEach(lead => {
+    if (closed >= 100) return;
+    const leadId = String(lead['Lead ID'] || '').trim();
+    (followupByLead[leadId] || []).forEach(followup => {
+      if (closed >= 100) return;
+      if (!followup['Follow-up ID']) return;
+      if (String(followup['Status'] || 'Open').trim().toLowerCase() === 'closed') return;
+      const fuPatch = { 'Status': 'Closed', 'Next Follow-up Date': '', 'Planned Date': '', 'Updated At': ts };
+      if (!followup['Outcome'] && !followup['Done Date']) {
+        fuPatch['Outcome'] = 'Lead archived';
+        fuPatch['Done Date'] = today();
+      }
+      updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], fuPatch);
+      closed++;
+    });
+  });
+  if (closed) {
+    _bumpStamp('followups');
+    Logger.log('[Archive] self-heal closed ' + closed + ' open follow-up(s) of archived leads');
+  }
+  return closed;
 }
 
 // ── Archive suggestions ─────────────────────────────────────────────────────────
