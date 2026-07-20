@@ -298,9 +298,10 @@ function _fuApplyFilters(rows, ctx) {
       const company  = String(lead?.['Company Name']   || '').toLowerCase();
       const contact  = String(lead?.['Contact Person'] || '').toLowerCase();
       const phone    = String(lead?.['Phone']          || '').toLowerCase();
+      const altPhone = String(lead?.['Alternate No']   || '').toLowerCase();
       const remark   = [row['Discussion'], row['Remark'], remarkSearchText(row), remarkSearchText(lead)]
         .map(v => String(v || '').toLowerCase()).join(' ');
-      if (!company.includes(searchQ) && !contact.includes(searchQ) && !phone.includes(searchQ) && !remark.includes(searchQ)) return false;
+      if (!company.includes(searchQ) && !contact.includes(searchQ) && !phone.includes(searchQ) && !altPhone.includes(searchQ) && !remark.includes(searchQ)) return false;
     }
     if (f.type && String(row['Follow-up Type'] || '') !== f.type) return false;
     if (f.assignedTo && lead?.['Assigned To'] !== f.assignedTo) return false;
@@ -599,6 +600,7 @@ function _decorateFollowup(row, ctx) {
     _assignedToLabel: lead ? (ctx?.userMap?.[lead['Assigned To']] || '') : '',
     _updatedStageLabel: stage ? stage['Stage Name'] : '',
     _leadPhone: lead ? (lead['Phone'] || '') : '',
+    _leadAltPhone: lead ? (lead['Alternate No'] || '') : '',
     _leadStageLabel: leadCurrentStage ? leadCurrentStage['Stage Name'] : '',
     _companyName: lead ? (lead['Company Name'] || '') : '',
     _contactPerson: lead ? (lead['Contact Person'] || '') : '',
@@ -782,7 +784,7 @@ function _fuTableRow(r) {
     <td>
       <div class="fu-lead-title">${escapeHtml(company)}</div>
       ${(r._contactPerson || r._city) ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson || '-')}${r._city ? ` <span class="fu-lead-dot">•</span> ${icon('map-pin', 12)} ${escapeHtml(r._city)}` : ''}</div>` : ''}
-      ${r._leadPhone ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone)}</div>` : ''}
+      ${(r._leadPhone || r._leadAltPhone) ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone || '—')}${r._leadAltPhone ? ` <span class="fu-lead-dot">•</span> ${escapeHtml(r._leadAltPhone)}` : ''}</div>` : ''}
     </td>
     <td>${_fuSourceCell(r)}</td>
     <td>${(() => {
