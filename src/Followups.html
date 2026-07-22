@@ -114,7 +114,7 @@ function _fuFilterBarHTML() {
       <span style="font-size:12px;font-weight:600;color:var(--md-primary,#4F46E5);display:flex;align-items:center;gap:5px;white-space:nowrap">
         ${icon('sliders-horizontal', 14)} Filters
       </span>
-      <input type="search" id="fu-f-search" class="form-control" placeholder="Search company, contact, phone…"
+      <input type="search" id="fu-f-search" class="form-control" placeholder="Search company, contact, phone, any remark…"
         style="width:200px;padding:4px 8px;font-size:12px"
         value="${escapeHtml(f.search)}"
         oninput="_fuOnFilterChange('search',this.value)">
@@ -185,7 +185,7 @@ function _fuModernFilterBarHTML() {
   <div class="fu-filter-bar" id="fu-filter-bar" style="display:${_fuFiltersOpen ? 'block' : 'none'}">
     <div class="fu-filter-card-grid">
       <label class="fu-search">${icon('search', 14)}
-        <input type="search" id="fu-f-search" placeholder="Search company, contact, phone, remark... (Ctrl+K)" value="${escapeHtml(f.search)}" oninput="_fuOnFilterChange('search',this.value)">
+        <input type="search" id="fu-f-search" placeholder="Search company, contact, phone, any remark... (Ctrl+K)" value="${escapeHtml(f.search)}" oninput="_fuOnFilterChange('search',this.value)">
       </label>
       <label class="fu-filter"><span>Type</span><select id="fu-f-type" onchange="_fuOnFilterChange('type',this.value)">
         <option value="">All Types</option>
@@ -301,7 +301,10 @@ function _fuApplyFilters(rows, ctx) {
       const altPhone = String(lead?.['Alternate No']   || '').toLowerCase();
       const remark   = [row['Discussion'], row['Remark'], remarkSearchText(row), remarkSearchText(lead)]
         .map(v => String(v || '').toLowerCase()).join(' ');
-      if (!company.includes(searchQ) && !contact.includes(searchQ) && !phone.includes(searchQ) && !altPhone.includes(searchQ) && !remark.includes(searchQ)) return false;
+      // Also match the lead's FULL remark history (every past follow-up's discussion),
+      // pre-lowered in _buildFollowupContext.
+      const remarkHistory = ctx?.remarkSearchMap?.[row['Lead ID']] || '';
+      if (!company.includes(searchQ) && !contact.includes(searchQ) && !phone.includes(searchQ) && !altPhone.includes(searchQ) && !remark.includes(searchQ) && !remarkHistory.includes(searchQ)) return false;
     }
     if (f.type && String(row['Follow-up Type'] || '') !== f.type) return false;
     if (f.assignedTo && lead?.['Assigned To'] !== f.assignedTo) return false;
@@ -510,6 +513,9 @@ function _buildFollowupContext(leads = [], snapshot = _fuPageSnapshot || {}) {
   ];
   const lastDiscussionMap = {};
   const lastDoneMap = {};
+  // Search haystack: EVERY past remark/discussion of the lead (open + history rows),
+  // lower-cased and concatenated — so the worklist search matches old remarks too.
+  const remarkSearchMap = {};
   const _isSystemRemark = (text) => {
     const t = String(text || '').trim().toLowerCase();
     return !t || t === 'new lead created' || t === 'lead created' || t === 'stage change';
@@ -520,8 +526,9 @@ function _buildFollowupContext(leads = [], snapshot = _fuPageSnapshot || {}) {
     .forEach(f => {
       const leadId = f['Lead ID'];
       const text = f['Discussion'] || f['Remark'];
-      if (!lastDiscussionMap[leadId] && text && !_isSystemRemark(text)) {
-        lastDiscussionMap[leadId] = text;
+      if (text && !_isSystemRemark(text)) {
+        if (!lastDiscussionMap[leadId]) lastDiscussionMap[leadId] = text;
+        remarkSearchMap[leadId] = (remarkSearchMap[leadId] ? remarkSearchMap[leadId] + ' ' : '') + String(text).toLowerCase();
       }
       if (!lastDoneMap[leadId] && f['Done Date']) {
         lastDoneMap[leadId] = f['Done Date'];
@@ -532,7 +539,8 @@ function _buildFollowupContext(leads = [], snapshot = _fuPageSnapshot || {}) {
     userMap: App.config.userNameMap || (App.config.users || []).reduce((m, u) => { m[u.id] = u.name; return m; }, {}),
     stageMap: (App.config.allStages || App.config.stages || []).reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {}),
     lastDiscussionMap,
-    lastDoneMap
+    lastDoneMap,
+    remarkSearchMap
   };
 }
 
