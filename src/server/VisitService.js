@@ -14,7 +14,31 @@ function ensureVisitSheets_() {
   safeInitHeaders(SHEET_NAMES.VISITS, VISIT_MASTER_FIELDS);
   ensureCustomFieldValueSheets_();
   _seedDefaultVisitFields_();
+  _cleanupVisitLeadDetailFields_();
   _visitSheetsEnsured_ = true;
+}
+
+// One-time cleanup: the first seed included lead-detail fields (City, Contact No.,
+// Source) that duplicate the linked lead — remove them (and any stored values) from
+// portals where that seed already ran, so the visit form drops them automatically.
+function _cleanupVisitLeadDetailFields_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('VISIT_FIELDS_CLEANUP_V2') === '1') return;
+  const names = { 'city': true, 'contact no.': true, 'source': true };
+  const doomed = getAllRows(SHEET_NAMES.FIELD_CONFIG).filter(f =>
+    (f['Sheet Name'] || 'Leads') === 'Visits' &&
+    names[String(f['Field Name'] || '').trim().toLowerCase()]);
+  if (doomed.length) {
+    const keys = {};
+    doomed.forEach(f => { if (f['Column Key']) keys[f['Column Key']] = true; });
+    deleteAllRowsWhere(SHEET_NAMES.FIELD_CONFIG, r =>
+      (r['Sheet Name'] || 'Leads') === 'Visits' && names[String(r['Field Name'] || '').trim().toLowerCase()]);
+    try { deleteAllRowsWhere(SHEET_NAMES.VISIT_FIELD_VALUES, r => keys[r['Column Key']]); } catch (e) {}
+    invalidateAppConfigCache();
+    _bumpStamp('fields');
+    Logger.log('[Visits] removed ' + doomed.length + ' lead-detail visit field(s)');
+  }
+  props.setProperty('VISIT_FIELDS_CLEANUP_V2', '1');
 }
 
 // One-time seed of the standard visit-report fields (tour expense sheet columns).
@@ -28,14 +52,14 @@ function _seedDefaultVisitFields_() {
   const existing = getAllRows(SHEET_NAMES.FIELD_CONFIG)
     .filter(f => (f['Sheet Name'] || 'Leads') === 'Visits')
     .reduce((m, f) => { m[String(f['Field Name'] || '').trim().toLowerCase()] = true; return m; }, {});
+  // Lead-detail columns (City, Contact No., Source) are NOT seeded — the visit links to
+  // a lead, so those values come from the lead itself (and already go into the WhatsApp
+  // message from the lead row).
   const specs = [
-    { name: 'City',                type: 'Text' },
     { name: 'Accommodation - Tour', type: 'Number' },
     { name: 'Accommodation - Stay', type: 'Number' },
     { name: 'Amount',              type: 'Number' },
     { name: 'Leads',               type: 'Number' },
-    { name: 'Source',              type: 'Select', source: 'Lead Source' },
-    { name: 'Contact No.',         type: 'Phone' },
     { name: 'FSR',                 type: 'Number' },
     { name: 'SC',                  type: 'Number' },
     { name: 'Visit',               type: 'Number' },
