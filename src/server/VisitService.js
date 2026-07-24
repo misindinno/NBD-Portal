@@ -40,8 +40,7 @@ function _seedDefaultVisitFields_() {
     { name: 'SC',                  type: 'Number' },
     { name: 'Visit',               type: 'Number' },
     { name: 'Designation',         type: 'Text' },
-    { name: 'Conversion',          type: 'Number' },
-    { name: 'Feedback Attachment', type: 'File', fileTypes: 'image/*,application/pdf', maxMb: 10, multiple: true }
+    { name: 'Conversion',          type: 'Number' }
   ];
   let order = 10, added = 0;
   specs.forEach(spec => {

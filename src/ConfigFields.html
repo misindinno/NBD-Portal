@@ -79,7 +79,10 @@ function openFieldForm(data = {}) {
   const filterTarget = el('field-sheet-filter')?.value || '';
   const targetSheet = data['Sheet Name'] || filterTarget || 'Leads';
   const configTypes = [...new Set((ctx.configs || []).map(c => c['Config Type']).filter(Boolean))].sort();
-  const fieldTypes = ['Text','Textarea','Number','Date','Date Time','Time','Select','Multi Select','Checkbox','Email','Phone','URL','File','Formula'];
+  // 'File' is offered only when editing an already-existing File field — new file-upload
+  // fields are disabled until the upload system is fixed.
+  const fieldTypes = ['Text','Textarea','Number','Date','Date Time','Time','Select','Multi Select','Checkbox','Email','Phone','URL','Formula']
+    .concat(data['Field Type'] === 'File' ? ['File'] : []);
   const overlay = showModal(`
     <div class="modal-header">
       <h2>${isEdit ? 'Edit' : 'Add'} Custom Field</h2>
