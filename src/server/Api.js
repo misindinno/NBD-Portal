@@ -403,6 +403,23 @@ function apiGetLead(token, id) {
   });
 }
 
+// Client Visits — visit reports linked to leads (Visits page + kiosk visit form).
+function apiGetVisits(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Visits');
+    return respond(_scopeLeadLinkedRows(getVisits(), user, ['Created By']));
+  });
+}
+
+function apiSaveVisit(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Visits');
+    return withTrustedWriteUser_(user.email, () => saveVisit(payload || {}, user.email));
+  });
+}
+
 // Lightweight lead read for the Stage Fields form — just the lead + its custom-field
 // values (no follow-ups / history / logs), so selecting a lead is fast.
 function apiGetLeadFieldValues(token, id) {

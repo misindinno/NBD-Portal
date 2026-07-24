@@ -1,5 +1,5 @@
 <script>
-function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}) {
+function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, sectionTitle = 'Stage Fields') {
     if (!fields.length) return '';
     const cfg = App.config;
     const allStages = cfg.allStages || cfg.stages || [];
@@ -23,7 +23,7 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}) {
         <input type="hidden" name="__stage_skipped" value="">
       </div>` : '';
     return `<div class="custom-field-section" data-skippable="${isSkippable ? 'true' : 'false'}">
-    <h3 style="font-size:14px;font-weight:600;margin:8px 0 12px;color:var(--md-primary)">Stage Fields</h3>
+    <h3 style="font-size:14px;font-weight:600;margin:8px 0 12px;color:var(--md-primary)">${escapeHtml(sectionTitle)}</h3>
     ${skipToggle}
     ${visibleFields.map(f => _customFieldControlHTML(f, d, configOptions)).join('')}
   </div>`;

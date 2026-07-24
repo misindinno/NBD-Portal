@@ -11,7 +11,7 @@ const FieldValidation = {
     'File', 'Formula',
   ],
 
-  ALLOWED_SHEETS: ['Leads', 'Followups'],
+  ALLOWED_SHEETS: ['Leads', 'Followups', 'Visits'],
 
   // Derive a column key from a human-readable field name (same as server _columnKeyFromName)
   columnKeyFromName(name) {
@@ -38,7 +38,7 @@ const FieldValidation = {
     const sheetName = String(field['Sheet Name'] || 'Leads').trim();
     if (!this.ALLOWED_SHEETS.includes(sheetName)) return {
       ok: false, field: 'Sheet Name',
-      message: 'Custom fields can only be created for Leads or Followups.',
+      message: 'Custom fields can only be created for Leads, Followups or Visits.',
     };
 
     const fieldType = String(field['Field Type'] || 'Text').trim();

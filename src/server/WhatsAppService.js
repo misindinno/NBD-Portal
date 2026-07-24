@@ -51,6 +51,44 @@ function sendStageFieldsWhatsApp_(lead, stageId, stageName, savedFields, user) {
   }
 }
 
+/******************** VISIT REPORT NOTIFICATION ********************/
+
+// Called by saveVisit after a successful save — visit-report message in the same
+// format as the original visit notifier. Never throws.
+function sendVisitWhatsApp_(lead, visitRow, savedFields, fields, user) {
+  try {
+    const now = new Date();
+    const lines = [
+      "*Date-* " + (visitRow['Visit Date'] || Utilities.formatDate(now, WA_TIMEZONE, "dd-MM-yyyy")),
+      "*Time-* " + Utilities.formatDate(now, WA_TIMEZONE, "HH:mm"),
+      "*Company-* " + (lead['Company Name'] || ""),
+      "*Client Name-* " + (lead['Contact Person'] || ""),
+      "*Contact No.-* " + (lead['Phone'] || ""),
+      "*Visit Type-* " + (visitRow['Visit Type'] || ""),
+      "*Visited By-* " + ((user && (user.name || user.email || user.id)) || "")
+    ];
+    const fileUrls = [];
+
+    (fields || []).forEach(field => {
+      if (field['Field Type'] === 'Formula') return;
+      const key = field['Column Key'];
+      if (!key || !Object.prototype.hasOwnProperty.call(savedFields || {}, key)) return;
+      let value = savedFields[key];
+      if (Array.isArray(value)) value = value.join(', ');
+      value = value === undefined || value === null ? '' : String(value);
+      lines.push("*" + (field['Field Name'] || key) + "-* " + value);
+      if (field['Field Type'] === 'File') extractUrls_(value).forEach(u => fileUrls.push(u));
+    });
+
+    if (visitRow['Remarks']) lines.push("*Remarks-* " + visitRow['Remarks']);
+    if (visitRow['Next Visit Date']) lines.push("*Next Date-* " + visitRow['Next Visit Date']);
+
+    MASsendMessage(SFF_WA_GROUP_ID, lines.join("\n"), fileUrls);
+  } catch (err) {
+    Logger.log("sendVisitWhatsApp_ Error: " + err);
+  }
+}
+
 /******************** MESSAGE AUTO SENDER API ********************/
 
 function MASsendMessage(receivers, textMessages, filesUrls) {

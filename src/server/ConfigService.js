@@ -228,6 +228,7 @@ function getAppConfig() {
       settings,
       leadFields: getFieldConfig("Leads"),
       followupFields: getFieldConfig("Followups"),
+      visitFields: getFieldConfig("Visits"),
       _allConfigs: getAllRows(SHEET_NAMES.CONFIG),
       users: getUsersWithPortalAccess_()
         .filter((u) => isActiveUserValue(u["Is Active"]) && _userMatchesDepartmentSettings_(u, settings))

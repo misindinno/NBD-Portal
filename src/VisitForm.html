@@ -1,0 +1,214 @@
+<style>
+  .vf-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .vf-row2 { grid-template-columns: 1fr; } }
+  .vf-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .vf-table th { text-align: left; font-size: 11.5px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .03em; padding: 8px 10px; border-bottom: 1px solid #e6e8f0; white-space: nowrap; }
+  .vf-table td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; color: #0f172a; }
+  .vf-table tr:last-child td { border-bottom: 0; }
+  .vf-remark { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+<script>
+let _vfState = { lead: null, leadId: '' };
+let _vfVisits = null;
+
+async function loadVisits() {
+  const content = el('content');
+  if (!content) return;
+  _vfState = { lead: null, leadId: '' };
+  _vfVisits = null;
+  const kiosk = document.body.classList.contains('sff-kiosk');
+  const cfg = App.config || {};
+  const configOptions = (typeof _configOptionsMap === 'function') ? _configOptionsMap(cfg._allConfigs || []) : {};
+  // Visit types come from Config → Dropdowns (type "Visit Type"); sensible defaults otherwise.
+  const configuredTypes = (cfg._allConfigs || [])
+    .filter(r => r['Config Type'] === 'Visit Type' && r['Status'] === 'Active')
+    .map(r => r['Value']).filter(Boolean);
+  const visitTypes = configuredTypes.length ? configuredTypes : ['First Visit', 'Follow-up Visit', 'Other'];
+  const cfHtml = (typeof buildLeadCustomFieldsHTML === 'function')
+    ? buildLeadCustomFieldsHTML({}, cfg.visitFields || [], configOptions, 'Visit Fields') : '';
+  content.innerHTML = `
+    <div class="sff-wrap"${kiosk ? '' : ' style="max-width:920px"'}>
+      <div class="sff-header">
+        <div class="sff-hero-ic">${icon('map-pin', 22)}</div>
+        <div>
+          <div class="sff-title">Client Visit Report</div>
+          <div class="sff-sub">Pick a lead and record the visit details.</div>
+        </div>
+      </div>
+      <div class="sff-card">
+        <div class="sff-field">
+          <label>Lead <span style="color:#ef4444">*</span></label>
+          <div class="sff-picker">
+            <input class="sff-input" id="vf-lead-search" type="text" autocomplete="off"
+              placeholder="Search lead by company, contact, phone or city…"
+              oninput="_vfFilterLeads(this.value)" onfocus="_vfFilterLeads(this.value)">
+            <div class="sff-picker-list" id="vf-lead-list" style="display:none"></div>
+          </div>
+          <div class="sff-selected" id="vf-selected" style="display:none"></div>
+        </div>
+        <form id="vf-form" onsubmit="return false">
+          <div class="vf-row2">
+            <div class="sff-field">
+              <label>Visit Date <span style="color:#ef4444">*</span></label>
+              <input class="sff-input" type="date" name="Visit Date" value="${localDateInputValue()}" required>
+            </div>
+            <div class="sff-field">
+              <label>Visit Type</label>
+              <select class="sff-select" name="Visit Type">
+                ${visitTypes.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          ${cfHtml}
+          <div class="sff-field">
+            <label>Remarks / Feedback</label>
+            <textarea class="form-control" name="Remarks" rows="3" placeholder="What happened during the visit?"></textarea>
+          </div>
+          <div class="vf-row2">
+            <div class="sff-field">
+              <label>Next Visit Date</label>
+              <input class="sff-input" type="date" name="Next Visit Date">
+            </div>
+          </div>
+          <div class="sff-actions">
+            <button type="button" class="btn btn-primary" id="vf-save" onclick="_vfSave()">${icon('save', 15)} Save Visit</button>
+          </div>
+        </form>
+      </div>
+      ${kiosk ? '' : `<div class="sff-card" style="margin-top:18px">
+        <div class="sff-title" style="font-size:16px;margin-bottom:12px">Recent Visits</div>
+        <div id="vf-list">
+          <div class="sff-skel">
+            <div class="skeleton-block" style="height:38px;border-radius:8px;margin-bottom:8px"></div>
+            <div class="skeleton-block" style="height:38px;border-radius:8px;margin-bottom:8px"></div>
+            <div class="skeleton-block" style="height:38px;border-radius:8px"></div>
+          </div>
+        </div>
+      </div>`}
+    </div>`;
+  renderIcons(content);
+  try { if (typeof initLeadCustomFields === 'function') initLeadCustomFields(el('vf-form')); } catch (e) { console.warn('[visits] init', e); }
+  if (!window._vfOutsideBound) {
+    window._vfOutsideBound = true;
+    document.addEventListener('click', function (e) {
+      const picker = document.querySelector('#vf-lead-search')?.closest('.sff-picker');
+      const list = el('vf-lead-list');
+      if (list && picker && !picker.contains(e.target)) list.style.display = 'none';
+    }, true);
+  }
+  if (!kiosk) _vfLoadList();
+}
+window.loadVisits = loadVisits;
+
+function _vfLeadRows() { try { return AppCache.getRows('leads') || []; } catch (e) { return []; } }
+
+function _vfFilterLeads(q) {
+  const list = el('vf-lead-list');
+  if (!list) return;
+  const query = String(q || '').trim().toLowerCase();
+  let rows = _vfLeadRows().filter(l =>
+    !(l['NBD Lead ID'] || l['Pushed To NBD At']) &&
+    String(l['Is Archived']) !== 'true' && l['Is Archived'] !== true);
+  if (query) {
+    rows = rows.filter(l => [l['Company Name'], l['Contact Person'], l['Phone'], l['Alternate No'], l['City'], l['Client Description'], l['Lead ID']]
+      .map(x => String(x || '').toLowerCase()).join(' ').includes(query));
+  }
+  rows = rows.slice(0, 50);
+  list.innerHTML = rows.length
+    ? rows.map(l => `<div class="sff-picker-item" onclick="_vfSelectLead('${escapeHtml(String(l['Lead ID'] || ''))}')">
+        <div class="sff-pi-title">${escapeHtml(l['Company Name'] || l['Client Description'] || l['Lead ID'] || '—')}</div>
+        <div class="sff-pi-sub">${escapeHtml([l['Contact Person'], l['City'], l['Phone']].filter(Boolean).join(' · ') || String(l['Lead ID'] || ''))}</div>
+      </div>`).join('')
+    : '<div class="sff-picker-empty">No matching leads</div>';
+  list.style.display = 'block';
+}
+window._vfFilterLeads = _vfFilterLeads;
+
+function _vfSelectLead(leadId) {
+  const list = el('vf-lead-list'); if (list) list.style.display = 'none';
+  const lead = _vfLeadRows().find(l => String(l['Lead ID']) === String(leadId)) || { 'Lead ID': leadId };
+  _vfState.lead = lead;
+  _vfState.leadId = String(leadId);
+  const sel = el('vf-selected');
+  if (sel) {
+    sel.style.display = 'flex';
+    sel.innerHTML = `<div>
+        <div class="sff-pi-title">${escapeHtml(lead['Company Name'] || lead['Client Description'] || leadId)}</div>
+        <div class="sff-pi-sub">${escapeHtml([lead['Contact Person'], lead['City'], lead['Phone']].filter(Boolean).join(' · '))}</div>
+      </div>
+      <button type="button" class="sff-selected-change" onclick="_vfClearLead()">Change</button>`;
+  }
+  const search = el('vf-lead-search'); if (search) search.style.display = 'none';
+}
+window._vfSelectLead = _vfSelectLead;
+
+function _vfClearLead() {
+  _vfState.lead = null;
+  _vfState.leadId = '';
+  const sel = el('vf-selected'); if (sel) { sel.style.display = 'none'; sel.innerHTML = ''; }
+  const search = el('vf-lead-search'); if (search) { search.style.display = ''; search.value = ''; search.focus(); }
+}
+window._vfClearLead = _vfClearLead;
+
+async function _vfSave() {
+  const lead = _vfState.lead;
+  if (!lead) { toast('Select a lead first.', 'error'); return; }
+  const form = el('vf-form');
+  if (typeof validateCfMultiselects === 'function' && !validateCfMultiselects(form)) return;
+  if (form && typeof form.reportValidity === 'function' && !form.reportValidity()) return;
+  const btn = el('vf-save');
+  setButtonLoading(btn, 'Saving…');
+  try {
+    const payload = await collectLeadFormPayload(form);
+    payload['Lead ID'] = lead['Lead ID'];
+    delete payload['Stage ID'];
+    await api.saveVisit(payload);
+    toast('Visit report saved!');
+    // Fresh form (and refreshed list) for the next entry.
+    loadVisits();
+  } catch (err) {
+    toast(err && err.message || err, 'error');
+  } finally {
+    resetButtonLoading(btn);
+  }
+}
+window._vfSave = _vfSave;
+
+async function _vfLoadList() {
+  const box = el('vf-list');
+  if (!box) return;
+  try {
+    _vfVisits = (await api.getVisits()) || [];
+  } catch (e) {
+    if (el('vf-list')) el('vf-list').innerHTML = `<div class="sff-hint">Could not load visits: ${escapeHtml(e && e.message || e)}</div>`;
+    return;
+  }
+  _vfRenderList();
+}
+
+function _vfRenderList() {
+  const box = el('vf-list');
+  if (!box) return;
+  const rows = _vfVisits || [];
+  if (!rows.length) { box.innerHTML = '<div class="sff-hint">No visits recorded yet.</div>'; return; }
+  const leadMap = _vfLeadRows().reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
+  const nameOf = id => (App.config.userNameMap && App.config.userNameMap[id]) || id || '—';
+  box.innerHTML = `<div style="overflow-x:auto"><table class="vf-table">
+    <thead><tr><th>Date</th><th>Company</th><th>Type</th><th>Remarks</th><th>Next Date</th><th>By</th></tr></thead>
+    <tbody>${rows.slice(0, 100).map(v => {
+      const lead = leadMap[v['Lead ID']] || {};
+      return `<tr>
+        <td style="white-space:nowrap">${escapeHtml(_fmtDate(v['Visit Date']) || '—')}</td>
+        <td>
+          <div class="sff-pi-title">${escapeHtml(lead['Company Name'] || v['Lead ID'] || '—')}</div>
+          <div class="sff-pi-sub">${escapeHtml([lead['Contact Person'], lead['City']].filter(Boolean).join(' · '))}</div>
+        </td>
+        <td style="white-space:nowrap">${escapeHtml(v['Visit Type'] || '—')}</td>
+        <td><div class="vf-remark" title="${escapeHtml(v['Remarks'] || '')}">${escapeHtml(v['Remarks'] || '—')}</div></td>
+        <td style="white-space:nowrap">${escapeHtml(_fmtDate(v['Next Visit Date']) || '—')}</td>
+        <td style="white-space:nowrap">${escapeHtml(nameOf(v['Created By']))}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>
+    ${rows.length > 100 ? `<div class="sff-hint" style="margin-top:10px">Showing the latest 100 of ${rows.length} visits.</div>` : ''}`;
+}
+</script>

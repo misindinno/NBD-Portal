@@ -30,6 +30,9 @@ function ensureCustomFieldValueSheets_() {
   safeInitHeaders(SHEET_NAMES.FOLLOWUP_FIELD_VALUES, [
     'Value ID','Follow-up ID','Field ID','Column Key','Field Value','File URL','Updated By','Updated At'
   ]);
+  safeInitHeaders(SHEET_NAMES.VISIT_FIELD_VALUES, [
+    'Value ID','Visit ID','Field ID','Column Key','Field Value','File URL','Updated By','Updated At'
+  ]);
   _cfvSheetsEnsured_ = true;
 }
 
@@ -182,12 +185,14 @@ function _customFieldMapById_(sheetName) {
 function _customValueSheetName_(sheetName) {
   if (sheetName === 'Leads') return SHEET_NAMES.LEAD_FIELD_VALUES;
   if (sheetName === 'Followups') return SHEET_NAMES.FOLLOWUP_FIELD_VALUES;
+  if (sheetName === 'Visits') return SHEET_NAMES.VISIT_FIELD_VALUES;
   throw new Error('Unsupported custom value sheet: ' + sheetName);
 }
 
 function _customEntityKey_(sheetName) {
   if (sheetName === 'Leads') return 'Lead ID';
   if (sheetName === 'Followups') return 'Follow-up ID';
+  if (sheetName === 'Visits') return 'Visit ID';
   throw new Error('Unsupported custom value sheet: ' + sheetName);
 }
 

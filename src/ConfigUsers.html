@@ -2,12 +2,12 @@
 function _ensureConfigUserHelpers() {
   if (!window.USER_MODULES) {
     const isLq = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
-    window.USER_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','StageFields'].concat(isLq ? ['BulkEntry'] : []);
+    window.USER_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','StageFields','Visits'].concat(isLq ? ['BulkEntry'] : []);
   }
   if (!window.USER_ROLE_MODULES) {
     const lqExtra = window.USER_MODULES.includes('BulkEntry') ? ['BulkEntry'] : [];
     window.USER_ROLE_MODULES = {
-      ADMIN:   ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','StageFields'].concat(lqExtra),
+      ADMIN:   ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','StageFields','Visits'].concat(lqExtra),
       MANAGER: ['Leads','Pipeline','Followups','Reports'],
       SALES:   ['Leads','Pipeline','Followups'],
       USER:    ['Followups'],

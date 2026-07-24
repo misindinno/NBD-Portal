@@ -468,6 +468,7 @@ function getAppConfigFast_() {
     settings,
     leadFields: fieldsFor('Leads', false),
     followupFields: fieldsFor('Followups', false),
+    visitFields: fieldsFor('Visits', false),
     _allConfigs: configRows,
     users: getUsersWithPortalAccess_()
       .filter(user => isActiveUserValue(user['Is Active']) && _userMatchesDepartmentSettings_(user, settings))
