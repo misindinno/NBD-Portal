@@ -13,7 +13,63 @@ function ensureVisitSheets_() {
   if (_visitSheetsEnsured_) return;
   safeInitHeaders(SHEET_NAMES.VISITS, VISIT_MASTER_FIELDS);
   ensureCustomFieldValueSheets_();
+  _seedDefaultVisitFields_();
   _visitSheetsEnsured_ = true;
+}
+
+// One-time seed of the standard visit-report fields (tour expense sheet columns).
+// Runs on first Visits use per portal; admins can rename/re-order/remove them later in
+// Config → Fields — the property guard means they are never re-added.
+// (DATE and FEEDBACK are not seeded: the form's master Visit Date and Remarks/Feedback
+// inputs already cover them.)
+function _seedDefaultVisitFields_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('VISIT_FIELDS_SEEDED') === '1') return;
+  const existing = getAllRows(SHEET_NAMES.FIELD_CONFIG)
+    .filter(f => (f['Sheet Name'] || 'Leads') === 'Visits')
+    .reduce((m, f) => { m[String(f['Field Name'] || '').trim().toLowerCase()] = true; return m; }, {});
+  const specs = [
+    { name: 'City',                type: 'Text' },
+    { name: 'Accommodation - Tour', type: 'Number' },
+    { name: 'Accommodation - Stay', type: 'Number' },
+    { name: 'Amount',              type: 'Number' },
+    { name: 'Leads',               type: 'Number' },
+    { name: 'Source',              type: 'Select', source: 'Lead Source' },
+    { name: 'Contact No.',         type: 'Phone' },
+    { name: 'FSR',                 type: 'Number' },
+    { name: 'SC',                  type: 'Number' },
+    { name: 'Visit',               type: 'Number' },
+    { name: 'Designation',         type: 'Text' },
+    { name: 'Conversion',          type: 'Number' },
+    { name: 'Feedback Attachment', type: 'File', fileTypes: 'image/*,application/pdf', maxMb: 10, multiple: true }
+  ];
+  let order = 10, added = 0;
+  specs.forEach(spec => {
+    if (existing[spec.name.toLowerCase()]) { order += 10; return; }
+    insertRow(SHEET_NAMES.FIELD_CONFIG, _normalizeFieldConfig({
+      'Field ID': generateUUID(),
+      'Sheet Name': 'Visits',
+      'Field Name': spec.name,
+      'Column Key': FieldValidation.columnKeyFromName(spec.name),
+      'Field Type': spec.type,
+      'Dropdown Source': spec.source || '',
+      'Display Order': order,
+      'Is Required': false,
+      'Is Visible': true,
+      'File Types': spec.fileTypes || '',
+      'Max File MB': spec.maxMb || '',
+      'Allow Multiple': spec.multiple === true,
+      'Created At': now()
+    }));
+    order += 10;
+    added++;
+  });
+  props.setProperty('VISIT_FIELDS_SEEDED', '1');
+  if (added) {
+    invalidateAppConfigCache();
+    _bumpStamp('fields');
+    Logger.log('[Visits] seeded ' + added + ' default visit fields');
+  }
 }
 
 function pickVisitMasterFields_(payload) {
