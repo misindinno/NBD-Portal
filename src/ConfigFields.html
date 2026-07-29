@@ -18,16 +18,19 @@ async function loadFieldConfig() {
     api.getAllStages(),
     api.getAllConfigs()
   ]);
-  window._cfgFieldContext = { fields, stages, configs };
+  window._cfgFieldContext = {
+    fields: (fields || []).filter(f => (f['Sheet Name'] || 'Leads') !== 'Visits'),
+    stages,
+    configs
+  };
   el('cfg-fields').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <div>
-        <p style="color:#666;font-size:13px;margin-bottom:8px">Create lead, follow-up and visit fields with validation and file upload support</p>
+        <p style="color:#666;font-size:13px;margin-bottom:8px">Create lead and follow-up fields with validation and file upload support</p>
         <select id="field-sheet-filter" class="form-control" style="width:180px">
           <option value="">All targets</option>
           <option value="Leads">Leads</option>
           <option value="Followups">Follow-ups</option>
-          <option value="Visits">Visits</option>
         </select>
       </div>
       <button class="btn btn-primary btn-sm" onclick="openFieldForm()">${icon('plus', 14)} Add Field</button>
@@ -101,7 +104,6 @@ function openFieldForm(data = {}) {
           <select class="form-control" name="Sheet Name" required ${isEdit ? 'disabled' : ''} onchange="_toggleFieldTargetOptions(this.closest('form'))">
             <option value="Leads" ${targetSheet === 'Leads' ? 'selected' : ''}>Leads</option>
             <option value="Followups" ${targetSheet === 'Followups' ? 'selected' : ''}>Follow-ups</option>
-            <option value="Visits" ${targetSheet === 'Visits' ? 'selected' : ''}>Visits</option>
           </select></div>
         <div class="form-group"><label>Field Type *</label>
           <select class="form-control" name="Field Type" id="field-type" required onchange="_toggleFieldTypeOptions(this.closest('form'))">

@@ -58,30 +58,28 @@ function sendStageFieldsWhatsApp_(lead, stageId, stageName, savedFields, user) {
 function sendVisitWhatsApp_(lead, visitRow, savedFields, fields, user) {
   try {
     const now = new Date();
+    const fileUrls = [];
+    extractUrls_(visitRow['FEEDBACK ATTACHEMT'] || (savedFields || {})['FEEDBACK ATTACHEMT']).forEach(u => fileUrls.push(u));
     const lines = [
-      "*Date-* " + (visitRow['Visit Date'] || Utilities.formatDate(now, WA_TIMEZONE, "dd-MM-yyyy")),
+      "*Date-* " + (visitRow['DATE'] || visitRow['Visit Date'] || Utilities.formatDate(now, WA_TIMEZONE, "dd-MM-yyyy")),
       "*Time-* " + Utilities.formatDate(now, WA_TIMEZONE, "HH:mm"),
       "*Company-* " + (lead['Company Name'] || ""),
       "*Client Name-* " + (lead['Contact Person'] || ""),
-      "*Contact No.-* " + (lead['Phone'] || ""),
-      "*Visit Type-* " + (visitRow['Visit Type'] || ""),
+      "*Contact No.-* " + (visitRow['CONTACT NO.'] || lead['Phone'] || ""),
+      "*CITY-* " + (visitRow['CITY'] || lead['City'] || ""),
+      "*ACCOMODATION TOUR-* " + (visitRow['ACCOMODATION TOUR'] || ""),
+      "*ACCOMODATION STAY-* " + (visitRow['ACCOMODATION STAY'] || ""),
+      "*AMOUNT-* " + (visitRow['AMOUNT'] || ""),
+      "*LEADS-* " + (visitRow['LEADS'] || ""),
+      "*source-* " + (visitRow['source'] || lead['Source'] || ""),
+      "*FSR-* " + (visitRow['FSR'] || ""),
+      "*SC-* " + (visitRow['SC'] || ""),
+      "*VISIT-* " + (visitRow['VISIT'] || ""),
+      "*designation-* " + (visitRow['designation'] || ""),
+      "*CONVERSION-* " + (visitRow['CONVERSION'] || ""),
+      "*FEEDBACK-* " + (visitRow['FEEDBACK'] || ""),
       "*Visited By-* " + ((user && (user.name || user.email || user.id)) || "")
     ];
-    const fileUrls = [];
-
-    (fields || []).forEach(field => {
-      if (field['Field Type'] === 'Formula') return;
-      const key = field['Column Key'];
-      if (!key || !Object.prototype.hasOwnProperty.call(savedFields || {}, key)) return;
-      let value = savedFields[key];
-      if (Array.isArray(value)) value = value.join(', ');
-      value = value === undefined || value === null ? '' : String(value);
-      lines.push("*" + (field['Field Name'] || key) + "-* " + value);
-      if (field['Field Type'] === 'File') extractUrls_(value).forEach(u => fileUrls.push(u));
-    });
-
-    if (visitRow['Remarks']) lines.push("*Remarks-* " + visitRow['Remarks']);
-    if (visitRow['Next Visit Date']) lines.push("*Next Date-* " + visitRow['Next Visit Date']);
 
     MASsendMessage(SFF_WA_GROUP_ID, lines.join("\n"), fileUrls);
   } catch (err) {

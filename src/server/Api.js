@@ -247,10 +247,17 @@ function apiGetLeads(token) {
 function apiUploadFile(token, filePayload, fieldKey) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {
-    _requireAnyModule(['Leads', 'LeadForm', 'Pipeline', 'BulkEntry']);
+    _requireAnyModule(['Leads', 'LeadForm', 'Pipeline', 'BulkEntry', 'Visits']);
     if (!filePayload || !filePayload.data) return respond(null, 'No file data provided.');
     const field = fieldKey
-      ? (queryRows(SHEET_NAMES.FIELD_CONFIG, r => r['Column Key'] === fieldKey)[0] || {})
+      ? (queryRows(SHEET_NAMES.FIELD_CONFIG, r => r['Column Key'] === fieldKey)[0] ||
+          (fieldKey === 'FEEDBACK ATTACHEMT' ? {
+            'Field Name': 'FEEDBACK ATTACHEMT',
+            'Column Key': 'FEEDBACK ATTACHEMT',
+            'Field Type': 'File',
+            'File Types': 'image/*,application/pdf',
+            'Max File MB': 10
+          } : {}))
       : {};
     try {
       const url = _uploadCustomFieldFile(filePayload, field);
