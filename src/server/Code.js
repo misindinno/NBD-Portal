@@ -76,6 +76,7 @@ function onOpen() {
     .addItem('📅 Reopen Closed Non-final Follow-ups', 'reopenClosedNonFinalFollowupsFromMenu')
     .addSeparator()
     .addItem('🔗 Open Portal', 'openPortal');
+  menu.addItem('Open Visits', 'openVisits');
   if (String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq')) {
     menu.addItem('Bulk Entry', 'openBulkEntry');
   }
@@ -163,6 +164,15 @@ function openBulkEntry() {
   );
 }
 
+function openVisits() {
+  const url = ScriptApp.getService().getUrl() + '?page=visits';
+  const html = '<script>window.open("' + url + '", "_blank"); google.script.host.close();<\/script>';
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(html).setWidth(1).setHeight(1),
+    'Opening Visits...'
+  );
+}
+
 function _saveUser(data, email) {
   requireUserManager();
   const payload = _normalizeUserIdentityPayload(data);
@@ -227,6 +237,7 @@ function setupSheets() {
       'Created At','Updated At'
     ]);
     ensureFollowupSheets_();
+    ensureVisitSheets_();
     ensureCustomFieldValueSheets_();
     ensureIndexSheets_();
     safeInitHeaders(SHEET_NAMES.STAGES, [

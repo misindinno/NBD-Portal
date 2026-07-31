@@ -429,6 +429,22 @@ function apiSaveVisit(token, payload) {
 
 // Lightweight lead read for the Stage Fields form — just the lead + its custom-field
 // values (no follow-ups / history / logs), so selecting a lead is fast.
+function apiUpdateVisit(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Visits');
+    return withTrustedWriteUser_(user.email, () => updateVisit(payload || {}, user.email));
+  });
+}
+
+function apiDeleteVisit(token, visitId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Visits');
+    return withTrustedWriteUser_(user.email, () => deleteVisit(visitId || '', user.email));
+  });
+}
+
 function apiGetLeadFieldValues(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

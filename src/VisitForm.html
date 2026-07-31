@@ -11,13 +11,14 @@
   @media (max-width: 640px) { .vf-row3 { grid-template-columns: 1fr; } }
 </style>
 <script>
-let _vfState = { lead: null, leadId: '' };
+let _vfState = { lead: null, leadId: '', editVisitId: '' };
 let _vfVisits = null;
+let _vfListState = { search: '', city: '', dateFrom: '', dateTo: '', page: 1, pageSize: 25 };
 
 async function loadVisits() {
   const content = el('content');
   if (!content) return;
-  _vfState = { lead: null, leadId: '' };
+  _vfState = { lead: null, leadId: '', editVisitId: '' };
   _vfVisits = null;
   const kiosk = document.body.classList.contains('sff-kiosk');
   content.innerHTML = `
@@ -52,17 +53,17 @@ async function loadVisits() {
             </div>
           </div>
           <div class="vf-row3">
-            <div class="sff-field"><label>ACCOMODATION TOUR</label><input class="sff-input" type="number" step="0.01" name="ACCOMODATION TOUR"></div>
-            <div class="sff-field"><label>ACCOMODATION STAY</label><input class="sff-input" type="number" step="0.01" name="ACCOMODATION STAY"></div>
-            <div class="sff-field"><label>AMOUNT</label><input class="sff-input" type="number" step="0.01" name="AMOUNT"></div>
-            <div class="sff-field"><label>LEADS</label><input class="sff-input" type="number" step="1" name="LEADS"></div>
+            <div class="sff-field"><label>ACCOMODATION TOUR</label><input class="sff-input" type="number" min="0" step="0.01" name="ACCOMODATION TOUR"></div>
+            <div class="sff-field"><label>ACCOMODATION STAY</label><input class="sff-input" type="number" min="0" step="0.01" name="ACCOMODATION STAY"></div>
+            <div class="sff-field"><label>AMOUNT</label><input class="sff-input" type="number" min="0" step="0.01" name="AMOUNT"></div>
+            <div class="sff-field"><label>LEADS</label><input class="sff-input" type="number" min="0" step="1" name="LEADS"></div>
             <div class="sff-field"><label>source</label><input class="sff-input" name="source"></div>
             <div class="sff-field"><label>CONTACT NO.</label><input class="sff-input" name="CONTACT NO."></div>
-            <div class="sff-field"><label>FSR</label><input class="sff-input" type="number" step="1" name="FSR"></div>
-            <div class="sff-field"><label>SC</label><input class="sff-input" type="number" step="1" name="SC"></div>
-            <div class="sff-field"><label>VISIT</label><input class="sff-input" type="number" step="1" name="VISIT"></div>
+            <div class="sff-field"><label>FSR</label><input class="sff-input" type="number" min="0" step="1" name="FSR"></div>
+            <div class="sff-field"><label>SC</label><input class="sff-input" type="number" min="0" step="1" name="SC"></div>
+            <div class="sff-field"><label>VISIT</label><input class="sff-input" type="number" min="0" step="1" name="VISIT"></div>
             <div class="sff-field"><label>designation</label><input class="sff-input" name="designation"></div>
-            <div class="sff-field"><label>CONVERSION</label><input class="sff-input" type="number" step="1" name="CONVERSION"></div>
+            <div class="sff-field"><label>CONVERSION</label><input class="sff-input" type="number" min="0" step="1" name="CONVERSION"></div>
           </div>
           <div class="sff-field">
             <label>FEEDBACK</label>
@@ -75,11 +76,26 @@ async function loadVisits() {
           </div>
           <div class="sff-actions">
             <button type="button" class="btn btn-primary" id="vf-save" onclick="_vfSave()">${icon('save', 15)} Save Visit</button>
+            <button type="button" class="btn btn-outlined" id="vf-cancel-edit" style="display:none" onclick="_vfCancelEdit()">Cancel Edit</button>
           </div>
         </form>
       </div>
       ${kiosk ? '' : `<div class="sff-card" style="margin-top:18px">
-        <div class="sff-title" style="font-size:16px;margin-bottom:12px">Recent Visits</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+          <div>
+            <div class="sff-title" style="font-size:16px">Visit Records</div>
+            <div class="sff-sub" style="font-size:12px">Search, filter and export saved visits.</div>
+          </div>
+          <button type="button" class="btn btn-outlined btn-sm" onclick="_vfExportVisits()">${icon('download', 14)} Export CSV</button>
+        </div>
+        <div class="vf-row3" style="margin-bottom:12px">
+          <input class="form-control" id="vf-filter-search" placeholder="Search company, city, feedback..." oninput="_vfSetFilter('search', this.value)">
+          <input class="form-control" id="vf-filter-city" placeholder="City" oninput="_vfSetFilter('city', this.value)">
+          <div class="vf-row2" style="gap:8px">
+            <input class="form-control" id="vf-filter-from" type="date" onchange="_vfSetFilter('dateFrom', this.value)">
+            <input class="form-control" id="vf-filter-to" type="date" onchange="_vfSetFilter('dateTo', this.value)">
+          </div>
+        </div>
         <div id="vf-list">
           <div class="sff-skel">
             <div class="skeleton-block" style="height:38px;border-radius:8px;margin-bottom:8px"></div>
@@ -176,8 +192,14 @@ async function _vfSave() {
     const payload = await collectLeadFormPayload(form);
     payload['Lead ID'] = lead['Lead ID'];
     delete payload['Stage ID'];
-    await api.saveVisit(payload);
-    toast('Visit report saved!');
+    if (_vfState.editVisitId) {
+      payload['Visit ID'] = _vfState.editVisitId;
+      await api.updateVisit(payload);
+      toast('Visit report updated!');
+    } else {
+      await api.saveVisit(payload);
+      toast('Visit report saved!');
+    }
     // Fresh form (and refreshed list) for the next entry.
     loadVisits();
   } catch (err) {
@@ -200,44 +222,26 @@ async function _vfLoadList() {
   _vfRenderList();
 }
 
-function _vfRenderListLegacy_() {
-  const box = el('vf-list');
-  if (!box) return;
-  const rows = _vfVisits || [];
-  if (!rows.length) { box.innerHTML = '<div class="sff-hint">No visits recorded yet.</div>'; return; }
-  const leadMap = _vfLeadRows().reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
-  const nameOf = id => (App.config.userNameMap && App.config.userNameMap[id]) || id || '—';
-  box.innerHTML = `<div style="overflow-x:auto"><table class="vf-table">
-    <thead><tr><th>DATE</th><th>Company</th><th>CITY</th><th>AMOUNT</th><th>LEADS</th><th>CONVERSION</th><th>FEEDBACK</th><th>By</th></tr></thead>
-    <tbody>${rows.slice(0, 100).map(v => {
-      const lead = leadMap[v['Lead ID']] || {};
-      return `<tr>
-        <td style="white-space:nowrap">${escapeHtml(_fmtDate(v['Visit Date']) || '—')}</td>
-        <td>
-          <div class="sff-pi-title">${escapeHtml(lead['Company Name'] || v['Lead ID'] || '—')}</div>
-          <div class="sff-pi-sub">${escapeHtml([lead['Contact Person'], lead['City']].filter(Boolean).join(' · '))}</div>
-        </td>
-        <td style="white-space:nowrap">${escapeHtml(v['Visit Type'] || '—')}</td>
-        <td><div class="vf-remark" title="${escapeHtml(v['Remarks'] || '')}">${escapeHtml(v['Remarks'] || '—')}</div></td>
-        <td style="white-space:nowrap">${escapeHtml(_fmtDate(v['Next Visit Date']) || '—')}</td>
-        <td style="white-space:nowrap">${escapeHtml(nameOf(v['Created By']))}</td>
-      </tr>`;
-    }).join('')}</tbody></table></div>
-    ${rows.length > 100 ? `<div class="sff-hint" style="margin-top:10px">Showing the latest 100 of ${rows.length} visits.</div>` : ''}`;
-}
-
 function _vfRenderList() {
   const box = el('vf-list');
   if (!box) return;
-  const rows = _vfVisits || [];
-  if (!rows.length) { box.innerHTML = '<div class="sff-hint">No visits recorded yet.</div>'; return; }
+  const allRows = _vfVisits || [];
+  const rows = _vfFilteredVisits_();
+  if (!allRows.length) { box.innerHTML = '<div class="sff-hint">No visits recorded yet.</div>'; return; }
+  if (!rows.length) { box.innerHTML = '<div class="sff-hint">No visits match the selected filters.</div>'; return; }
   const leadMap = _vfLeadRows().reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
   const nameOf = id => (App.config.userNameMap && App.config.userNameMap[id]) || id || '-';
+  const pageSize = _vfListState.pageSize;
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  if (_vfListState.page > totalPages) _vfListState.page = totalPages;
+  const start = (_vfListState.page - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize);
   box.innerHTML = `<div style="overflow-x:auto"><table class="vf-table">
-    <thead><tr><th>DATE</th><th>Company</th><th>CITY</th><th>AMOUNT</th><th>LEADS</th><th>CONVERSION</th><th>FEEDBACK</th><th>By</th></tr></thead>
-    <tbody>${rows.slice(0, 100).map(v => {
+    <thead><tr><th>DATE</th><th>Company</th><th>CITY</th><th>AMOUNT</th><th>LEADS</th><th>CONVERSION</th><th>FEEDBACK</th><th>ATTACHMENT</th><th>By</th><th></th></tr></thead>
+    <tbody>${pageRows.map(v => {
       const lead = leadMap[v['Lead ID']] || {};
       const feedback = v['FEEDBACK'] || v['Remarks'] || '';
+      const attachment = String(v['FEEDBACK ATTACHEMT'] || '').trim();
       return `<tr>
         <td style="white-space:nowrap">${escapeHtml(_fmtDate(v['DATE'] || v['Visit Date']) || '-')}</td>
         <td>
@@ -249,9 +253,158 @@ function _vfRenderList() {
         <td style="white-space:nowrap">${escapeHtml(v['LEADS'] || '-')}</td>
         <td style="white-space:nowrap">${escapeHtml(v['CONVERSION'] || '-')}</td>
         <td><div class="vf-remark" title="${escapeHtml(feedback)}">${escapeHtml(feedback || '-')}</div></td>
+        <td style="white-space:nowrap">${attachment ? `<a href="${escapeHtml(attachment)}" target="_blank" rel="noopener">Open</a>` : '-'}</td>
         <td style="white-space:nowrap">${escapeHtml(nameOf(v['Created By']))}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-outlined btn-sm" onclick="_vfEditVisit('${escapeHtml(String(v['Visit ID'] || ''))}')">${icon('pencil', 13)}</button>
+          <button class="btn btn-outlined btn-sm" onclick="_vfDeleteVisit('${escapeHtml(String(v['Visit ID'] || ''))}')">${icon('trash-2', 13)}</button>
+        </td>
       </tr>`;
     }).join('')}</tbody></table></div>
-    ${rows.length > 100 ? `<div class="sff-hint" style="margin-top:10px">Showing the latest 100 of ${rows.length} visits.</div>` : ''}`;
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;flex-wrap:wrap">
+      <div class="sff-hint">Showing ${start + 1}-${Math.min(start + pageSize, rows.length)} of ${rows.length} visit(s).</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-outlined btn-sm" ${_vfListState.page <= 1 ? 'disabled' : ''} onclick="_vfSetPage(${_vfListState.page - 1})">${icon('chevron-left', 14)} Prev</button>
+        <span class="sff-hint">Page ${_vfListState.page} / ${totalPages}</span>
+        <button class="btn btn-outlined btn-sm" ${_vfListState.page >= totalPages ? 'disabled' : ''} onclick="_vfSetPage(${_vfListState.page + 1})">Next ${icon('chevron-right', 14)}</button>
+      </div>
+    </div>`;
+  renderIcons(box);
+}
+
+function _vfEditVisit(visitId) {
+  const visit = (_vfVisits || []).find(v => String(v['Visit ID']) === String(visitId));
+  if (!visit) { toast('Visit not found.', 'error'); return; }
+  const lead = _vfLeadRows().find(l => String(l['Lead ID']) === String(visit['Lead ID'])) || { 'Lead ID': visit['Lead ID'] };
+  _vfSelectLead(visit['Lead ID']);
+  _vfState.editVisitId = String(visitId || '');
+  const form = el('vf-form');
+  if (!form) return;
+  ['DATE','CITY','ACCOMODATION TOUR','ACCOMODATION STAY','AMOUNT','LEADS','source','CONTACT NO.','FSR','SC','VISIT','designation','CONVERSION','FEEDBACK','FEEDBACK ATTACHEMT'].forEach(name => {
+    const input = form.querySelector(`[name="${name}"]`);
+    if (input) input.value = visit[name] || '';
+  });
+  const fileInput = form.querySelector('[name="FEEDBACK ATTACHEMT__file"]');
+  if (fileInput) fileInput.value = '';
+  const saveBtn = el('vf-save');
+  if (saveBtn) saveBtn.innerHTML = `${icon('save', 15)} Update Visit`;
+  const cancelBtn = el('vf-cancel-edit');
+  if (cancelBtn) cancelBtn.style.display = '';
+  renderIcons(form);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+window._vfEditVisit = _vfEditVisit;
+
+function _vfCancelEdit() {
+  loadVisits();
+}
+window._vfCancelEdit = _vfCancelEdit;
+
+async function _vfDeleteVisit(visitId) {
+  visitId = String(visitId || '').trim();
+  if (!visitId) return;
+  let ok = false;
+  if (typeof Swal !== 'undefined') {
+    const res = await Swal.fire({
+      title: 'Delete visit?',
+      text: 'This will remove the selected visit record.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      confirmButtonColor: '#dc2626'
+    });
+    ok = res.isConfirmed;
+  } else {
+    ok = window.confirm('Delete this visit?');
+  }
+  if (!ok) return;
+  try {
+    await api.deleteVisit(visitId);
+    _vfVisits = (_vfVisits || []).filter(v => String(v['Visit ID']) !== visitId);
+    toast('Visit deleted.');
+    _vfRenderList();
+  } catch (err) {
+    toast('Delete failed: ' + (err && err.message || err), 'error');
+  }
+}
+window._vfDeleteVisit = _vfDeleteVisit;
+
+function _vfFilteredVisits_() {
+  const leadMap = _vfLeadRows().reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
+  const f = _vfListState;
+  const q = String(f.search || '').trim().toLowerCase();
+  const city = String(f.city || '').trim().toLowerCase();
+  return (_vfVisits || []).filter(v => {
+    const lead = leadMap[v['Lead ID']] || {};
+    const visitDate = String(v['DATE'] || v['Visit Date'] || '').slice(0, 10);
+    if (f.dateFrom && visitDate && visitDate < f.dateFrom) return false;
+    if (f.dateTo && visitDate && visitDate > f.dateTo) return false;
+    const rowCity = String(v['CITY'] || lead['City'] || '').toLowerCase();
+    if (city && !rowCity.includes(city)) return false;
+    if (!q) return true;
+    return [
+      v['Visit ID'], v['Lead ID'], v['DATE'], v['CITY'], v['source'], v['CONTACT NO.'],
+      v['designation'], v['FEEDBACK'], lead['Company Name'], lead['Contact Person'], lead['City'], lead['Phone']
+    ].map(x => String(x || '').toLowerCase()).join(' ').includes(q);
+  });
+}
+
+function _vfSetFilter(key, value) {
+  _vfListState[key] = value || '';
+  _vfListState.page = 1;
+  _vfRenderList();
+}
+window._vfSetFilter = _vfSetFilter;
+
+function _vfSetPage(page) {
+  _vfListState.page = Math.max(1, Number(page) || 1);
+  _vfRenderList();
+}
+window._vfSetPage = _vfSetPage;
+
+function _vfExportVisits() {
+  const rows = _vfFilteredVisits_();
+  if (!rows.length) { toast('No visits to export.', 'error'); return; }
+  const leadMap = _vfLeadRows().reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
+  const headers = ['DATE','Company','Lead ID','CITY','ACCOMODATION TOUR','ACCOMODATION STAY','AMOUNT','LEADS','source','CONTACT NO.','FSR','SC','VISIT','designation','CONVERSION','FEEDBACK','FEEDBACK ATTACHEMT','Created By','Created At'];
+  const csv = [headers].concat(rows.map(v => {
+    const lead = leadMap[v['Lead ID']] || {};
+    return [
+      v['DATE'] || v['Visit Date'] || '',
+      lead['Company Name'] || '',
+      v['Lead ID'] || '',
+      v['CITY'] || lead['City'] || '',
+      v['ACCOMODATION TOUR'] || '',
+      v['ACCOMODATION STAY'] || '',
+      v['AMOUNT'] || '',
+      v['LEADS'] || '',
+      v['source'] || lead['Source'] || '',
+      v['CONTACT NO.'] || lead['Phone'] || '',
+      v['FSR'] || '',
+      v['SC'] || '',
+      v['VISIT'] || '',
+      v['designation'] || '',
+      v['CONVERSION'] || '',
+      v['FEEDBACK'] || v['Remarks'] || '',
+      v['FEEDBACK ATTACHEMT'] || '',
+      (App.config.userNameMap && App.config.userNameMap[v['Created By']]) || v['Created By'] || '',
+      v['Created At'] || ''
+    ];
+  })).map(row => row.map(_vfCsvCell_).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'visit-records.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+window._vfExportVisits = _vfExportVisits;
+
+function _vfCsvCell_(value) {
+  const text = String(value === undefined || value === null ? '' : value);
+  return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
 }
 </script>
