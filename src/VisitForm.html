@@ -7,6 +7,9 @@
   .vf-table tr:last-child td { border-bottom: 0; }
   .vf-remark { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vf-row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .vf-tabs { display:inline-flex; gap:4px; padding:4px; border:1px solid #e5e7eb; background:#f8fafc; border-radius:10px; margin:0 0 16px; }
+  .vf-tab { border:0; background:transparent; height:32px; padding:0 12px; border-radius:8px; color:#64748b; font-size:13px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+  .vf-tab.active { background:#fff; color:var(--md-primary); box-shadow:0 1px 3px rgba(15,23,42,.12); }
   @media (max-width: 900px) { .vf-row3 { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 640px) { .vf-row3 { grid-template-columns: 1fr; } }
 </style>
@@ -14,6 +17,7 @@
 let _vfState = { lead: null, leadId: '', editVisitId: '' };
 let _vfVisits = null;
 let _vfListState = { search: '', city: '', dateFrom: '', dateTo: '', page: 1, pageSize: 25 };
+let _vfActiveTab = 'create';
 
 async function loadVisits() {
   const content = el('content');
@@ -30,7 +34,11 @@ async function loadVisits() {
           <div class="sff-sub">Pick a lead and record the visit details.</div>
         </div>
       </div>
-      <div class="sff-card">
+      ${kiosk ? '' : `<div class="vf-tabs">
+        <button type="button" class="vf-tab active" id="vf-tab-create" onclick="_vfShowTab('create')">${icon('plus-circle', 14)} Create Visit</button>
+        <button type="button" class="vf-tab" id="vf-tab-records" onclick="_vfShowTab('records')">${icon('table-2', 14)} All Visits</button>
+      </div>`}
+      <div class="sff-card" id="vf-create-panel">
         <div class="sff-field">
           <label>Lead <span style="color:#ef4444">*</span></label>
           <div class="sff-picker">
@@ -80,7 +88,7 @@ async function loadVisits() {
           </div>
         </form>
       </div>
-      ${kiosk ? '' : `<div class="sff-card" style="margin-top:18px">
+      ${kiosk ? '' : `<div class="sff-card" id="vf-records-panel" style="display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
           <div>
             <div class="sff-title" style="font-size:16px">Visit Records</div>
@@ -114,9 +122,23 @@ async function loadVisits() {
       if (list && picker && !picker.contains(e.target)) list.style.display = 'none';
     }, true);
   }
-  if (!kiosk) _vfLoadList();
+  if (!kiosk) _vfShowTab(_vfActiveTab || 'create');
 }
 window.loadVisits = loadVisits;
+
+function _vfShowTab(tab) {
+  _vfActiveTab = tab === 'records' ? 'records' : 'create';
+  const createPanel = el('vf-create-panel');
+  const recordsPanel = el('vf-records-panel');
+  const createTab = el('vf-tab-create');
+  const recordsTab = el('vf-tab-records');
+  if (createPanel) createPanel.style.display = _vfActiveTab === 'create' ? '' : 'none';
+  if (recordsPanel) recordsPanel.style.display = _vfActiveTab === 'records' ? '' : 'none';
+  if (createTab) createTab.classList.toggle('active', _vfActiveTab === 'create');
+  if (recordsTab) recordsTab.classList.toggle('active', _vfActiveTab === 'records');
+  if (_vfActiveTab === 'records' && _vfVisits === null) _vfLoadList();
+}
+window._vfShowTab = _vfShowTab;
 
 function _vfLeadRows() { try { return AppCache.getRows('leads') || []; } catch (e) { return []; } }
 
@@ -276,6 +298,7 @@ function _vfEditVisit(visitId) {
   const visit = (_vfVisits || []).find(v => String(v['Visit ID']) === String(visitId));
   if (!visit) { toast('Visit not found.', 'error'); return; }
   const lead = _vfLeadRows().find(l => String(l['Lead ID']) === String(visit['Lead ID'])) || { 'Lead ID': visit['Lead ID'] };
+  _vfShowTab('create');
   _vfSelectLead(visit['Lead ID']);
   _vfState.editVisitId = String(visitId || '');
   const form = el('vf-form');
