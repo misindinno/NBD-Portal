@@ -158,13 +158,19 @@ const BulkView = (() => {
 
   function _assignableUsers() {
     const selectedDepartments = _selectedPortalDepartments_();
+    const nameMap = App.config?.userNameMap || {};
     return (App.config.users || [])
       .filter(u => String(u.status || u.Status || 'Active') !== 'Inactive')
-      .map(u => ({
-        id: String(u.id || u.ID || u['User ID'] || u['Email Address'] || u.email || '').trim(),
-        name: String(u.name || u.Name || u.email || u['Email Address'] || u.id || '').trim(),
-        department: String(u.department || u.Department || '').trim()
-      }))
+      .map(u => {
+        const id = String(u.id || u.ID || u['User ID'] || u['Email Address'] || u.email || '').trim();
+        const email = String(u.email || u['Email Address'] || '').trim().toLowerCase();
+        const name = String(nameMap[id] || nameMap[email] || u.name || u.Name || email || id).trim();
+        return {
+          id,
+          name,
+          department: String(u.department || u.Department || '').trim()
+        };
+      })
       .filter(u => !selectedDepartments.length || selectedDepartments.includes(u.department.toLowerCase()))
       .filter(u => u.id);
   }
