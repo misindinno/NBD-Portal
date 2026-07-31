@@ -86,6 +86,8 @@ function saveLead(data, email) {
       const updateDuplicate = _leadSaveStep_('check update duplicate', () => _leadDuplicateMessage_(data, leadId));
       if (updateDuplicate) return respond(null, updateDuplicate);
       const prepared = _leadSaveStep_('prepare update payload', () => _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped));
+      const finalAssignedTo = prepared['Assigned To'] || existing.lead['Assigned To'] || user.id;
+      _leadSaveStep_('validate assigned user department', () => _assertLeadAssignedUserAllowed_(finalAssignedTo));
       _leadSaveStep_('apply update status', () => _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']));
       const updatePayload = { ...prepared, 'Updated At': now() };
       const updated = _leadSaveStep_('update lead row', () => updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(updatePayload)));
@@ -109,6 +111,7 @@ function saveLead(data, email) {
       'Next Follow-up Date': prepared['Next Follow-up Date'] || followupDate,
       'Created At': now(), 'Updated At': now()
     };
+    _leadSaveStep_('validate assigned user department', () => _assertLeadAssignedUserAllowed_(leadRow['Assigned To']));
     let leadInserted = false;
     try {
       const insertResult = _leadSaveStep_('insert lead master row', () => _insertLeadMasterRowBlockingDuplicates_(leadRow));
@@ -141,6 +144,17 @@ function saveLead(data, email) {
       throw e;
     }
   });
+}
+
+function _assertLeadAssignedUserAllowed_(assignedTo) {
+  const userId = String(assignedTo || '').trim();
+  if (!userId) return;
+  const scope = _portalDepartmentScopeSet_();
+  if (!scope) return;
+  const userMap = _buildUserMapById_();
+  const department = String(_departmentForUserId_(userId, userMap) || '').trim();
+  if (department && scope[department.toLowerCase()]) return;
+  throw new Error('Assigned user is outside the selected portal department(s). Please choose a user from Settings > Portal Data Departments.');
 }
 
 function _leadSaveStep_(label, fn) {

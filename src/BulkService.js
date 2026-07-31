@@ -32,13 +32,27 @@ function getBulkConfig() {
       if (configType && configTypeMap[configType]) cfg.allowedValues = configTypeMap[configType];
     }
     if (String(cfg.targetHeader || cfg.targetColumn || '').trim().toLowerCase() === 'assigned to') {
-      cfg.allowedValues = getAllRows(SHEET_NAMES.USERS)
-        .filter(u => u['Status'] === 'Active')
-        .map(u => String(getStaffUserId(u, String(u['Email Address'] || '').trim().toLowerCase()) || '').trim())
+      cfg.allowedValues = _bulkAssignableUsers_()
+        .map(u => String(u.id || '').trim())
         .filter(Boolean);
     }
     return cfg;
   }).filter(Boolean);
+}
+
+function _bulkAssignableUsers_() {
+  const settings = getPortalSettings_();
+  return getUsersWithPortalAccess_(currentPortalKey_(), false)
+    .filter(u => isActiveUserValue(u['Is Active']) && _userMatchesDepartmentSettings_(u, settings))
+    .map(u => {
+      const email = String(u['Email Address'] || '').trim().toLowerCase();
+      return {
+        id: getStaffUserId(u, email),
+        name: u['Name'] || email,
+        department: u['Department'] || ''
+      };
+    })
+    .filter(u => u.id);
 }
 
 function validateBulkRows(rows, mode) {
@@ -299,6 +313,7 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
         'Created At': ts,
         'Updated At': ts
       };
+      _assertLeadAssignedUserAllowed_(leadRow['Assigned To']);
       leadRows.push(pickLeadMasterFields_(leadRow));
       leadIds.push(id);
       followupRows.push(pickFollowupMasterFields_({

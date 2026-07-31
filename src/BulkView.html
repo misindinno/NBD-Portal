@@ -157,17 +157,26 @@ const BulkView = (() => {
   }
 
   function _assignableUsers() {
+    const selectedDepartments = _selectedPortalDepartments_();
     return (App.config.users || [])
       .filter(u => String(u.status || u.Status || 'Active') !== 'Inactive')
       .map(u => ({
         id: String(u.id || u.ID || u['User ID'] || u['Email Address'] || u.email || '').trim(),
-        name: String(u.name || u.Name || u.email || u['Email Address'] || u.id || '').trim()
+        name: String(u.name || u.Name || u.email || u['Email Address'] || u.id || '').trim(),
+        department: String(u.department || u.Department || '').trim()
       }))
+      .filter(u => !selectedDepartments.length || selectedDepartments.includes(u.department.toLowerCase()))
       .filter(u => u.id);
   }
 
   function _assignableUserValues() {
-    return _assignableUsers().map(u => u.id);
+    return _assignableUsers().map(u => u.name || u.id);
+  }
+
+  function _selectedPortalDepartments_() {
+    const raw = App.config?.settings?.visibleDepartments || [];
+    const list = Array.isArray(raw) ? raw : String(raw || '').split(',');
+    return list.map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
   }
 
   function _userNameById(userId) {
@@ -219,9 +228,11 @@ const BulkView = (() => {
     } else {
       _gridRows().forEach(item => rowsToPatch.add(item.rowNumber - 1));
     }
+    const user = _assignableUsers().find(u => u.id === userId);
+    const displayValue = user ? (user.name || user.id) : userId;
     rowsToPatch.forEach(rowIndex => {
       const row = hot.getSourceDataAtRow(rowIndex);
-      if (row) row[fieldName] = userId;
+      if (row) row[fieldName] = displayValue;
     });
     hot.render();
     _setProgress(0, `Assigned ${rowsToPatch.size} row(s) - validate before save`);
