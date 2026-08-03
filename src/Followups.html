@@ -290,9 +290,12 @@ function _fuClearFilters() {
 
 function _fuApplyFilters(rows, ctx) {
   const f = _fuFilterState;
-  if (!f.search && !f.type && !f.assignedTo && !f.contactMode && !f.stage && !f.state && !f.city && !f.dateFrom && !f.dateTo) return rows;
+  if (!f.search && !f.type && !f.assignedTo && !f.contactMode && !f.stage && !f.state && !f.city && !f.dateFrom && !f.dateTo) {
+    return (rows || []).filter(row => _fuHasValidLead(row, ctx));
+  }
   const searchQ = f.search.toLowerCase().trim();
-  return rows.filter(row => {
+  return (rows || []).filter(row => {
+    if (!_fuHasValidLead(row, ctx)) return false;
     const lead = ctx?.leadMap?.[row['Lead ID']];
     if (searchQ) {
       const company  = String(lead?.['Company Name']   || '').toLowerCase();
@@ -318,6 +321,11 @@ function _fuApplyFilters(rows, ctx) {
     if (f.dateTo   && dateField && dateField > f.dateTo)   return false;
     return true;
   });
+}
+
+function _fuHasValidLead(row, ctx) {
+  const leadId = String(row && row['Lead ID'] || '').trim();
+  return !!leadId && !!(ctx && ctx.leadMap && ctx.leadMap[leadId]);
 }
 
 async function _renderFUTab(tab, force = false) {

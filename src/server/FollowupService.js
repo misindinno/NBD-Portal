@@ -17,6 +17,7 @@ function ensureFollowupSheets_() {
 
 function getFollowups(filters, withCustomFields) {
   let rows = _followupRows(withCustomFields);
+  rows = _filterFollowupsWithExistingLeads_(rows);
   if (filters && filters.leadId) rows = rows.filter(r => r['Lead ID'] === filters.leadId);
   const status = String(filters && filters.status || '').trim().toLowerCase();
   const includeClosed = !!(filters && (filters.includeClosed || status === 'all'));
@@ -26,6 +27,25 @@ function getFollowups(filters, withCustomFields) {
     rows = rows.filter(_isOpenFollowup);
   }
   return rows.sort(_sortFollowupsByCreated);
+}
+
+function _filterFollowupsWithExistingLeads_(rows) {
+  const leadIds = _existingVisibleLeadIdSet_();
+  return (rows || []).filter(row => {
+    const leadId = String(row && row['Lead ID'] || '').trim();
+    return !!leadId && !!leadIds[leadId];
+  });
+}
+
+function _existingVisibleLeadIdSet_() {
+  const sourceRows = isAggregatePortal()
+    ? getAggregatedRows(SHEET_NAMES.LEADS)
+    : getAllRows(SHEET_NAMES.LEADS);
+  return (sourceRows || []).reduce((map, lead) => {
+    const leadId = String(lead && lead['Lead ID'] || '').trim();
+    if (leadId && !_isArchivedLead_(lead)) map[leadId] = true;
+    return map;
+  }, {});
 }
 
 function getFollowupHistory(filters) {

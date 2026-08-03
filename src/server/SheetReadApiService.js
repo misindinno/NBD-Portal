@@ -236,10 +236,13 @@ function getTodayActivitySnapshotFast_(user) {
     ]);
   } finally { _bootstrapReadMode_ = false; }
   const leads = (rows[SHEET_NAMES.LEADS] || []).filter(lead => !_isArchivedLead_(lead));
+  const validLeadMap = _rowsByKey_(leads, 'Lead ID');
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
+    .filter(row => !!validLeadMap[row['Lead ID']])
     .map(_normalizeFollowupRow);
-  const followupHistory = _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY]);
+  const followupHistory = _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY])
+    .filter(row => !!validLeadMap[row['Lead ID']]);
   const activityLogs = rows[SHEET_NAMES.LEAD_ACTIVITY_LOGS] || [];
 
   return {
@@ -284,7 +287,8 @@ function getFollowupPageSnapshotFast_(user, options) {
     followups: scopedFollowups,
     followupHistory: includeHistory
       ? _sheetApiScopeLinkedRows_(
-          _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY]),
+          _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY])
+            .filter(row => !!validLeadMap[row['Lead ID']]),
           user,
           visibleLeadMap,
           ['Done By']
