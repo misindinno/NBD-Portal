@@ -271,8 +271,10 @@ function getFollowupPageSnapshotFast_(user, options) {
   try { rows = sheetApiBatchGetRows_(specs); }
   finally { _bootstrapReadMode_ = false; }
   const leads = (rows[SHEET_NAMES.LEADS] || []).filter(lead => !_isArchivedLead_(lead));
+  const validLeadMap = _rowsByKey_(leads, 'Lead ID');
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
+    .filter(row => !!validLeadMap[row['Lead ID']])
     .map(_normalizeFollowupRow);
   const visibleLeads = _sheetApiScopeLeadRows_(leads, user);
   const visibleLeadMap = _rowsByKey_(visibleLeads, 'Lead ID');
