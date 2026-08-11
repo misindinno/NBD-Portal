@@ -330,6 +330,14 @@ function apiGetArchiveSuggestions(token) {
   });
 }
 
+function apiGetLostArchiveLeads(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_(() => {
+    const user = _requireModule('Archive');
+    return respond(getLostArchiveLeads_(user));
+  });
+}
+
 function apiArchiveLead(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_(() => {

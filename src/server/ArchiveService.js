@@ -107,18 +107,19 @@ function getArchiveSuggestionsFast_(user) {
   } finally { _bootstrapReadMode_ = false; }
 
   // Leads in a final stage are excluded — they're won/closed, not archive candidates.
-  const finalStageIds = {};
+  const stageMap = {};
   (rows[SHEET_NAMES.STAGES] || []).forEach(s => {
-    const isFinal = s['Is Final Stage'] === true || String(s['Is Final Stage'] || '').trim().toLowerCase() === 'true';
-    if (isFinal) finalStageIds[String(s['Stage ID'] || '').trim()] = true;
+    const id = String(s['Stage ID'] || '').trim();
+    if (id) stageMap[id] = s;
   });
 
   const leads = _scopeAssignedRows(
-    (rows[SHEET_NAMES.LEADS] || []).filter(l =>
-      !_isArchivedLead_(l) &&
-      !_isLeadPushedToNbd_(l) &&
-      !finalStageIds[String(l['Stage ID'] || '').trim()]
-    ),
+    (rows[SHEET_NAMES.LEADS] || []).filter(l => {
+      if (_isArchivedLead_(l) || _isLeadPushedToNbd_(l)) return false;
+      const stage = stageMap[String(l['Stage ID'] || '').trim()] || {};
+      const isFinal = stage['Is Final Stage'] === true || String(stage['Is Final Stage'] || '').trim().toLowerCase() === 'true';
+      return !isFinal || _isLostArchiveLead_(l, stage);
+    }),
     user
   );
   const history = rows[SHEET_NAMES.FOLLOWUP_HISTORY] || [];
@@ -134,6 +135,8 @@ function getArchiveSuggestionsFast_(user) {
   leads.forEach(lead => {
     const id = String(lead['Lead ID'] || '').trim();
     if (!id) return;
+    const stage = stageMap[String(lead['Stage ID'] || '').trim()] || {};
+    const isLost = _isLostArchiveLead_(lead, stage);
     const hist = (byLead[id] || []).slice().sort((a, b) => _archiveHistTime_(a) - _archiveHistTime_(b));
     let streak = 0, maxStreak = 0, total = 0, lastDate = '';
     hist.forEach(h => {
@@ -147,17 +150,83 @@ function getArchiveSuggestionsFast_(user) {
         streak = 0;                                      // any answered/other contact breaks the run
       }
     });
-    if (maxStreak >= ARCHIVE_SUGGESTION_MIN_) {
+    if (maxStreak >= ARCHIVE_SUGGESTION_MIN_ || isLost) {
       suggestions.push(Object.assign({}, lead, {
         _notPickedTotal: total,
         _notPickedStreak: maxStreak,
-        _lastNotPickedDate: lastDate
+        _lastNotPickedDate: lastDate,
+        _stageName: stage['Stage Name'] || '',
+        _stageOutcome: stage['Stage Outcome'] || ''
       }));
     }
   });
   return suggestions.sort((a, b) =>
     (b._notPickedStreak - a._notPickedStreak) || (b._notPickedTotal - a._notPickedTotal)
   );
+}
+
+function getLostArchiveLeads_(user) {
+  ensureArchiveSchema_();
+  _bootstrapReadMode_ = true;
+  let rows;
+  try {
+    rows = sheetApiBatchGetRows_([
+      { sheetName: SHEET_NAMES.LEADS, range: 'A:AZ' },
+      { sheetName: SHEET_NAMES.FOLLOWUPS, range: 'A:Q' },
+      { sheetName: SHEET_NAMES.FOLLOWUP_HISTORY, range: 'A:O' },
+      { sheetName: SHEET_NAMES.STAGES, range: 'A:K' }
+    ]);
+  } finally { _bootstrapReadMode_ = false; }
+
+  const stageMap = (rows[SHEET_NAMES.STAGES] || []).reduce((map, stage) => {
+    const id = String(stage['Stage ID'] || '').trim();
+    if (id) map[id] = stage;
+    return map;
+  }, {});
+  const notPickedByLead = (rows[SHEET_NAMES.FOLLOWUP_HISTORY] || []).reduce((map, row) => {
+    if (String(row['Contact Mode'] || '').trim() !== 'Not Picked') return map;
+    const leadId = String(row['Lead ID'] || '').trim();
+    if (!leadId) return map;
+    map[leadId] = (map[leadId] || 0) + 1;
+    return map;
+  }, {});
+  const followupByLead = (rows[SHEET_NAMES.FOLLOWUPS] || []).reduce((map, row) => {
+    const leadId = String(row['Lead ID'] || '').trim();
+    if (!leadId) return map;
+    if (!map[leadId]) map[leadId] = [];
+    map[leadId].push(row);
+    return map;
+  }, {});
+
+  const leads = _scopeAssignedRows((rows[SHEET_NAMES.LEADS] || []).filter(lead => {
+    if (_isArchivedLead_(lead)) return false;
+    return _isLostArchiveLead_(lead, stageMap[String(lead['Stage ID'] || '').trim()]);
+  }), user);
+
+  return leads.map(lead => {
+    const leadId = String(lead['Lead ID'] || '').trim();
+    const stage = stageMap[String(lead['Stage ID'] || '').trim()] || {};
+    return Object.assign(
+      _archiveEnrichLead_(lead, followupByLead[leadId] || [], notPickedByLead[leadId] || 0),
+      { _stageName: stage['Stage Name'] || '', _stageOutcome: stage['Stage Outcome'] || '' }
+    );
+  }).sort((a, b) => _archiveDateMs_(b['Updated At'] || b['Stage Updated At'] || b['Created At']) -
+                    _archiveDateMs_(a['Updated At'] || a['Stage Updated At'] || a['Created At']));
+}
+
+function _archiveDateMs_(value) {
+  if (!value) return 0;
+  if (typeof value === 'number') return value;
+  const t = new Date(String(value).replace(' ', 'T')).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+function _isLostArchiveLead_(lead, stage) {
+  const status = String(lead && lead['Lead Status'] || '').trim().toLowerCase();
+  if (status === 'lost') return true;
+  const outcome = String(stage && stage['Stage Outcome'] || '').trim().toLowerCase();
+  const name = String(stage && stage['Stage Name'] || '').trim().toLowerCase();
+  return outcome === 'lost' || name.includes('lost');
 }
 
 function archiveLead(leadId, reason, email, opts) {
@@ -173,7 +242,10 @@ function archiveLead(leadId, reason, email, opts) {
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canReadAssignedRow(lead, user)) return respond(null, 'Permission denied.');
   if (_isArchivedLead_(lead)) return respond(leadId);
-  if (_isLeadInFinalStage_(lead)) return respond(null, 'This lead is in a final stage and cannot be archived.');
+  const stage = queryRows(SHEET_NAMES.STAGES, r => String(r['Stage ID'] || '').trim() === String(lead['Stage ID'] || '').trim())[0] || null;
+  if (_isLeadInFinalStage_(lead) && !_isLostArchiveLead_(lead, stage)) {
+    return respond(null, 'This lead is in a final stage and cannot be archived.');
+  }
 
   const ts = now();
   const patch = {

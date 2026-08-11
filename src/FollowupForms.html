@@ -171,7 +171,7 @@ async function openMarkFollowupDoneForm(followupId) {
     .map(c => '<option>' + escapeHtml(c['Value']) + '</option>').join('');
   const stageOptionsHTML = lead ? _fuNextStageOptionsHTML(lead['Lead ID'], snapshot.leads || []) : '<option value="">No Change</option>';
   const todayStr = localDateInputValue();
-  const _maxD = new Date(); _maxD.setDate(_maxD.getDate() + 7);
+  const _maxD = new Date(); _maxD.setDate(_maxD.getDate() + 15);
   const maxNextDate = _maxD.toISOString().split('T')[0];
   const stageMap = (App.config.allStages || App.config.stages || []).reduce(function(m,s){m[s['Stage ID']]=s;return m;},{});
   const leadIsFinalStage = !!(lead && _fuIsFinalStage(stageMap[lead['Stage ID']]));
@@ -214,7 +214,7 @@ async function openMarkFollowupDoneForm(followupId) {
         <div class="form-group">
           <label>Next Planned Date <span id="fu-next-date-required" style="font-size:10px;color:#ef4444;font-weight:700">*</span></label>
           <input class="form-control" name="Next Follow-up Date" type="date" min="${todayStr}" max="${maxNextDate}" onchange="_updateDoneNextDateRequirement(this.form)" oninput="_updateDoneNextDateRequirement(this.form)">
-          <div id="fu-next-date-help" style="font-size:11px;color:#6b7280;margin-top:4px">Next planned date is required until the lead reaches a final stage. Choose a date within 7 days.</div>
+          <div id="fu-next-date-help" style="font-size:11px;color:#6b7280;margin-top:4px">Next planned date is required until the lead reaches a final stage. Choose a date within 15 days.</div>
         </div>
       </div>
       <div class="form-group">
@@ -340,9 +340,9 @@ async function openMarkFollowupDoneForm(followupId) {
         const closesFollowup = _markDoneClosesFollowup(form);
         if (!val) return closesFollowup;
         const d = new Date(val); const t = new Date(); t.setHours(0,0,0,0);
-        const mx = new Date(t); mx.setDate(mx.getDate() + 7);
+        const mx = new Date(t); mx.setDate(mx.getDate() + 15);
         return d >= t && d <= mx;
-      }, errorMessage: 'Next planned date is required unless the lead is on a final stage, and must be within the next 7 days.' }
+      }, errorMessage: 'Next planned date is required unless the lead is on a final stage, and must be within the next 15 days.' }
   ]);
   _updateDoneNextDateRequirement(form);
   validator.onSuccess(async () => {
@@ -621,7 +621,7 @@ function _updateDoneNextDateRequirement(form) {
   }
   if (help) help.textContent = finalStageCloses
     ? 'This follow-up will close because the lead is on a final stage.'
-    : 'Next planned date is required until the lead reaches a final stage. Choose a date within 7 days.';
+    : 'Next planned date is required until the lead reaches a final stage. Choose a date within 15 days.';
 }
 
 function _onMarkDoneStageChange(select) {

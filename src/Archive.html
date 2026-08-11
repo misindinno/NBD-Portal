@@ -107,7 +107,8 @@
 let _archiveTab = 'archived';
 const _archTabs = {
   archived:    { rows: null, search: '', owner: '', sortKey: 'archived', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() },
-  suggestions: { rows: null, search: '', owner: '', severity: 'all', sortKey: 'streak', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() }
+  suggestions: { rows: null, search: '', owner: '', status: '', severity: 'all', sortKey: 'streak', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() },
+  lost:        { rows: null, search: '', owner: '', sortKey: 'updated', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() }
 };
 let _archSearchTimer = null;
 let _archLoadSeq = 0;
@@ -126,6 +127,7 @@ async function loadArchive(tab = 'archived', force = false) {
         <div class="arch-tabs" role="tablist">
           <button class="arch-tab" data-tab="archived" onclick="_archiveSwitchTab('archived')">${icon('archive', 15)} Archived</button>
           <button class="arch-tab" data-tab="suggestions" onclick="_archiveSwitchTab('suggestions')">${icon('lightbulb', 15)} Suggestions</button>
+          <button class="arch-tab" data-tab="lost" onclick="_archiveSwitchTab('lost')">${icon('circle-x', 15)} Lost Leads</button>
         </div>
         <div class="arch-tools" id="arch-tools"></div>
       </div>
@@ -134,7 +136,7 @@ async function loadArchive(tab = 'archived', force = false) {
     </div>`;
     renderIcons(content);
   }
-  await _archActivateTab(tab === 'suggestions' ? 'suggestions' : 'archived', force);
+  await _archActivateTab(_archTabs[tab] ? tab : 'archived', force);
 }
 window.loadArchive = loadArchive;
 
@@ -154,8 +156,10 @@ async function _archActivateTab(tab, force) {
       if (tab === 'archived') {
         const d = await api.getArchiveData();
         t.rows = (d && d.archived) || [];
-      } else {
+      } else if (tab === 'suggestions') {
         t.rows = await _archGetSuggestionRows();
+      } else {
+        t.rows = await api.getLostArchiveLeads();
       }
     } catch (e) {
       if (seq !== _archLoadSeq || !el('archive-body')) return;
@@ -205,10 +209,10 @@ function _archHistTime(h) {
 }
 
 function _archComputeSuggestionsFromCache() {
-  const finalStageIds = {};
+  const stageMap = {};
   (App.config.allStages || App.config.stages || []).forEach(s => {
-    const isFinal = s['Is Final Stage'] === true || String(s['Is Final Stage'] || '').trim().toLowerCase() === 'true';
-    if (isFinal) finalStageIds[String(s['Stage ID'] || '').trim()] = true;
+    const id = String(s['Stage ID'] || '').trim();
+    if (id) stageMap[id] = s;
   });
   const byLead = {};
   (AppCache.getRows('followupHistory') || []).forEach(h => {
@@ -222,7 +226,10 @@ function _archComputeSuggestionsFromCache() {
     if (!id) return;
     if (lead['NBD Lead ID'] || lead['Pushed To NBD At']) return;
     if (String(lead['Is Archived']).toLowerCase() === 'true' || lead['Is Archived'] === true) return;
-    if (finalStageIds[String(lead['Stage ID'] || '').trim()]) return;
+    const stage = stageMap[String(lead['Stage ID'] || '').trim()] || {};
+    const isFinal = stage['Is Final Stage'] === true || String(stage['Is Final Stage'] || '').trim().toLowerCase() === 'true';
+    const isLost = _archIsLostLead(lead, stage);
+    if (isFinal && !isLost) return;
     const hist = (byLead[id] || []).slice().sort((a, b) => _archHistTime(a) - _archHistTime(b));
     let streak = 0, maxStreak = 0, total = 0, lastDate = '';
     hist.forEach(h => {
@@ -236,11 +243,13 @@ function _archComputeSuggestionsFromCache() {
         streak = 0; // any answered/other contact breaks the run
       }
     });
-    if (maxStreak >= _ARCH_SUG_MIN) {
+    if (maxStreak >= _ARCH_SUG_MIN || isLost) {
       suggestions.push(Object.assign({}, lead, {
         _notPickedTotal: total,
         _notPickedStreak: maxStreak,
-        _lastNotPickedDate: lastDate
+        _lastNotPickedDate: lastDate,
+        _stageName: stage['Stage Name'] || '',
+        _stageOutcome: stage['Stage Outcome'] || ''
       }));
     }
   });
@@ -296,6 +305,24 @@ function _archOwners(t) {
   return Object.keys(map).map(id => ({ id, name: map[id] })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
+function _archLeadStatus(row) {
+  return String(row && row['Lead Status'] || '').trim() || 'Open';
+}
+
+function _archStatuses(t) {
+  const map = {};
+  (t.rows || []).forEach(r => { const status = _archLeadStatus(r); if (status) map[status] = true; });
+  return Object.keys(map).sort((a, b) => String(a).localeCompare(String(b)));
+}
+
+function _archIsLostLead(lead, stage) {
+  const status = String(lead && lead['Lead Status'] || '').trim().toLowerCase();
+  if (status === 'lost') return true;
+  const outcome = String(stage && stage['Stage Outcome'] || '').trim().toLowerCase();
+  const name = String(stage && stage['Stage Name'] || '').trim().toLowerCase();
+  return outcome === 'lost' || name.includes('lost');
+}
+
 function _archFiltered(tab) {
   const t = _archTabs[tab];
   let rows = (t.rows || []).slice();
@@ -304,11 +331,13 @@ function _archFiltered(tab) {
     else if (t.severity === 'crit') rows = rows.filter(r => Number(r._notPickedStreak) >= 8);
   }
   if (t.owner) rows = rows.filter(r => String(r['Assigned To'] || '') === t.owner);
+  if (tab === 'suggestions' && t.status) rows = rows.filter(r => _archLeadStatus(r) === t.status);
   if (t.search) {
     const q = t.search.toLowerCase();
     rows = rows.filter(r => {
       const hay = [r['Company Name'], r['Client Description'], r['City'], r['State'],
-        _archOwnerName(r['Assigned To']), r['Lead ID'], tab === 'archived' ? r['Archive Reason'] : '']
+        _archOwnerName(r['Assigned To']), r['Lead ID'], r['_stageName'],
+        tab === 'archived' ? r['Archive Reason'] : '']
         .map(x => String(x || '')).join(' ').toLowerCase();
       return hay.includes(q);
     });
@@ -319,6 +348,12 @@ function _archFiltered(tab) {
       if (t.sortKey === 'streak') return Number(r._notPickedStreak || 0);
       if (t.sortKey === 'last') return _archFmtTime(r._lastNotPickedDate);
       return Number(r._notPickedTotal || 0);
+    }
+    if (tab === 'lost') {
+      if (t.sortKey === 'pending') return Number(r._pendingDays || 0);
+      if (t.sortKey === 'fu') return Number(r._followupCount || 0);
+      if (t.sortKey === 'notpicked') return Number(r._notPickedCount || 0);
+      return _archFmtTime(r['Updated At'] || r['Stage Updated At'] || r['Created At']);
     }
     if (t.sortKey === 'pending') return Number(r._pendingDays || 0);
     if (t.sortKey === 'notpicked') return Number(r._notPickedCount || 0);
@@ -355,6 +390,13 @@ function _archRenderKpis() {
       _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 not picked in a row', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: t.severity === 'warn' }),
       _archKpi({ label: 'Critical', val: crit, sub: '8+ not picked in a row', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: t.severity === 'crit' })
     ].join('');
+  } else if (_archiveTab === 'lost') {
+    const rows = _archTabs.lost.rows || [];
+    kpis.innerHTML = [
+      _archKpi({ label: 'Lost Leads', val: rows.length, sub: 'ready to archive', ic: 'circle-x', variant: 'crit' }),
+      _archKpi({ label: 'Linked Follow-ups', val: rows.reduce((n, r) => n + Number(r._followupCount || 0), 0), sub: 'will be closed on archive', ic: 'phone', variant: 'total' }),
+      _archKpi({ label: 'Not Picked Count', val: rows.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), sub: 'across lost leads', ic: 'phone-missed', variant: 'warn' })
+    ].join('');
   } else {
     const rows = _archTabs.archived.rows || [];
     kpis.innerHTML = [
@@ -375,10 +417,13 @@ function _archRenderCard() {
   const tab = _archiveTab;
   const t = _archTabs[tab];
   const owners = _archOwners(t);
-  const title = tab === 'suggestions' ? 'Archive Suggestions' : 'Archived Leads';
+  const statuses = tab === 'suggestions' ? _archStatuses(t) : [];
+  const title = tab === 'suggestions' ? 'Archive Suggestions' : (tab === 'lost' ? 'Lost Stage Leads' : 'Archived Leads');
   const sub = tab === 'suggestions'
     ? 'Leads with 7 or more consecutive unanswered calls (Not Picked in a row).'
-    : 'Leads marked as archived, with their linked follow-ups.';
+    : (tab === 'lost'
+      ? 'Lost leads that are still active. Archive them here to remove them from active work.'
+      : 'Leads marked as archived, with their linked follow-ups.');
   body.innerHTML = `
     <div class="arch-card">
       <div class="arch-card-head">
@@ -392,6 +437,10 @@ function _archRenderCard() {
             <option value="">All owners</option>
             ${owners.map(o => `<option value="${escapeHtml(o.id)}"${o.id === t.owner ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
           </select>
+          ${tab === 'suggestions' ? `<select class="arch-select" onchange="_archSetStatus(this.value)" title="Filter by lead status">
+            <option value="">All statuses</option>
+            ${statuses.map(s => `<option value="${escapeHtml(s)}"${s === t.status ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+          </select>` : ''}
         </div>
       </div>
       <div id="arch-live"></div>
@@ -423,6 +472,8 @@ function _archLiveHTML() {
       <span class="arch-bulkbar-text">${selCount} selected</span>
       ${tab === 'suggestions'
         ? `<button class="arch-btn" onclick="_archSugBulkArchive()">${icon('archive', 14)} Archive selected</button>`
+        : tab === 'lost'
+          ? `<button class="arch-btn" onclick="_archLostBulkArchive()">${icon('archive', 14)} Archive selected</button>`
         : `<button class="arch-btn" onclick="_archBulkRestore()">${icon('rotate-ccw', 14)} Restore selected</button>`}
       <button class="arch-btn" onclick="_archClearSel()">${icon('x', 14)} Clear</button>
     </div>` : '';
@@ -432,9 +483,17 @@ function _archLiveHTML() {
   const head = tab === 'suggestions'
     ? `<th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPage ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all on this page"></th>
        <th>Lead</th><th>Owner</th>
-       ${_archTh('total', 'Not Picked')}
+       ${_archTh('total', 'Status / Not Picked')}
        ${_archTh('streak', 'Longest run')}
        ${_archTh('last', 'Last attempt')}
+       <th style="width:1%"></th>`
+    : tab === 'lost'
+      ? `<th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPage ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all on this page"></th>
+       <th>Lead</th><th>Owner</th><th>Stage</th>
+       ${_archTh('pending', 'Pending')}
+       ${_archTh('notpicked', 'Not Picked')}
+       ${_archTh('fu', 'Follow-ups')}
+       ${_archTh('updated', 'Updated')}
        <th style="width:1%"></th>`
     : `<th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPage ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all on this page"></th>
        <th>Lead</th><th>Owner</th>
@@ -448,7 +507,7 @@ function _archLiveHTML() {
     <div class="arch-table-wrap">
       <table class="arch-table">
         <thead><tr>${head}</tr></thead>
-        <tbody>${paged.map(tab === 'suggestions' ? _archSugRowHTML : _archArchivedRowHTML).join('')}</tbody>
+        <tbody>${paged.map(tab === 'suggestions' ? _archSugRowHTML : (tab === 'lost' ? _archLostRowHTML : _archArchivedRowHTML)).join('')}</tbody>
       </table>
     </div>
     ${_archPagHTML(total, start, paged.length, pageCount)}`;
@@ -465,6 +524,7 @@ function _archSugRowHTML(row) {
   const crit = streak >= 8;
   const checked = t.selected.has(leadId);
   const initial = String(owner).trim().charAt(0).toUpperCase() || '?';
+  const status = _archLeadStatus(row);
   return `<tr>
     <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)"></td>
     <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
@@ -472,10 +532,36 @@ function _archSugRowHTML(row) {
       <div class="arch-lead-sub">${escapeHtml(place)}</div>
     </td>
     <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
-    <td><span class="arch-badge arch-badge--${crit ? 'crit' : 'warn'}">${icon('phone-missed', 12)} ${escapeHtml(totalNp)} not picked</span></td>
+    <td><span class="arch-badge arch-badge--${status.toLowerCase() === 'lost' ? 'crit' : (crit ? 'crit' : 'warn')}">${status.toLowerCase() === 'lost' ? icon('circle-x', 12) + ' ' + escapeHtml(status) : icon('phone-missed', 12) + ' ' + escapeHtml(totalNp) + ' not picked'}</span></td>
     <td>${streak > 1 ? escapeHtml(streak) + ' in a row' : '<span style="color:#94a3b8">—</span>'}</td>
     <td>${escapeHtml(_archFmtDate(row._lastNotPickedDate))}</td>
     <td style="text-align:right"><button class="arch-row-btn danger" onclick="_archiveSuggestionLead('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button></td>
+  </tr>`;
+}
+
+function _archLostRowHTML(row) {
+  const t = _archTabs.lost;
+  const leadId = String(row['Lead ID'] || '');
+  const owner = _archOwnerName(row['Assigned To']);
+  const title = row['Company Name'] || row['Client Description'] || leadId || '-';
+  const place = [row['City'], row['State']].filter(Boolean).join(', ') || leadId;
+  const pending = Number(row._pendingDays || 0);
+  const checked = t.selected.has(leadId);
+  const initial = String(owner).trim().charAt(0).toUpperCase() || '?';
+  const stage = row._stageName || AppLookup.stageName(row['Stage ID']) || row['Lead Status'] || 'Lost';
+  return `<tr>
+    <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)"></td>
+    <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
+      <div class="arch-lead-title">${escapeHtml(title)}</div>
+      <div class="arch-lead-sub">${escapeHtml(place)}</div>
+    </td>
+    <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
+    <td><span class="arch-badge arch-badge--slim arch-badge--crit">${escapeHtml(stage)}</span></td>
+    <td><span class="arch-badge arch-badge--slim arch-badge--warn">${escapeHtml(pending)} days</span></td>
+    <td><span class="arch-badge arch-badge--slim arch-badge--crit">${escapeHtml(row._notPickedCount || 0)}</span></td>
+    <td>${escapeHtml(row._followupCount || 0)}</td>
+    <td>${escapeHtml(_archFmtDate(row['Updated At'] || row['Stage Updated At'] || row['Created At']))}</td>
+    <td style="text-align:right"><button class="arch-row-btn danger" onclick="_archiveLostLead('${escapeHtml(leadId)}')">${icon('archive', 13)} Archive</button></td>
   </tr>`;
 }
 
@@ -510,6 +596,13 @@ function _archArchivedRowHTML(row) {
 
 function _archEmptyHTML(tab, totalAll) {
   if (totalAll === 0) {
+    if (tab === 'lost') {
+      return `<div class="arch-empty">
+        <div class="arch-empty-ic" style="background:#ecfdf5;color:#059669">${icon('check-circle', 30)}</div>
+        <div class="arch-empty-title">No lost leads to archive</div>
+        <div class="arch-empty-text">Lost leads that are not archived yet will appear here.</div>
+      </div>`;
+    }
     return tab === 'suggestions'
       ? `<div class="arch-empty">
           <div class="arch-empty-ic">${icon('party-popper', 30)}</div>
@@ -566,6 +659,7 @@ function _archSetSearch(v) {
   _archSearchTimer = setTimeout(_archRenderLive, 200);
 }
 function _archSetOwner(v) { const t = _archTabs[_archiveTab]; t.owner = v; t.page = 1; _archRenderLive(); }
+function _archSetStatus(v) { const t = _archTabs.suggestions; t.status = v; t.page = 1; _archRenderLive(); }
 function _archSugSetSeverity(k) {
   const t = _archTabs.suggestions;
   t.severity = (k === 'all') ? 'all' : (t.severity === k ? 'all' : k);
@@ -587,6 +681,7 @@ function _archToggleAll(checked) {
 function _archClearSel() { _archTabs[_archiveTab].selected.clear(); _archRenderLive(); }
 window._archSetSearch = _archSetSearch;
 window._archSetOwner = _archSetOwner;
+window._archSetStatus = _archSetStatus;
 window._archSugSetSeverity = _archSugSetSeverity;
 window._archSetSort = _archSetSort;
 window._archSetPage = _archSetPage;
@@ -599,15 +694,17 @@ window._archClearSel = _archClearSel;
 function _archApplyArchived(doneIds, reason) {
   const set = new Set((doneIds || []).map(String));
   if (!set.size) return;
-  const t = _archTabs.suggestions;
+  const sourceRows = []
+    .concat(_archTabs.suggestions.rows || [])
+    .concat(_archTabs.lost.rows || [])
+    .concat(AppCache.getRows('leads') || []);
   // Build the archived-tab rows BEFORE touching the caches (we need the lead data).
   // Keeping the tab's rows warm means switching to Archived right after archiving is
   // instant — no refetch. A later force refresh still reconciles the approximations.
   if (_archTabs.archived.rows) {
     const ts = _nowStr();
     const newRows = Array.from(set).map(id => {
-      const src = (t.rows || []).find(r => String(r['Lead ID']) === id)
-        || (AppCache.getRows('leads') || []).find(r => String(r['Lead ID']) === id);
+      const src = sourceRows.find(r => String(r['Lead ID']) === id);
       if (!src) return null;
       const fuCount = (AppCache.getRows('followups') || []).filter(f => String(f['Lead ID']) === id).length;
       return Object.assign({}, src, {
@@ -624,9 +721,12 @@ function _archApplyArchived(doneIds, reason) {
     }).filter(Boolean);
     _archTabs.archived.rows = [...newRows, ..._archTabs.archived.rows];
   }
-  if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
-  set.forEach(id => t.selected.delete(id));
-  if (el('archive-page') && _archiveTab === 'suggestions') { _archRenderKpis(); _archRenderLive(); }
+  ['suggestions', 'lost'].forEach(tab => {
+    const t = _archTabs[tab];
+    if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
+    set.forEach(id => t.selected.delete(id));
+  });
+  if (el('archive-page') && (_archiveTab === 'suggestions' || _archiveTab === 'lost')) { _archRenderKpis(); _archRenderLive(); }
   // In-place: drop the archived leads + their follow-ups from the cache and acknowledge
   // our own write, so the revalidation poll doesn't refetch + repaint the whole portal.
   Array.from(set).forEach(id => {
@@ -644,6 +744,7 @@ function _archApplyRestored(doneIds) {
   if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
   set.forEach(id => t.selected.delete(id));
   _archTabs.suggestions.rows = null; // a restored lead may qualify again
+  _archTabs.lost.rows = null;        // a restored lead may still sit in a Lost stage
   if (el('archive-page') && _archiveTab === 'archived') { _archRenderKpis(); _archRenderLive(); }
   // A restore brings back rows the client can't reconstruct (the lead row + whichever
   // follow-ups reopened) — refresh both collections now, in place (no skeleton), rather
@@ -683,6 +784,26 @@ async function _archiveSuggestionLead(leadId) {
   _archApplyArchived([leadId], reason);
 }
 window._archiveSuggestionLead = _archiveSuggestionLead;
+
+async function _archiveLostLead(leadId) {
+  const result = await Swal.fire({
+    title: 'Archive this lost lead?',
+    text: 'It will move to Archived and out of active work.',
+    icon: 'question',
+    input: 'text',
+    inputPlaceholder: 'Reason (optional)',
+    showCancelButton: true,
+    confirmButtonText: 'Archive'
+  });
+  if (!result.isConfirmed) return;
+  const reason = (result.value || '').trim() || 'Lost lead archived from Archive tab';
+  try {
+    await api.archiveLead({ leadId, reason });
+  } catch (e) { toast(e && e.message || e, 'error'); return; }
+  toast('Lost lead archived.');
+  _archApplyArchived([leadId], reason);
+}
+window._archiveLostLead = _archiveLostLead;
 
 async function _restoreArchivedLead(leadId) {
   const result = await Swal.fire({
@@ -726,6 +847,31 @@ async function _archSugBulkArchive() {
   });
 }
 window._archSugBulkArchive = _archSugBulkArchive;
+
+async function _archLostBulkArchive() {
+  const ids = Array.from(_archTabs.lost.selected);
+  if (!ids.length) return;
+  const result = await Swal.fire({
+    title: `Archive ${ids.length} lost lead${ids.length > 1 ? 's' : ''}?`,
+    text: 'They will move to Archived and out of active work.',
+    icon: 'question',
+    input: 'text',
+    inputPlaceholder: 'Reason (optional)',
+    showCancelButton: true,
+    confirmButtonText: 'Archive'
+  });
+  if (!result.isConfirmed) return;
+  const reason = (result.value || '').trim() || 'Lost leads archived from Archive tab';
+  _archBulkRun(ids, {
+    verb: 'Archiving lost leads', doneVerb: 'archived', chunk: 15,
+    exec: async (chunk) => {
+      const res = await api.archiveLeads({ leadIds: chunk, reason });
+      return { done: (res && res.archived) || [], failed: (res && res.failed || []).length };
+    },
+    after: (doneIds) => _archApplyArchived(doneIds, reason)
+  });
+}
+window._archLostBulkArchive = _archLostBulkArchive;
 
 async function _archBulkRestore() {
   const ids = Array.from(_archTabs.archived.selected);

@@ -84,6 +84,8 @@ function saveFollowup(data, email) {
     preparedLeadForStage = _prepareLeadPayload(payload, payload['Updated Stage ID'], lead, skipped);
   }
   const plannedDate = _plannedDate(payload) || today();
+  const plannedCheck = _validateNextPlannedDateLimit_(plannedDate);
+  if (!plannedCheck.ok) return respond(null, plannedCheck.message);
   const row = {
     ...payload,
     'Follow-up ID': id,
@@ -182,6 +184,10 @@ function markFollowupDone(followupId, data, email) {
   const finalStageAfterSave = Boolean(lead && _leadStageIsFinal_(stage || currentStage));
   if (!finalStageAfterSave && !nextDate) {
     return respond(null, 'Next planned date is required until the lead reaches a final stage.');
+  }
+  if (nextDate) {
+    const nextCheck = _validateNextPlannedDateLimit_(nextDate);
+    if (!nextCheck.ok) return respond(null, nextCheck.message);
   }
 
   const statusAfter = nextDate ? 'Open' : 'Closed';
@@ -417,6 +423,19 @@ function _nextMondayDateString_() {
   if (daysUntilMonday === 0) daysUntilMonday = 7;
   date.setDate(date.getDate() + daysUntilMonday);
   return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function _validateNextPlannedDateLimit_(dateStr) {
+  if (!dateStr) return { ok: true };
+  const value = String(dateStr || '').slice(0, 10);
+  const target = new Date(value + 'T00:00:00');
+  if (isNaN(target.getTime())) return { ok: false, message: 'Next planned date is invalid.' };
+  const base = new Date(today() + 'T00:00:00');
+  const max = new Date(base);
+  max.setDate(max.getDate() + 15);
+  if (target < base) return { ok: false, message: 'Next planned date cannot be in the past.' };
+  if (target > max) return { ok: false, message: 'Next planned date must be within the next 15 days.' };
+  return { ok: true };
 }
 
 function _followupRows(withCustomFields) {
