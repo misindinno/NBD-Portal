@@ -28,6 +28,10 @@ for (const name of fs.readdirSync(srcDir).filter(name => name.endsWith('.html'))
   for (const match of scripts) {
     index += 1;
     const source = match[1].replace(/<\?(?:!=|=)?[\s\S]*?\?>/g, 'null');
+    const mimeWildcard = source.match(/\b[a-z][a-z0-9.+-]*\/\*/i);
+    if (mimeWildcard) {
+      failures.push(`${file}#script-${index}: Apps Script HtmlService can truncate inline scripts containing MIME wildcard ${mimeWildcard[0]}; use explicit MIME types.`);
+    }
     checkJavaScript(file, source, `${file}#script-${index}`);
   }
 }

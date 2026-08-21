@@ -136,7 +136,7 @@ function openFieldForm(data = {}) {
         <input class="form-control" name="Validation Message" value="${escapeHtml(data['Validation Message'] || '')}" placeholder="Shown when validation fails"></div>
       <div class="form-row field-option-file">
         <div class="form-group"><label>Allowed File Types</label>
-          <input class="form-control" name="File Types" value="${escapeHtml(data['File Types'] || '')}" placeholder="application/pdf,image/*"></div>
+          <input class="form-control" name="File Types" value="${escapeHtml(data['File Types'] || '')}" placeholder="application/pdf,image/png,image/jpeg"></div>
         <div class="form-group"><label>Max File MB</label>
           <input class="form-control" name="Max File MB" type="number" value="${escapeHtml(data['Max File MB'] || 10)}"></div>
       </div>

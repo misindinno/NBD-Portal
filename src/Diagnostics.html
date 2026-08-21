@@ -13,7 +13,7 @@
     stringLength: 800,
     reportLength: 60000,
     slowRpcMs: 8000,
-    watchdogMs: 25000
+    watchdogMs: 30000
   });
   const SENSITIVE_KEY = /(?:token|password|passwd|authorization|credential|secret|cookie|session|id[_-]?token)/i;
   const PII_KEY = /(?:e-?mail|phone|mobile|whatsapp|address|contact.?name|first.?name|last.?name|full.?name)/i;
@@ -24,6 +24,8 @@
   let sequence = 0;
   let ready = false;
   let watchdogTimer = null;
+  let watchdogCheckpoint = 'diagnostics.loaded';
+  let watchdogArmedAt = startedAt;
   let recoveryReason = '';
 
   global.__PORTAL_READY = false;
@@ -203,11 +205,17 @@
     ready = true;
     global.__PORTAL_READY = true;
     if (watchdogTimer) global.clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+    if (recoveryReason) {
+      record('startup.recovered', { previousReason: recoveryReason });
+      recoveryReason = '';
+    }
     phase('portal.ready', 'complete', details || {});
   }
 
   function failStartup(reason, error) {
     if (watchdogTimer) global.clearTimeout(watchdogTimer);
+    watchdogTimer = null;
     phase('portal.ready', 'failure', { reason: reason || '', error: error || null });
     showRecoveryPanel(reason || 'Portal startup failed.', error);
   }
@@ -339,6 +347,12 @@
       generatedAt: nowIso(),
       uptimeMs: elapsedMs(),
       recoveryReason,
+      startupWatchdog: {
+        checkpoint: watchdogCheckpoint,
+        armedAt: new Date(watchdogArmedAt).toISOString(),
+        budgetMs: LIMITS.watchdogMs,
+        active: !ready && Boolean(watchdogTimer)
+      },
       environment: environmentSnapshot(),
       globals: {
         googleScriptRun: gasBridgeAvailable(),
@@ -538,15 +552,23 @@
     else global.addEventListener('DOMContentLoaded', render, { once: true });
   }
 
-  function startWatchdog() {
+  function startWatchdog(checkpoint) {
+    if (ready || global.__PORTAL_READY) return;
     if (watchdogTimer) global.clearTimeout(watchdogTimer);
+    watchdogCheckpoint = redactString(checkpoint || watchdogCheckpoint || 'startup');
+    watchdogArmedAt = Date.now();
     watchdogTimer = global.setTimeout(function () {
       if (ready || global.__PORTAL_READY) return;
       const pending = rpcs.filter(rpc => rpc.state === 'pending').map(rpc => rpc.operation);
       const reason = pending.length
         ? 'Startup is waiting for: ' + pending.join(', ')
-        : (global.__PORTAL_BOOT_ERRORS[0] || 'The application did not finish starting within 25 seconds.');
-      phase('startup.watchdog', 'failure', { pendingRpc: pending });
+        : (global.__PORTAL_BOOT_ERRORS[0] || 'The application did not finish the ' + watchdogCheckpoint + ' phase within ' + Math.round(LIMITS.watchdogMs / 1000) + ' seconds.');
+      watchdogTimer = null;
+      phase('startup.watchdog', 'failure', {
+        checkpoint: watchdogCheckpoint,
+        pendingRpc: pending,
+        elapsedSinceCheckpointMs: Math.max(0, Date.now() - watchdogArmedAt)
+      });
       showRecoveryPanel(reason);
     }, LIMITS.watchdogMs);
   }
@@ -556,6 +578,7 @@
     limits: LIMITS,
     record,
     phase,
+    resetStartupWatchdog: startWatchdog,
     markReady,
     failStartup,
     rpcStart,
@@ -600,6 +623,6 @@
   });
 
   phase('diagnostics.loaded', 'complete', { readyState: global.document.readyState });
-  startWatchdog();
+  startWatchdog('diagnostics.loaded');
 })(window);
 </script>

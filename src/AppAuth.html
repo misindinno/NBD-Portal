@@ -93,7 +93,10 @@ async function _continueAppInit(token) {
     ? requestedPage
     : (requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser());
 
-  if (diagnostics) diagnostics.phase('startup.initial-page', 'start', { page: defaultPage });
+  if (diagnostics) {
+    diagnostics.phase('startup.initial-page', 'start', { page: defaultPage });
+    diagnostics.resetStartupWatchdog('startup.initial-page');
+  }
   await navigate(defaultPage);
   if (diagnostics) {
     diagnostics.phase('startup.initial-page', 'complete', { page: defaultPage });
