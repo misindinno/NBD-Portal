@@ -309,6 +309,12 @@ test('post-load icon rendering is idempotent and Follow-up tab icons stay at 14p
   assert.match(css, /\.fu-page \.fu-tab > svg\s*\{[^}]*width:\s*14px !important;[^}]*height:\s*14px !important;/s);
 });
 
+test('existing lead edit forms expose backend-required custom fields', () => {
+  const sharedForm = fs.readFileSync(path.join(ROOT, 'src', 'LeadFormShared.html'), 'utf8');
+  assert.match(sharedForm, /\$\{buildLeadCustomFieldsHTML\(d, customFields, configOptions\)\}/);
+  assert.doesNotMatch(sharedForm, /leadId\s*\?\s*['"]{2}\s*:\s*buildLeadCustomFieldsHTML/);
+});
+
 test('primary worklists fetch complete collections once and process them client-side', () => {
   const read = file => fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
   const leads = read('Leads.html');
