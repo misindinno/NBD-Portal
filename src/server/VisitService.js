@@ -136,7 +136,7 @@ function deleteVisit(visitId, email) {
 }
 
 function _visitActor_(email) {
-  const actorEmail = String(email || TRUSTED_WRITE_EMAIL || '').trim().toLowerCase();
+  const actorEmail = String(TRUSTED_WRITE_EMAIL || '').trim().toLowerCase();
   if (!actorEmail) throw new Error('Direct write calls are disabled.');
   const result = getCurrentUserByEmail_(actorEmail);
   if (!result.success) throw new Error(result.error);

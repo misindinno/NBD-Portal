@@ -4,32 +4,21 @@
   let _leadStatusTab = 'all';
   let _leadFiltersOpen = false;
   let _leadDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_leadDensity')) || 'compact';
-  let _leadSelected = new Set();   // Lead IDs checked for bulk actions (archive)
+  let _leadSelected = new Set();
+  let _leadPageResult = { items: [], page: 1, pageSize: 25, total: 0, totalPages: 1, summary: {}, facets: {} };
+  let _leadLoadSeq = 0;
+  let _leadFilterTimer = null;
 
   async function loadLeads(force = false) {
     el('page-title').textContent = 'Leads';
-    _leadSelected.clear();
-    if (force) {
-      setContentLoading('fu');
-      const rows = await api.getLeads();
-      AppCache.setRows('leads', rows);
-    } else if (!AppCache.isLoaded('leads')) {
-      setContentLoading('fu');
-      await _ensureCached('leads', () => api.getLeads());
-    }
-    // Load followup history in background to drive Connection / Conversion rate cards
-    if (!AppCache.isLoaded('followupHistory')) {
-      _ensureCached('followupHistory', () => api.getFollowupHistory({}))
-        .then(() => { if (App.currentPage === 'leads') _renderLeadKpis(AppCache.getRows('leads')); })
-        .catch(() => {});
-    }
-    _renderLeadsTable(AppCache.getRows('leads'));
+    if (!force) _leadSelected.clear();
+    if (!leadTable || !el('leads-page')) setContentLoading('fu');
+    await _leadFetchPage({ rebuild: !leadTable || !el('leads-page') });
   }
 
   function _leadKpiClick(key) {
     _leadKpiFilter = (_leadKpiFilter === key) ? '' : key;
     applyLeadFilters();
-    _renderLeadKpis(AppCache.getRows('leads'));
   }
   window._leadKpiClick = _leadKpiClick;
 
@@ -71,7 +60,6 @@
     const tabsEl = el('lead-status-tabs');
     if (tabsEl) { tabsEl.innerHTML = _leadStatusTabsHTML(); renderIcons(tabsEl); }
     applyLeadFilters();
-    _renderLeadKpis(AppCache.getRows('leads'));
   }
   window._leadClearFilters = _leadClearFilters;
 
@@ -118,23 +106,15 @@
   function _renderLeadKpis(leads) {
     const wrap = el('lead-kpis');
     if (!wrap) return;
-    const c = _leadKpiCounts(leads);
-    const leadIds = new Set((leads || []).map(l => l['Lead ID']).filter(Boolean));
-    const allHist = AppCache.getRows('followupHistory') || [];
-    const scopedHist = leadIds.size ? allHist.filter(h => leadIds.has(h['Lead ID'])) : allHist;
-    const rates = (typeof computeCallRates === 'function')
-      ? computeCallRates(scopedHist)
-      : { connectionRate: 0, conversionRate: 0, connects: 0, conversions: 0 };
+    const c = (_leadPageResult && _leadPageResult.summary) || _leadKpiCounts(leads || []);
     const cards = [
-      { key: '',     label: 'Total Leads', value: c.total,  sub: 'all leads',     icon: 'users',          cls: 'neutral' },
-      { key: 'open', label: 'Open',        value: c.open,   sub: 'in progress',   icon: 'circle-dot',     cls: 'blue' },
-      { key: 'hot',  label: 'Hot',         value: c.hot,    sub: 'high priority', icon: 'flame',          cls: 'danger' },
-      { key: 'warm', label: 'Warm',        value: c.warm,   sub: 'mid priority',  icon: 'thermometer',    cls: 'warning' },
-      { key: 'cold', label: 'Cold',        value: c.cold,   sub: 'low priority',  icon: 'snowflake',      cls: 'blue' },
-      { key: 'closed', label: 'Closed',    value: c.closed, sub: 'final stage',   icon: 'check-circle-2', cls: 'success' },
-      { key: 'nbd',  label: 'NBD Pushed',  value: c.nbd,    sub: 'sent to NBD',   icon: 'send',           cls: 'purple' },
-      { key: '',     label: 'Connection Call Rate', value: `${rates.connectionRate}%`, sub: `${rates.connects} connects`, icon: 'activity',     cls: 'blue' },
-      { key: '',     label: 'Conversion Rate',      value: `${rates.conversionRate}%`, sub: `${rates.conversions} converted`, icon: 'trending-up', cls: 'success' }
+      { key: '',       label: 'Total Leads', value: c.total || 0,  sub: 'matching leads', icon: 'users',          cls: 'neutral' },
+      { key: 'open',   label: 'Open',        value: c.open || 0,   sub: 'in progress',    icon: 'circle-dot',     cls: 'blue' },
+      { key: 'hot',    label: 'Hot',         value: c.hot || 0,    sub: 'high priority',  icon: 'flame',          cls: 'danger' },
+      { key: 'warm',   label: 'Warm',        value: c.warm || 0,   sub: 'mid priority',   icon: 'thermometer',    cls: 'warning' },
+      { key: 'cold',   label: 'Cold',        value: c.cold || 0,   sub: 'low priority',   icon: 'snowflake',      cls: 'blue' },
+      { key: 'closed', label: 'Closed',      value: c.closed || 0, sub: 'final stage',    icon: 'check-circle-2', cls: 'success' },
+      { key: 'nbd',    label: 'NBD Pushed',  value: c.nbd || 0,    sub: 'sent to NBD',    icon: 'send',           cls: 'purple' }
     ];
     wrap.innerHTML = cards.map(k => `
       <button type="button" class="fu-kpi fu-kpi-${k.cls} ${_leadKpiFilter === k.key && k.key ? 'active' : ''}"
@@ -172,11 +152,9 @@
     const statusOpts = App.config.statuses.map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
     const priorityOpts = App.config.priorities.map(function (p) { return '<option>' + escapeHtml(p) + '</option>'; }).join('');
     const stageOpts = App.config.stages.map(function (s) { return '<option value="' + escapeHtml(s['Stage ID']) + '">' + escapeHtml(s['Stage Name']) + '</option>'; }).join('');
-    const _locRows = (typeof AppCache !== 'undefined' && AppCache.getRows) ? (AppCache.getRows('leads') || []) : [];
-    const _stateSet = {}, _citySet = {};
-    _locRows.forEach(function (l) { var s = String(l['State'] || '').trim(); if (s) _stateSet[s] = 1; var c = String(l['City'] || '').trim(); if (c) _citySet[c] = 1; });
-    const stateOpts = Object.keys(_stateSet).sort(function (a, b) { return a.localeCompare(b); }).map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
-    const cityOpts = Object.keys(_citySet).sort(function (a, b) { return a.localeCompare(b); }).map(function (c) { return '<option>' + escapeHtml(c) + '</option>'; }).join('');
+    const facets = (_leadPageResult && _leadPageResult.facets) || {};
+    const stateOpts = (facets.states || []).map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
+    const cityOpts = (facets.cities || []).map(function (c) { return '<option>' + escapeHtml(c) + '</option>'; }).join('');
 
     el('content').innerHTML = `
     <div class="fu-page td-page fu-density-${_leadDensity}" id="leads-page">
@@ -234,7 +212,7 @@
         <div class="fu-worklist-card fu-density-${_leadDensity}" id="leads-worklist">
           <div class="fu-worklist-head">
             <div class="fu-worklist-head-left">
-              <div class="fu-worklist-title">Leads <span class="fu-worklist-count" id="lead-row-count">${sorted.length}</span></div>
+              <div class="fu-worklist-title">Leads <span class="fu-worklist-count" id="lead-row-count">${_leadPageResult.total || 0}</span></div>
               <div id="lead-bulk-bar" class="lead-bulk-bar" style="display:none"></div>
             </div>
             <div class="fu-worklist-tools">
@@ -246,6 +224,7 @@
             </div>
           </div>
           <div id="lead-table"></div>
+          <div id="lead-pagination"></div>
         </div>
       </div>
     </div>`;
@@ -265,8 +244,7 @@
     leadTable = new Tabulator('#lead-table', {
       data: sorted,
       layout: 'fitColumns',
-      pagination: 'local',
-      paginationSize: 25,
+      columnDefaults: { headerSort: false },
       rowHeight: rowH,
       placeholder: '<div style="padding:48px;text-align:center;color:#9ca3af;font-size:13px">No leads found</div>',
       rowFormatter: function (row) {
@@ -398,6 +376,7 @@
               toast('Deleting...', 'info');
               await api.deleteLead(leadId);
               toast('Lead deleted!');
+              await loadLeads(true);
             } catch (err) {
               toast('Delete failed: ' + (err.message || err), 'error');
               _refreshLeadsCache().catch(() => {});
@@ -413,13 +392,11 @@
     });
 
     window.leadTable = leadTable;
-    leadTable.on('dataFiltered', function (filters, rows) {
-      const cnt = el('lead-row-count'); if (cnt) cnt.textContent = rows.length;
-    });
     const refreshIcons = () => { const t = el('lead-table'); if (t) renderIcons(t); };
     leadTable.on('renderComplete', refreshIcons);
     leadTable.on('pageLoaded', refreshIcons);
     leadTable.on('dataSorted', refreshIcons);
+    _leadRenderPagination();
   }
 
   async function _archiveLeadFromTable(leadId, row) {
@@ -444,6 +421,7 @@
     try {
       await api.archiveLead({ leadId, reason });
       if (typeof _ackOwnArchive === 'function') _ackOwnArchive([leadId], reason);
+      await loadLeads(true);
     } catch (err) {
       toast('Archive failed: ' + (err.message || err), 'error');
       AppCache.invalidate('followups');
@@ -509,11 +487,7 @@
       if (typeof _ackOwnArchive === 'function') _ackOwnArchive(archived, reason);
       _leadSelected.clear();
       _leadUpdateBulkBar();
-      if (window.leadTable) {
-        leadTable.replaceData(AppCache.getRows('leads'));
-        if (typeof applyLeadFilters === 'function') applyLeadFilters();
-      }
-      if (typeof _renderLeadKpis === 'function') _renderLeadKpis(AppCache.getRows('leads'));
+      await loadLeads(true);
       if (typeof renderSidebar === 'function') renderSidebar();
       if (failed.length) toast('Archived ' + archived.length + ', ' + failed.length + ' failed', 'error');
       else toast('Archived ' + archived.length + ' lead' + (archived.length > 1 ? 's' : ''));
@@ -566,16 +540,88 @@
   }
   window._leadFilterPredicate = _leadFilterPredicate;
 
-  function applyLeadFilters() {
-    const pred = _leadFilterPredicate();
-    if (leadTable) {
-      if (pred.hasAny) leadTable.setFilter(pred.test);
-      else leadTable.clearFilter();
+  function _leadPageQuery(page) {
+    return {
+      page: page || (_leadPageResult.page || 1),
+      pageSize: _leadPageResult.pageSize || 25,
+      sortField: '_sortKey',
+      sortDir: 'asc',
+      search: String(el('lead-search')?.value || '').trim(),
+      filters: {
+        status: el('lead-status-f')?.value || '',
+        priority: el('lead-priority-f')?.value || '',
+        stage: el('lead-stage-f')?.value || '',
+        state: el('lead-state-f')?.value || '',
+        city: el('lead-city-f')?.value || '',
+        statusTab: _leadStatusTab,
+        kpi: _leadKpiFilter
+      }
+    };
+  }
+
+  async function _leadFetchPage(options = {}) {
+    const seq = ++_leadLoadSeq;
+    const result = await api.getLeadsPage(_leadPageQuery(options.page));
+    if (seq !== _leadLoadSeq || App.currentPage !== 'leads') return;
+    _leadPageResult = result || { items: [], page: 1, pageSize: 25, total: 0, totalPages: 1, summary: {}, facets: {} };
+    if (options.rebuild || !leadTable || !el('lead-table')) {
+      _renderLeadsTable(_leadPageResult.items || []);
+      return;
     }
-    // Recompute upper KPI cards from the filtered lead set
-    const allLeads = AppCache.getRows('leads') || [];
-    const visible = pred.hasAny ? allLeads.filter(pred.test) : allLeads;
-    _renderLeadKpis(visible);
+    await leadTable.replaceData(_leadPageResult.items || []);
+    const count = el('lead-row-count');
+    if (count) count.textContent = _leadPageResult.total || 0;
+    _renderLeadKpis(_leadPageResult.items || []);
+    _leadRenderPagination();
+    renderIcons(el('lead-table'));
+  }
+
+  function _leadRenderPagination() {
+    const node = el('lead-pagination');
+    if (!node) return;
+    const meta = _leadPageResult || {};
+    const total = Number(meta.total || 0);
+    const page = Number(meta.page || 1);
+    const pageCount = Math.max(1, Number(meta.totalPages || 1));
+    const start = total ? (page - 1) * Number(meta.pageSize || 25) : 0;
+    const count = (meta.items || []).length;
+    const pages = [];
+    for (let p = 1; p <= pageCount; p++) {
+      if (pageCount <= 7 || p === 1 || p === pageCount || Math.abs(p - page) <= 1) pages.push(p);
+      else if (pages[pages.length - 1] !== '...') pages.push('...');
+    }
+    node.innerHTML = `<div class="fu-pagination">
+      <div class="muted-text">Showing ${total ? start + 1 : 0}-${start + count} of ${total}</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label class="fu-page-size">Rows
+          <select onchange="_leadSetPageSize(this.value)">
+            ${[10,25,50,100].map(n => `<option value="${n}"${n === Number(meta.pageSize || 25) ? ' selected' : ''}>${n}</option>`).join('')}
+          </select>
+        </label>
+        <div class="fu-page-buttons">
+          <button class="fu-page-btn" ${page <= 1 ? 'disabled' : ''} onclick="_leadSetPage(${page - 1})">${icon('chevron-left', 14)}</button>
+          ${pages.map(p => p === '...' ? '<span class="fu-page-ellipsis">...</span>' : `<button class="fu-page-btn ${p === page ? 'active' : ''}" onclick="_leadSetPage(${p})">${p}</button>`).join('')}
+          <button class="fu-page-btn" ${page >= pageCount ? 'disabled' : ''} onclick="_leadSetPage(${page + 1})">${icon('chevron-right', 14)}</button>
+        </div>
+      </div>
+    </div>`;
+    renderIcons(node);
+  }
+
+  function _leadSetPage(page) {
+    _leadFetchPage({ page: Math.max(1, Number(page) || 1) }).catch(err => toast(err.message || err, 'error'));
+  }
+
+  function _leadSetPageSize(size) {
+    _leadPageResult.pageSize = Math.max(10, Number(size) || 25);
+    _leadFetchPage({ page: 1 }).catch(err => toast(err.message || err, 'error'));
+  }
+
+  function applyLeadFilters() {
+    if (_leadFilterTimer) clearTimeout(_leadFilterTimer);
+    _leadFilterTimer = setTimeout(() => {
+      _leadFetchPage({ page: 1 }).catch(err => toast(err.message || err, 'error'));
+    }, 180);
   }
   window.applyLeadFilters = applyLeadFilters;
 
@@ -633,6 +679,7 @@
             _refreshLeadViewsAfterLocalChange();
           }
           toast('Lead saved!');
+          await loadLeads(true);
         } catch (err) {
           if (!isUpdate) AppCache.removeRow('leads', 'Lead ID', tempId);
           _refreshLeadsCache().catch(() => {});

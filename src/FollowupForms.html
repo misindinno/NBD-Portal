@@ -3,6 +3,12 @@ function _canAddFollowup() {
   return String(App?.user?.role || '').toUpperCase() === 'ADMIN';
 }
 
+function _followupMaxDateValue_() {
+  const maxDate = new Date();
+  maxDate.setDate(maxDate.getDate() + 15);
+  return localDateInputValue(maxDate);
+}
+
 function _addFollowupButtonHTML(leadId = '', leadName = '', size = 'sm') {
   if (!_canAddFollowup()) return '';
   const leadArg = escapeHtml(JSON.stringify(String(leadId || '')));
@@ -18,6 +24,8 @@ async function openFollowupForm(leadId = '', leadName = '') {
     return;
   }
   const cfg = App.config;
+  const todayStr = localDateInputValue();
+  const maxNextDate = _followupMaxDateValue_();
   const formData = await _getFollowupFormData();
   const leads = formData.leads || [];
   const selectedLead = leads.find(l => l['Lead ID'] === leadId);
@@ -35,7 +43,7 @@ async function openFollowupForm(leadId = '', leadName = '') {
       <div class="form-row">
         <div class="form-group">
           <label>Planned Date *</label>
-          <input class="form-control" name="Planned Date" type="date" value="${localDateInputValue()}" required>
+          <input class="form-control" name="Planned Date" type="date" value="${todayStr}" min="${todayStr}" max="${maxNextDate}" required>
         </div>
         <div class="form-group">
           <label>Type *</label>

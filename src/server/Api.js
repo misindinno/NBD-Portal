@@ -6,22 +6,47 @@
 // call is a fresh, isolated GAS execution — no cross-request leakage.
 let _currentApiToken_ = '';
 
-function apiGuard_(fn) {
-  return withServerContext_(() => {
+function apiGuard_(operation, fn) {
+  const caller = String(operation || 'api');
+  return withRequestContext_(caller, () => withServerContext_(() => {
     try {
       return fn();
     } catch (e) {
-      return respond(null, e.message);
+      logServerError_(e, { api: caller });
+      const safeError = typeof safeClientErrorMessage_ === 'function'
+        ? safeClientErrorMessage_(e)
+        : 'Request failed.';
+      return respond(null, safeError, errorCodeFrom_(e));
     }
+  }));
+}
+
+// Public liveness check. Its payload contains no deployment, datastore, user,
+// or integration identifiers; only the standard envelope carries a request ID.
+function apiDiagnosticPing() {
+  return apiGuard_('apiDiagnosticPing', () => respond(publicDiagnosticPing_()));
+}
+
+// Detailed checks require a valid portal session and the explicit ADMIN role.
+function apiGetDiagnosticSnapshot(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetDiagnosticSnapshot', () => {
+    const user = requireDiagnosticAdmin_(_apiUser());
+    return respond(adminDiagnosticSnapshot_(user));
   });
 }
 
 // ── Custom login / session auth ───────────────────────────────────────────────
 function apiLogin(email, password) {
-  return apiGuard_(() => {
+  return apiGuard_('apiLogin', () => {
     if (!email || !password) return respond(null, 'Email and password are required.');
+    assertLoginAllowed_(email);
     const userRow = validateUserPassword_(email, password);
-    if (!userRow) return respond(null, 'Invalid email or password.');
+    if (!userRow) {
+      recordLoginFailure_(email);
+      return respond(null, 'Invalid email or password.');
+    }
+    clearLoginFailures_(email);
     const norm = String(email).trim().toLowerCase();
     const userResult = getCurrentUserByEmail_(norm);
     if (!userResult.success) return respond(null, userResult.error || 'Access denied.');
@@ -31,7 +56,7 @@ function apiLogin(email, password) {
 }
 
 function apiBootstrapWithToken(token) {
-  return apiGuard_(() => {
+  return apiGuard_('apiBootstrapWithToken', () => {
     const session = readAuthSession_(token);
     if (!session) return respond(null, 'SESSION_EXPIRED');
     const userResult = getCurrentUserByEmail_(session.email);
@@ -44,18 +69,17 @@ function apiBootstrapWithToken(token) {
 }
 
 function apiLogout(token) {
-  return apiGuard_(() => {
+  return apiGuard_('apiLogout', () => {
     destroyAuthSession_(token);
     return respond(true);
   });
 }
 
-// One-shot bootstrap: returns the entire working set (user + config + leads + follow-ups)
-// in a single round-trip so the client can hydrate state and render every page without
-// further fetches. Reads run through the Sheets-API batch layer (SpreadsheetApp fallback).
+// Compact bootstrap: returns identity, configuration, navigation counts, and data stamps.
+// Worklists are fetched page-by-page after first paint, keeping startup payload bounded.
 function apiBootstrapData(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiBootstrapData', () => {
     const session = readAuthSession_(token);
     if (!session) return respond(null, 'SESSION_EXPIRED');
     const userResult = getCurrentUserByEmail_(session.email);
@@ -71,19 +95,16 @@ function apiBootstrapData(token) {
       try {
         config = getAppConfigFast_();
       } catch (e) {
-        Logger.log('[Bootstrap] config fallback: ' + e.message);
+        diagnosticLog_('WARN', 'DATA.READ_FALLBACK', 'bootstrap_config_fallback', {
+          errorCategory: diagnosticErrorCategory_(e)
+        });
         const c = getAppConfig();
         if (!c.success) return c;
         config = c.data;
       }
 
-      const leads = _scopeAssignedRows(_leadRows(), user);
-      // Follow-ups feed only the sidebar counts + Today view here, which use master
-      // fields only — skip the custom-field join + formula engine for speed.
-      const followups = _scopeFollowupRows(getFollowups({}, false), user)
-        .sort((a, b) => new Date(b['Created At']) - new Date(a['Created At']));
-
-      return respond({ user, config, leads, followups, stamps: _bootstrapStamps_() });
+      const navigationSummary = getNavigationSummary_(user);
+      return respond({ user, config, navigationSummary, stamps: _bootstrapStamps_() });
     } finally {
       _bootstrapReadMode_ = false;
     }
@@ -105,7 +126,7 @@ function _bootstrapStamps_() {
 }
 
 function apiLoginWithGoogle(idToken) {
-  return apiGuard_(() => {
+  return apiGuard_('apiLoginWithGoogle', () => {
     if (!idToken) return respond(null, 'Missing Google ID token.');
     const verified = _verifyGoogleIdToken_(idToken);
     if (!verified) return respond(null, 'Google token verification failed. Ensure GOOGLE_CLIENT_ID is set in Script Properties.');
@@ -119,7 +140,7 @@ function apiLoginWithGoogle(idToken) {
 
 // ── Legacy bootstrap (GAS Session — only works on "Execute as: User" deployment) ──
 function apiGetCurrentUser() {
-  return apiGuard_(() => {
+  return apiGuard_('apiGetCurrentUser', () => {
     const email = Session.getActiveUser().getEmail();
     if (!email) return respond(null, 'Session email is empty.');
     const result = getCurrentUser('', false);
@@ -130,7 +151,7 @@ function apiGetCurrentUser() {
 
 // ── Permission probe (admin only) ─────────────────────────────────────────────
 function apiUpdatePermissions(token) {
-  return apiGuard_(() => {
+  return apiGuard_('apiUpdatePermissions', () => {
     _currentApiToken_ = token;
     requireAdmin();
     const results = [];
@@ -167,7 +188,7 @@ function apiUpdatePermissions(token) {
 
 function apiGetDataStamps(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetDataStamps', () => {
     _apiUser();
     const p = PropertiesService.getScriptProperties();
     return respond({
@@ -185,12 +206,14 @@ function apiGetDataStamps(token) {
 
 function apiGetAppConfig(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetAppConfig', () => {
     _apiUser();
     try {
       return respond(getAppConfigFast_());
     } catch (e) {
-      Logger.log('[Config] Sheets API app config fallback: ' + e.message);
+      diagnosticLog_('WARN', 'DATA.READ_FALLBACK', 'app_config_fallback', {
+        errorCategory: diagnosticErrorCategory_(e)
+      });
       return getAppConfig();
     }
   });
@@ -198,12 +221,14 @@ function apiGetAppConfig(token) {
 
 function apiGetAllStages(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetAllStages', () => {
     _requireConfigReader();
     try {
       return respond(getAllStagesFast_());
     } catch (e) {
-      Logger.log('[Config] Sheets API stages fallback: ' + e.message);
+      diagnosticLog_('WARN', 'DATA.READ_FALLBACK', 'stages_fallback', {
+        errorCategory: diagnosticErrorCategory_(e)
+      });
       return respond(getAllStages());
     }
   });
@@ -211,12 +236,14 @@ function apiGetAllStages(token) {
 
 function apiGetAllConfigs(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetAllConfigs', () => {
     _requireConfigReader();
     try {
       return respond(getAllConfigsFast_());
     } catch (e) {
-      Logger.log('[Config] Sheets API configs fallback: ' + e.message);
+      diagnosticLog_('WARN', 'DATA.READ_FALLBACK', 'configs_fallback', {
+        errorCategory: diagnosticErrorCategory_(e)
+      });
       return respond(getAllRows(SHEET_NAMES.CONFIG));
     }
   });
@@ -224,12 +251,14 @@ function apiGetAllConfigs(token) {
 
 function apiGetAllFieldConfigs(token, sheet) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetAllFieldConfigs', () => {
     _requireConfigReader();
     try {
       return respond(getAllFieldConfigsFast_(sheet));
     } catch (e) {
-      Logger.log('[Config] Sheets API all field config fallback: ' + e.message);
+      diagnosticLog_('WARN', 'DATA.READ_FALLBACK', 'field_config_fallback', {
+        errorCategory: diagnosticErrorCategory_(e)
+      });
       return respond(getAllFieldConfigs(sheet));
     }
   });
@@ -238,15 +267,39 @@ function apiGetAllFieldConfigs(token, sheet) {
 // Leads
 function apiGetLeads(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetLeads', () => {
     const user = _requireModule('Leads');
     return respond(_scopeAssignedRows(_leadRows(), user));
   });
 }
 
+function apiGetLeadsPage(token, query) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetLeadsPage', () => {
+    const user = _requireModule('Leads');
+    return respond(getLeadsPage_(user, query || {}));
+  });
+}
+
+function apiGetNavigationSummary(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetNavigationSummary', () => respond(getNavigationSummary_(_apiUser())));
+}
+
+function apiGlobalSearch(token, query) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGlobalSearch', () => {
+    const user = _requireAnyModule(['Leads', 'Followups']);
+    const isAdmin = user.role === 'ADMIN';
+    return respond(getGlobalSearch_(user, query || '', {
+      leads: isAdmin || userHasModule(user, 'Leads') || userHasModule(user, 'Pipeline'),
+      followups: isAdmin || userHasModule(user, 'Followups')
+    }));
+  });
+}
 function apiUploadFile(token, filePayload, fieldKey) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiUploadFile', () => {
     _requireAnyModule(['Leads', 'LeadForm', 'Pipeline', 'BulkEntry', 'Visits']);
     if (!filePayload || !filePayload.data) return respond(null, 'No file data provided.');
     const field = fieldKey
@@ -274,7 +327,7 @@ function apiUploadFile(token, filePayload, fieldKey) {
 
 function apiCheckLeadDuplicates(token, phone, email, excludeLeadId, companyName) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiCheckLeadDuplicates', () => {
     _requireAnyModule(['Leads', 'LeadForm', 'BulkEntry']);
     return respond(checkLeadDuplicates(phone, email, excludeLeadId, companyName || ''));
   });
@@ -282,14 +335,16 @@ function apiCheckLeadDuplicates(token, phone, email, excludeLeadId, companyName)
 
 function apiSaveLead(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSaveLead', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'leads', 'saveLead');
     try {
       return withTrustedWriteUser_(user.email, () => saveLead(payload || {}, user.email));
     } catch (e) {
-      Logger.log('[apiSaveLead] ' + (e && e.stack ? e.stack : e));
-      throw new Error('Save lead failed: ' + (e.message || e));
+      diagnosticLog_('ERROR', diagnosticErrorCategory_(e), 'lead_save_failed', {
+        fingerprint: diagnosticErrorFingerprint_(e)
+      });
+      throw new Error('Save lead failed: ' + safeClientErrorMessage_(e));
     }
   });
 }
@@ -297,7 +352,7 @@ function apiSaveLead(token, payload) {
 // Stage Fields form — updates a lead's custom fields for a chosen stage (fields only).
 function apiSaveLeadStageFields(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSaveLeadStageFields', () => {
     const user = _requireAnyModule(['StageFields', 'Leads', 'LeadForm']);
     const data = payload || {};
     return withTrustedWriteUser_(user.email, () =>
@@ -307,7 +362,7 @@ function apiSaveLeadStageFields(token, payload) {
 
 function apiDeleteLead(token, leadId) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiDeleteLead', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'leads', 'deleteLead');
     return withTrustedWriteUser_(user.email, () => deleteLead(leadId || '', user.email));
@@ -316,15 +371,23 @@ function apiDeleteLead(token, leadId) {
 
 function apiGetArchiveData(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetArchiveData', () => {
     const user = _requireModule('Archive');
     return respond(getArchiveData(user));
   });
 }
 
+function apiGetArchivePage(token, query) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetArchivePage', () => {
+    const user = _requireModule('Archive');
+    return respond(getArchivePage_(user, query || {}));
+  });
+}
+
 function apiGetArchiveSuggestions(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetArchiveSuggestions', () => {
     const user = _requireModule('Archive');
     return respond(getArchiveSuggestionsFast_(user));
   });
@@ -332,7 +395,7 @@ function apiGetArchiveSuggestions(token) {
 
 function apiGetLostArchiveLeads(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetLostArchiveLeads', () => {
     const user = _requireModule('Archive');
     return respond(getLostArchiveLeads_(user));
   });
@@ -340,7 +403,7 @@ function apiGetLostArchiveLeads(token) {
 
 function apiArchiveLead(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiArchiveLead', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'archive', 'archiveLead');
     const data = payload || {};
@@ -351,7 +414,7 @@ function apiArchiveLead(token, payload) {
 // Bulk archive — archives many leads in one round-trip; reports per-lead success/failure.
 function apiArchiveLeads(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiArchiveLeads', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'archive', 'archiveLead');
     const data = payload || {};
@@ -377,7 +440,7 @@ function apiArchiveLeads(token, payload) {
 
 function apiRestoreArchivedLead(token, leadId) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiRestoreArchivedLead', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'archive', 'restoreArchivedLead');
     return withTrustedWriteUser_(user.email, () => restoreArchivedLead(leadId || '', user.email));
@@ -386,7 +449,7 @@ function apiRestoreArchivedLead(token, leadId) {
 
 function apiUpdateLeadStage(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiUpdateLeadStage', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'leads', 'updateLeadStage');
     const data = payload || {};
@@ -396,7 +459,7 @@ function apiUpdateLeadStage(token, payload) {
 
 function apiMoveLeadStageWithFields(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiMoveLeadStageWithFields', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'leads', 'moveLeadStageWithFields');
     const data = payload || {};
@@ -406,7 +469,7 @@ function apiMoveLeadStageWithFields(token, payload) {
 
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetLead', () => {
     const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields']);
     const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', id);
     const lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
@@ -421,7 +484,7 @@ function apiGetLead(token, id) {
 // Client Visits — visit reports linked to leads (Visits page + kiosk visit form).
 function apiGetVisits(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetVisits', () => {
     const user = _requireModule('Visits');
     return respond(_scopeLeadLinkedRows(getVisits(), user, ['Created By']));
   });
@@ -429,7 +492,7 @@ function apiGetVisits(token) {
 
 function apiSaveVisit(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSaveVisit', () => {
     const user = _requireModule('Visits');
     return withTrustedWriteUser_(user.email, () => saveVisit(payload || {}, user.email));
   });
@@ -439,7 +502,7 @@ function apiSaveVisit(token, payload) {
 // values (no follow-ups / history / logs), so selecting a lead is fast.
 function apiUpdateVisit(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiUpdateVisit', () => {
     const user = _requireModule('Visits');
     return withTrustedWriteUser_(user.email, () => updateVisit(payload || {}, user.email));
   });
@@ -447,7 +510,7 @@ function apiUpdateVisit(token, payload) {
 
 function apiDeleteVisit(token, visitId) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiDeleteVisit', () => {
     const user = _requireModule('Visits');
     return withTrustedWriteUser_(user.email, () => deleteVisit(visitId || '', user.email));
   });
@@ -455,7 +518,7 @@ function apiDeleteVisit(token, visitId) {
 
 function apiGetLeadFieldValues(token, id) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetLeadFieldValues', () => {
     const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields']);
     const lead = getLeadCustomValues(id);
     if (!lead || !_canReadAssignedRow(lead, user)) return respond(null, 'Lead not found.');
@@ -466,7 +529,7 @@ function apiGetLeadFieldValues(token, id) {
 // Follow-ups
 function apiGetFollowups(token, filters) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetFollowups', () => {
     const user = _requireModule('Followups');
     const rows = _scopeFollowupRows(getFollowups(filters || {}), user);
     return respond(rows.sort((a, b) => new Date(b['Created At']) - new Date(a['Created At'])));
@@ -475,7 +538,7 @@ function apiGetFollowups(token, filters) {
 
 function apiGetFollowupHistory(token, filters) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetFollowupHistory', () => {
     const user = _requireModule('Followups');
     return respond(_scopeFollowupHistoryRows(getFollowupHistory(filters || {}), user));
   });
@@ -483,7 +546,7 @@ function apiGetFollowupHistory(token, filters) {
 
 function apiGetLeadActivityLogs(token, filters) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetLeadActivityLogs', () => {
     const user = _requireAnyModule(['Leads', 'Followups']);
     return respond(_scopeActivityLogRows(getLeadActivityLogs(filters || {}), user));
   });
@@ -491,7 +554,7 @@ function apiGetLeadActivityLogs(token, filters) {
 
 function apiGetTodayActivitySnapshot(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetTodayActivitySnapshot', () => {
     const user = _requireAnyModule(['Followups', 'Leads']);
     return respond(getTodayActivitySnapshotFast_(user));
   });
@@ -499,15 +562,23 @@ function apiGetTodayActivitySnapshot(token) {
 
 function apiGetFollowupPageSnapshot(token, options) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetFollowupPageSnapshot', () => {
     const user = _requireModule('Followups');
     return respond(getFollowupPageSnapshotFast_(user, options || {}));
   });
 }
 
+function apiGetFollowupsPage(token, query) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetFollowupsPage', () => {
+    const user = _requireModule('Followups');
+    return respond(getFollowupsPage_(user, query || {}));
+  });
+}
+
 function apiRunSheetsApiSampleWrite(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiRunSheetsApiSampleWrite', () => {
     const user = _requireConfigReader();
     return respond(runSheetsApiSampleWrite_(user, payload || {}));
   });
@@ -515,7 +586,7 @@ function apiRunSheetsApiSampleWrite(token, payload) {
 
 function apiSavePortalSettings(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSavePortalSettings', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'config', 'savePortalSettings');
     return withTrustedWriteUser_(user.email, () => savePortalSettings(payload || {}, user.email));
@@ -524,7 +595,7 @@ function apiSavePortalSettings(token, payload) {
 
 function apiAddConfig(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiAddConfig', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'config', 'addConfig');
     const data = payload || {};
@@ -534,7 +605,7 @@ function apiAddConfig(token, payload) {
 
 function apiUpdateConfigStatus(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiUpdateConfigStatus', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'config', 'updateConfigStatus');
     const data = payload || {};
@@ -544,7 +615,7 @@ function apiUpdateConfigStatus(token, payload) {
 
 function apiSaveStage(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSaveStage', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'stages', 'saveStage');
     return withTrustedWriteUser_(user.email, () => saveStage(payload || {}, user.email));
@@ -553,7 +624,7 @@ function apiSaveStage(token, payload) {
 
 function apiReorderStages(token, ids) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiReorderStages', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'stages', 'reorderStages');
     return withTrustedWriteUser_(user.email, () => reorderStages(Array.isArray(ids) ? ids : [], user.email));
@@ -562,7 +633,7 @@ function apiReorderStages(token, ids) {
 
 function apiSaveFieldConfig(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSaveFieldConfig', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'fields', 'saveFieldConfig');
     return withTrustedWriteUser_(user.email, () => saveFieldConfig(payload || {}, user.email));
@@ -571,7 +642,7 @@ function apiSaveFieldConfig(token, payload) {
 
 function apiSaveUser(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSaveUser', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'config', 'saveUser');
     return withTrustedWriteUser_(user.email, () => _saveUser(payload || {}, user.email));
@@ -580,7 +651,7 @@ function apiSaveUser(token, payload) {
 
 function apiGetFollowupFormData(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetFollowupFormData', () => {
     const user = _requireModule('Followups');
     const leads = _scopeAssignedRows(_leadRows(), user)
       .filter(l => l['Lead Status'] === 'Open');
@@ -590,7 +661,7 @@ function apiGetFollowupFormData(token) {
 
 function apiGetFollowupLeads(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetFollowupLeads', () => {
     const user = _requireModule('Followups');
     const visibleFollowups = _scopeFollowupRows(getFollowups({ includeClosed: true }), user);
     const linked = {};
@@ -602,26 +673,26 @@ function apiGetFollowupLeads(token) {
 
 function apiSaveFollowupDirect(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSaveFollowupDirect', () => {
     const user = _apiUser();
     _assertCanEnqueueJob_(user, 'followups', 'saveFollowup');
-    return saveFollowup(payload || {}, user.email);
+    return withTrustedWriteUser_(user.email, () => saveFollowup(payload || {}, user.email));
   });
 }
 
 function apiMarkFollowupDoneDirect(token, followupId, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiMarkFollowupDoneDirect', () => {
     const user = _apiUser();
     _assertCanEnqueueJob_(user, 'followups', 'markFollowupDone');
-    return markFollowupDone(followupId || '', payload || {}, user.email);
+    return withTrustedWriteUser_(user.email, () => markFollowupDone(followupId || '', payload || {}, user.email));
   });
 }
 
 // Users
 function apiGetUsers(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetUsers', () => {
     const user = _apiUser();
     if (!canManageUsersPermission(user)) throw new Error('Permission denied.');
     return respond(getUsersWithPortalAccess_(currentPortalKey_(), true));
@@ -630,7 +701,7 @@ function apiGetUsers(token) {
 
 function apiGetNbdAssignableUsers(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetNbdAssignableUsers', () => {
     const user = _apiUser();
     const hasLeadAccess = user.role === 'ADMIN' || userHasModule(user, 'Leads') || userHasModule(user, 'LeadForm');
     if (!['ADMIN', 'MANAGER', 'SALES'].includes(user.role) || !hasLeadAccess) throw new Error('Permission denied.');
@@ -640,7 +711,7 @@ function apiGetNbdAssignableUsers(token) {
 
 function apiCheckNbdDuplicate(token, leadId) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiCheckNbdDuplicate', () => {
     const user = _apiUser();
     const hasLeadAccess = user.role === 'ADMIN' || userHasModule(user, 'Leads') || userHasModule(user, 'LeadForm');
     if (!['ADMIN', 'MANAGER', 'SALES'].includes(user.role) || !hasLeadAccess) throw new Error('Permission denied.');
@@ -650,7 +721,7 @@ function apiCheckNbdDuplicate(token, leadId) {
 
 function apiGetNbdPushContext(token, leadId) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetNbdPushContext', () => {
     const user = _apiUser();
     const hasLeadAccess = user.role === 'ADMIN' || userHasModule(user, 'Leads') || userHasModule(user, 'LeadForm');
     if (!['ADMIN', 'MANAGER', 'SALES'].includes(user.role) || !hasLeadAccess) throw new Error('Permission denied.');
@@ -660,24 +731,23 @@ function apiGetNbdPushContext(token, leadId) {
 
 function apiPushLeadToNbd(token, payload) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiPushLeadToNbd', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'leads', 'pushLeadToNbd');
     const data = payload || {};
-    return pushLeadToNbd(
+    return withTrustedWriteUser_(user.email, () => pushLeadToNbd(
       data.leadId || data['Lead ID'] || '',
       user.email,
       data.nbdAssignedTo || '',
       data.mapToNbdLeadId || '',
       data.qualifiedRemark || ''
-    );
+    ));
   });
 }
-
 // Bulk Entry
 function apiGetBulkConfig(token) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiGetBulkConfig', () => {
     _requireBulkEntry_();
     return respond(getBulkConfig());
   });
@@ -685,7 +755,7 @@ function apiGetBulkConfig(token) {
 
 function apiValidateBulkRows(token, rows, mode) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiValidateBulkRows', () => {
     _requireBulkEntry_();
     return respond(validateBulkRows(rows || [], mode || 'create'));
   });
@@ -693,23 +763,25 @@ function apiValidateBulkRows(token, rows, mode) {
 
 function apiSaveBulkRows(token, rows, mode) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiSaveBulkRows', () => {
     const user = _requireBulkEntry_();
-    return respond(saveBulkRows(rows || [], user.email, '', mode || 'create'));
+    return withTrustedWriteUser_(user.email, () =>
+      respond(saveBulkRows(rows || [], user.email, '', mode || 'create')));
   });
 }
 
 function apiCreateBulkFollowupOnlyRow(token, row, rowNumber) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiCreateBulkFollowupOnlyRow', () => {
     const user = _requireBulkEntry_();
-    return respond(createBulkFollowupOnlyRow(row || {}, Number(rowNumber) || 1, user.email));
+    return withTrustedWriteUser_(user.email, () =>
+      respond(createBulkFollowupOnlyRow(row || {}, Number(rowNumber) || 1, user.email)));
   });
 }
 
 function apiCreateErrorCsv(token, errorRows) {
   _currentApiToken_ = token || '';
-  return apiGuard_(() => {
+  return apiGuard_('apiCreateErrorCsv', () => {
     _requireBulkEntry_();
     return respond(createErrorCsv(errorRows || []));
   });

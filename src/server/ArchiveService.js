@@ -37,43 +37,9 @@ function getArchiveData(user) {
     if (!leadId) return;
     archived.push(_archiveEnrichLead_(lead, followupByLead[leadId] || [], notPickedByLead[leadId] || 0));
   });
-  // Self-heal: archiving closes a lead's follow-ups at write time, but leads archived
-  // before that shipped (or rows missed by a stale index) can still hold open ones.
-  // Both datasets are already in memory here, so sweep and close the stragglers.
-  try { _closeFollowupsForArchivedLeads_(archived, followupByLead); }
-  catch (e) { Logger.log('[Archive] follow-up self-heal failed: ' + (e && e.message || e)); }
   return {
     archived: archived.sort((a, b) => new Date(b['Archived At'] || 0) - new Date(a['Archived At'] || 0))
   };
-}
-
-// Closes any still-open follow-ups belonging to archived leads, with the same semantics
-// as archiveLead (tag auto-closed ones so a restore reopens exactly those). Capped per
-// run to bound the write burst; after the first pass this is a no-op.
-function _closeFollowupsForArchivedLeads_(archivedLeads, followupByLead) {
-  const ts = now();
-  let closed = 0;
-  (archivedLeads || []).forEach(lead => {
-    if (closed >= 100) return;
-    const leadId = String(lead['Lead ID'] || '').trim();
-    (followupByLead[leadId] || []).forEach(followup => {
-      if (closed >= 100) return;
-      if (!followup['Follow-up ID']) return;
-      if (String(followup['Status'] || 'Open').trim().toLowerCase() === 'closed') return;
-      const fuPatch = { 'Status': 'Closed', 'Next Follow-up Date': '', 'Planned Date': '', 'Updated At': ts };
-      if (!followup['Outcome'] && !followup['Done Date']) {
-        fuPatch['Outcome'] = 'Lead archived';
-        fuPatch['Done Date'] = today();
-      }
-      updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], fuPatch);
-      closed++;
-    });
-  });
-  if (closed) {
-    _bumpStamp('followups');
-    Logger.log('[Archive] self-heal closed ' + closed + ' open follow-up(s) of archived leads');
-  }
-  return closed;
 }
 
 // ── Archive suggestions ─────────────────────────────────────────────────────────
@@ -248,8 +214,10 @@ function archiveLead(leadId, reason, email, opts) {
   }
 
   const ts = now();
+  const followups = getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId);
+  const previousStatus = leadLifecycleStatus_(lead, stage);
   const patch = {
-    'Lead Status': 'Archived',
+    'Pre-Archive Status': previousStatus,
     'Is Archived': true,
     'Archived At': ts,
     'Archived By': user.id,
@@ -257,28 +225,31 @@ function archiveLead(leadId, reason, email, opts) {
     'Next Follow-up Date': '',
     'Updated At': ts
   };
-  const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(patch));
-  if (!updated) return respond(null, 'Lead not found.');
 
-  // Archiving a lead closes its open follow-ups so nobody is prompted to chase it.
-  getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId).forEach(followup => {
-    if (!followup['Follow-up ID']) return;
-    const fuPatch = {
-      'Status': 'Closed',
-      'Next Follow-up Date': '',
-      'Planned Date': '',
-      'Updated At': ts
-    };
-    // Tag only the ones that weren't already completed, so a restore can reopen exactly these.
-    if (!followup['Outcome'] && !followup['Done Date']) {
-      fuPatch['Outcome'] = 'Lead archived';
-      fuPatch['Done Date'] = today();
-    }
-    updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], fuPatch);
-  });
-  insertLeadActivityLog_(leadId, 'Archive Lead', '', 'Archived', patch['Archive Reason'], user.id);
-  // Bulk archive bumps once for the whole batch (3 PropertiesService writes per lead
-  // otherwise dominate large batches); single archive bumps here as before.
+  try {
+    const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(patch));
+    if (!updated) return respond(null, 'Lead not found.');
+    followups.forEach(followup => {
+      if (!followup['Follow-up ID']) return;
+      if (String(followup['Status'] || '').toLowerCase() === 'closed') return;
+      const fuPatch = {
+        'Status': 'Closed',
+        'Next Follow-up Date': '',
+
+        'Updated At': ts
+      };
+      if (!followup['Outcome'] && !followup['Done Date']) {
+        fuPatch['Outcome'] = 'Lead archived';
+        fuPatch['Done Date'] = today();
+      }
+      updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], fuPatch);
+    });
+    insertLeadActivityLog_(leadId, 'Archive Lead', previousStatus, 'Archived', patch['Archive Reason'], user.id);
+  } catch (error) {
+    _restoreArchiveMutationSnapshot_(lead, followups);
+    throw error;
+  }
+
   if (!(opts && opts.skipStamps)) _bumpArchiveStamps_();
   return respond({ leadId, patch });
 }
@@ -296,30 +267,55 @@ function restoreArchivedLead(leadId, email) {
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canReadAssignedRow(lead, user)) return respond(null, 'Permission denied.');
 
+  const stage = queryRows(SHEET_NAMES.STAGES, r => String(r['Stage ID'] || '').trim() === String(lead['Stage ID'] || '').trim())[0] || null;
+  let restoredStatus = String(lead['Pre-Archive Status'] || '').trim();
+  if (!restoredStatus || restoredStatus.toLowerCase() === 'archived') restoredStatus = leadLifecycleStatus_(lead, stage);
   const ts = now();
-  updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_({
-    'Lead Status': 'Open',
-    'Is Archived': '',
-    'Archived At': '',
-    'Archived By': '',
-    'Archive Reason': '',
-    'Updated At': ts
-  }));
-  // Reopen only the follow-ups that were auto-closed by archiving this lead.
-  getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId).forEach(followup => {
-    if (!followup['Follow-up ID']) return;
-    const wasAutoClosed = String(followup['Status'] || '') === 'Closed' && String(followup['Outcome'] || '') === 'Lead archived';
-    if (!wasAutoClosed) return;
-    updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], {
-      'Status': 'Open',
-      'Outcome': '',
-      'Done Date': '',
+  const followups = getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId);
+  try {
+    updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_({
+      'Lead Status': restoredStatus || 'Open',
+      'Pre-Archive Status': '',
+      'Is Archived': '',
+      'Archived At': '',
+      'Archived By': '',
+      'Archive Reason': '',
       'Updated At': ts
+    }));
+    followups.forEach(followup => {
+      if (!followup['Follow-up ID']) return;
+      const wasAutoClosed = String(followup['Status'] || '') === 'Closed' && String(followup['Outcome'] || '') === 'Lead archived';
+      if (!wasAutoClosed) return;
+      const restoredPlannedDate = followup['Planned Date'] || today();
+      updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], {
+        'Status': 'Open',
+        'Outcome': '',
+        'Done Date': '',
+        'Planned Date': restoredPlannedDate,
+        'Next Follow-up Date': restoredPlannedDate,
+        'Updated At': ts
+      });
     });
-  });
-  insertLeadActivityLog_(leadId, 'Restore Lead', 'Archived', 'Open', 'Lead restored from archive.', user.id);
+    insertLeadActivityLog_(leadId, 'Restore Lead', 'Archived', restoredStatus || 'Open', 'Lead restored from archive.', user.id);
+  } catch (error) {
+    _restoreArchiveMutationSnapshot_(lead, followups);
+    throw error;
+  }
   _bumpArchiveStamps_();
-  return respond({ leadId });
+  return respond({ leadId, status: restoredStatus || 'Open' });
+}
+
+function _restoreArchiveMutationSnapshot_(lead, followups) {
+  try {
+    updateRow(SHEET_NAMES.LEADS, 'Lead ID', lead['Lead ID'], pickLeadMasterFields_(lead));
+    (followups || []).forEach(followup => {
+      if (followup['Follow-up ID']) {
+        updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], pickFollowupMasterFields_(followup));
+      }
+    });
+  } catch (rollbackError) {
+    logServerError_(rollbackError, { operation: 'archive-rollback', leadId: lead && lead['Lead ID'] });
+  }
 }
 
 function _archiveEnrichLead_(lead, followups, notPickedCount) {

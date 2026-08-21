@@ -16,12 +16,11 @@ function doGet(e) {
       return template
         .evaluate()
         .setTitle(CLIENT_CONFIG.APP_TITLE)
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
         .addMetaTag('viewport', 'width=device-width, initial-scale=1');
     } catch (err) {
       return HtmlService.createHtmlOutput(
         '<pre style="font-family:monospace;padding:20px;color:#c00">' +
-        'doGet ERROR:\n' + err.message + '\n\n' + (err.stack || '') +
+        'doGet ERROR:\n' + _serverHtmlEscape_(err.message) + '\n\n' + _serverHtmlEscape_(err.stack || '') +
         '</pre>'
       ).setTitle(CLIENT_CONFIG.APP_TITLE + ' - Error');
     }
@@ -37,12 +36,17 @@ function _handleGoogleAuthRedirect_(idToken) {
     if (!userResult.success) return _serveAuthError_('Your Google account (' + norm + ') is not authorized for this portal.');
     const token = createAuthSession_(norm, userResult.data.id);
     const appUrl = ScriptApp.getService().getUrl().split('?')[0];
-    const safeToken = String(token).replace(/[^a-f0-9]/gi, '');
+    const tokenText = String(token || '');
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(tokenText)) {
+      return _serveAuthError_('The sign-in session token was invalid. Please try again.');
+    }
+    const safeToken = JSON.stringify(tokenText).replace(/</g, '\\u003c');
+    const safeAppUrl = JSON.stringify(appUrl).replace(/</g, '\\u003c');
     const html =
       '<!doctype html><html><head><meta charset="utf-8"><title>Signing in…</title></head><body>' +
       '<script>' +
-      'try{localStorage.setItem("nbd_token","' + safeToken + '");}catch(e){}' +
-      'window.location.replace("' + appUrl + '");' +
+      'try{sessionStorage.setItem("nbd_token",' + safeToken + ');}catch(e){}' +
+      'window.location.replace(' + safeAppUrl + ');' +
       '<\/script>' +
       '<p style="font-family:sans-serif;padding:24px;color:#444">Signing in, please wait…</p>' +
       '</body></html>';
@@ -52,13 +56,21 @@ function _handleGoogleAuthRedirect_(idToken) {
   }
 }
 
+function _serverHtmlEscape_(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 function _serveAuthError_(msg) {
   const appUrl = ScriptApp.getService().getUrl().split('?')[0];
   return HtmlService.createHtmlOutput(
     '<div style="font-family:sans-serif;padding:40px;max-width:420px;margin:60px auto;text-align:center">' +
     '<h2 style="color:#c00;margin-bottom:12px">Sign-in Error</h2>' +
-    '<p style="color:#555;margin-bottom:24px">' + msg + '</p>' +
-    '<a href="' + appUrl + '" style="color:#4F46E5;font-weight:500">Try again</a>' +
+    '<p style="color:#555;margin-bottom:24px">' + _serverHtmlEscape_(msg) + '</p>' +
+    '<a href="' + _serverHtmlEscape_(appUrl) + '" style="color:#4F46E5;font-weight:500">Try again</a>' +
     '</div>'
   ).setTitle(CLIENT_CONFIG.APP_TITLE + ' – Sign-in Error');
 }
@@ -91,6 +103,7 @@ function onOpen() {
 // Run this from the menu after adding or changing oauthScopes so Google
 // presents the authorization dialog for any newly-added permissions.
 function updatePermissions() {
+  requireContainerAdmin_(false);
   const ui = SpreadsheetApp.getUi();
   const results = [];
   const errors  = [];
@@ -141,6 +154,7 @@ function updatePermissions() {
 
 // Bumps APP_VERSION so every open browser tab detects the change and reloads.
 function pushUpdate() {
+  requireContainerAdmin_(false);
   const ui = SpreadsheetApp.getUi();
   PropertiesService.getScriptProperties().setProperty('APP_VERSION', String(Date.now()));
   ui.alert('✅ Update Pushed', 'All open portal tabs will reload within 15 seconds.', ui.ButtonSet.OK);
@@ -220,6 +234,7 @@ function include(filename) {
 // ── One-time Setup ────────────────────────────────────────────────────────────
 function setupSheets() {
   return withServerContext_(() => {
+    requireContainerAdmin_(true);
     safeInitHeaders(SHEET_NAMES.USERS, [
       'Job Title','Department','Email Address','Company Phone','Name','Title',
       'ID','Permission','Password','Allowed Modules','Can Edit Config','Is Active'
@@ -233,7 +248,7 @@ function setupSheets() {
       'Stage ID','Priority','Assigned To','Lead Status',
       'Stage Updated At','Last Follow-up Date','Next Follow-up Date',
       'Source Portal','Source Lead ID','NBD Lead ID','Pushed To NBD At',
-      'Is Archived','Archived At','Archived By','Archive Reason',
+      'Is Archived','Archived At','Archived By','Archive Reason','Pre-Archive Status',
       'Created At','Updated At'
     ]);
     ensureFollowupSheets_();

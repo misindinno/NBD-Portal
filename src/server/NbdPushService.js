@@ -2,10 +2,14 @@
 
 function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRemark) {
   assertServerContext_();
-  const user = requireRoleForEmail_(['ADMIN', 'MANAGER', 'SALES'], email);
+  const user = requireRoleForEmail_(['ADMIN', 'MANAGER', 'SALES']);
   if (!_isLqPortalForNbdPush_()) return respond(null, 'Push to NBD is available only in the LQ portal.');
   const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
   if (!targetSpreadsheetId) return respond(null, 'NBD target spreadsheet is not configured for this portal.');
+
+  leadId = String(leadId || '').trim();
+  mapToNbdLeadId = String(mapToNbdLeadId || '').trim();
+  if (!leadId) return respond(null, 'Lead ID is required.');
 
   const lead = getLead(leadId)?.lead;
   if (!lead) return respond(null, 'Lead not found.');
@@ -14,81 +18,195 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
   if (!_isWonStageForNbd_(sourceStage, lead)) {
     return respond(null, 'Only LQ leads in a Won stage can be pushed to NBD.');
   }
-  if (lead['NBD Lead ID'] && !mapToNbdLeadId) {
-    return respond({ leadId, nbdLeadId: lead['NBD Lead ID'], alreadyPushed: true });
+  const linkedNbdLeadId = String(lead['NBD Lead ID'] || '').trim();
+  if (linkedNbdLeadId && !mapToNbdLeadId) {
+    return respond({ leadId, nbdLeadId: linkedNbdLeadId, alreadyPushed: true });
   }
-  if (lead['NBD Lead ID'] && mapToNbdLeadId && String(lead['NBD Lead ID']) !== String(mapToNbdLeadId)) {
-    return respond(null, 'This LQ lead is already linked to NBD lead ' + lead['NBD Lead ID'] + '.');
-  }
-
-  // Map mode: link this LQ lead to an existing NBD lead instead of creating a new one.
-  if (mapToNbdLeadId) {
-    const mapTarget = _findExternalLeadById_(targetSpreadsheetId, mapToNbdLeadId);
-    if (!mapTarget) return respond(null, 'Selected NBD lead was not found. Refresh and try again.');
-    if (mapTarget['Source Lead ID'] && String(mapTarget['Source Lead ID']) !== String(leadId)) {
-      return respond(null, 'Selected NBD lead is already mapped to source lead ' + mapTarget['Source Lead ID'] + '.');
-    }
-    const ts = now();
-    // Patch the LQ lead
-    updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
-      'NBD Lead ID': mapToNbdLeadId,
-      'Pushed To NBD At': ts,
-      'Updated At': ts
-    });
-    _bumpStamp('leads');
-    // Patch the NBD lead so it knows its LQ source
-    try {
-      const targetSheet  = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
-      const targetHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0].map(String);
-      _updateExternalRow_(targetSheet, targetHeaders, 'Lead ID', mapToNbdLeadId, {
-        'Source Lead ID': leadId,
-        'Source Portal':  CLIENT_CONFIG.APP_TITLE || 'LQ Portal',
-        'Updated At':     ts
-      });
-      _rebuildExternalLeadIndex_(targetSpreadsheetId);
-    } catch (e) {
-      Logger.log('Map: could not patch NBD lead: ' + e.message);
-    }
-    insertLeadActivityLog_(leadId, 'Map To NBD', '', mapToNbdLeadId, 'LQ lead mapped to existing NBD lead ' + mapToNbdLeadId, user.id);
-    return respond({ leadId, nbdLeadId: mapToNbdLeadId, mapped: true });
+  if (linkedNbdLeadId && mapToNbdLeadId && linkedNbdLeadId !== mapToNbdLeadId) {
+    return respond(null, 'This LQ lead is already linked to NBD lead ' + linkedNbdLeadId + '.');
   }
 
-  const targetUser = _findNbdAssignableUser_(targetSpreadsheetId, nbdAssignedTo);
-  if (!targetUser) return respond(null, 'Please select a valid NBD user to assign this lead.');
-  safeInitHeaders(SHEET_NAMES.LEADS, LEAD_MASTER_FIELDS);
-
+  // Prepare target structure and validate dependencies before writing business rows.
   const targetSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
   _ensureExternalHeaders_(targetSheet, LEAD_MASTER_FIELDS);
   const targetHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0].map(String);
-  const existing = _findExternalLeadBySource_(targetSheet, targetHeaders, leadId);
-  if (existing) {
-    updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
-      'NBD Lead ID': existing['Lead ID'] || '',
-      'Pushed To NBD At': lead['Pushed To NBD At'] || now(),
-      'Updated At': now()
-    });
-    _bumpStamp('leads');
-    return respond({ leadId, nbdLeadId: existing['Lead ID'] || '', alreadyPushed: true });
-  }
-  const duplicates = _findNbdDuplicateLeads_(targetSpreadsheetId, lead, { skipSourceLeadId: leadId });
-  if (duplicates.length) {
-    return respond(null, 'Existing NBD lead found. Please use Map to this instead of creating a duplicate. Matched on: ' + duplicates.map(d => d.matchOn).join('; '));
+  if (!targetHeaders.includes('Lead ID') || !targetHeaders.includes('Source Lead ID')) {
+    return respond(null, 'NBD lead sheet is missing required identity columns.');
   }
 
+  let targetUser = null;
+  let targetStageId = '';
+  let followupSheet = null;
+  let followupHeaders = null;
+  if (!mapToNbdLeadId) {
+    targetUser = _findNbdAssignableUser_(targetSpreadsheetId, nbdAssignedTo);
+    if (!targetUser) return respond(null, 'Please select a valid NBD user to assign this lead.');
+    targetStageId = _nbdInitialStageId_(targetSpreadsheetId);
+    followupSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.FOLLOWUPS);
+    _ensureExternalHeaders_(followupSheet, FOLLOWUP_MASTER_FIELDS);
+    followupHeaders = followupSheet.getRange(1, 1, 1, followupSheet.getLastColumn()).getValues()[0].map(String);
+    if (!followupHeaders.includes('Follow-up ID') || !followupHeaders.includes('Lead ID')) {
+      return respond(null, 'NBD follow-up sheet is missing required identity columns.');
+    }
+  }
+
+  const lock = LockService.getScriptLock();
+  let locked = false;
+  let operation = null;
+  try {
+    locked = lock.tryLock(10000);
+    if (!locked) return respond(null, 'Another NBD push is in progress. Please retry in a few seconds.');
+
+    // Re-read under the lock so stale or concurrent requests cannot create twice.
+    if (typeof _invalidateReadCache_ === 'function') _invalidateReadCache_();
+    const currentLead = getLead(leadId)?.lead;
+    if (!currentLead) return respond(null, 'Lead not found.');
+    if (!_canWriteLead(currentLead, user)) return respond(null, 'Permission denied.');
+    const currentStage = _nbdSourceStage_(currentLead);
+    if (!_isWonStageForNbd_(currentStage, currentLead)) {
+      return respond(null, 'Only LQ leads in a Won stage can be pushed to NBD.');
+    }
+
+    const currentLink = String(currentLead['NBD Lead ID'] || '').trim();
+    if (currentLink && !mapToNbdLeadId) {
+      return respond({ leadId, nbdLeadId: currentLink, alreadyPushed: true });
+    }
+    if (currentLink && mapToNbdLeadId && currentLink !== mapToNbdLeadId) {
+      return respond(null, 'This LQ lead is already linked to NBD lead ' + currentLink + '.');
+    }
+
+    // This lookup and any target insert are one atomic critical section.
+    const existing = _findExternalLeadBySource_(targetSheet, targetHeaders, leadId);
+    if (existing && existing['Lead ID']) {
+      const existingId = String(existing['Lead ID']);
+      if (!_updateNbdSourceLeadUnderLock_(leadId, existingId, currentLead['Pushed To NBD At'] || now())) {
+        throw _nbdPushFailure_('The NBD record exists, but the source link could not be repaired. Please retry.', true);
+      }
+      operation = { kind: 'existing', nbdLeadId: existingId };
+    } else if (mapToNbdLeadId) {
+      operation = _mapLeadToNbdUnderLock_(
+        targetSpreadsheetId,
+        targetSheet,
+        targetHeaders,
+        leadId,
+        mapToNbdLeadId
+      );
+    } else {
+      const duplicates = _findNbdDuplicateLeads_(targetSpreadsheetId, currentLead, { skipSourceLeadId: leadId });
+      if (duplicates.length) {
+        return respond(null, 'Existing NBD lead found. Please use Map to this instead of creating a duplicate. Matched on: ' + duplicates.map(d => d.matchOn).join('; '));
+      }
+      operation = _createNbdLeadUnderLock_({
+        targetSpreadsheetId,
+        targetSheet,
+        targetHeaders,
+        followupSheet,
+        followupHeaders,
+        leadId,
+        lead: currentLead,
+        sourceStage: currentStage,
+        user,
+        targetUser,
+        targetStageId,
+        qualifiedRemark
+      });
+    }
+  } catch (e) {
+    Logger.log('[NBD Push] Transaction failed for source ' + leadId + ': ' + (e && e.message || e));
+    return respond(null, e && e.nbdPublicMessage || 'NBD push could not be completed safely. Any partial target write was rolled back; please retry.');
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+
+  // Audit logging and cache stamps are non-critical and use their own lock paths.
+  try {
+    if (operation.kind === 'mapped') {
+      insertLeadActivityLog_(leadId, 'Map To NBD', '', operation.nbdLeadId, 'LQ lead mapped to existing NBD lead ' + operation.nbdLeadId, user.id);
+    } else if (operation.kind === 'created') {
+      insertLeadActivityLog_(leadId, 'Push To NBD', '', operation.nbdLeadId, 'Won lead pushed to NBD portal with follow-up ' + operation.nbdFollowupId, user.id);
+    }
+    _bumpStamp('leads');
+    if (operation.kind !== 'existing') _bumpStamp('activity_logs');
+  } catch (e) {
+    Logger.log('[NBD Push] Non-critical audit/cache update failed for ' + leadId + ': ' + (e && e.message || e));
+  }
+
+  if (operation.kind === 'mapped') {
+    return respond({ leadId, nbdLeadId: operation.nbdLeadId, mapped: true });
+  }
+  if (operation.kind === 'existing') {
+    return respond({ leadId, nbdLeadId: operation.nbdLeadId, alreadyPushed: true });
+  }
+  return respond({
+    leadId,
+    nbdLeadId: operation.nbdLeadId,
+    nbdFollowupId: operation.nbdFollowupId,
+    alreadyPushed: false
+  });
+}
+
+function _mapLeadToNbdUnderLock_(spreadsheetId, targetSheet, targetHeaders, leadId, mapToNbdLeadId) {
+  const mapTarget = _findExternalLeadInSheet_(targetSheet, targetHeaders, 'Lead ID', mapToNbdLeadId);
+  if (!mapTarget) throw _nbdPushFailure_('Selected NBD lead was not found. Refresh and try again.');
+  const mappedSourceId = String(mapTarget['Source Lead ID'] || '').trim();
+  if (mappedSourceId && mappedSourceId !== leadId) {
+    throw _nbdPushFailure_('Selected NBD lead is already mapped to source lead ' + mappedSourceId + '.');
+  }
+
+  const previous = {
+    'Source Lead ID': mapTarget['Source Lead ID'] || '',
+    'Source Portal': mapTarget['Source Portal'] || '',
+    'Updated At': mapTarget['Updated At'] || ''
+  };
+  const ts = now();
+  try {
+    const updated = _updateExternalRow_(targetSheet, targetHeaders, 'Lead ID', mapToNbdLeadId, {
+      'Source Lead ID': leadId,
+      'Source Portal': CLIENT_CONFIG.APP_TITLE || 'LQ Portal',
+      'Updated At': ts
+    });
+    if (!updated) throw new Error('Target row update returned false.');
+    if (!_updateNbdSourceLeadUnderLock_(leadId, mapToNbdLeadId, ts)) {
+      throw new Error('Source row update returned false.');
+    }
+  } catch (e) {
+    try {
+      const restored = _updateExternalRow_(targetSheet, targetHeaders, 'Lead ID', mapToNbdLeadId, previous);
+      const restoredRow = _findExternalLeadInSheet_(targetSheet, targetHeaders, 'Lead ID', mapToNbdLeadId);
+      const rollbackVerified = restored && restoredRow
+        && String(restoredRow['Source Lead ID'] || '') === String(previous['Source Lead ID'] || '')
+        && String(restoredRow['Source Portal'] || '') === String(previous['Source Portal'] || '');
+      if (!rollbackVerified) throw new Error('Target map rollback could not be verified.');
+      _rebuildExternalLeadIndex_(spreadsheetId);
+    } catch (rollbackError) {
+      Logger.log('[NBD Push] Map rollback needs manual repair for ' + mapToNbdLeadId + ': ' + (rollbackError && rollbackError.message || rollbackError));
+      throw _nbdPushFailure_('Mapping could not be completed and automatic rollback was uncertain. Retry to repair the source/target link.', true);
+    }
+    throw _nbdPushFailure_('Mapping could not be completed safely. Changes were rolled back; please retry.', true);
+  }
+
+  try {
+    _rebuildExternalLeadIndex_(spreadsheetId);
+  } catch (e) {
+    Logger.log('[NBD Push] Deferred index rebuild for mapped lead ' + mapToNbdLeadId + ': ' + (e && e.message || e));
+  }
+  return { kind: 'mapped', nbdLeadId: mapToNbdLeadId };
+}
+
+function _createNbdLeadUnderLock_(ctx) {
   const nbdLeadId = generateUUID();
-  const targetStageId = _nbdInitialStageId_(targetSpreadsheetId);
+  const nbdFollowupId = generateUUID();
   const ts = now();
   const followupDate = today();
-  const leadRemark = _nbdClientDescription_(lead, sourceStage);
   const row = {
-    ...pickLeadMasterFields_(lead),
+    ...pickLeadMasterFields_(ctx.lead),
     'Lead ID': nbdLeadId,
-    'Stage ID': targetStageId || '',
+    'Stage ID': ctx.targetStageId || '',
     'Lead Status': 'Open',
-    'Assigned To': targetUser.id,
+    'Assigned To': ctx.targetUser.id,
     'Source Portal': CLIENT_CONFIG.APP_TITLE || 'LQ Portal',
-    'Source Lead ID': leadId,
-    'Client Description': leadRemark,
+    'Source Lead ID': ctx.leadId,
+    'Client Description': _nbdClientDescription_(ctx.lead, ctx.sourceStage),
     'Stage Updated At': ts,
     'Last Follow-up Date': followupDate,
     'Next Follow-up Date': followupDate,
@@ -97,19 +215,126 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
     'Created At': ts,
     'Updated At': ts
   };
-  const targetRowNumber = _appendExternalRow_(targetSheet, targetHeaders, row);
-  _upsertExternalLeadIndex_(targetSpreadsheetId, row, targetRowNumber);
-  const nbdFollowupId = _createNbdInitialFollowup_(targetSpreadsheetId, nbdLeadId, lead, sourceStage, user, targetUser, followupDate, ts, qualifiedRemark);
-
-  updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
-    'NBD Lead ID': nbdLeadId,
-    'Pushed To NBD At': ts,
+  const followup = {
+    'Follow-up ID': nbdFollowupId,
+    'Lead ID': nbdLeadId,
+    'Planned Date': followupDate,
+    'Follow-up Date': followupDate,
+    'Follow-up Type': 'LQ Qualified Transfer',
+    'Discussion': _nbdFollowupRemark_(ctx.lead, ctx.sourceStage, ctx.user, ctx.targetUser, ctx.qualifiedRemark),
+    'Outcome': 'Open',
+    'Next Follow-up Date': followupDate,
+    'Next Action': 'Review qualified LQ lead',
+    'Status': 'Open',
+    'Done Date': '',
+    'Done By': '',
+    'Stage ID': ctx.targetStageId || '',
+    'Updated Stage ID': '',
+    'Created By': ctx.targetUser.id,
+    'Created At': ts,
     'Updated At': ts
-  });
-  insertLeadActivityLog_(leadId, 'Push To NBD', '', nbdLeadId, 'Won lead pushed to NBD portal with follow-up ' + nbdFollowupId, user.id);
-  _bumpStamp('leads');
-  _bumpStamp('activity_logs');
-  return respond({ leadId, nbdLeadId, nbdFollowupId, alreadyPushed: false });
+  };
+
+  try {
+    const targetRowNumber = _appendExternalRow_(ctx.targetSheet, ctx.targetHeaders, row);
+    _upsertExternalLeadIndex_(ctx.targetSpreadsheetId, row, targetRowNumber);
+    _appendExternalRow_(ctx.followupSheet, ctx.followupHeaders, followup);
+    if (!_updateNbdSourceLeadUnderLock_(ctx.leadId, nbdLeadId, ts)) {
+      throw new Error('Source row update returned false.');
+    }
+  } catch (e) {
+    const followupClean = _deleteExternalRowByKey_(ctx.followupSheet, ctx.followupHeaders, 'Follow-up ID', nbdFollowupId);
+    const targetClean = _deleteExternalRowByKey_(ctx.targetSheet, ctx.targetHeaders, 'Lead ID', nbdLeadId);
+    let indexClean = true;
+    try {
+      _rebuildExternalLeadIndex_(ctx.targetSpreadsheetId);
+    } catch (indexError) {
+      indexClean = false;
+      Logger.log('[NBD Push] Index rebuild after create rollback failed: ' + (indexError && indexError.message || indexError));
+    }
+    if (!followupClean || !targetClean || !indexClean) {
+      throw _nbdPushFailure_('NBD push failed and automatic rollback was uncertain. Retry first; if it still fails, an administrator must reconcile the source and target records.', true);
+    }
+    throw _nbdPushFailure_('NBD push could not be completed. Partial target records were rolled back; please retry.', true);
+  }
+  return { kind: 'created', nbdLeadId, nbdFollowupId };
+}
+
+function _updateNbdSourceLeadUnderLock_(leadId, nbdLeadId, ts) {
+  const sheet = getSheet(SHEET_NAMES.LEADS);
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return false;
+  const headers = data[0].map(String);
+  const idCol = headers.indexOf('Lead ID');
+  const nbdCol = headers.indexOf('NBD Lead ID');
+  const pushedCol = headers.indexOf('Pushed To NBD At');
+  const updatedCol = headers.indexOf('Updated At');
+  if (idCol === -1 || nbdCol === -1 || pushedCol === -1 || updatedCol === -1) return false;
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][idCol]) !== String(leadId)) continue;
+    const row = data[i].slice();
+    row[nbdCol] = nbdLeadId;
+    row[pushedCol] = ts;
+    row[updatedCol] = ts;
+    try {
+      sheet.getRange(i + 1, 1, 1, row.length).setValues([row]);
+    } catch (e) {
+      const committedId = String(sheet.getRange(i + 1, nbdCol + 1).getValue() || '');
+      if (committedId !== String(nbdLeadId)) throw e;
+    }
+    if (typeof _invalidateReadCache_ === 'function') _invalidateReadCache_();
+    try {
+      const synced = headers.reduce((obj, h, col) => {
+        obj[h] = normalizeSheetValue(row[col]);
+        return obj;
+      }, {});
+      if (typeof syncIndexRow_ === 'function') syncIndexRow_(SHEET_NAMES.LEADS, synced, i + 1);
+    } catch (e) {
+      Logger.log('[NBD Push] Source index sync deferred for ' + leadId + ': ' + (e && e.message || e));
+    }
+    return true;
+  }
+  return false;
+}
+
+function _findExternalLeadInSheet_(sheet, headers, keyCol, keyVal) {
+  const keyIdx = headers.indexOf(keyCol);
+  if (keyIdx === -1 || sheet.getLastRow() < 2) return null;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][keyIdx]) !== String(keyVal)) continue;
+    return headers.reduce((obj, h, col) => {
+      obj[h] = normalizeSheetValue(data[i][col]);
+      return obj;
+    }, {});
+  }
+  return null;
+}
+
+function _deleteExternalRowByKey_(sheet, headers, keyCol, keyVal) {
+  try {
+    const keyIdx = headers.indexOf(keyCol);
+    if (keyIdx === -1) return false;
+    if (sheet.getLastRow() < 2) return true;
+    const values = sheet.getRange(2, keyIdx + 1, sheet.getLastRow() - 1, 1).getValues();
+    for (let i = 0; i < values.length; i++) {
+      if (String(values[i][0]) !== String(keyVal)) continue;
+      sheet.deleteRow(i + 2);
+      return true;
+    }
+    return true;
+  } catch (e) {
+    Logger.log('[NBD Push] Compensating delete failed for ' + keyCol + '=' + keyVal + ': ' + (e && e.message || e));
+    return false;
+  }
+}
+
+function _nbdPushFailure_(message, recoverable) {
+  const error = new Error(message);
+  error.nbdPublicMessage = message;
+  error.recoverable = recoverable === true;
+  return error;
 }
 
 function checkNbdDuplicates(leadId) {
@@ -454,7 +679,7 @@ function _ensureExternalHeaders_(sheet, requiredHeaders) {
 function _appendExternalRow_(sheet, headers, rowObj) {
   headers = Array.isArray(headers) ? headers.filter(Boolean) : [];
   if (!headers.length) throw new Error('Cannot append external row: sheet "' + sheet.getName() + '" has no headers.');
-  const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
+  const row = sanitizeSheetRowValues_(headers.map(h => rowObj[h] !== undefined ? rowObj[h] : ''));
   const rowNumber = sheet.getLastRow() + 1;
   if (rowNumber < 2) throw new Error('Cannot append external row: invalid row number ' + rowNumber + ' for ' + sheet.getName());
   sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
@@ -470,7 +695,7 @@ function _updateExternalRow_(sheet, headers, keyCol, keyVal, patch) {
     if (String(data[i][keyIdx]) !== String(keyVal)) continue;
     Object.keys(patch).forEach(h => {
       const colIdx = headers.indexOf(h);
-      if (colIdx !== -1) sheet.getRange(i + 1, colIdx + 1).setValue(patch[h]);
+      if (colIdx !== -1) sheet.getRange(i + 1, colIdx + 1).setValue(neutralizeSheetFormula_(patch[h]));
     });
     return true;
   }

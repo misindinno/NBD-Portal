@@ -83,16 +83,7 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
   function _refreshLeadViewsAfterLocalChange() {
     const page = App.currentPage;
     if (page === 'leads') {
-      if (leadTable) {
-        const stageMap_ = App.config.stages.reduce(function (m, s) { m[s['Stage ID']] = s; return m; }, {});
-        const sorted_ = AppCache.getRows('leads')
-          .map(l => ({ ...l, _sortKey: _leadSortKey(l, stageMap_) }))
-          .sort((a, b) => a._sortKey < b._sortKey ? -1 : a._sortKey > b._sortKey ? 1 : 0);
-        leadTable.replaceData(sorted_);
-        applyLeadFilters();
-      } else {
-        loadLeads();
-      }
+      loadLeads(true).catch(() => {});
     } else if (page === 'pipeline') {
       loadPipeline();
     }

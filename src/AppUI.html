@@ -463,6 +463,15 @@ async function _runPageLoader(page, loaderName, args = []) {
 }
 window._runPageLoader = _runPageLoader;
 
+let _navigationTraceSequence = 0;
+function _recordNavigationDiagnostic_(type, details, level) {
+  try {
+    if (window.PortalDiagnostics && typeof window.PortalDiagnostics.record === 'function') {
+      window.PortalDiagnostics.record(type, details || {}, level || 'info');
+    }
+  } catch (e) {}
+}
+
 // Marks the current page's sidebar item active. Re-applied after every
 // renderSidebar() (which rebuilds nav innerHTML) so background data refreshes
 // don't drop the selected-menu highlight. Follow-up sub-pages map to the
@@ -478,13 +487,31 @@ function _setActiveNav(page) {
 window._setActiveNav = _setActiveNav;
 
 async function navigate(page) {
+  const navigationSequence = ++_navigationTraceSequence;
+  const navigationId = 'nav-' + navigationSequence;
+  const navigationStartedAt = Date.now();
+  _recordNavigationDiagnostic_('navigation.start', { navigationId, page });
+  const navigationStallTimer = setTimeout(() => {
+    if (_navigationTraceSequence !== navigationSequence) return;
+    const durationMs = Date.now() - navigationStartedAt;
+    _recordNavigationDiagnostic_('navigation.stalled', { navigationId, page, durationMs }, 'warn');
+    try {
+      if (window.PortalDiagnostics && typeof window.PortalDiagnostics.showRecoveryPanel === 'function') {
+        window.PortalDiagnostics.showRecoveryPanel('The ' + page + ' page did not finish loading within 30 seconds.');
+      }
+    } catch (e) {}
+  }, 30000);
   const contentEl = el('content');
   const titleEl = el('page-title');
   if (!contentEl) {
+    clearTimeout(navigationStallTimer);
+    _recordNavigationDiagnostic_('navigation.failure', { navigationId, page, reason: 'content-missing' }, 'error');
     console.warn('[navigate] #content missing; the app shell is not mounted yet.');
     return;
   }
   if (!canNavigate(page)) {
+    clearTimeout(navigationStallTimer);
+    _recordNavigationDiagnostic_('navigation.denied', { navigationId, page }, 'warn');
     if (titleEl) titleEl.textContent = 'Access Denied';
     contentEl.innerHTML = `<div class="card" style="padding:24px;color:#666">You do not have permission to open this module.</div>`;
     return;
@@ -517,9 +544,22 @@ async function navigate(page) {
     else if (page === 'archive')           await _runPageLoader(page, 'loadArchive', ['archived']);
     else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');
     else el('content').innerHTML = '<p>Page not found.</p>';
+    _recordNavigationDiagnostic_('navigation.complete', {
+      navigationId,
+      page,
+      durationMs: Date.now() - navigationStartedAt
+    });
   } catch(err) {
+    _recordNavigationDiagnostic_('navigation.failure', {
+      navigationId,
+      page,
+      durationMs: Date.now() - navigationStartedAt,
+      error: err
+    }, 'error');
     console.error('[navigate] page loader threw for "' + page + '":', err);
     if (contentEl) contentEl.innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(err.message || String(err))}</p>`;
+  } finally {
+    clearTimeout(navigationStallTimer);
   }
 }
 
@@ -558,47 +598,10 @@ function renderSidebar() {
   const isAdmin = u.role === 'ADMIN';
   const show = mod => isAdmin || hasModule(mod);
 
-  const _todayStr = (typeof localDateInputValue === 'function') ? localDateInputValue() : new Date().toISOString().slice(0, 10);
-  const _toDateStr = (v) => {
-    if (!v) return '';
-    if (typeof _fmtDate === 'function') return _fmtDate(v);
-    if (v instanceof Date) return v.toISOString().slice(0, 10);
-    return String(v).slice(0, 10);
-  };
-  const _fuPlanned = r => _toDateStr(r['Next Follow-up Date'] || r['Next Planned Date']);
-  const _isClosedFu = r => {
-    const s = String(r['Status'] || '').toLowerCase();
-    if (s === 'closed') return true;
-    if (r['Done Date']) return true;
-    if (r['Outcome']) return true;
-    return false;
-  };
-  const fuOpen = AppCache.getRows('followups').filter(r =>
-    !_isClosedFu(r) &&
-    String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change' &&
-    !!_fuPlanned(r)
-  );
-  const _fuDueCount = fuOpen.filter(r => { const d = _fuPlanned(r); return d && d <= _todayStr; }).length;
-  // Add leads that have no follow-up activity at all (new leads needing first touch)
-  const _allFuLeadIds = new Set(
-    AppCache.getRows('followups').map(r => r['Lead ID'])
-      .concat(AppCache.getRows('followupHistory').map(r => r['Lead ID']))
-      .filter(Boolean)
-  );
-  const _newLeadsCount = AppCache.getRows('leads').filter(l =>
-    String(l['Lead Status'] || 'Open').toLowerCase() === 'open' &&
-    !(l['NBD Lead ID'] || l['Pushed To NBD At']) &&
-    !_allFuLeadIds.has(l['Lead ID'])
-  ).length;
-  const fuCount = _fuDueCount + _newLeadsCount;
-  const pipeCount = AppCache.getRows('leads').filter(r => String(r['Lead Status'] || 'Open').toLowerCase() === 'open').length;
-  const _stages = (App.config && (App.config.allStages || App.config.stages)) || [];
-  const _finalStageIds = new Set(_stages.filter(s => s['Is Final Stage'] === true || s['Is Final Stage'] === 'TRUE').map(s => s['Stage ID']));
-  const leadsCount = AppCache.getRows('leads').filter(l =>
-    !(l['NBD Lead ID'] || l['Pushed To NBD At']) &&
-    !_finalStageIds.has(l['Stage ID']) &&
-    String(l['Lead Status'] || 'Open').toLowerCase() === 'open'
-  ).length;
+  const summary = App.navigationSummary || {};
+  const fuCount = Number(summary.followupsDue || summary.overdue || 0);
+  const pipeCount = Number(summary.pipeline || summary.leadsOpen || summary.leads || 0);
+  const leadsCount = Number(summary.leadsPending || summary.leadsOpen || summary.leads || 0);
   const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
   const canUseBulkEntry = isLqPortal ? show('BulkEntry') : u.role === 'ADMIN';
   const badge = (n, title) => n > 0 ? `<span class="nav-badge"${title ? ` title="${title}"` : ''}>${n > 99 ? '99+' : n}</span>` : '';
@@ -725,6 +728,7 @@ function toggleSidebar() {
 // ─── Global Search ────────────────────────────────────────────────────────────
 let _searchFocusedIdx = -1;
 let _searchDebounce   = null;
+let _globalSearchSeq  = 0;
 
 function _topbarSearchInput(input) {
   clearTimeout(_searchDebounce);
@@ -743,41 +747,41 @@ function _gsBadgeCls(s) {
   return 'tb-sd-badge-open';
 }
 
-function _runGlobalSearch(q) {
+async function _runGlobalSearch(q) {
   const drop = el('tb-search-drop');
   if (!drop) return;
-  const ql = q.toLowerCase();
+  const query = String(q || '').trim();
+  const seq = ++_globalSearchSeq;
+  if (query.length < 2) {
+    drop.innerHTML = '<div style="padding:14px;color:#9CA3AF;font-size:13px">Type at least 2 characters.</div>';
+    drop.style.display = 'block';
+    return;
+  }
 
-  const leads     = AppCache.getRows('leads');
-  const followups = AppCache.getRows('followups');
-  const leadMap   = leads.reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
+  drop.innerHTML = '<div style="padding:14px;color:#64748b;font-size:13px">Searching...</div>';
+  drop.style.display = 'block';
 
-  // Leads — match by Company, Description, City
-  const matchedLeads = leads.filter(l =>
-    String(l['Company Name']        || '').toLowerCase().includes(ql) ||
-    String(l['Client Description']  || '').toLowerCase().includes(ql) ||
-    String(l['City']                || '').toLowerCase().includes(ql) ||
-    String(remarkSearchText(l)      || '').toLowerCase().includes(ql)
-  );
+  let result;
+  try {
+    result = await api.globalSearch(query);
+  } catch (error) {
+    if (seq !== _globalSearchSeq) return;
+    drop.innerHTML = '<div style="padding:14px;color:#991b1b;font-size:13px">' +
+      escapeHtml(error && error.message || error) + '</div>';
+    return;
+  }
+  const input = el('tb-search-input');
+  if (seq !== _globalSearchSeq || !input || input.value.trim() !== query) return;
 
-  // Contacts — match by Contact Person or Phone (skip leads already in Leads section)
-  const leadSection = new Set(matchedLeads.map(l => l['Lead ID']));
-  const matchedContacts = leads.filter(l =>
-    !leadSection.has(l['Lead ID']) && (
-      String(l['Contact Person'] || '').toLowerCase().includes(ql) ||
-      String(l['Phone']          || '').toLowerCase().includes(ql)
-    )
-  );
-
-  // Follow-ups — match by Discussion or Remark
-  const matchedFU = followups.filter(f =>
-    String(f['Discussion'] || '').toLowerCase().includes(ql) ||
-    String(f['Remark']     || '').toLowerCase().includes(ql) ||
-    String(remarkSearchText(f) || '').toLowerCase().includes(ql)
-  );
-
-  const total = matchedLeads.length + matchedContacts.length + matchedFU.length;
-
+  const matchedLeads = result.leads || [];
+  const matchedContacts = result.contacts || [];
+  const matchedFU = result.followups || [];
+  const counts = result.counts || {};
+  const leadMap = matchedLeads.concat(matchedContacts).reduce((m, lead) => {
+    if (lead['Lead ID']) m[lead['Lead ID']] = lead;
+    return m;
+  }, {});
+  const total = Number(result.total || 0);
   if (!total) {
     drop.innerHTML = `<div style="padding:18px 14px;text-align:center;color:#9CA3AF;font-size:13px">No results for "${escapeHtml(q)}"</div>`;
     drop.style.display = 'block';
@@ -789,10 +793,10 @@ function _runGlobalSearch(q) {
   const navItems = [];
   let html = '';
 
-  const section = (label, items, renderRow) => {
+  const section = (label, items, totalCount, renderRow) => {
     if (!items.length) return '';
     const shown = items.slice(0, 4);
-    let out = `<div class="tb-sd-section-head">${escapeHtml(label)}<span class="tb-sd-section-count">${items.length}</span></div>`;
+    let out = `<div class="tb-sd-section-head">${escapeHtml(label)}<span class="tb-sd-section-count">${Number(totalCount || items.length)}</span></div>`;
     shown.forEach(item => {
       const idx = navItems.length;
       navItems.push(item);
@@ -802,7 +806,7 @@ function _runGlobalSearch(q) {
   };
 
   // ── Leads section ──
-  html += section('Leads', matchedLeads, (l, idx) => {
+  html += section('Leads', matchedLeads, counts.leads, (l, idx) => {
     const name    = escapeHtml(l['Company Name'] || '—');
     const contact = escapeHtml(l['Contact Person'] || '');
     const status  = l['Lead Status'] || 'Open';
@@ -819,7 +823,7 @@ function _runGlobalSearch(q) {
   });
 
   // ── Contacts section ──
-  html += section('Contacts', matchedContacts, (l, idx) => {
+  html += section('Contacts', matchedContacts, counts.contacts, (l, idx) => {
     const contact = escapeHtml(l['Contact Person'] || '—');
     const company = escapeHtml(l['Company Name'] || '');
     const phone   = escapeHtml(l['Phone'] || '');
@@ -834,9 +838,9 @@ function _runGlobalSearch(q) {
   });
 
   // ── Follow-ups section ──
-  html += section('Follow-ups', matchedFU, (f, idx) => {
+  html += section('Follow-ups', matchedFU, counts.followups, (f, idx) => {
     const lead    = leadMap[f['Lead ID']] || {};
-    const company = escapeHtml(lead['Company Name'] || '—');
+    const company = escapeHtml(f._leadCompanyName || lead['Company Name'] || '—');
     const disc    = escapeHtml(f['Discussion'] || f['Remark'] || '');
     const date    = f['Follow-up Date'] || f['Planned Date'] || '';
     const leadId  = escapeHtml(String(f['Lead ID'] || ''));
@@ -852,7 +856,7 @@ function _runGlobalSearch(q) {
 
   const shownCount = Math.min(matchedLeads.length, 4) + Math.min(matchedContacts.length, 4) + Math.min(matchedFU.length, 4);
   if (total > shownCount) {
-    html += `<div class="tb-sd-footer" onmousedown="_gsViewAll(${JSON.stringify(q)})">View all ${total} results for "${escapeHtml(q)}" →</div>`;
+    html += `<div class="tb-sd-footer" data-query="${escapeHtml(q)}" onmousedown="_gsViewAll(this.dataset.query)">View all ${total} results for "${escapeHtml(q)}" →</div>`;
   }
 
   drop.innerHTML = html;
@@ -919,6 +923,7 @@ function _topbarSearchKey(event) {
 }
 
 function _closeSearchDrop() {
+  _globalSearchSeq++;
   const drop = el('tb-search-drop');
   if (drop) { drop.style.display = 'none'; drop.innerHTML = ''; }
   const inp = el('tb-search-input');

@@ -86,6 +86,7 @@ function ensureIndexSheets_() {
 
 function rebuildAllIndexes() {
   return withServerContext_(() => {
+    requireContainerAdmin_(false);
     ensureIndexSheets_();
     _indexDefinitions_().forEach(def => rebuildIndexForSheet_(def.sourceSheet));
     return 'Indexes rebuilt successfully.';

@@ -97,7 +97,11 @@ function _sheetsApiCellValue_(value, isDateCol) {
 function _objectsFromSheetsApiValues_(values, opts) {
   const data = values || [];
   if (data.length < 2) return [];
-  const headers = (data[0] || []).map(h => String(h || '').trim());
+  const rawHeaders = (data[0] || []).map(h => String(h || '').trim());
+  const sheetName = opts && opts.sheetName || '';
+  const headers = sheetName && typeof validateSheetHeaders_ === 'function'
+    ? validateSheetHeaders_(sheetName, rawHeaders)
+    : rawHeaders;
   const dateFlags = headers.map(_isDateColumnHeader_);
   const skipBlank = !!(opts && opts.skipBlankRows);
   const out = [];
@@ -107,7 +111,10 @@ function _objectsFromSheetsApiValues_(values, opts) {
     const obj = {};
     for (let c = 0; c < headers.length; c++) {
       if (!headers[c]) continue;
-      obj[headers[c]] = _sheetsApiCellValue_(row[c], dateFlags[c]);
+      const value = _sheetsApiCellValue_(row[c], dateFlags[c]);
+      obj[headers[c]] = sheetName && typeof parseSheetCell_ === 'function'
+        ? parseSheetCell_(sheetName, headers[c], value)
+        : value;
     }
     out.push(obj);
   }
@@ -154,7 +161,7 @@ function readAllRowsWithFallback_(sheetName) {
         valueRenderOption: 'UNFORMATTED_VALUE',
         dateTimeRenderOption: 'SERIAL_NUMBER'
       });
-      rows = _objectsFromSheetsApiValues_(res.values, { skipBlankRows: false });
+      rows = _objectsFromSheetsApiValues_(res.values, { skipBlankRows: false, sheetName: normalizeSheetName(sheetName) });
     } catch (e) {
       _noteSheetsApiError_(e);
       Logger.log('[Read] Sheets API getAllRows fell back for ' + sheetName + ': ' + (e && e.message || e));
@@ -194,7 +201,7 @@ function sheetApiBatchGetRows_(sheetNames) {
       });
       const valueRanges = result.valueRanges || [];
       return specs.reduce((map, spec, i) => {
-        map[spec.sheetName] = _objectsFromSheetsApiValues_(valueRanges[i] && valueRanges[i].values, { skipBlankRows: true });
+        map[spec.sheetName] = _objectsFromSheetsApiValues_(valueRanges[i] && valueRanges[i].values, { skipBlankRows: true, sheetName: spec.sheetName });
         return map;
       }, {});
     } catch (e) {
@@ -239,10 +246,10 @@ function getTodayActivitySnapshotFast_(user) {
   const validLeadMap = _rowsByKey_(leads, 'Lead ID');
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
-    .filter(row => !!validLeadMap[row['Lead ID']])
+    .filter(row => !row['Lead ID'] || !!validLeadMap[row['Lead ID']])
     .map(_normalizeFollowupRow);
   const followupHistory = _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY])
-    .filter(row => !!validLeadMap[row['Lead ID']]);
+    .filter(row => !row['Lead ID'] || !!validLeadMap[row['Lead ID']]);
   const activityLogs = rows[SHEET_NAMES.LEAD_ACTIVITY_LOGS] || [];
 
   return {
@@ -274,7 +281,7 @@ function getFollowupPageSnapshotFast_(user, options) {
   const validLeadMap = _rowsByKey_(leads, 'Lead ID');
   const followups = (rows[SHEET_NAMES.FOLLOWUPS] || [])
     .filter(_isFollowupTaskRow)
-    .filter(row => !!validLeadMap[row['Lead ID']])
+    .filter(row => !row['Lead ID'] || !!validLeadMap[row['Lead ID']])
     .map(_normalizeFollowupRow);
   const visibleLeads = _sheetApiScopeLeadRows_(leads, user);
   const visibleLeadMap = _rowsByKey_(visibleLeads, 'Lead ID');
@@ -290,7 +297,7 @@ function getFollowupPageSnapshotFast_(user, options) {
     followupHistory: includeHistory
       ? _sheetApiScopeLinkedRows_(
           _sheetApiFollowupHistoryRows_(rows[SHEET_NAMES.FOLLOWUP_HISTORY])
-            .filter(row => !!validLeadMap[row['Lead ID']]),
+            .filter(row => !row['Lead ID'] || !!validLeadMap[row['Lead ID']]),
           user,
           visibleLeadMap,
           ['Done By']

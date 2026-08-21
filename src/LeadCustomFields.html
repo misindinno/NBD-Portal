@@ -367,7 +367,7 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, sect
           if (r && r.success) return resolve(r.data || '');
           const msg = (r && r.error) ? r.error : 'File upload failed.';
           if (/SESSION_EXPIRED/i.test(msg)) {
-            localStorage.removeItem('nbd_token');
+            AuthToken.clear();
             showLoginOverlay('Your session expired. Please sign in again.');
             return reject(new Error('Session expired — please sign in again.'));
           }

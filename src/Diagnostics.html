@@ -1,0 +1,605 @@
+<script>
+(function bootstrapPortalDiagnostics(global) {
+  'use strict';
+
+  if (global.PortalDiagnostics) return;
+
+  const LIMITS = Object.freeze({
+    events: 120,
+    rpcs: 80,
+    detailDepth: 10,
+    detailKeys: 24,
+    arrayItems: 12,
+    stringLength: 800,
+    reportLength: 60000,
+    slowRpcMs: 8000,
+    watchdogMs: 25000
+  });
+  const SENSITIVE_KEY = /(?:token|password|passwd|authorization|credential|secret|cookie|session|id[_-]?token)/i;
+  const PII_KEY = /(?:e-?mail|phone|mobile|whatsapp|address|contact.?name|first.?name|last.?name|full.?name)/i;
+  const events = [];
+  const rpcs = [];
+  const pendingRpcs = Object.create(null);
+  const startedAt = Date.now();
+  let sequence = 0;
+  let ready = false;
+  let watchdogTimer = null;
+  let recoveryReason = '';
+
+  global.__PORTAL_READY = false;
+  global.__PORTAL_BOOT_ERRORS = Array.isArray(global.__PORTAL_BOOT_ERRORS)
+    ? global.__PORTAL_BOOT_ERRORS.slice(-20)
+    : [];
+
+  function nowIso() {
+    try { return new Date().toISOString(); } catch (e) { return String(Date.now()); }
+  }
+
+  function elapsedMs() {
+    return Math.max(0, Date.now() - startedAt);
+  }
+
+  function cap(value, maximum) {
+    const text = String(value == null ? '' : value);
+    return text.length > maximum ? text.slice(0, maximum) + '...[truncated]' : text;
+  }
+
+  function redactString(value) {
+    return cap(value, LIMITS.stringLength)
+      .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+      .replace(/\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}(?:\.[A-Za-z0-9_-]{10,})?\b/g, '[REDACTED_TOKEN]')
+      .replace(/\b(password|passwd|authorization|token|secret|credential)\s*[:=]\s*["']?[^,\s"']+/gi, '$1=[REDACTED]')
+      .replace(/([?&](?:token|auth|authorization|password|credential|secret)=)[^&#\s]+/gi, '$1[REDACTED]')
+      .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[REDACTED_EMAIL]')
+      .replace(/(?:\+?\d[\d ()-]{7,}\d)/g, '[REDACTED_PHONE]');
+  }
+
+  function safeUrl(value) {
+    try {
+      const parsed = new URL(String(value || ''), global.location && global.location.href);
+      return redactString(parsed.origin + parsed.pathname);
+    } catch (e) {
+      return redactString(String(value || '').split(/[?#]/)[0]);
+    }
+  }
+
+  function sanitize(value, depth, seen) {
+    const level = Number(depth || 0);
+    const visited = seen || [];
+    if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+    if (typeof value === 'string') return redactString(value);
+    if (typeof value === 'function') return '[function]';
+    if (level >= LIMITS.detailDepth) return '[depth-limited]';
+    if (visited.indexOf(value) !== -1) return '[circular]';
+
+    const nextSeen = visited.concat([value]);
+    if (value instanceof Error) {
+      return {
+        name: redactString(value.name || 'Error'),
+        message: redactString(value.message || String(value)),
+        code: value.code ? redactString(value.code) : undefined,
+        requestId: value.requestId ? redactString(value.requestId) : undefined,
+        stack: value.stack ? cap(redactString(value.stack), 2400) : undefined
+      };
+    }
+    if (Array.isArray(value)) {
+      const output = value.slice(0, LIMITS.arrayItems).map(item => sanitize(item, level + 1, nextSeen));
+      if (value.length > LIMITS.arrayItems) output.push('[+' + (value.length - LIMITS.arrayItems) + ' items]');
+      return output;
+    }
+    if (typeof value === 'object') {
+      const output = {};
+      const keys = Object.keys(value).slice(0, LIMITS.detailKeys);
+      keys.forEach(key => {
+        if (SENSITIVE_KEY.test(key)) output[key] = typeof value[key] === 'boolean' ? value[key] : '[REDACTED]';
+        else if (PII_KEY.test(key)) output[key] = typeof value[key] === 'boolean' ? value[key] : '[REDACTED_PII]';
+        else output[key] = sanitize(value[key], level + 1, nextSeen);
+      });
+      if (Object.keys(value).length > keys.length) output.__truncatedKeys = Object.keys(value).length - keys.length;
+      return output;
+    }
+    return redactString(String(value));
+  }
+
+  function pushBounded(target, value, limit) {
+    target.push(value);
+    if (target.length > limit) target.splice(0, target.length - limit);
+    return value;
+  }
+
+  function record(type, details, level) {
+    const entry = {
+      id: ++sequence,
+      at: nowIso(),
+      elapsedMs: elapsedMs(),
+      level: String(level || 'info'),
+      type: redactString(type || 'event'),
+      details: sanitize(details == null ? {} : details)
+    };
+    pushBounded(events, entry, LIMITS.events);
+    if (entry.level === 'error') {
+      const message = entry.details && entry.details.message
+        ? entry.details.message
+        : entry.type;
+      global.__PORTAL_BOOT_ERRORS.push(cap(message, 400));
+      if (global.__PORTAL_BOOT_ERRORS.length > 20) global.__PORTAL_BOOT_ERRORS.shift();
+    }
+    return entry;
+  }
+
+  function phase(name, state, details) {
+    return record('startup.phase', {
+      phase: String(name || 'unknown'),
+      state: String(state || 'progress'),
+      context: details || {}
+    }, state === 'failure' ? 'error' : 'info');
+  }
+
+  function findRpc(id) {
+    for (let index = rpcs.length - 1; index >= 0; index -= 1) {
+      if (rpcs[index].id === id) return rpcs[index];
+    }
+    return null;
+  }
+
+  function rpcStart(operation) {
+    const pendingIds = Object.keys(pendingRpcs);
+    if (pendingIds.length >= LIMITS.rpcs) {
+      const evictedId = pendingIds[0];
+      global.clearTimeout(pendingRpcs[evictedId].timer);
+      delete pendingRpcs[evictedId];
+      const evicted = findRpc(evictedId);
+      if (evicted) evicted.state = 'tracking-evicted';
+      record('rpc.tracking-evicted', { rpcId: evictedId, operation: evicted && evicted.operation || 'unknown' }, 'warn');
+    }
+    const id = 'rpc-' + (++sequence);
+    const entry = {
+      id,
+      operation: redactString(operation || 'unknown'),
+      state: 'pending',
+      startedAt: nowIso(),
+      elapsedMs: elapsedMs(),
+      durationMs: null,
+      slow: false
+    };
+    pushBounded(rpcs, entry, LIMITS.rpcs);
+    const timer = global.setTimeout(function markSlowRpc() {
+      const current = findRpc(id);
+      if (!current || current.state !== 'pending') return;
+      current.slow = true;
+      record('rpc.slow', { operation: current.operation, thresholdMs: LIMITS.slowRpcMs }, 'warn');
+    }, LIMITS.slowRpcMs);
+    pendingRpcs[id] = { started: Date.now(), timer };
+    record('rpc.start', { operation: entry.operation, rpcId: id });
+    return id;
+  }
+
+  function finishRpc(id, state, details) {
+    const entry = findRpc(id);
+    const pending = pendingRpcs[id];
+    const duration = pending ? Math.max(0, Date.now() - pending.started) : null;
+    if (pending) {
+      global.clearTimeout(pending.timer);
+      delete pendingRpcs[id];
+    }
+    if (entry) {
+      entry.state = state;
+      entry.finishedAt = nowIso();
+      entry.durationMs = duration;
+      entry.slow = entry.slow || (duration != null && duration >= LIMITS.slowRpcMs);
+      entry.result = sanitize(details || {});
+    }
+    record('rpc.' + state, {
+      operation: entry ? entry.operation : 'unknown',
+      rpcId: id,
+      durationMs: duration,
+      result: details || {}
+    }, state === 'failure' ? 'error' : (duration >= LIMITS.slowRpcMs ? 'warn' : 'info'));
+    return entry;
+  }
+
+  function markReady(details) {
+    if (ready) return;
+    ready = true;
+    global.__PORTAL_READY = true;
+    if (watchdogTimer) global.clearTimeout(watchdogTimer);
+    phase('portal.ready', 'complete', details || {});
+  }
+
+  function failStartup(reason, error) {
+    if (watchdogTimer) global.clearTimeout(watchdogTimer);
+    phase('portal.ready', 'failure', { reason: reason || '', error: error || null });
+    showRecoveryPanel(reason || 'Portal startup failed.', error);
+  }
+
+  function gasBridgeAvailable() {
+    return Boolean(global.google && global.google.script && global.google.script.run);
+  }
+
+  function portalApiAvailable() {
+    try { return typeof api !== 'undefined' && api && typeof api._read === 'function'; }
+    catch (e) { return false; }
+  }
+
+  function portalAdminLoaded() {
+    try { return typeof App !== 'undefined' && App && App.user && App.user.role === 'ADMIN'; }
+    catch (e) { return false; }
+  }
+
+  function callRawDiagnosticPing() {
+    return new Promise(function (resolve, reject) {
+      try {
+        global.google.script.run
+          .withSuccessHandler(function (response) {
+            if (!response) return reject(new Error('apiDiagnosticPing returned no response.'));
+            if (response.success) return resolve(response.data);
+            const error = new Error(response.error || 'Diagnostic ping failed.');
+            error.code = response.code || 'DIAGNOSTIC_UNAVAILABLE';
+            error.meta = response.meta || {};
+            error.requestId = error.meta.requestId || '';
+            reject(error);
+          })
+          .withFailureHandler(function (source) {
+            reject(new Error(source && source.message || String(source || 'Diagnostic ping transport failed.')));
+          })
+          .apiDiagnosticPing();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function callDiagnosticPing() {
+    try {
+      if (portalApiAvailable() && typeof api.diagnosticPing === 'function') return api.diagnosticPing();
+    } catch (e) {}
+    return callRawDiagnosticPing();
+  }
+
+  function withCheckTimeout(promise, label) {
+    let timer;
+    return Promise.race([
+      promise,
+      new Promise(function (_, reject) {
+        timer = global.setTimeout(function () { reject(new Error(label + ' timed out after 12 seconds.')); }, 12000);
+      })
+    ]).finally(function () {
+      if (timer) global.clearTimeout(timer);
+    });
+  }
+
+  function diagnosticPayloadSummary(payload, includeChecks) {
+    const value = payload && typeof payload === 'object' ? payload : {};
+    const summary = {
+      status: value.status || 'unknown',
+      service: value.service || undefined,
+      diagnosticsVersion: value.diagnosticsVersion || undefined,
+      serverTime: value.serverTime || value.generatedAt || undefined
+    };
+    if (includeChecks) {
+      summary.request = value.request ? {
+        requestId: value.request.requestId || '',
+        operation: value.request.operation || '',
+        durationMs: value.request.durationMs,
+        spanCount: value.request.spanCount,
+        droppedSpans: value.request.droppedSpans
+      } : {};
+      summary.checks = Array.isArray(value.checks) ? value.checks.slice(0, 20).map(function (check) {
+        return {
+          name: check && check.name || 'unknown',
+          status: check && check.status || 'unknown',
+          durationMs: check && check.durationMs,
+          data: check && check.data || undefined,
+          error: check && check.error || undefined
+        };
+      }) : [];
+    }
+    return sanitize(summary);
+  }
+
+  function portalStoreAvailable() {
+    try { return typeof Store !== 'undefined'; } catch (e) { return false; }
+  }
+
+  function portalInitAvailable() {
+    try { return typeof init === 'function'; } catch (e) { return false; }
+  }
+
+  function authTokenPresent() {
+    try {
+      return Boolean(global.sessionStorage && global.sessionStorage.getItem('nbd_token')) ||
+        Boolean(global.localStorage && global.localStorage.getItem('nbd_token'));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function environmentSnapshot() {
+    return {
+      url: safeUrl(global.location && global.location.href),
+      title: redactString(global.document && global.document.title || ''),
+      readyState: global.document && global.document.readyState,
+      portalReady: ready || global.__PORTAL_READY === true,
+      online: global.navigator ? global.navigator.onLine !== false : null,
+      visibility: global.document && global.document.visibilityState,
+      language: global.navigator && global.navigator.language,
+      userAgent: redactString(global.navigator && global.navigator.userAgent || ''),
+      viewport: {
+        width: Number(global.innerWidth || 0),
+        height: Number(global.innerHeight || 0),
+        devicePixelRatio: Number(global.devicePixelRatio || 1)
+      },
+      authTokenPresent: authTokenPresent()
+    };
+  }
+
+  function buildReport() {
+    return {
+      schemaVersion: 1,
+      generatedAt: nowIso(),
+      uptimeMs: elapsedMs(),
+      recoveryReason,
+      environment: environmentSnapshot(),
+      globals: {
+        googleScriptRun: gasBridgeAvailable(),
+        api: portalApiAvailable(),
+        store: portalStoreAvailable(),
+        init: portalInitAvailable()
+      },
+      activeRpcCount: Object.keys(pendingRpcs).length,
+      events: events.slice(),
+      rpcs: rpcs.slice()
+    };
+  }
+
+  function formatReport() {
+    const report = buildReport();
+    let json = JSON.stringify(report, null, 2);
+    while (json.length > LIMITS.reportLength && (report.events.length > 10 || report.rpcs.length > 10)) {
+      if (report.events.length > 10) report.events.splice(0, Math.ceil(report.events.length / 3));
+      if (report.rpcs.length > 10) report.rpcs.splice(0, Math.ceil(report.rpcs.length / 3));
+      report.reportTrimmed = true;
+      json = JSON.stringify(report, null, 2);
+    }
+    if (json.length > LIMITS.reportLength) {
+      json = JSON.stringify({
+        schemaVersion: report.schemaVersion,
+        generatedAt: report.generatedAt,
+        uptimeMs: report.uptimeMs,
+        environment: report.environment,
+        reportTrimmed: true,
+        summary: 'Diagnostic details exceeded the report size limit.'
+      }, null, 2);
+    }
+    return 'PORTAL_DEBUG_REPORT_START\n' + json + '\nPORTAL_DEBUG_REPORT_END';
+  }
+
+  function copyText(text) {
+    if (global.navigator && global.navigator.clipboard && global.isSecureContext) {
+      return global.navigator.clipboard.writeText(text).then(function () { return true; });
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        const area = global.document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', 'readonly');
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        global.document.body.appendChild(area);
+        area.select();
+        const copied = global.document.execCommand('copy');
+        area.remove();
+        copied ? resolve(true) : reject(new Error('Clipboard copy was blocked.'));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function copyReport() {
+    record('debug.copy-report', {});
+    return copyText(formatReport());
+  }
+
+  function storageCheck(name) {
+    try {
+      const storage = global[name];
+      if (!storage) return false;
+      const key = '__portal_diag_check__';
+      storage.setItem(key, '1');
+      storage.removeItem(key);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function runChecks() {
+    const bridgeAvailable = gasBridgeAvailable();
+    const checks = [
+      { name: 'Browser online', ok: !global.navigator || global.navigator.onLine !== false },
+      { name: 'Google Apps Script bridge', ok: bridgeAvailable },
+      { name: 'Portal API loaded', ok: portalApiAvailable() },
+      { name: 'Session storage available', ok: storageCheck('sessionStorage') },
+      { name: 'Document visible', ok: !global.document || global.document.visibilityState !== 'hidden' },
+      { name: 'No stalled RPC', ok: Object.keys(pendingRpcs).length === 0 }
+    ];
+
+    if (bridgeAvailable) {
+      try {
+        const ping = await withCheckTimeout(callDiagnosticPing(), 'Diagnostic ping');
+        const summary = diagnosticPayloadSummary(ping, false);
+        checks.push({ name: 'Server diagnostic ping', ok: summary.status === 'ok', summary });
+      } catch (error) {
+        checks.push({ name: 'Server diagnostic ping', ok: false, detail: sanitize(error) });
+      }
+    } else {
+      checks.push({ name: 'Server diagnostic ping', ok: false, detail: 'Google Apps Script bridge is unavailable.' });
+    }
+
+    if (portalAdminLoaded()) {
+      try {
+        if (!portalApiAvailable() || typeof api.getDiagnosticSnapshot !== 'function') {
+          throw new Error('Admin diagnostic snapshot API is not loaded.');
+        }
+        const snapshot = await withCheckTimeout(api.getDiagnosticSnapshot(), 'Admin diagnostic snapshot');
+        const summary = diagnosticPayloadSummary(snapshot, true);
+        checks.push({ name: 'Admin diagnostic snapshot', ok: summary.status === 'ok', summary });
+      } catch (error) {
+        checks.push({ name: 'Admin diagnostic snapshot', ok: false, detail: sanitize(error) });
+      }
+    } else {
+      checks.push({ name: 'Admin diagnostic snapshot', ok: null, detail: 'Skipped because the loaded portal user is not ADMIN.' });
+    }
+
+    record('debug.run-checks', { checks }, checks.some(check => check.ok === false) ? 'warn' : 'info');
+    return checks;
+  }
+
+  function signInAgain() {
+    record('debug.sign-in-again', {});
+    try {
+      if (typeof AuthToken !== 'undefined' && AuthToken && typeof AuthToken.clear === 'function') AuthToken.clear();
+      else {
+        global.sessionStorage && global.sessionStorage.removeItem('nbd_token');
+        global.localStorage && global.localStorage.removeItem('nbd_token');
+      }
+    } catch (e) {}
+    global.location.reload();
+  }
+
+  function panelMarkup(reason) {
+    const safeReason = sanitize(reason || recoveryReason || 'The portal did not finish starting.');
+    return '<section id="portal-diagnostics-recovery" role="alert" style="max-width:680px;margin:48px auto;padding:24px;border:1px solid #fecaca;background:#fff;color:#172033;font:14px/1.5 Arial,sans-serif;border-radius:8px;box-shadow:0 12px 30px rgba(15,23,42,.10)">' +
+      '<h2 style="margin:0 0 8px;color:#991b1b;font-size:20px;letter-spacing:0">Portal startup needs attention</h2>' +
+      '<p style="margin:0 0 8px;color:#475569">The portal could not complete startup. Use the checks below, then copy the debug report for support.</p>' +
+      '<p id="portal-diagnostics-reason" style="margin:0 0 18px;padding:10px 12px;background:#f8fafc;border-left:3px solid #ef4444;word-break:break-word"></p>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
+        '<button type="button" data-diag-action="copy" style="height:38px;padding:0 14px;border:1px solid #334155;background:#334155;color:#fff;border-radius:6px;font-weight:700;cursor:pointer">Copy Debug Report</button>' +
+        '<button type="button" data-diag-action="checks" style="height:38px;padding:0 14px;border:1px solid #cbd5e1;background:#fff;color:#172033;border-radius:6px;font-weight:700;cursor:pointer">Run Checks</button>' +
+        '<button type="button" data-diag-action="reload" style="height:38px;padding:0 14px;border:1px solid #cbd5e1;background:#fff;color:#172033;border-radius:6px;font-weight:700;cursor:pointer">Reload</button>' +
+        '<button type="button" data-diag-action="signin" style="height:38px;padding:0 14px;border:1px solid #cbd5e1;background:#fff;color:#172033;border-radius:6px;font-weight:700;cursor:pointer">Sign In Again</button>' +
+      '</div>' +
+      '<pre id="portal-diagnostics-checks" aria-live="polite" style="display:none;margin:16px 0 0;padding:12px;max-height:240px;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:6px;white-space:pre-wrap;font:12px/1.5 monospace"></pre>' +
+    '</section>';
+  }
+
+  function showRecoveryPanel(reason, error) {
+    recoveryReason = redactString(reason || (error && error.message) || 'The portal did not finish starting.');
+    record('startup.recovery-panel', { reason: recoveryReason, error: error || null }, 'error');
+
+    function render() {
+      if (!global.document || !global.document.body) return;
+      const content = global.document.getElementById('content') || global.document.body;
+      content.innerHTML = panelMarkup(recoveryReason);
+      const panel = global.document.getElementById('portal-diagnostics-recovery');
+      const reasonNode = global.document.getElementById('portal-diagnostics-reason');
+      if (reasonNode) reasonNode.textContent = recoveryReason;
+      if (!panel) return;
+      panel.addEventListener('click', async function (event) {
+        const button = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-diag-action]') : null;
+        if (!button) return;
+        const action = button.getAttribute('data-diag-action');
+        if (action === 'reload') return global.location.reload();
+        if (action === 'signin') return signInAgain();
+        const output = global.document.getElementById('portal-diagnostics-checks');
+        if (action === 'copy') {
+          try {
+            await copyReport();
+            button.textContent = 'Debug Report Copied';
+          } catch (copyError) {
+            if (output) {
+              output.style.display = 'block';
+              output.textContent = 'Copy failed: ' + redactString(copyError && copyError.message || copyError) + '\n\n' + formatReport();
+            }
+          }
+        }
+        if (action === 'checks') {
+          button.disabled = true;
+          button.textContent = 'Running Checks...';
+          const checks = await runChecks();
+          if (output) {
+            output.style.display = 'block';
+            output.textContent = checks.map(function (check) {
+              const marker = check.ok === true ? 'OK' : (check.ok === false ? 'FAIL' : 'SKIP');
+              const checkDetail = check.summary || check.detail;
+              const detail = checkDetail ? ' - ' + JSON.stringify(sanitize(checkDetail)) : '';
+              return marker + ' | ' + check.name + detail;
+            }).join('\n');
+          }
+          button.disabled = false;
+          button.textContent = 'Run Checks';
+        }
+      });
+      global.document.body.style.overflowY = 'auto';
+    }
+
+    if (global.document && global.document.body) render();
+    else global.addEventListener('DOMContentLoaded', render, { once: true });
+  }
+
+  function startWatchdog() {
+    if (watchdogTimer) global.clearTimeout(watchdogTimer);
+    watchdogTimer = global.setTimeout(function () {
+      if (ready || global.__PORTAL_READY) return;
+      const pending = rpcs.filter(rpc => rpc.state === 'pending').map(rpc => rpc.operation);
+      const reason = pending.length
+        ? 'Startup is waiting for: ' + pending.join(', ')
+        : (global.__PORTAL_BOOT_ERRORS[0] || 'The application did not finish starting within 25 seconds.');
+      phase('startup.watchdog', 'failure', { pendingRpc: pending });
+      showRecoveryPanel(reason);
+    }, LIMITS.watchdogMs);
+  }
+
+  global.PortalDiagnostics = Object.freeze({
+    version: '1.0.0',
+    limits: LIMITS,
+    record,
+    phase,
+    markReady,
+    failStartup,
+    rpcStart,
+    rpcSuccess: function (id, details) { return finishRpc(id, 'success', details); },
+    rpcFailure: function (id, details) { return finishRpc(id, 'failure', details); },
+    getReport: buildReport,
+    formatReport,
+    copyReport,
+    runChecks,
+    showRecoveryPanel,
+    signInAgain,
+    sanitize
+  });
+  global.getPortalDebugReport = function () { return global.PortalDiagnostics.formatReport(); };
+  global.copyPortalDebugReport = function () { return global.PortalDiagnostics.copyReport(); };
+
+  global.addEventListener('error', function (event) {
+    const target = event.target;
+    if (target && target !== global && (target.src || target.href)) {
+      record('resource.failure', {
+        tag: target.tagName || 'resource',
+        url: safeUrl(target.src || target.href)
+      }, 'error');
+      return;
+    }
+    record('window.error', {
+      message: event.message || 'Browser error',
+      source: safeUrl(event.filename || ''),
+      line: event.lineno || 0,
+      column: event.colno || 0,
+      error: event.error || null
+    }, 'error');
+  }, true);
+
+  global.addEventListener('unhandledrejection', function (event) {
+    record('promise.unhandled', { reason: event.reason || 'Unhandled promise rejection' }, 'error');
+  });
+  global.addEventListener('online', function () { record('network.state', { online: true }); });
+  global.addEventListener('offline', function () { record('network.state', { online: false }, 'warn'); });
+  global.document.addEventListener('visibilitychange', function () {
+    record('document.visibility', { state: global.document.visibilityState });
+  });
+
+  phase('diagnostics.loaded', 'complete', { readyState: global.document.readyState });
+  startWatchdog();
+})(window);
+</script>

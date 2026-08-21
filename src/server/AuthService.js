@@ -157,6 +157,7 @@ function upsertUserPortalAccess_(user, data) {
 }
 
 function migrateUserPortalAccess() {
+  requireContainerAdmin_(false);
   return withServerContext_(() => {
     const count = migrateUserPortalAccess_();
     return 'Migrated ' + count + ' user portal access rows for ' + currentPortalKey_() + '.';
@@ -253,6 +254,15 @@ function canManageUsersPermission(user) {
   return user.role === 'ADMIN' || user.canManageUsers === true || userHasModule(user, 'Users');
 }
 
+function requireContainerAdmin_(allowBootstrap) {
+  const activeEmail = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  if (!activeEmail) throw new Error('Permission denied. Run this command from the bound spreadsheet.');
+  const result = getCurrentUserByEmail_(activeEmail);
+  if (result && result.success && result.data.role === 'ADMIN') return result.data;
+  const effectiveEmail = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (allowBootstrap && activeEmail === effectiveEmail) return { email: activeEmail, role: 'ADMIN' };
+  throw new Error('Permission denied. Container administrator access is required.');
+}
 function requireConfigEditor() {
   const trustedEmail = TRUSTED_WRITE_EMAIL;
   if (!trustedEmail) throw new Error('Direct write calls are disabled. Use the queue API.');
@@ -282,32 +292,125 @@ function requireRole(allowedRoles) {
 }
 
 function requireRoleForEmail_(allowedRoles, email) {
-  const norm = String(email || '').trim().toLowerCase();
-  if (!norm) return requireRole(allowedRoles);
-  const result = getCurrentUserByEmail_(norm);
-  if (!result.success) throw new Error(result.error);
-  if (!allowedRoles.includes(result.data.role)) throw new Error('Permission denied.');
-  return result.data;
+  // The email argument is retained for compatibility, but identity always comes
+  // from withTrustedWriteUser_ in the authenticated API layer.
+  return requireRole(allowedRoles);
 }
-
 
 // ─── Custom session auth (email + password) ───────────────────────────────────
 const AUTH_SESSION_TTL = 21600; // 6 hours (Apps Script CacheService maximum)
+const AUTH_SESSION_TOKEN_MAX_LENGTH = 4096;
+const AUTH_PASSWORD_ITERATIONS = 12000;
+const AUTH_PASSWORD_MIN_ITERATIONS = 1000;
+const AUTH_PASSWORD_MAX_ITERATIONS = 12000;
+const AUTH_PASSWORD_MAX_LENGTH = 1024;
+const AUTH_EMAIL_MAX_LENGTH = 320;
+const AUTH_LOGIN_ATTEMPT_LIMIT = 8;
+const AUTH_LOGIN_ATTEMPT_WINDOW = 300;
 
 function _hashPassword(pw) {
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, pw + ':NBD_PORTAL_AUTH');
-  return bytes.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+  return _hexBytes_(bytes);
 }
 
+function _hexBytes_(bytes) {
+  return (bytes || []).map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
+}
+
+function _constantTimeEqual_(left, right) {
+  const a = String(left || '');
+  const b = String(right || '');
+  let diff = a.length ^ b.length;
+  const max = Math.max(a.length, b.length);
+  for (let i = 0; i < max; i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return diff === 0;
+}
+
+function _passwordV2Hash_(password, salt, iterations) {
+  let bytes = Utilities.newBlob(String(password || '') + ':' + salt).getBytes();
+  const requestedRounds = Number(iterations);
+  const rounds = Number.isFinite(requestedRounds)
+    ? Math.max(AUTH_PASSWORD_MIN_ITERATIONS, Math.min(AUTH_PASSWORD_MAX_ITERATIONS, Math.floor(requestedRounds)))
+    : AUTH_PASSWORD_ITERATIONS;
+  for (let i = 0; i < rounds; i++) {
+    bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes);
+  }
+  return _hexBytes_(bytes);
+}
+
+function _encodePasswordV2_(password) {
+  const iterations = AUTH_PASSWORD_ITERATIONS;
+  const salt = Utilities.getUuid().replace(/-/g, '');
+  return ['v2', iterations, salt, _passwordV2Hash_(password, salt, iterations)].join('$');
+}
+
+function _verifyPasswordV2_(password, stored) {
+  const parts = String(stored || '').split('$');
+  if (parts.length !== 4 || parts[0] !== 'v2') return false;
+  const iterations = Number(parts[1]);
+  if (!Number.isInteger(iterations) || iterations < AUTH_PASSWORD_MIN_ITERATIONS || iterations > AUTH_PASSWORD_MAX_ITERATIONS) return false;
+  if (!/^[a-f0-9]{64}$/i.test(parts[3]) || !/^[a-f0-9]{16,128}$/i.test(parts[2])) return false;
+  return _constantTimeEqual_(_passwordV2Hash_(password, parts[2], iterations), parts[3]);
+}
+function _loginAttemptCacheKey_(email) {
+  const normalized = String(email || '').trim().toLowerCase().slice(0, AUTH_EMAIL_MAX_LENGTH);
+  return 'AUTH_LOGIN_FAIL:' + _hexBytes_(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, normalized)
+  ).slice(0, 32);
+}
+
+function assertLoginAllowed_(email) {
+  const attempts = Number(CacheService.getScriptCache().get(_loginAttemptCacheKey_(email)) || 0);
+  if (attempts >= AUTH_LOGIN_ATTEMPT_LIMIT) {
+    throw new Error('Too many login attempts. Try again in 5 minutes.');
+  }
+}
+
+function recordLoginFailure_(email) {
+  const cache = CacheService.getScriptCache();
+  const key = _loginAttemptCacheKey_(email);
+  const lock = LockService.getScriptLock();
+  const locked = lock.tryLock(2000);
+  try {
+    const attempts = Math.min(
+      AUTH_LOGIN_ATTEMPT_LIMIT,
+      Number(cache.get(key) || 0) + 1
+    );
+    cache.put(key, String(attempts), AUTH_LOGIN_ATTEMPT_WINDOW);
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function clearLoginFailures_(email) {
+  CacheService.getScriptCache().remove(_loginAttemptCacheKey_(email));
+}
 function validateUserPassword_(email, password) {
   const norm = String(email || '').trim().toLowerCase();
+  const candidatePassword = String(password ?? '');
+  if (!norm || norm.length > AUTH_EMAIL_MAX_LENGTH || !candidatePassword || candidatePassword.length > AUTH_PASSWORD_MAX_LENGTH) return null;
   const user = _getUserByEmailIndexed_(norm);
   if (!user) return null;
   const stored = String(user['Password'] || '').trim();
   if (!stored) return null;
-  const hashed = _hashPassword(password);
-  // Accept hashed password or plain-text (plain allowed during initial setup only)
-  if (stored !== hashed && stored !== password) return null;
+
+  let valid = false;
+  let upgrade = false;
+  if (stored.indexOf('v2$') === 0) {
+    valid = _verifyPasswordV2_(candidatePassword, stored);
+  } else if (/^[a-f0-9]{64}$/i.test(stored)) {
+    valid = _constantTimeEqual_(_hashPassword(candidatePassword), stored);
+    upgrade = valid;
+  } else {
+    valid = _constantTimeEqual_(stored, candidatePassword);
+    upgrade = valid;
+  }
+  if (!valid) return null;
+  if (upgrade) {
+    updateRow(SHEET_NAMES.USERS, 'Email Address', user['Email Address'], {
+      'Password': _encodePasswordV2_(candidatePassword)
+    });
+  }
   return user;
 }
 
@@ -325,30 +428,111 @@ function _getUserByEmailIndexed_(email) {
   ) || null;
 }
 
+function _authSigningSecret_() {
+  const properties = PropertiesService.getScriptProperties();
+  let secret = properties.getProperty('AUTH_SIGNING_SECRET') || '';
+  if (secret) return secret;
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) {
+    secret = properties.getProperty('AUTH_SIGNING_SECRET') || '';
+    if (secret) return secret;
+    throw new Error('Authentication signing key is temporarily unavailable.');
+  }
+  try {
+    // Another execution may have initialized the secret while this one waited.
+    secret = properties.getProperty('AUTH_SIGNING_SECRET') || '';
+    if (!secret) {
+      secret = Utilities.getUuid() + Utilities.getUuid() + Utilities.getUuid();
+      properties.setProperty('AUTH_SIGNING_SECRET', secret);
+    }
+    return secret;
+  } finally {
+    lock.releaseLock();
+  }
+}
+function _base64UrlText_(text) {
+  return Utilities.base64EncodeWebSafe(String(text || ''), Utilities.Charset.UTF_8).replace(/=+$/g, '');
+}
+
+function _base64UrlBytes_(bytes) {
+  return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/g, '');
+}
+
+function _base64UrlDecodeBytes_(encoded) {
+  const value = String(encoded || '');
+  if (!value || value.length > AUTH_SESSION_TOKEN_MAX_LENGTH || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error('Invalid base64url value.');
+  }
+  const remainder = value.length % 4;
+  if (remainder === 1) throw new Error('Invalid base64url length.');
+  return Utilities.base64DecodeWebSafe(value + (remainder ? '='.repeat(4 - remainder) : ''));
+}
+function _signSessionPayload_(encodedPayload) {
+  return _base64UrlBytes_(Utilities.computeHmacSha256Signature(encodedPayload, _authSigningSecret_()));
+}
+
 function createAuthSession_(email, userId) {
-  const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  CacheService.getScriptCache().put(
-    'AUTH:' + token,
-    JSON.stringify({ email, userId, created: Date.now() }),
-    AUTH_SESSION_TTL
-  );
-  return token;
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const payload = {
+    email: String(email || '').trim().toLowerCase(),
+    userId: String(userId || ''),
+    portal: currentPortalKey_(),
+    iat: issuedAt,
+    exp: issuedAt + AUTH_SESSION_TTL,
+    jti: Utilities.getUuid().replace(/-/g, '')
+  };
+  const encoded = _base64UrlText_(JSON.stringify(payload));
+  return encoded + '.' + _signSessionPayload_(encoded);
+}
+
+function _readSignedAuthSession_(token) {
+  const tokenText = String(token || '');
+  if (!tokenText || tokenText.length > AUTH_SESSION_TOKEN_MAX_LENGTH) return null;
+  const parts = tokenText.split('.');
+  if (parts.length !== 2) return null;
+  if (!parts[0] || !parts[1] || parts[1].length > 128) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(parts[0]) || !/^[A-Za-z0-9_-]+$/.test(parts[1])) return null;
+  if (!_constantTimeEqual_(_signSessionPayload_(parts[0]), parts[1])) return null;
+  let payload;
+  try {
+    payload = JSON.parse(Utilities.newBlob(_base64UrlDecodeBytes_(parts[0])).getDataAsString());
+  } catch (e) {
+    return null;
+  }
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const issuedAt = Number(payload.iat);
+  const expiresAt = Number(payload.exp);
+  if (typeof payload.email !== 'string' || !payload.email || payload.email.length > AUTH_EMAIL_MAX_LENGTH) return null;
+  if (!/^[a-f0-9]{32}$/i.test(String(payload.jti || ''))) return null;
+  if (!Number.isInteger(issuedAt) || !Number.isInteger(expiresAt)) return null;
+  if (issuedAt <= 0 || issuedAt > nowSeconds + 60 || expiresAt <= nowSeconds || expiresAt <= issuedAt || expiresAt - issuedAt > AUTH_SESSION_TTL) return null;
+  if (String(payload.portal || '') !== currentPortalKey_()) return null;
+  if (CacheService.getScriptCache().get('AUTH_REVOKED:' + payload.jti)) return null;
+  return payload;
 }
 
 function readAuthSession_(token) {
-  if (!token || token.length < 32) return null;
+  if (!token || String(token).length < 32 || String(token).length > AUTH_SESSION_TOKEN_MAX_LENGTH) return null;
+  const signed = _readSignedAuthSession_(token);
+  if (signed) return signed;
   const raw = CacheService.getScriptCache().get('AUTH:' + token);
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch (_) { return null; }
+  try { return JSON.parse(raw); } catch (e) { return null; }
 }
-
 function refreshAuthSession_(token) {
-  const s = readAuthSession_(token);
-  if (!s) return;
-  CacheService.getScriptCache().put('AUTH:' + token, JSON.stringify(s), AUTH_SESSION_TTL);
+  if (String(token || '').indexOf('.') !== -1) return;
+  const session = readAuthSession_(token);
+  if (session) CacheService.getScriptCache().put('AUTH:' + token, JSON.stringify(session), AUTH_SESSION_TTL);
 }
 
 function destroyAuthSession_(token) {
+  const session = _readSignedAuthSession_(token);
+  if (session && session.jti) {
+    const seconds = Math.max(1, Math.min(AUTH_SESSION_TTL, Number(session.exp || 0) - Math.floor(Date.now() / 1000)));
+    CacheService.getScriptCache().put('AUTH_REVOKED:' + session.jti, '1', seconds);
+  }
   if (token) CacheService.getScriptCache().remove('AUTH:' + token);
 }
 

@@ -1,58 +1,89 @@
 <script>
 // ─── App Init ─────────────────────────────────────────────────────────────────
 async function init() {
-  if (typeof FORM_MODE !== 'undefined' && FORM_MODE === '1') document.body.classList.add('sff-kiosk');
-  renderIcons();
-  renderInitialLoading();
-
-  const token = localStorage.getItem('nbd_token');
-  if (!token) { showLoginOverlay(); return; }
+  const diagnostics = window.PortalDiagnostics;
+  if (diagnostics) diagnostics.phase('startup.init', 'start');
 
   try {
+    if (typeof FORM_MODE !== 'undefined' && FORM_MODE === '1') document.body.classList.add('sff-kiosk');
+    renderIcons();
+    renderInitialLoading();
+    if (diagnostics) diagnostics.phase('startup.shell', 'complete');
+
+    const token = AuthToken.get();
+    if (diagnostics) diagnostics.phase('startup.session', token ? 'complete' : 'missing', { tokenPresent: Boolean(token) });
+    if (!token) {
+      showLoginOverlay();
+      if (diagnostics) diagnostics.markReady({ mode: 'login' });
+      else window.__PORTAL_READY = true;
+      return;
+    }
+
     await _continueAppInit(token);
   } catch (err) {
-    const msg = String(err.message || err);
-    localStorage.removeItem('nbd_token');
+    const msg = String(err && err.message || err);
+    if (diagnostics) {
+      diagnostics.phase('startup.init', 'failure', {
+        error: err,
+        code: err && err.code || '',
+        requestId: err && err.requestId || ''
+      });
+    }
+    AuthToken.clear();
     if (/SESSION_EXPIRED|expired|invalid.*session/i.test(msg)) {
       showLoginOverlay('Your session expired. Please sign in again.');
+      if (diagnostics) diagnostics.markReady({ mode: 'login', reason: 'session-expired' });
+      else window.__PORTAL_READY = true;
     } else if (/ACCESS_DENIED|not authoris/i.test(msg)) {
       showLoginOverlay('Your account is not authorized to access this portal.');
+      if (diagnostics) diagnostics.markReady({ mode: 'login', reason: 'access-denied' });
+      else window.__PORTAL_READY = true;
+    } else if (diagnostics) {
+      diagnostics.failStartup('Portal startup failed: ' + msg, err);
     } else {
+      window.__PORTAL_READY = true;
       showAccessDenied('', msg);
     }
   }
 }
 
 async function _continueAppInit(token) {
+  const diagnostics = window.PortalDiagnostics;
+  if (diagnostics) diagnostics.phase('startup.bootstrap', 'start');
   Store.dispatch('SET_LOADING', { key: 'auth', value: true });
 
-  // One round-trip loads the whole working set (user + config + leads + follow-ups).
-  // Fall back to the legacy bootstrap (config only) for older deployments.
+  // One round-trip loads identity, configuration, navigation counts, and data stamps.
+  // Fall back only when an older deployment truly lacks apiBootstrapData; operational
+  // failures must remain visible instead of being hidden behind a partial startup.
   let boot;
+  let bootstrapEndpoint = 'apiBootstrapData';
   try {
     boot = await api.bootstrapData(token);
   } catch (e) {
+    const message = String(e && e.message || e);
+    const endpointMissing = /script function.*apiBootstrapData.*not found|apiBootstrapData.*not (?:found|a function)/i.test(message);
+    if (!endpointMissing) throw e;
+    bootstrapEndpoint = 'apiBootstrapWithToken';
+    if (diagnostics) diagnostics.phase('startup.bootstrap-fallback', 'start', { reason: 'endpoint-missing' });
     boot = await api.bootstrapWithToken(token);
   }
+  if (diagnostics) diagnostics.phase('startup.bootstrap', 'complete', { endpoint: bootstrapEndpoint });
 
+  if (diagnostics) diagnostics.phase('startup.state', 'start');
   Store.dispatch('SET_USER', boot.user);
   Store.dispatch('SET_CONFIG', boot.config);
   AppCache.touch('config');
   AppLookup.rebuild();
 
-  // Hydrate state from the single payload — pages then render with no extra fetches.
-  if (Array.isArray(boot.leads))     AppCache.setRows('leads', boot.leads);
-  if (Array.isArray(boot.followups)) AppCache.setRows('followups', boot.followups);
-  // Bootstrap already loaded leads + follow-ups, so the first Today render can paint
-  // from them immediately and fetch only history + activity logs (instead of a second
-  // full snapshot round-trip). One-shot: cleared after the first loadToday.
-  window._todayBootstrapReuse = Array.isArray(boot.leads) && Array.isArray(boot.followups);
+  Store.dispatch('SET_NAVIGATION_SUMMARY', boot.navigationSummary || {});
+  window._todayBootstrapReuse = false;
   if (boot.stamps && boot.stamps.appVersion && boot.stamps.appVersion !== '0') {
     _knownAppVersion = boot.stamps.appVersion;
   }
 
   Store.dispatch('SET_LOADING', { key: 'auth', value: false });
   renderSidebar();
+  if (diagnostics) diagnostics.phase('startup.state', 'complete');
 
   const requestedPage = _initialRequestedPage();
   const kioskMode = typeof FORM_MODE !== 'undefined' && FORM_MODE === '1';
@@ -62,36 +93,17 @@ async function _continueAppInit(token) {
     ? requestedPage
     : (requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser());
 
-  // Legacy fallback path carries no leads — load them on demand so the sidebar fills.
-  if (!AppCache.isLoaded('leads')) {
-    _ensureCached('leads', () => api.getLeads().catch(() => api.getFollowupLeads()))
-      .then(() => { try { renderSidebar(); } catch (e) {} }).catch(() => {});
+  if (diagnostics) diagnostics.phase('startup.initial-page', 'start', { page: defaultPage });
+  await navigate(defaultPage);
+  if (diagnostics) {
+    diagnostics.phase('startup.initial-page', 'complete', { page: defaultPage });
+    diagnostics.markReady({ mode: 'app', page: defaultPage });
+  } else {
+    window.__PORTAL_READY = true;
   }
 
-  navigate(defaultPage);
   startCacheRevalidation();
-  _prefetchSecondary_();
   try { if (typeof _shortcutsFirstRunPreview === 'function') _shortcutsFirstRunPreview(); } catch (e) {}
-}
-
-// After first paint, warm the heavy collections (follow-up history + activity logs) in
-// the background so lead-detail and Today views open instantly later. Non-blocking.
-// Both come from ONE batched Sheets-API snapshot (the endpoint Today uses) instead of
-// two sequential full-sheet scans — the caches warm several times faster after login.
-function _prefetchSecondary_() {
-  setTimeout(function() {
-    const needHist = !AppCache.isLoaded('followupHistory');
-    const needLogs = !AppCache.isLoaded('activityLogs');
-    if (!needHist && !needLogs) return;
-    let snap = null;
-    const fromSnapshot = key => () => {
-      snap = snap || api.getTodayActivitySnapshot();
-      return snap.then(s => Array.isArray(s && s[key]) ? s[key] : Promise.reject(new Error('no ' + key)));
-    };
-    // Per-collection fallback keeps older deployments / partial failures working.
-    if (needHist) _ensureCached('followupHistory', () => fromSnapshot('followupHistory')().catch(() => api.getFollowupHistory({}))).catch(() => {});
-    if (needLogs) _ensureCached('activityLogs',    () => fromSnapshot('activityLogs')().catch(() => api.getLeadActivityLogs({}))).catch(() => {});
-  }, 1200);
 }
 
 function _initialRequestedPage() {
@@ -101,9 +113,9 @@ function _initialRequestedPage() {
 }
 
 function logout() {
-  const token = localStorage.getItem('nbd_token');
+  const token = AuthToken.get();
   if (token) api.logout(token).catch(() => {});
-  localStorage.removeItem('nbd_token');
+  AuthToken.clear();
   window.location.reload();
 }
 
@@ -147,12 +159,19 @@ function _initOverlayGoogleAuth(overlay) {
       callback: async function(response) {
         container.innerHTML = '<div style="padding:10px;text-align:center;font-size:13px;color:#666">Signing in…</div>';
         if (errEl) errEl.style.display = 'none';
+        let loginSucceeded = false;
         try {
           const result = await api.loginWithGoogle(response.credential);
-          localStorage.setItem('nbd_token', result.token);
+          loginSucceeded = true;
+          AuthToken.set(result.token);
           overlay.remove();
           await _continueAppInit(result.token);
         } catch (err) {
+          if (loginSucceeded) {
+            if (window.PortalDiagnostics) window.PortalDiagnostics.failStartup('Initial portal page failed after Google sign-in.', err);
+            else showAccessDenied('', String(err && err.message || err));
+            return;
+          }
           container.innerHTML = '';
           renderBtn();
           if (errEl) { errEl.style.display = 'block'; errEl.textContent = String(err.message || err); }
@@ -419,12 +438,19 @@ function showLoginOverlay(errorMsg, errorType) {
     submit.disabled = true;
     submit.innerHTML = '<span class="lo-spinner"></span> Signing in…';
 
+    let loginSucceeded = false;
     try {
       const result = await api.login(email, pw);
-      localStorage.setItem('nbd_token', result.token);
+      loginSucceeded = true;
+      AuthToken.set(result.token);
       overlay.remove();
       await _continueAppInit(result.token);
     } catch (err) {
+      if (loginSucceeded) {
+        if (window.PortalDiagnostics) window.PortalDiagnostics.failStartup('Initial portal page failed after sign-in.', err);
+        else showAccessDenied('', String(err && err.message || err));
+        return;
+      }
       submit.disabled = false;
       submit.innerHTML = idleBtn;
       const existing = overlay.querySelector('.lo-err-msg');

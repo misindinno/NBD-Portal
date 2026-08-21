@@ -590,8 +590,7 @@ function _isLeadPushedToNbd_(lead) {
 }
 
 function _isArchivedLead_(lead) {
-  const archived = String(lead && lead['Is Archived'] || '').trim().toUpperCase();
-  return archived === 'TRUE' || archived === 'YES' || archived === '1' || String(lead && lead['Lead Status'] || '').trim().toLowerCase() === 'archived';
+  return leadArchiveState_(lead);
 }
 
 function _validateLeadStageMove_(fromStageId, toStageId) {

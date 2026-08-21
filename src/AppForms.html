@@ -68,20 +68,131 @@ function showModal(html) {
 }
 
 function showAccessDenied(email = '', debugMsg = '') {
-  const safeEmail    = escapeHtml(email);
-  const safeDebugMsg = escapeHtml(debugMsg);
-  document.body.innerHTML = `
-    <div style="font-family:'Manrope',system-ui,sans-serif;background:#F5F7FA;display:flex;align-items:center;justify-content:center;min-height:100vh">
-      <div style="background:#fff;border-radius:12px;padding:48px 40px;text-align:center;max-width:480px;width:90%;box-shadow:0 4px 24px rgba(0,0,0,.12)">
-        <i data-lucide="ban" style="width:64px;height:64px;color:#D32F2F;display:block;margin:0 auto 12px"></i>
-        <h1 style="font-size:22px;font-weight:700;color:#212121;margin-bottom:8px">Access Revoked</h1>
-        <p style="color:#757575;font-size:14px;line-height:1.6">Your account is not authorised to access the<br><strong>${APP_TITLE}</strong></p>
-        ${safeEmail ? `<div style="background:#FFEBEE;color:#C62828;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;display:inline-block;margin:12px 0">${safeEmail}</div>` : ''}
-        <p style="color:#9E9E9E;font-size:12px;margin-top:16px;border-top:1px solid #EEE;padding-top:16px">Contact your administrator to request access.</p>
-        ${safeDebugMsg ? `<div style="margin-top:16px;background:#F5F5F5;border-radius:6px;padding:12px;text-align:left;font-size:11px;font-family:monospace;color:#333;word-break:break-all;white-space:pre-wrap">${safeDebugMsg}</div>` : ''}
-      </div>
-    </div>`;
-  renderIcons();
-  Store._mountDebugButton();
+  const operationalFailure = Boolean(debugMsg);
+  const appTitle = typeof APP_TITLE === 'string' ? APP_TITLE : 'Portal';
+
+  // Store.html is included in the body. Preserve its diagnostics styles before replacing the failed app shell.
+  Array.from(document.body.querySelectorAll('style')).forEach(style => {
+    if (style.textContent.includes('#store-debug-panel')) document.head.appendChild(style);
+  });
+  document.body.replaceChildren();
+
+  function createElement(tag, text, styles) {
+    const element = document.createElement(tag);
+    if (text !== undefined) element.textContent = String(text);
+    if (styles) element.style.cssText = styles;
+    return element;
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (_) {}
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) throw new Error('Clipboard permission was denied');
+  }
+
+  const root = createElement('main', undefined,
+    "font-family:'Manrope',system-ui,sans-serif;background:#F5F7FA;display:flex;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;padding:20px;box-sizing:border-box");
+  const card = createElement('section', undefined,
+    'background:#fff;border-radius:8px;padding:clamp(24px,6vw,48px) clamp(20px,5vw,40px);text-align:center;max-width:480px;width:100%;box-sizing:border-box;box-shadow:0 4px 24px rgba(0,0,0,.12)');
+  card.setAttribute('aria-labelledby', 'portal-failure-title');
+
+  const icon = createElement('i');
+  icon.setAttribute('data-lucide', operationalFailure ? 'triangle-alert' : 'ban');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.style.cssText = 'width:64px;height:64px;color:#D32F2F;display:block;margin:0 auto 12px';
+  card.appendChild(icon);
+
+  const title = createElement('h1', operationalFailure ? 'Portal could not start' : 'Access Revoked',
+    'font-size:22px;font-weight:700;color:#212121;margin:0 0 8px');
+  title.id = 'portal-failure-title';
+  card.appendChild(title);
+
+  const message = createElement('p', undefined, 'color:#757575;font-size:14px;line-height:1.6;margin:0');
+  if (operationalFailure) {
+    message.textContent = 'An operational error prevented the portal from loading. No diagnostic details are shown on this screen.';
+  } else {
+    message.appendChild(document.createTextNode('Your account is not authorised to access the '));
+    const strong = createElement('strong', appTitle);
+    message.appendChild(strong);
+  }
+  card.appendChild(message);
+
+  if (email) {
+    card.appendChild(createElement('div', email,
+      'background:#FFEBEE;color:#C62828;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;display:inline-block;margin:12px 0;max-width:100%;box-sizing:border-box;overflow-wrap:anywhere'));
+  }
+
+  card.appendChild(createElement('p',
+    operationalFailure ? 'Copy the sanitized report and send it to your administrator.' : 'Contact your administrator to request access.',
+    'color:#9E9E9E;font-size:12px;margin:16px 0 0;border-top:1px solid #EEE;padding-top:16px'));
+
+  if (operationalFailure) {
+    const actions = createElement('div', undefined, 'display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:16px');
+    const copyButton = createElement('button', 'Copy Debug Report',
+      'border:0;border-radius:6px;background:#1565C0;color:#fff;min-height:40px;padding:0 16px;font:600 13px system-ui,sans-serif;cursor:pointer');
+    copyButton.type = 'button';
+    const feedback = createElement('span', '', 'min-height:18px;color:#616161;font-size:12px');
+    feedback.setAttribute('role', 'status');
+
+    copyButton.addEventListener('click', async () => {
+      copyButton.disabled = true;
+      feedback.textContent = 'Preparing sanitized report...';
+      try {
+        const storeApi = typeof Store !== 'undefined' ? Store : window.Store;
+        if (storeApi && typeof storeApi._copyDebugReport === 'function') {
+          await storeApi._copyDebugReport({ screen: 'startup-failure', error: String(debugMsg) });
+        } else {
+          const safeError = String(debugMsg)
+            .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [REDACTED]')
+            .replace(/([?&](?:access_token|auth|authorization|code|key|password|secret|session|token)=)[^&#\s]+/gi, '$1[REDACTED]')
+            .replace(/\b(authorization|cookie|credential|csrf|password|secret|sessionId|token)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
+            .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[REDACTED_EMAIL]')
+            .replace(/(?:\+?\d[\d ()-]{7,}\d)/g, '[REDACTED_PHONE]')
+            .replace(/\b1[A-Za-z0-9_-]{30,}\b/g, '[REDACTED_ID]')
+            .slice(0, 4000);
+          const report = [
+            'PORTAL_DEBUG_REPORT_START',
+            JSON.stringify({
+              generatedAt: new Date().toISOString(),
+              page: location.pathname,
+              documentReadyState: document.readyState,
+              diagnosticsAvailable: false,
+              operationalError: safeError
+            }, null, 2),
+            'PORTAL_DEBUG_REPORT_END'
+          ].join('\n');
+          await copyText(report);
+        }
+        feedback.textContent = 'Debug report copied.';
+      } catch (_) {
+        feedback.textContent = 'Copy failed. Open diagnostics with Ctrl+Alt+D and try again.';
+      } finally {
+        copyButton.disabled = false;
+      }
+    });
+
+    actions.appendChild(copyButton);
+    actions.appendChild(feedback);
+    card.appendChild(actions);
+  }
+
+  root.appendChild(card);
+  document.body.appendChild(root);
+  if (typeof renderIcons === 'function') {
+    try { renderIcons(root); } catch (_) {}
+  }
+  if (typeof Store !== 'undefined' && typeof Store._mountDebugButton === 'function') Store._mountDebugButton();
 }
 </script>

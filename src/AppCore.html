@@ -1,9 +1,32 @@
 <script>
 // ─── Global App (thin wrapper over Store) ────────────────────────────────────
 const App = {
-  get user()        { return Store.getState().user; },
-  get config()      { return Store.getState().config; },
-  get currentPage() { return Store.getState().currentPage; }
+  get user()              { return Store.getState().user; },
+  get config()            { return Store.getState().config; },
+  get currentPage()       { return Store.getState().currentPage; },
+  get navigationSummary() { return Store.getState().navigationSummary || {}; }
+};
+
+const AuthToken = {
+  get() {
+    let token = '';
+    try { token = sessionStorage.getItem('nbd_token') || ''; } catch (e) {}
+    if (token) return token;
+    try {
+      token = localStorage.getItem('nbd_token') || '';
+      if (token) sessionStorage.setItem('nbd_token', token);
+      localStorage.removeItem('nbd_token');
+    } catch (e) {}
+    return token;
+  },
+  set(token) {
+    try { sessionStorage.setItem('nbd_token', String(token || '')); } catch (e) {}
+    try { localStorage.removeItem('nbd_token'); } catch (e) {}
+  },
+  clear() {
+    try { sessionStorage.removeItem('nbd_token'); } catch (e) {}
+    try { localStorage.removeItem('nbd_token'); } catch (e) {}
+  }
 };
 
 // ─── AppLookup — centralised ID → label resolver ─────────────────────────────
@@ -55,21 +78,77 @@ async function fetchCurrentUser() {
 // ─── API ──────────────────────────────────────────────────────────────────────
 const api = {
   _read(fn, ...args) {
+    const diagnostics = window.PortalDiagnostics;
+    const rpcId = diagnostics ? diagnostics.rpcStart(fn) : '';
+
     return new Promise((resolve, reject) => {
-      google.script.run
-        .withSuccessHandler(res => {
-          if (!res) return reject(new Error(`${fn} returned null. Push the latest code, redeploy the web app, and check Apps Script executions for the server error.`));
-          if (res.success) resolve(res.data);
-          else reject(new Error(`${fn}: ${res.error}`));
-        })
-        .withFailureHandler(err => reject(new Error(`${fn} failed: ${err.message || err}`)))
-        [fn](...args);
+      let settled = false;
+      const rejectWithDiagnostics = error => {
+        if (settled) return;
+        settled = true;
+        if (diagnostics) {
+          diagnostics.rpcFailure(rpcId, {
+            operation: fn,
+            message: error.message,
+            code: error.code || 'RPC_ERROR',
+            requestId: error.requestId || '',
+            meta: error.meta || {}
+          });
+        }
+        reject(error);
+      };
+      const createRpcError = (message, envelope, source) => {
+        const error = new Error(message);
+        error.operation = fn;
+        error.code = envelope && envelope.code || source && source.code || 'RPC_ERROR';
+        error.meta = envelope && envelope.meta || source && source.meta || {};
+        error.requestId = error.meta.requestId || envelope && envelope.requestId || source && source.requestId || '';
+        if (envelope && envelope.details !== undefined) error.details = envelope.details;
+        return error;
+      };
+
+      try {
+        google.script.run
+          .withSuccessHandler(res => {
+            if (!res) {
+              rejectWithDiagnostics(createRpcError(
+                `${fn} returned null. Push the latest code, redeploy the web app, and check Apps Script executions for the server error.`,
+                { code: 'EMPTY_RESPONSE', meta: {} }
+              ));
+              return;
+            }
+            if (!res.success) {
+              rejectWithDiagnostics(createRpcError(`${fn}: ${res.error || 'Server request failed.'}`, res));
+              return;
+            }
+            if (settled) return;
+            settled = true;
+            if (diagnostics) {
+              diagnostics.rpcSuccess(rpcId, {
+                operation: fn,
+                requestId: res.meta && res.meta.requestId || '',
+                meta: res.meta || {}
+              });
+            }
+            resolve(res.data);
+          })
+          .withFailureHandler(source => {
+            const message = source && source.message || String(source || 'Unknown transport failure');
+            rejectWithDiagnostics(createRpcError(`${fn} failed: ${message}`, null, source));
+          })[fn](...args);
+      } catch (source) {
+        const message = source && source.message || String(source || 'Unknown browser failure');
+        rejectWithDiagnostics(createRpcError(`${fn} failed before dispatch: ${message}`, null, source));
+      }
     });
   },
-  _token()              { return localStorage.getItem('nbd_token') || ''; },
+  _token()              { return AuthToken.get(); },
   _authedRead(fn, ...args) { return api._read(fn, api._token(), ...args); },
 
   // ── Session auth ──────────────────────────────────────────────────────────
+  diagnosticPing:      ()      => api._read('apiDiagnosticPing'),
+  getDiagnosticSnapshot: ()    => api._authedRead('apiGetDiagnosticSnapshot'),
+
   login:               (e, p)  => api._read('apiLogin', e, p),
   loginWithGoogle:     (t)     => api._read('apiLoginWithGoogle', t),
   bootstrapWithToken:  (t)     => api._read('apiBootstrapWithToken', t),
@@ -83,6 +162,9 @@ const api = {
   getAllConfigs:        ()      => api._authedRead('apiGetAllConfigs'),
   getAllFieldConfigs:   (s)     => api._authedRead('apiGetAllFieldConfigs', s),
   getLeads:            ()      => api._authedRead('apiGetLeads'),
+  getLeadsPage:        (q)     => api._authedRead('apiGetLeadsPage', q || {}),
+  getNavigationSummary: ()     => api._authedRead('apiGetNavigationSummary'),
+  globalSearch:         (q)     => api._authedRead('apiGlobalSearch', q || ''),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
   getLeadFieldValues:  (id)    => api._authedRead('apiGetLeadFieldValues', id),
   getVisits:           ()      => api._authedRead('apiGetVisits'),
@@ -93,6 +175,7 @@ const api = {
   saveLeadStageFields: (p)     => api._authedRead('apiSaveLeadStageFields', p || {}),
   deleteLead:          (id)    => api._authedRead('apiDeleteLead', id || ''),
   getArchiveData:      ()      => api._authedRead('apiGetArchiveData'),
+  getArchivePage:      (q)     => api._authedRead('apiGetArchivePage', q || {}),
   getArchiveSuggestions: ()    => api._authedRead('apiGetArchiveSuggestions'),
   getLostArchiveLeads: ()      => api._authedRead('apiGetLostArchiveLeads'),
   archiveLead:         (p)     => api._authedRead('apiArchiveLead', p || {}),
@@ -103,6 +186,7 @@ const api = {
   getFollowups:        (f)     => api._authedRead('apiGetFollowups', f),
   getFollowupHistory:  (f)     => api._authedRead('apiGetFollowupHistory', f),
   getFollowupPageSnapshot: (o)  => api._authedRead('apiGetFollowupPageSnapshot', o || {}),
+  getFollowupsPage:    (q)     => api._authedRead('apiGetFollowupsPage', q || {}),
   saveFollowupDirect:  (p)     => api._authedRead('apiSaveFollowupDirect', p || {}),
   markFollowupDoneDirect: (id, p) => api._authedRead('apiMarkFollowupDoneDirect', id, p || {}),
   getLeadActivityLogs: (f)     => api._authedRead('apiGetLeadActivityLogs', f),

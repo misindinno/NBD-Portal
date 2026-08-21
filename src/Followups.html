@@ -8,12 +8,20 @@ let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_
 let _fuFiltersOpen = false;
 let _fuPageSnapshot = null;
 let _fuShellReady = false;
+let _fuPageResult = null;
+let _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
+let _fuFilterTimer = null;
+let _fuLoadSeq = 0;
+let _fuCustomRows = [];
+let _fuCustomFacets = { states: [], cities: [], types: [], contactModes: [] };
 
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
   el('page-title').textContent = 'Follow-ups';
   _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
   _fuPage = 1;
+  _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
+  _fuCustomFacets = { states: [], cities: [], types: [], contactModes: [] };
   _fuPageSnapshot = null; // cache removed — refetch fresh each time Follow-ups is opened (tab switches reuse this visit's data)
 
   const grp = el('nav-group-fu');
@@ -33,8 +41,12 @@ async function loadFollowups(tab = 'all') {
 }
 
 async function _fuSwitchTab(tab) {
+  const previousTab = window.currentFollowupTab || 'all';
   window.currentFollowupTab = tab;
   _fuPage = 1;
+  if (previousTab === 'custom' && tab !== 'custom') {
+    _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
+  }
   if (!_fuShellReady || !el('fu-body')) {
     await loadFollowups(tab);
     return;
@@ -42,12 +54,16 @@ async function _fuSwitchTab(tab) {
   const showFilters = tab !== 'custom';
   const tabsEl = el('fu-tabs');
   if (tabsEl) { tabsEl.innerHTML = _fuTabsHTML(tab); renderIcons(tabsEl); }
-  const filterBar = el('fu-filter-bar');
+  let filterBar = el('fu-filter-bar');
+  if (showFilters && !filterBar && tabsEl) {
+    tabsEl.insertAdjacentHTML('afterend', _fuModernFilterBarHTML());
+    filterBar = el('fu-filter-bar');
+    if (filterBar) renderIcons(filterBar);
+  }
   if (filterBar) filterBar.style.display = showFilters && _fuFiltersOpen ? 'block' : 'none';
   if (tab === 'custom') _renderCustomQuery();
   else await _renderFUTab(tab);
 }
-
 function _fuShellHTML(tab) {
   const showFilters = tab !== 'custom';
   return `
@@ -61,7 +77,7 @@ function _fuShellHTML(tab) {
           </div>
         </div>
         <div class="fu-topbar-right">
-          <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_renderFUTab(window.currentFollowupTab || 'all', true)" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
+          <button class="btn btn-outlined btn-sm fu-topbar-btn" onclick="_fuRefreshCurrent(true)" title="Refresh">${icon('refresh-cw', 13)}<span class="fu-btn-text"> Refresh</span></button>
           ${_canAddFollowup() ? `<button class="btn btn-primary btn-sm fu-topbar-btn" onclick="openFollowupForm()">${icon('plus', 14)}<span class="fu-btn-text"> Add Follow-up</span></button>` : (_isNBDPortal() ? _nbdEscalateBtn('sm') : '')}
         </div>
       </div>
@@ -176,11 +192,8 @@ function _fuModernFilterBarHTML() {
   const users = cfg.users || [];
   const stages = cfg.stages || cfg.allStages || [];
   const modes = ['Call Connected', 'WhatsApp Chat', 'Not Picked'];
-  const _locRows = (typeof AppCache !== 'undefined' && AppCache.getRows) ? (AppCache.getRows('leads') || []) : [];
-  const _stateSet = {}, _citySet = {};
-  _locRows.forEach(l => { const s = String(l['State'] || '').trim(); if (s) _stateSet[s] = 1; const c = String(l['City'] || '').trim(); if (c) _citySet[c] = 1; });
-  const fuStates = Object.keys(_stateSet).sort((a, b) => a.localeCompare(b));
-  const fuCities = Object.keys(_citySet).sort((a, b) => a.localeCompare(b));
+  const fuStates = _fuFacets.states || [];
+  const fuCities = _fuFacets.cities || [];
   return `
   <div class="fu-filter-bar" id="fu-filter-bar" style="display:${_fuFiltersOpen ? 'block' : 'none'}">
     <div class="fu-filter-card-grid">
@@ -271,7 +284,8 @@ function _fuInstallShortcuts() {
 function _fuOnFilterChange(key, value) {
   _fuFilterState[key] = value;
   _fuPage = 1;
-  _renderFUTab(window.currentFollowupTab || 'all');
+  if (_fuFilterTimer) clearTimeout(_fuFilterTimer);
+  _fuFilterTimer = setTimeout(() => _renderFUTab(window.currentFollowupTab || 'all'), 180);
 }
 
 function _fuClearFilters() {
@@ -331,48 +345,55 @@ function _fuHasValidLead(row, ctx) {
 async function _renderFUTab(tab, force = false) {
   const body = el('fu-body');
   if (!body) return;
-
+  const seq = ++_fuLoadSeq;
   try {
-    const snapshot = await _getFollowupPageSnapshot(force, { includeHistory: true });
-    const todayStr = localDateInputValue();
-    let rows;
-    if (tab === 'closed') {
-      const historyRows = snapshot.followupHistory
-        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
-      const historyFollowupIds = new Set(historyRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
-      const noNextRows = snapshot.followups
-        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
-        .filter(_isNoNextPlannedFollowup)
-        .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || '')))
-        .map(r => ({ ...r, _closedNoNext: true }));
-      rows = historyRows.concat(noNextRows);
-    } else {
-      rows = snapshot.followups
-        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
-        .filter(_isOpenFollowupRow)
-        .filter(r => !_isNoNextPlannedFollowup(r));
-      if (tab === 'today') {
-        rows = rows.filter(r => _fmtDate(_fuPlannedDate(r)) === todayStr);
-      } else if (tab === 'overdue') {
-        rows = rows.filter(r => { const d = _fmtDate(_fuPlannedDate(r)); return d && d < todayStr; });
-      } else if (tab === 'future') {
-        rows = rows.filter(r => { const d = _fmtDate(_fuPlannedDate(r)); return d && d > todayStr; });
-      }
+    const started = performance.now();
+    const result = await api.getFollowupsPage({
+      tab,
+      page: _fuPage,
+      pageSize: _fuPageSize,
+      sortField: '_dueSort',
+      sortDir: 'asc',
+      search: _fuFilterState.search || '',
+      filters: { ..._fuFilterState }
+    });
+    if (seq !== _fuLoadSeq || !el('fu-body')) return;
+    result.browserMs = Math.round(performance.now() - started);
+    _fuPageResult = result;
+    _fuPage = Number(result.page || 1);
+    const hadFacets = (_fuFacets.states || []).length || (_fuFacets.cities || []).length;
+    _fuFacets = result.facets || _fuFacets;
+    if (!hadFacets) {
+      const filterBar = el('fu-filter-bar');
+      if (filterBar) filterBar.outerHTML = _fuModernFilterBarHTML();
     }
+
+    const snapshot = {
+      leads: result.leads || [],
+      followups: result.items || result.followups || [],
+      followupHistory: result.followupHistory || [],
+      summary: result.summary || {},
+      source: result.source || 'sheets-api',
+      fetchMs: result.fetchMs || 0,
+      browserMs: result.browserMs || 0,
+      fetchedAt: result.fetchedAt || ''
+    };
     const ctx = _buildFollowupContext(snapshot.leads, snapshot);
     const tabsEl = el('fu-tabs');
     if (tabsEl) { tabsEl.innerHTML = _fuTabsHTML(window.currentFollowupTab || 'all'); renderIcons(tabsEl); }
     _fuRenderOverview(ctx, snapshot);
-    rows = _fuApplyFilters(rows, ctx);
-    const inlineChips = el('fu-filter-chips-inline'); if (inlineChips) { inlineChips.innerHTML = _fuFilterChipsHTML(); renderIcons(inlineChips); }
+    const inlineChips = el('fu-filter-chips-inline');
+    if (inlineChips) { inlineChips.innerHTML = _fuFilterChipsHTML(); renderIcons(inlineChips); }
     const hasFilter = Object.values(_fuFilterState).some(Boolean);
     const emptyMsg = hasFilter
       ? `No follow-ups match the current filters. <a href="#" onclick="_fuClearFilters();return false" style="color:#4F46E5">Clear filters</a>`
       : `No ${tab} follow-ups found.`;
-    body.innerHTML = _fuTable(rows, emptyMsg, ctx);
+    body.innerHTML = _fuTable(result.items || [], emptyMsg, ctx, result);
     renderIcons(body);
     _fuAttachScrollCollapse();
-  } catch(e) { body.innerHTML = `<p style="color:red">${escapeHtml(e.message || String(e))}</p>`; }
+  } catch (e) {
+    if (seq === _fuLoadSeq && body) body.innerHTML = `<p style="color:red">${escapeHtml(e.message || String(e))}</p>`;
+  }
 }
 
 async function _getFollowupPageSnapshot(force = false, options = {}) {
@@ -417,58 +438,31 @@ async function _loadFollowupContext() {
   return _buildFollowupContext(data.leads || []);
 }
 
-function _fuRenderOverview(ctx, snapshot = _fuPageSnapshot || {}) {
-  // Apply user filters (search, type, owner, contact mode, stage, from/to)
-  // so the upper KPI cards always reflect what the user is looking at.
-  const _applyKpiFilters = (rows) => _fuApplyFilters(rows, ctx);
-  const openRows = _applyKpiFilters((snapshot.followups || [])
-    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
-    .filter(_isOpenFollowupRow)
-    .filter(r => !!_fmtDate(_fuPlannedDate(r))));
-  const historyRows = _applyKpiFilters((snapshot.followupHistory || [])
-    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change'));
-  const historyFollowupIds = new Set(historyRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
-  const noNextClosedRows = _applyKpiFilters((snapshot.followups || [])
-    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
-    .filter(_isNoNextPlannedFollowup)
-    .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || ''))));
-  const closedRows = historyRows.concat(noNextClosedRows);
-  const todayStr = localDateInputValue();
-  const counts = openRows.reduce((m, row) => {
-    const bucket = _followupDueBucket(row);
-    if (bucket === 'overdue') m.overdue++;
-    else if (bucket === 'today') m.today++;
-    else if (bucket === 'future') m.future++;
-    return m;
-  }, { overdue: 0, today: 0, future: 0 });
-  const closedToday = closedRows.filter(r => _fmtDate(r['Done Date'] || r['Updated At'] || r['Created At']) === todayStr).length;
-  const notPicked = historyRows.filter(r => String(r['Contact Mode'] || '') === 'Not Picked').length;
-  const connected = historyRows.filter(r => ['Call Connected', 'WhatsApp Chat'].includes(String(r['Contact Mode'] || ''))).length;
-  const rate = connected + notPicked ? Math.round((connected / (connected + notPicked)) * 100) : 0;
-  const _rates = (typeof computeCallRates === 'function') ? computeCallRates(historyRows) : { conversionRate: 0, conversions: 0 };
+function _fuRenderOverview(ctx, snapshot = {}) {
+  const summary = snapshot.summary || {};
   const activeTab = window.currentFollowupTab || 'all';
   const tabCounts = {
-    all: openRows.length,
-    today: counts.today,
-    overdue: counts.overdue,
-    future: counts.future,
-    closed: closedRows.length,
-    custom: ''
+    all: Number(summary.all || 0),
+    today: Number(summary.today || 0),
+    overdue: Number(summary.overdue || 0),
+    future: Number(summary.future || 0),
+    closed: Number(summary.closed || 0),
+    custom: summary.custom === undefined ? '' : Number(summary.custom || 0)
   };
-  Object.entries(tabCounts).forEach(([key, val]) => {
+  Object.entries(tabCounts).forEach(([key, value]) => {
     const node = el('fu-tab-count-' + key);
-    if (node) node.textContent = val === '' ? '' : val;
+    if (node) node.textContent = value === '' ? '' : value;
   });
   const kpiEl = el('fu-kpis');
   if (!kpiEl) return;
   const kpis = [
-    { key: 'overdue', label: 'Overdue', value: counts.overdue, sub: 'Needs attention', icon: 'circle-alert', cls: 'danger' },
-    { key: 'today', label: 'Due Today', value: counts.today, sub: 'Planned for today', icon: 'calendar-days', cls: 'success' },
-    { key: 'future', label: 'Upcoming', value: counts.future, sub: 'Future follow-ups', icon: 'calendar-clock', cls: 'blue' },
-    { key: 'closed', label: 'Closed', value: closedRows.length, sub: `${closedToday} closed today`, icon: 'check-circle-2', cls: 'neutral' },
-    { key: 'notpicked', label: 'Not Picked', value: notPicked, sub: 'Contact attempts', icon: 'phone-missed', cls: 'warning' },
-    { key: 'rate', label: 'Connection Call Rate', value: `${rate}%`, sub: `${connected} connected`, icon: 'activity', cls: 'purple' },
-    { key: 'conv', label: 'Conversion Rate', value: `${_rates.conversionRate}%`, sub: `${_rates.conversions} converted`, icon: 'trending-up', cls: 'success' }
+    { key: 'overdue', label: 'Overdue', value: tabCounts.overdue, sub: 'Needs attention', icon: 'circle-alert', cls: 'danger' },
+    { key: 'today', label: 'Due Today', value: tabCounts.today, sub: 'Planned for today', icon: 'calendar-days', cls: 'success' },
+    { key: 'future', label: 'Upcoming', value: tabCounts.future, sub: 'Future follow-ups', icon: 'calendar-clock', cls: 'blue' },
+    { key: 'closed', label: 'Closed', value: tabCounts.closed, sub: `${Number(summary.closedToday || 0)} closed today`, icon: 'check-circle-2', cls: 'neutral' },
+    { key: 'notpicked', label: 'Not Picked', value: Number(summary.notPicked || 0), sub: 'Contact attempts', icon: 'phone-missed', cls: 'warning' },
+    { key: 'rate', label: 'Connection Call Rate', value: `${Number(summary.connectionRate || 0)}%`, sub: `${Number(summary.connected || 0)} connected`, icon: 'activity', cls: 'purple' },
+    { key: 'conv', label: 'Conversion Rate', value: `${Number(summary.conversionRate || 0)}%`, sub: `${Number(summary.conversions || 0)} converted`, icon: 'trending-up', cls: 'success' }
   ];
   kpiEl.innerHTML = kpis.map(k => `
     <button type="button" class="fu-kpi fu-kpi-${k.cls} ${activeTab === k.key ? 'active' : ''}" onclick="_fuKpiAction('${k.key}')">
@@ -510,8 +504,7 @@ function _fuKpiAction(key) {
 }
 
 async function _getFollowupFormData(force = false) {
-  const snapshot = await _getFollowupPageSnapshot(force);
-  return { leads: (snapshot.leads || []).filter(l => l['Lead Status'] === 'Open') };
+  return api.getFollowupFormData();
 }
 
 function _buildFollowupContext(leads = [], snapshot = _fuPageSnapshot || {}) {
@@ -586,7 +579,7 @@ function _onLeadsArchivedClient(leadIds) {
   const onFu = String(App.currentPage || '').startsWith('followups');
   if (onFu && typeof _renderFUTab === 'function') {
     try { _fuPageSnapshot = null; } catch (e) {}
-    _renderFUTab(window.currentFollowupTab || 'all', true)
+    Promise.resolve(_fuRefreshCurrent(true))
       .then(() => { try { renderSidebar(); } catch (e) {} })
       .catch(() => { try { renderSidebar(); } catch (e) {} });
   } else {
@@ -622,6 +615,7 @@ function _decorateFollowup(row, ctx) {
     _contactPerson: lead ? (lead['Contact Person'] || '') : '',
     _leadDescription: lead ? (lead['Client Description'] || '') : '',
     _city: lead ? (lead['City'] || '') : '',
+    _state: lead ? (lead['State'] || '') : '',
     _leadSource: lead ? (lead['Source'] || '') : '',
     _sourcePortal: lead ? (lead['Source Portal'] || lead._sourceName || lead._source || '') : '',
     _lastDoneDate: ctx?.lastDoneMap?.[row['Lead ID']] || ''
@@ -659,19 +653,26 @@ function _fuCards(rows, emptyMsg, ctx) {
   }).join('');
 }
 
-function _fuTable(rows, emptyMsg, ctx) {
-  const data = (rows || [])
-    .map(row => ctx ? _decorateFollowup(row, ctx) : row)
-    .sort(_compareFollowupDue);
-  const pageCount = Math.max(1, Math.ceil(data.length / _fuPageSize));
-  _fuPage = Math.min(Math.max(1, _fuPage), pageCount);
+function _fuTable(rows, emptyMsg, ctx, meta) {
+  const data = (rows || []).map(row => ctx ? _decorateFollowup(row, ctx) : row);
+  const remote = !!(meta && typeof meta.total === 'number');
+  const total = remote ? Number(meta.total || 0) : data.length;
+  const pageCount = remote ? Math.max(1, Number(meta.totalPages || 1)) : Math.max(1, Math.ceil(data.length / _fuPageSize));
+  _fuPage = remote ? Number(meta.page || 1) : Math.min(Math.max(1, _fuPage), pageCount);
   const start = (_fuPage - 1) * _fuPageSize;
-  const paged = data.slice(start, start + _fuPageSize);
-  const counts = data.reduce((m, row) => {
-    const bucket = _followupDueBucket(row);
-    if (bucket === 'overdue' || bucket === 'today' || bucket === 'future') m[bucket]++;
-    return m;
-  }, { overdue: 0, today: 0, future: 0 });
+  const paged = remote ? data : data.sort(_compareFollowupDue).slice(start, start + _fuPageSize);
+  const summary = remote ? ((meta && meta.summary) || {}) : _fuSummarizeLocalRows(data);
+  if (!remote && (window.currentFollowupTab || 'all') === 'custom') {
+    _fuCustomRows = data.slice();
+    _fuCustomFacets = _fuLocalFacets(data);
+    _fuFacets = _fuCustomFacets;
+    _fuRenderOverview(null, { summary });
+  }
+  const counts = {
+    overdue: Number(summary.overdue || 0),
+    today: Number(summary.today || 0),
+    future: Number(summary.future || 0)
+  };
 
   const densityToggle = `
     <div class="fu-density-toggle" role="group" aria-label="Row density">
@@ -680,7 +681,7 @@ function _fuTable(rows, emptyMsg, ctx) {
       <button class="${_fuDensity === 'ultra' ? 'active' : ''}" title="Ultra Compact" onclick="_fuSetDensity('ultra')">${icon('menu', 12)}</button>
     </div>`;
 
-  if (!data.length) {
+  if (!paged.length) {
     return `
       <div class="fu-worklist-card fu-density-${_fuDensity}">
         <div class="fu-worklist-head">
@@ -698,7 +699,7 @@ function _fuTable(rows, emptyMsg, ctx) {
     <div class="fu-worklist-card fu-density-${_fuDensity}">
       <div class="fu-worklist-head">
         <div class="fu-worklist-head-left">
-          <div class="fu-worklist-title">Worklist <span class="fu-worklist-count">${data.length}</span></div>
+          <div class="fu-worklist-title">Worklist <span class="fu-worklist-count">${total}</span></div>
           <span class="fu-summary-pill danger" title="Overdue">${icon('circle-alert', 11)} ${counts.overdue}</span>
           <span class="fu-summary-pill success" title="Today">${icon('calendar-days', 11)} ${counts.today}</span>
           <span class="fu-summary-pill" title="Future">${icon('calendar-clock', 11)} ${counts.future}</span>
@@ -730,19 +731,21 @@ function _fuTable(rows, emptyMsg, ctx) {
         <tbody>${paged.map(_fuTableRow).join('')}</tbody>
       </table>
       </div>
-      ${_fuPagination(data.length, start, paged.length, pageCount)}
+      ${_fuPagination(total, start, paged.length, pageCount)}
     </div>`;
 }
 
 function _fuSetPageSize(value) {
   _fuPageSize = Math.max(10, Number(value) || 25);
   _fuPage = 1;
-  _renderFUTab(window.currentFollowupTab || 'all');
+  if ((window.currentFollowupTab || 'all') === 'custom') _fuRenderCustomResults();
+  else _renderFUTab(window.currentFollowupTab || 'all');
 }
 
 function _fuSetPage(page) {
   _fuPage = Math.max(1, Number(page) || 1);
-  _renderFUTab(window.currentFollowupTab || 'all');
+  if ((window.currentFollowupTab || 'all') === 'custom') _fuRenderCustomResults();
+  else _renderFUTab(window.currentFollowupTab || 'all');
 }
 
 function _fuSetDensity(value) {
@@ -753,9 +756,62 @@ function _fuSetDensity(value) {
     page.classList.remove('fu-density-comfortable','fu-density-compact','fu-density-ultra');
     page.classList.add('fu-density-' + _fuDensity);
   }
-  _renderFUTab(window.currentFollowupTab || 'all');
+  if ((window.currentFollowupTab || 'all') === 'custom') _fuRenderCustomResults();
+  else _renderFUTab(window.currentFollowupTab || 'all');
 }
 
+function _fuSummarizeLocalRows(rows) {
+  const summary = { all: 0, today: 0, overdue: 0, future: 0, closed: 0, closedToday: 0, notPicked: 0, connected: 0, conversions: 0, conversionRate: 0, connectionRate: 0, custom: (rows || []).length };
+  const todayValue = localDateInputValue();
+  (rows || []).forEach(row => {
+    const bucket = _followupDueBucket(row);
+    const closed = bucket === 'done';
+    if (closed) {
+      summary.closed++;
+      if (_fmtDate(row['Done Date'] || row['Updated At'] || row['Created At']) === todayValue) summary.closedToday++;
+    } else {
+      summary.all++;
+      if (bucket === 'overdue' || bucket === 'today' || bucket === 'future') summary[bucket]++;
+    }
+    const mode = String(row['Contact Mode'] || '');
+    if (mode === 'Not Picked') summary.notPicked++;
+    if (mode === 'Call Connected' || mode === 'WhatsApp Chat') summary.connected++;
+    if (/won|converted|qualified/i.test(String(row['Outcome'] || row['Status After'] || ''))) summary.conversions++;
+  });
+  const attempts = summary.connected + summary.notPicked;
+  summary.connectionRate = attempts ? Math.round(summary.connected / attempts * 100) : 0;
+  summary.conversionRate = summary.connected ? Math.round(summary.conversions / summary.connected * 100) : 0;
+  return summary;
+}
+
+function _fuLocalFacets(rows) {
+  const values = key => Array.from(new Set((rows || []).map(row => String(row[key] || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  return {
+    states: values('_state'),
+    cities: values('_city'),
+    types: values('Follow-up Type'),
+    contactModes: values('Contact Mode')
+  };
+}
+
+function _fuRenderCustomResults() {
+  const target = el('query-results');
+  if (!target) return;
+  target.innerHTML = `
+    <div style="font-size:13px;color:#666;margin-bottom:8px">${_fuCustomRows.length} result(s)</div>
+    ${_fuTable(_fuCustomRows, 'No results match your query.')}`;
+  renderIcons(target);
+  _fuAttachScrollCollapse();
+}
+
+function _fuRefreshCurrent(force = false) {
+  const tab = window.currentFollowupTab || 'all';
+  if (tab === 'custom') {
+    if (force) _fuPageSnapshot = null;
+    return typeof _runCustomQuery === 'function' && el('query-rows') ? _runCustomQuery() : _renderCustomQuery();
+  }
+  return _renderFUTab(tab, force);
+}
 function _fuPagination(total, start, visibleCount, pageCount) {
   const from = total ? start + 1 : 0;
   const to = start + visibleCount;
@@ -966,13 +1022,15 @@ function _followupCustomFieldMeta(row) {
 }
 
 function _renderCustomQuery() {
+  _fuCustomRows = [];
+  _fuPage = 1;
   el('fu-body').innerHTML = `
     <div class="query-builder">
       <div style="font-weight:600;margin-bottom:10px;font-size:13px">Build Query</div>
       <div id="query-rows"></div>
       <button class="query-add-btn" onclick="_addQueryRow()">${icon('plus', 14)} Add Filter</button>
       <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btn btn-primary btn-sm" onclick="_runCustomQuery()">Run Query</button>
+        <button class="btn btn-primary btn-sm" onclick="_fuPage=1;_runCustomQuery()">Run Query</button>
         <button class="btn btn-outlined btn-sm" onclick="_clearQuery()">Clear</button>
       </div>
     </div>

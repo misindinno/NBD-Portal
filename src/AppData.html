@@ -117,19 +117,33 @@ function _rerenderTodayIfActive() {
 }
 
 async function _refreshLeadsCache() {
-  const rows = await api.getLeads().catch(() => api.getFollowupLeads());
-  AppCache.setRows('leads', rows);
-  try { renderSidebar(); } catch (e) {}
   const pg = App.currentPage;
   if (pg === 'leads') {
-    if (window.leadTable) {
-      window.leadTable.replaceData(AppCache.getRows('leads'));
-      if (typeof window.applyLeadFilters === 'function') window.applyLeadFilters();
-    } else { loadLeads(); }
+    await loadLeads(true);
   } else if (pg === 'pipeline') {
+    const rows = await api.getLeads().catch(() => api.getFollowupLeads());
+    AppCache.setRows('leads', rows);
     loadPipeline();
+  } else if (pg === 'today') {
+    const snapshot = await api.getTodayActivitySnapshot();
+    AppCache.setRows('leads', snapshot.leads || []);
+    AppCache.setRows('followups', snapshot.followups || []);
+    AppCache.setRows('followupHistory', snapshot.followupHistory || []);
+    AppCache.setRows('activityLogs', snapshot.activityLogs || []);
+    _renderToday();
+  } else {
+    AppCache.invalidate('leads');
   }
-  _rerenderTodayIfActive();
+  await _refreshNavigationSummary_();
+  if (pg !== 'today') _rerenderTodayIfActive();
+}
+
+async function _refreshNavigationSummary_() {
+  try {
+    const summary = await api.getNavigationSummary();
+    Store.dispatch('SET_NAVIGATION_SUMMARY', summary || {});
+    renderSidebar();
+  } catch (e) {}
 }
 
 async function _refreshFollowupsCache() {

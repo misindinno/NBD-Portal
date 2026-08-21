@@ -52,8 +52,20 @@ function toJSON(obj) {
   return JSON.stringify(obj);
 }
 
-function respond(data, error) {
-  return error ? { success: false, error } : { success: true, data };
+function respond(data, error, code, details) {
+  const meta = typeof requestMeta_ === 'function' ? requestMeta_() : {};
+  if (error) {
+    return {
+      success: false,
+      error: typeof safeClientErrorMessage_ === 'function' ? safeClientErrorMessage_(error) : String(error),
+      code: code || (typeof errorCodeFrom_ === 'function' ? errorCodeFrom_(error) : 'INTERNAL_ERROR'),
+      details: details && typeof sanitizeDiagnosticValue_ === 'function'
+        ? sanitizeDiagnosticValue_(details)
+        : (details || undefined),
+      meta
+    };
+  }
+  return { success: true, data, meta };
 }
 
 function _bumpStamp(collection) {

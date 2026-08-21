@@ -3,8 +3,8 @@
 // is linked to the standard GCP project 'nbd-portal' (BigQuery API enabled). Uses
 // native tables + batch loads (no streaming) so it runs on the BigQuery Sandbox.
 //
-// Flow: bqSeedOnce() loads the current sheet data into native tables once, then
-// bqBenchmark() times each page's current Sheets read vs the equivalent BigQuery
+// Flow: _bqSeedOnce_() loads the current sheet data into native tables once, then
+// _bqBenchmark_() times each page's current Sheets read vs the equivalent BigQuery
 // query so we can compare per-page load time before committing to BigQuery.
 
 function _bqCfg_() {
@@ -104,7 +104,7 @@ function _bqLoadTable_(tableId, sheetName) {
 }
 
 // One-time seed of the analytical tables into BigQuery.
-function bqSeedOnce() {
+function _bqSeedOnce_() {
   if (!_bqReady_()) throw new Error('BigQuery advanced service not enabled. Add it in appsscript.json and enable the BigQuery API.');
   bqEnsureDataset_();
   return withServerContext_(function () {
@@ -127,7 +127,7 @@ function _bqRowsToObjects_(fields, rows) {
 }
 
 // Runs a standard-SQL query; returns { rows, ms, totalRows }.
-function bqQuery(sql) {
+function _bqQuery_(sql) {
   var cfg = _bqCfg_();
   var t0 = Date.now();
   var res = BigQuery.Jobs.query({ query: sql, useLegacySql: false, location: cfg.location, timeoutMs: 30000 }, cfg.projectId);
@@ -169,7 +169,7 @@ function _bqApiRead_(specs) {
 }
 function _bqApiRows_(map, sheetName) { return (map && map[normalizeSheetName(sheetName)]) || []; }
 
-function bqBenchmark() {
+function _bqBenchmark_() {
   if (!_bqReady_()) throw new Error('BigQuery advanced service not enabled for this deployment.');
   return withServerContext_(_bqBenchmarkInner_);
 }
@@ -183,19 +183,19 @@ function _bqBenchmarkInner_() {
   out.push(_bqBench_('Leads',
     function () { var t = Date.now(); var n = (getAllRows(L) || []).length; return { ms: Date.now() - t, rows: n }; },
     function () { var t = Date.now(); var m = _bqApiRead_([{ sheetName: L, range: 'A:AC' }]); return { ms: Date.now() - t, rows: _bqApiRows_(m, L).length }; },
-    function () { var q = bqQuery('SELECT * FROM ' + _bqTableRef_('leads') + where); return { ms: q.ms, rows: q.rows.length }; }
+    function () { var q = _bqQuery_('SELECT * FROM ' + _bqTableRef_('leads') + where); return { ms: q.ms, rows: q.rows.length }; }
   ));
 
   out.push(_bqBench_('Follow-ups',
     function () { var t = Date.now(); var n = (getAllRows(F) || []).length; return { ms: Date.now() - t, rows: n }; },
     function () { var t = Date.now(); var m = _bqApiRead_([{ sheetName: F, range: 'A:Q' }]); return { ms: Date.now() - t, rows: _bqApiRows_(m, F).length }; },
-    function () { var q = bqQuery('SELECT * FROM ' + _bqTableRef_('followups') + where); return { ms: q.ms, rows: q.rows.length }; }
+    function () { var q = _bqQuery_('SELECT * FROM ' + _bqTableRef_('followups') + where); return { ms: q.ms, rows: q.rows.length }; }
   ));
 
   out.push(_bqBench_('Follow-up history',
     function () { var t = Date.now(); var n = (getAllRows(H) || []).length; return { ms: Date.now() - t, rows: n }; },
     function () { var t = Date.now(); var m = _bqApiRead_([{ sheetName: H, range: 'A:Z' }]); return { ms: Date.now() - t, rows: _bqApiRows_(m, H).length }; },
-    function () { var q = bqQuery('SELECT * FROM ' + _bqTableRef_('followup_history') + where); return { ms: q.ms, rows: q.rows.length }; }
+    function () { var q = _bqQuery_('SELECT * FROM ' + _bqTableRef_('followup_history') + where); return { ms: q.ms, rows: q.rows.length }; }
   ));
 
   function _aggStreak(rows) {
@@ -207,7 +207,7 @@ function _bqBenchmarkInner_() {
     function () { var t = Date.now(); var n = _aggStreak(getAllRows(H)); return { ms: Date.now() - t, rows: n }; },
     function () { var t = Date.now(); var n = _aggStreak(_bqApiRows_(_bqApiRead_([{ sheetName: H, range: 'A:Z' }]), H)); return { ms: Date.now() - t, rows: n }; },
     function () {
-      var q = bqQuery('SELECT Lead_ID, COUNT(1) c FROM ' + _bqTableRef_('followup_history') + where + ' AND Contact_Mode = "Not Picked" GROUP BY Lead_ID HAVING c >= 7');
+      var q = _bqQuery_('SELECT Lead_ID, COUNT(1) c FROM ' + _bqTableRef_('followup_history') + where + ' AND Contact_Mode = "Not Picked" GROUP BY Lead_ID HAVING c >= 7');
       return { ms: q.ms, rows: q.rows.length };
     }
   ));
@@ -228,7 +228,7 @@ function _bqBenchmarkInner_() {
     function () { var t = Date.now(); var n = _joinLeadsHistory(getAllRows(L), getAllRows(H)); return { ms: Date.now() - t, rows: n }; },
     function () { var t = Date.now(); var m = _bqApiRead_([{ sheetName: L, range: 'A:AC' }, { sheetName: H, range: 'A:Z' }]); var n = _joinLeadsHistory(_bqApiRows_(m, L), _bqApiRows_(m, H)); return { ms: Date.now() - t, rows: n }; },
     function () {
-      var q = bqQuery(
+      var q = _bqQuery_(
         'SELECT l.Lead_ID, l.Company_Name, COUNT(h.History_ID) AS history_count, MAX(h.Done_Date) AS last_activity ' +
         'FROM ' + _bqTableRef_('leads') + ' l ' +
         'LEFT JOIN ' + _bqTableRef_('followup_history') + ' h ON h.portal = l.portal AND h.Lead_ID = l.Lead_ID ' +
@@ -245,7 +245,8 @@ function _bqBenchmarkInner_() {
 function bqSeedFromMenu() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var s = bqSeedOnce();
+    requireContainerAdmin_(false);
+    var s = _bqSeedOnce_();
     ui.alert('BigQuery seed complete',
       s.map(function (r) { return r.table + ': ' + r.rows + ' rows, ' + r.cols + ' cols (' + r.ms + ' ms)'; }).join('\n'),
       ui.ButtonSet.OK);
@@ -255,7 +256,8 @@ function bqSeedFromMenu() {
 function bqBenchmarkFromMenu() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var b = bqBenchmark();
+    requireContainerAdmin_(false);
+    var b = _bqBenchmark_();
     var cell = function (ms, rows, err) { return err ? ('ERR ' + err) : (ms + ' ms / ' + rows + ' rows'); };
     var lines = b.map(function (r) {
       return r.page +

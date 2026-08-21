@@ -348,6 +348,7 @@ function reopenClosedNonFinalFollowupsFromMenu() {
 }
 
 function reopenClosedNonFinalFollowupsNextMonday() {
+  requireContainerAdmin_(false);
   return withServerContext_(() => _reopenClosedNonFinalFollowupsNextMonday_());
 }
 

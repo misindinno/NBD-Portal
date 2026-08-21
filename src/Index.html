@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?= CLIENT_CONFIG.APP_TITLE ?></title>
+  <?!= include('Diagnostics'); ?>
   <script>
     const APP_TITLE   = '<?= CLIENT_CONFIG.APP_TITLE ?>';
     const PORTAL_KIND = '<?= CLIENT_CONFIG.PORTAL_KIND || "main" ?>';
@@ -12,7 +13,7 @@
   <!-- Fonts + Icons -->
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/lucide@0.468.0"></script>
 
   <!-- Tabulator -->
   <link href="https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_materialize.min.css" rel="stylesheet">
@@ -22,14 +23,14 @@
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 
   <!-- SweetAlert2 -->
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.5"></script>
 
   <!-- Bulk Entry libraries (Handsontable + Papaparse) are loaded on demand
        when the Bulk Entry page opens — see ensureBulkLibs() in BulkView. -->
 
   <!-- Toastify -->
-  <link href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0"></script>
 
   <?!= include('CSS'); ?>
   <?!= include('CSSPipeline'); ?>

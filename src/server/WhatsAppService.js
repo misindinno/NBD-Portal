@@ -5,13 +5,21 @@
 
 /******************** CONFIG ********************/
 
-const SFF_WA_GROUP_ID = "120363405992816730@g.us";
-
-const MAS_USERNAME = "digital@indinno.com";
-const MAS_PASSWORD = "digital@indinno.com1";
-const MAS_API_KEY = "SMS API-MSG91";
-
 const WA_TIMEZONE = "Asia/Kolkata";
+
+function _waConfig_() {
+  const properties = PropertiesService.getScriptProperties();
+  const config = {
+    groupId: properties.getProperty('WA_GROUP_ID') || '',
+    username: properties.getProperty('MAS_USERNAME') || '',
+    password: properties.getProperty('MAS_PASSWORD') || '',
+    apiKey: properties.getProperty('MAS_API_KEY') || ''
+  };
+  if (!config.groupId || !config.username || !config.password) {
+    throw new Error('WhatsApp integration is not configured in Script Properties.');
+  }
+  return config;
+}
 
 /******************** STAGE FIELDS NOTIFICATION ********************/
 
@@ -45,7 +53,7 @@ function sendStageFieldsWhatsApp_(lead, stageId, stageName, savedFields, user) {
       if (field['Field Type'] === 'File') extractUrls_(value).forEach(u => fileUrls.push(u));
     });
 
-    MASsendMessage(SFF_WA_GROUP_ID, lines.join("\n"), fileUrls);
+    _masSendMessage_(_waConfig_().groupId, lines.join("\n"), fileUrls);
   } catch (err) {
     Logger.log("sendStageFieldsWhatsApp_ Error: " + err);
   }
@@ -81,7 +89,7 @@ function sendVisitWhatsApp_(lead, visitRow, savedFields, fields, user) {
       "*Visited By-* " + ((user && (user.name || user.email || user.id)) || "")
     ];
 
-    MASsendMessage(SFF_WA_GROUP_ID, lines.join("\n"), fileUrls);
+    _masSendMessage_(_waConfig_().groupId, lines.join("\n"), fileUrls);
   } catch (err) {
     Logger.log("sendVisitWhatsApp_ Error: " + err);
   }
@@ -89,7 +97,8 @@ function sendVisitWhatsApp_(lead, visitRow, savedFields, fields, user) {
 
 /******************** MESSAGE AUTO SENDER API ********************/
 
-function MASsendMessage(receivers, textMessages, filesUrls) {
+function _masSendMessage_(receivers, textMessages, filesUrls) {
+  const config = _waConfig_();
   const messages = [].concat(textMessages || []);
   const urls = [].concat(filesUrls || []);
   const rawReceivers = [].concat(receivers || []);
@@ -112,8 +121,8 @@ function MASsendMessage(receivers, textMessages, filesUrls) {
   );
 
   const messageBody = {
-    username: MAS_USERNAME,
-    password: MAS_PASSWORD,
+    username: config.username,
+    password: config.password,
     receiverMobileNo: receiverNumbers.join(","),
     recipientIds: receiverIds,
     message: messages,
@@ -123,13 +132,13 @@ function MASsendMessage(receivers, textMessages, filesUrls) {
 
   const headers = {};
 
-  if (MAS_USERNAME && MAS_PASSWORD) {
+  if (config.username && config.password) {
     headers["Authorization"] =
-      "Basic " + Utilities.base64Encode(MAS_USERNAME + ":" + MAS_PASSWORD, Utilities.Charset.UTF_8);
+      "Basic " + Utilities.base64Encode(config.username + ":" + config.password, Utilities.Charset.UTF_8);
   }
 
-  if (MAS_API_KEY) {
-    headers["x-api-key"] = MAS_API_KEY;
+  if (config.apiKey) {
+    headers["x-api-key"] = config.apiKey;
   }
 
   const options = {
@@ -152,7 +161,7 @@ function MASsendMessage(receivers, textMessages, filesUrls) {
     return response.getResponseCode() >= 200 && response.getResponseCode() < 300;
 
   } catch (err) {
-    Logger.log("MASsendMessage Error: " + err);
+    logServerError_(err, { operation: "whatsapp-send" });
     return false;
   }
 }

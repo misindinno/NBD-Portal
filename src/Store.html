@@ -1,36 +1,41 @@
 <script>
-// ─── Store.js — Lightweight Redux-inspired State Manager ─────────────────────
-// Usage:
-//   Store.dispatch('SET_USER', { name: 'Shallu' })
-//   Store.getState().user
-//   Store.subscribe((state, action) => console.log(action, state))
-
+// Lightweight Redux-inspired state manager with a unified diagnostics console.
 const Store = (() => {
-  // ── Initial State ───────────────────────────────────────────────────────────
   const INITIAL_STATE = {
     user:        null,
     config:      null,
     currentPage: 'today',
+    navigationSummary: {},
     leads:       [],
     followups:   [],
     pipeline:    [],
-    loading:     {},   // { leads: true, clients: false, ... }
-    errors:      {},   // { leads: 'Failed to load', ... }
+    loading:     {},
+    errors:      {},
     filters:     {
       leads: { status: '', priority: '', stageId: '', search: '' }
     }
   };
 
-  let _state       = JSON.parse(JSON.stringify(INITIAL_STATE));
-  let _subscribers = [];
-  let _history     = []; // action log for debug panel
+  const MAX_DIAGNOSTIC_DEPTH = 6;
+  const MAX_DIAGNOSTIC_ITEMS = 100;
+  const MAX_DEBUG_REPORT_LENGTH = 100000;
+  const SENSITIVE_KEY = /(?:authorization|cookie|credential|csrf|password|passwd|secret|token|api[-_]?key|client[-_]?secret|session[-_]?id|spreadsheet|folder[-_ ]?id|drive[-_ ]?id|e-?mail|phone|mobile|whatsapp|address|contact|user[-_ ]?id|lead[-_ ]?id|follow[-_ ]?up[-_ ]?id)/i;
 
-  // ── Reducer ─────────────────────────────────────────────────────────────────
+  let _state = JSON.parse(JSON.stringify(INITIAL_STATE));
+  let _subscribers = [];
+  let _history = [];
+  let _panel = null;
+  let _panelVisible = false;
+  let _refreshTimer = null;
+  let _refreshSequence = 0;
+  let _lastChecks = [];
+
   function _reduce(state, action, payload) {
     switch (action) {
       case 'SET_USER':        return { ...state, user: payload };
       case 'SET_CONFIG':      return { ...state, config: payload };
       case 'SET_PAGE':        return { ...state, currentPage: payload };
+      case 'SET_NAVIGATION_SUMMARY': return { ...state, navigationSummary: payload || {} };
       case 'SET_LEADS':       return { ...state, leads: payload };
       case 'SET_FOLLOWUPS':   return { ...state, followups: payload };
       case 'SET_PIPELINE':    return { ...state, pipeline: payload };
@@ -45,15 +50,19 @@ const Store = (() => {
     }
   }
 
-  // ── Public API ───────────────────────────────────────────────────────────────
   function dispatch(action, payload) {
-    const prev  = _state;
-    _state      = _reduce(_state, action, payload);
-    const entry = { action, payload, time: new Date().toLocaleTimeString('en-IN'), state: JSON.parse(JSON.stringify(_state)) };
+    _state = _reduce(_state, action, payload);
+    const entry = {
+      action,
+      payload,
+      time: new Date().toLocaleTimeString('en-IN'),
+      timestamp: new Date().toISOString(),
+      state: JSON.parse(JSON.stringify(_state))
+    };
     _history.push(entry);
-    if (_history.length > 50) _history.shift(); // keep last 50
+    if (_history.length > 50) _history.shift();
     _subscribers.forEach(fn => fn(_state, action, payload));
-    _debugRefresh(entry);
+    _debugRefresh();
   }
 
   function getState()          { return _state; }
@@ -63,7 +72,6 @@ const Store = (() => {
   function getError(key)       { return _state.errors[key] || null; }
   function getFilter(mod, key) { return _state.filters[mod]?.[key] ?? ''; }
 
-  // ── Async action helpers ─────────────────────────────────────────────────────
   async function fetchData(key, apiFn, storeAction) {
     dispatch('SET_LOADING', { key, value: true });
     dispatch('CLEAR_ERROR', key);
@@ -77,177 +85,639 @@ const Store = (() => {
     }
   }
 
-  // ── Debug Panel ──────────────────────────────────────────────────────────────
-  let _panel = null, _panelVisible = false;
+  function _redactString(value) {
+    return String(value)
+      .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [REDACTED]')
+      .replace(/([?&](?:access_token|auth|authorization|code|key|password|secret|session|token)=)[^&#\s]+/gi, '$1[REDACTED]')
+      .replace(/("(?:access_token|authorization|cookie|credential|csrf|password|secret|sessionId|token)"\s*:\s*")[^"]*(")/gi, '$1[REDACTED]$2')
+      .replace(/\b(authorization|cookie|credential|csrf|password|secret|sessionId|token)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
+      .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[REDACTED_EMAIL]')
+      .replace(/(?:\+?\d[\d ()-]{7,}\d)/g, '[REDACTED_PHONE]')
+      .replace(/\b1[A-Za-z0-9_-]{30,}\b/g, '[REDACTED_ID]')
+      .slice(0, 4000);
+  }
+
+  function _safeValue(value, depth = 0, seen) {
+    if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+    if (typeof value === 'string') return _redactString(value);
+    if (typeof value === 'bigint' || typeof value === 'symbol') return String(value);
+    if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
+    if (value instanceof Date) return value.toISOString();
+    if (depth >= MAX_DIAGNOSTIC_DEPTH) return '[Depth limit]';
+
+    const visited = seen || new WeakSet();
+    if (typeof value === 'object') {
+      if (visited.has(value)) return '[Circular]';
+      visited.add(value);
+    }
+
+    if (Array.isArray(value)) {
+      const items = value.slice(0, MAX_DIAGNOSTIC_ITEMS)
+        .map(item => _safeValue(item, depth + 1, visited));
+      if (value.length > MAX_DIAGNOSTIC_ITEMS) items.push(`[${value.length - MAX_DIAGNOSTIC_ITEMS} more items]`);
+      return items;
+    }
+
+    const result = {};
+    let keys = [];
+    try { keys = Object.keys(value).slice(0, MAX_DIAGNOSTIC_ITEMS); } catch (_) { return '[Unreadable object]'; }
+    keys.forEach(key => {
+      if (SENSITIVE_KEY.test(key)) {
+        result[key] = typeof value[key] === 'boolean' ? value[key] : '[REDACTED]';
+        return;
+      }
+      try { result[key] = _safeValue(value[key], depth + 1, visited); }
+      catch (_) { result[key] = '[Unreadable value]'; }
+    });
+    const totalKeys = (() => { try { return Object.keys(value).length; } catch (_) { return keys.length; } })();
+    if (totalKeys > keys.length) result._truncated = `${totalKeys - keys.length} more fields`;
+    return result;
+  }
+
+  function _safeJson(value) {
+    try { return JSON.stringify(_safeValue(value), null, 2); }
+    catch (err) { return JSON.stringify({ error: 'Unable to format diagnostics', message: String(err) }, null, 2); }
+  }
+
+  function _summarizeState() {
+    const summary = {};
+    Object.keys(_state).forEach(key => {
+      const value = _state[key];
+      summary[key] = Array.isArray(value) ? { count: value.length } : _safeValue(value);
+    });
+    return summary;
+  }
+
+  function _diagnosticsObject() {
+    try {
+      const diagnostics = window.PortalDiagnostics;
+      return diagnostics && (typeof diagnostics === 'object' || typeof diagnostics === 'function') ? diagnostics : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function _readDiagnosticMember(source, names) {
+    for (const name of names) {
+      try {
+        if (typeof source[name] === 'function') return await _withTimeout(source[name](), 3000);
+        if (source[name] !== undefined) return source[name];
+      } catch (err) {
+        return { diagnosticReadError: `${name}: ${String(err)}` };
+      }
+    }
+    return undefined;
+  }
+
+  async function _readDiagnostics() {
+    const diagnostics = _diagnosticsObject();
+    if (!diagnostics) return { available: false, events: [], requests: [], state: null, overview: null, checks: [] };
+
+    let snapshot = await _readDiagnosticMember(diagnostics, ['getSnapshot', 'snapshot', 'exportSnapshot', 'getReport', 'report']);
+    if (typeof snapshot === 'string') snapshot = { report: _redactString(snapshot) };
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) snapshot = {};
+
+    const [fallbackEvents, fallbackRequests, fallbackState, fallbackChecks, fallbackOverview] = await Promise.all([
+      snapshot.events == null && snapshot.entries == null
+        ? _readDiagnosticMember(diagnostics, ['getEvents', 'getEntries', 'events', 'entries']) : undefined,
+      snapshot.requests == null && snapshot.rpcs == null && snapshot.network == null
+        ? _readDiagnosticMember(diagnostics, ['getRequests', 'getRequestLog', 'requests', 'rpcs', 'requestLog']) : undefined,
+      snapshot.state == null ? _readDiagnosticMember(diagnostics, ['getState', 'state']) : undefined,
+      snapshot.checks == null ? _readDiagnosticMember(diagnostics, ['getChecks', 'checks']) : undefined,
+      snapshot.overview == null && snapshot.summary == null && snapshot.meta == null
+        ? _readDiagnosticMember(diagnostics, ['getOverview', 'overview', 'summary', 'meta']) : undefined
+    ]);
+    const events = snapshot.events ?? snapshot.entries ?? fallbackEvents;
+    const requests = snapshot.requests ?? snapshot.rpcs ?? snapshot.network ?? fallbackRequests;
+    const state = snapshot.state ?? fallbackState;
+    const checks = snapshot.checks ?? fallbackChecks;
+    const overview = snapshot.overview ?? snapshot.summary ?? snapshot.meta ?? snapshot.environment ?? fallbackOverview ?? null;
+
+    return {
+      available: true,
+      events: Array.isArray(events) ? events : [],
+      requests: Array.isArray(requests) ? requests : [],
+      state: state ?? snapshot,
+      overview,
+      checks: Array.isArray(checks) ? checks : (checks ? [checks] : [])
+    };
+  }
+
+  function _storeEvents() {
+    return _history.map(entry => ({
+      source: 'Store',
+      name: entry.action,
+      level: entry.action === 'SET_ERROR' ? 'error' : 'info',
+      timestamp: entry.timestamp || entry.time,
+      payload: entry.payload
+    }));
+  }
+
+  async function _collectDiagnostics(extra) {
+    const diagnosticData = await _readDiagnostics();
+    const activeLoads = Object.keys(_state.loading || {}).filter(key => _state.loading[key]);
+    const errors = Object.entries(_state.errors || {}).filter(([, value]) => value);
+    const model = {
+      overview: {
+        generatedAt: new Date().toISOString(),
+        page: location.pathname,
+        online: typeof navigator.onLine === 'boolean' ? navigator.onLine : 'unknown',
+        documentReadyState: document.readyState,
+        portalReady: window.__PORTAL_READY === true,
+        diagnosticsAvailable: diagnosticData.available,
+        currentPage: _state.currentPage,
+        storeActions: _history.length,
+        activeLoads,
+        errorCount: errors.length,
+        diagnostics: diagnosticData.overview
+      },
+      events: [...diagnosticData.events, ..._storeEvents()].slice(-200),
+      requests: diagnosticData.requests.slice(-100),
+      state: {
+        store: _summarizeState(),
+        diagnostics: diagnosticData.state
+      },
+      checks: [...diagnosticData.checks, ..._lastChecks]
+    };
+    if (extra !== undefined && extra !== '') model.operationalContext = extra;
+    return _safeValue(model);
+  }
+
+  function _el(tag, className, textValue) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (textValue !== undefined) element.textContent = String(textValue);
+    return element;
+  }
+
+  function _actionButton(label, action, className) {
+    const button = _el('button', `sdp-action-button${className ? ` ${className}` : ''}`, label);
+    button.type = 'button';
+    button.addEventListener('click', action);
+    return button;
+  }
 
   function _createPanel() {
-    const div = document.createElement('div');
-    div.id = 'store-debug-panel';
-    div.innerHTML = `
-      <div id="sdp-header">
-        <span>🗃 Store Debug</span>
-        <div style="display:flex;gap:6px;align-items:center">
-          <button onclick="Store._clearHistory()" style="background:#555;border:none;color:#fff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px">Clear</button>
-          <button onclick="Store._togglePanel()" style="background:#555;border:none;color:#fff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px">✕</button>
-        </div>
-      </div>
-      <div id="sdp-tabs">
-        <button class="sdp-tab active" onclick="Store._switchTab(this,'sdp-state')">State</button>
-        <button class="sdp-tab" onclick="Store._switchTab(this,'sdp-log')">Log</button>
-      </div>
-      <div id="sdp-state" class="sdp-pane">
-        <pre id="sdp-state-pre"></pre>
-      </div>
-      <div id="sdp-log" class="sdp-pane" style="display:none">
-        <div id="sdp-log-list"></div>
-      </div>`;
-    document.body.appendChild(div);
+    const panel = _el('section', '', undefined);
+    panel.id = 'store-debug-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Portal diagnostics');
+    panel.setAttribute('aria-modal', 'false');
 
-    // Drag support
-    const header = div.querySelector('#sdp-header');
-    let ox = 0, oy = 0, dragging = false;
-    header.addEventListener('mousedown', e => {
+    const header = _el('header', '', undefined);
+    header.id = 'sdp-header';
+    const heading = _el('div', 'sdp-heading', undefined);
+    heading.appendChild(_el('strong', '', 'Portal Diagnostics'));
+    const source = _el('span', 'sdp-source', 'Local');
+    source.id = 'sdp-source';
+    heading.appendChild(source);
+    header.appendChild(heading);
+
+    const actions = _el('div', 'sdp-actions', undefined);
+    actions.appendChild(_actionButton('Copy Report', () => _copyDebugReport()));
+    actions.appendChild(_actionButton('Run Checks', () => _runChecks()));
+    actions.appendChild(_actionButton('Clear', () => _clearHistory()));
+    actions.appendChild(_actionButton('Close', () => _togglePanel(false), 'sdp-close'));
+    header.appendChild(actions);
+    panel.appendChild(header);
+
+    const tabs = _el('div', '', undefined);
+    tabs.id = 'sdp-tabs';
+    tabs.setAttribute('role', 'tablist');
+    [
+      ['Overview', 'sdp-overview'],
+      ['Events', 'sdp-events'],
+      ['Requests', 'sdp-requests'],
+      ['State', 'sdp-state']
+    ].forEach(([label, paneId], index) => {
+      const tab = _el('button', `sdp-tab${index === 0 ? ' active' : ''}`, label);
+      tab.type = 'button';
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+      tab.setAttribute('aria-controls', paneId);
+      tab.addEventListener('click', () => _switchTab(tab, paneId));
+      tabs.appendChild(tab);
+    });
+    panel.appendChild(tabs);
+
+    const content = _el('div', 'sdp-content', undefined);
+    ['overview', 'events', 'requests', 'state'].forEach((name, index) => {
+      const pane = _el('div', 'sdp-pane', undefined);
+      pane.id = `sdp-${name}`;
+      pane.setAttribute('role', 'tabpanel');
+      pane.hidden = index !== 0;
+      content.appendChild(pane);
+    });
+    panel.appendChild(content);
+
+    const status = _el('div', '', 'Ready');
+    status.id = 'sdp-status';
+    status.setAttribute('role', 'status');
+    panel.appendChild(status);
+    document.body.appendChild(panel);
+
+    let dragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+    header.addEventListener('pointerdown', event => {
+      if (window.innerWidth <= 680 || event.target.closest('button')) return;
       dragging = true;
-      ox = e.clientX - div.offsetLeft;
-      oy = e.clientY - div.offsetTop;
+      offsetX = event.clientX - panel.offsetLeft;
+      offsetY = event.clientY - panel.offsetTop;
+      header.setPointerCapture?.(event.pointerId);
     });
-    document.addEventListener('mousemove', e => {
+    header.addEventListener('pointermove', event => {
       if (!dragging) return;
-      div.style.left = (e.clientX - ox) + 'px';
-      div.style.top  = (e.clientY - oy) + 'px';
-      div.style.right = 'auto';
-      div.style.bottom = 'auto';
+      const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+      const maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
+      panel.style.left = `${Math.min(Math.max(8, event.clientX - offsetX), maxLeft)}px`;
+      panel.style.top = `${Math.min(Math.max(8, event.clientY - offsetY), maxTop)}px`;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
     });
-    document.addEventListener('mouseup', () => dragging = false);
-    return div;
+    header.addEventListener('pointerup', () => { dragging = false; });
+    header.addEventListener('pointercancel', () => { dragging = false; });
+    return panel;
   }
 
-  function _debugRefresh(entry) {
+  function _setStatus(message, isError) {
+    const status = _panel?.querySelector('#sdp-status');
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle('is-error', !!isError);
+  }
+
+  function _appendOverviewRow(container, label, value) {
+    const row = _el('div', 'sdp-overview-row', undefined);
+    row.appendChild(_el('span', 'sdp-overview-label', label));
+    row.appendChild(_el('span', 'sdp-overview-value', typeof value === 'object' ? _safeJson(value) : value));
+    container.appendChild(row);
+  }
+
+  function _renderOverview(pane, model) {
+    pane.replaceChildren();
+    const runtime = _el('section', 'sdp-section', undefined);
+    runtime.appendChild(_el('h3', '', 'Runtime'));
+    Object.entries(model.overview || {}).forEach(([key, value]) => _appendOverviewRow(runtime, key, value));
+    pane.appendChild(runtime);
+
+    const checks = _el('section', 'sdp-section', undefined);
+    checks.appendChild(_el('h3', '', 'Checks'));
+    if (!model.checks?.length) {
+      checks.appendChild(_el('p', 'sdp-empty', 'Run checks to inspect portal readiness.'));
+    } else {
+      model.checks.forEach(check => {
+        const item = _el('div', 'sdp-check', undefined);
+        const status = check?.ok === true
+          ? 'pass'
+          : (check?.ok === false ? 'fail' : String(check?.status ?? check?.result ?? 'info').toLowerCase());
+        item.dataset.status = status;
+        item.appendChild(_el('strong', '', check?.name ?? check?.check ?? 'Check'));
+        item.appendChild(_el('span', '', check?.message ?? check?.detail ?? check?.status ?? _safeJson(check)));
+        checks.appendChild(item);
+      });
+    }
+    pane.appendChild(checks);
+  }
+
+  function _recordTitle(record, type) {
+    if (!record || typeof record !== 'object') return type === 'request' ? 'Request' : 'Event';
+    return record.operation || record.name || record.event || record.action || record.type || record.method || (type === 'request' ? 'Request' : 'Event');
+  }
+
+  function _recordMeta(record) {
+    if (!record || typeof record !== 'object') return '';
+    return [record.at || record.timestamp || record.startedAt || record.time, record.state || record.status || record.level, record.durationMs != null ? `${record.durationMs} ms` : '', record.source]
+      .filter(Boolean).join(' | ');
+  }
+
+  function _renderRecords(pane, records, type) {
+    pane.replaceChildren();
+    if (!records.length) {
+      pane.appendChild(_el('p', 'sdp-empty', type === 'request'
+        ? 'No diagnostic requests have been recorded.'
+        : 'No diagnostic events have been recorded.'));
+      return;
+    }
+    [...records].reverse().forEach(record => {
+      const item = _el('article', 'sdp-record', undefined);
+      const top = _el('div', 'sdp-record-top', undefined);
+      top.appendChild(_el('strong', '', _recordTitle(record, type)));
+      top.appendChild(_el('span', '', _recordMeta(record)));
+      item.appendChild(top);
+      item.appendChild(_el('pre', '', _safeJson(record)));
+      pane.appendChild(item);
+    });
+  }
+
+  function _renderState(pane, model) {
+    pane.replaceChildren();
+    pane.appendChild(_el('pre', 'sdp-state-pre', _safeJson(model.state)));
+  }
+
+  async function _refreshConsole() {
     if (!_panel || !_panelVisible) return;
-    // Update state pane
-    const statePre = document.getElementById('sdp-state-pre');
-    if (statePre) {
-      const display = { ..._state };
-      delete display.leads; delete display.followups; delete display.pipeline;
-      statePre.textContent = JSON.stringify(display, null, 2);
-    }
-    // Update log pane
-    const logList = document.getElementById('sdp-log-list');
-    if (logList) {
-      const item = document.createElement('div');
-      item.className = 'sdp-log-item';
-      item.innerHTML = `
-        <span class="sdp-action">${entry.action}</span>
-        <span class="sdp-time">${entry.time}</span>
-        <div class="sdp-payload">${JSON.stringify(entry.payload ?? null).substring(0, 120)}</div>`;
-      logList.insertBefore(item, logList.firstChild);
-      // Keep max 30 items in DOM
-      while (logList.children.length > 30) logList.removeChild(logList.lastChild);
+    const sequence = ++_refreshSequence;
+    _setStatus('Refreshing diagnostics...');
+    try {
+      const model = await _collectDiagnostics();
+      if (sequence !== _refreshSequence || !_panel?.isConnected) return;
+      _renderOverview(_panel.querySelector('#sdp-overview'), model);
+      _renderRecords(_panel.querySelector('#sdp-events'), model.events || [], 'event');
+      _renderRecords(_panel.querySelector('#sdp-requests'), model.requests || [], 'request');
+      _renderState(_panel.querySelector('#sdp-state'), model);
+      const source = _panel.querySelector('#sdp-source');
+      if (source) source.textContent = model.overview?.diagnosticsAvailable ? 'Unified' : 'Local fallback';
+      _setStatus(`Updated ${new Date().toLocaleTimeString('en-IN')}`);
+    } catch (err) {
+      _setStatus(`Diagnostics refresh failed: ${_redactString(err)}`, true);
     }
   }
 
-  function _togglePanel() {
+  function _debugRefresh() {
+    if (!_panel || !_panelVisible) return;
+    clearTimeout(_refreshTimer);
+    _refreshTimer = setTimeout(_refreshConsole, 80);
+  }
+
+  function _switchTab(button, paneId) {
+    if (!_panel) return;
+    _panel.querySelectorAll('.sdp-tab').forEach(tab => {
+      const active = tab === button;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    _panel.querySelectorAll('.sdp-pane').forEach(pane => { pane.hidden = pane.id !== paneId; });
+  }
+
+  function _togglePanel(force) {
     if (!_panel || !_panel.isConnected) _panel = _createPanel();
-    _panelVisible = !_panelVisible;
+    _panelVisible = typeof force === 'boolean' ? force : !_panelVisible;
     _panel.style.display = _panelVisible ? 'flex' : 'none';
-    if (_panelVisible) {
-      const statePre = document.getElementById('sdp-state-pre');
-      if (statePre) {
-        const display = { ..._state };
-        delete display.leads; delete display.followups; delete display.pipeline;
-        statePre.textContent = JSON.stringify(display, null, 2);
-      }
-      const logList = document.getElementById('sdp-log-list');
-      if (logList) {
-        logList.innerHTML = '';
-        [..._history].reverse().forEach(entry => {
-          const item = document.createElement('div');
-          item.className = 'sdp-log-item';
-          item.innerHTML = `
-            <span class="sdp-action">${entry.action}</span>
-            <span class="sdp-time">${entry.time}</span>
-            <div class="sdp-payload">${JSON.stringify(entry.payload ?? null).substring(0, 120)}</div>`;
-          logList.appendChild(item);
-        });
-      }
+    const button = document.getElementById('store-debug-btn');
+    button?.setAttribute('aria-expanded', _panelVisible ? 'true' : 'false');
+    if (_panelVisible) _refreshConsole();
+  }
+
+  function _localChecks() {
+    const activeLoads = Object.keys(_state.loading || {}).filter(key => _state.loading[key]);
+    const errors = Object.entries(_state.errors || {}).filter(([, value]) => value);
+    return [
+      { name: 'Document', status: document.readyState === 'complete' ? 'pass' : 'warn', message: document.readyState },
+      { name: 'Network', status: navigator.onLine === false ? 'fail' : 'pass', message: navigator.onLine === false ? 'Browser is offline' : 'Browser is online' },
+      { name: 'Portal API', status: typeof window.api === 'object' ? 'pass' : 'warn', message: typeof window.api === 'object' ? 'Available' : 'Not initialized' },
+      { name: 'Apps Script bridge', status: typeof window.google?.script?.run === 'object' ? 'pass' : 'warn', message: typeof window.google?.script?.run === 'object' ? 'Available' : 'Not initialized' },
+      { name: 'Store errors', status: errors.length ? 'fail' : 'pass', message: errors.length ? `${errors.length} active error(s)` : 'None' },
+      { name: 'Pending loads', status: activeLoads.length ? 'warn' : 'pass', message: activeLoads.length ? activeLoads.join(', ') : 'None' }
+    ];
+  }
+
+  async function _withTimeout(promise, timeoutMs) {
+    let timer;
+    try {
+      return await Promise.race([
+        Promise.resolve(promise),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Diagnostics check timed out')), timeoutMs); })
+      ]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  function _switchTab(btn, paneId) {
-    document.querySelectorAll('.sdp-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.sdp-pane').forEach(p => p.style.display = 'none');
-    document.getElementById(paneId).style.display = '';
+  async function _runChecks() {
+    _setStatus('Running checks...');
+    const diagnostics = _diagnosticsObject();
+    let externalChecks = [];
+    try {
+      const runner = diagnostics && ['runChecks', 'runHealthChecks', 'selfTest', 'check'].find(name => typeof diagnostics[name] === 'function');
+      if (runner) {
+        const result = await _withTimeout(diagnostics[runner](), 12000);
+        externalChecks = Array.isArray(result) ? result : (result ? [result] : []);
+      }
+      _lastChecks = [...externalChecks, ..._localChecks()];
+      await _refreshConsole();
+      _setStatus('Checks completed');
+    } catch (err) {
+      _lastChecks = [...externalChecks, ..._localChecks(), { name: 'Diagnostics runner', status: 'fail', message: _redactString(err) }];
+      await _refreshConsole();
+      _setStatus('Checks completed with an error', true);
+    }
   }
 
-  function _clearHistory() {
+  async function _clearHistory() {
     _history = [];
-    const logList = document.getElementById('sdp-log-list');
-    if (logList) logList.innerHTML = '';
+    _lastChecks = [];
+    const diagnostics = _diagnosticsObject();
+    try {
+      const clearName = diagnostics && ['clear', 'clearHistory'].find(name => typeof diagnostics[name] === 'function');
+      if (clearName) await diagnostics[clearName]();
+      await _refreshConsole();
+      _setStatus('Diagnostics cleared');
+    } catch (err) {
+      await _refreshConsole();
+      _setStatus(`Local history cleared; diagnostics clear failed: ${_redactString(err)}`, true);
+    }
+  }
+
+  async function _writeClipboard(textValue) {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(textValue);
+        return;
+      } catch (_) {}
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = textValue;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) throw new Error('Clipboard permission was denied');
+  }
+
+  function _formatBoundedDebugReport(model) {
+    let report = model;
+    let json = JSON.stringify(report, null, 2);
+    if (json.length > MAX_DEBUG_REPORT_LENGTH) {
+      report = {
+        overview: model.overview,
+        checks: (model.checks || []).slice(-20),
+        events: (model.events || []).slice(-50),
+        requests: (model.requests || []).slice(-30),
+        state: { store: model.state && model.state.store },
+        operationalContext: model.operationalContext,
+        reportTrimmed: true
+      };
+      json = JSON.stringify(report, null, 2);
+    }
+    if (json.length > MAX_DEBUG_REPORT_LENGTH) {
+      json = JSON.stringify({
+        overview: report.overview,
+        checks: (report.checks || []).slice(-10),
+        reportTrimmed: true,
+        summary: 'Diagnostic details exceeded the report size limit.'
+      }, null, 2);
+    }
+    return 'PORTAL_DEBUG_REPORT_START\n' + json.slice(0, MAX_DEBUG_REPORT_LENGTH) + '\nPORTAL_DEBUG_REPORT_END';
+  }
+  async function _copyDebugReport(extra) {
+    try {
+      const model = await _collectDiagnostics(extra);
+      const report = _formatBoundedDebugReport(model);
+      await _writeClipboard(report);
+      _setStatus('Sanitized report copied');
+      return true;
+    } catch (err) {
+      _setStatus(`Copy failed: ${_redactString(err)}`, true);
+      throw err;
+    }
   }
 
   function _mountDebugButton() {
-    if (document.getElementById('store-debug-btn')) return;
-    const btn = document.createElement('button');
-    btn.id = 'store-debug-btn';
-    btn.innerHTML = '🗃';
-    btn.title = 'Toggle Store Debug Panel';
-    btn.onclick = () => Store._togglePanel();
-    document.body.appendChild(btn);
+    if (!document.body || document.getElementById('store-debug-btn')) return;
+    const button = _el('button', '', undefined);
+    button.id = 'store-debug-btn';
+    button.type = 'button';
+    button.title = 'Open portal diagnostics (Ctrl+Alt+D)';
+    button.setAttribute('aria-label', 'Open portal diagnostics');
+    button.setAttribute('aria-expanded', 'false');
+    const icon = _el('i', 'sdp-tool-icon', undefined);
+    icon.setAttribute('data-lucide', 'wrench');
+    icon.setAttribute('aria-hidden', 'true');
+    button.appendChild(icon);
+    button.appendChild(_el('span', 'sdp-button-label', 'Debug'));
+    button.addEventListener('click', () => _togglePanel());
+    document.body.appendChild(button);
+    if (typeof renderIcons === 'function') {
+      try { renderIcons(button); } catch (_) {}
+    }
   }
 
-  return { dispatch, getState, getHistory, subscribe, isLoading, getError, getFilter, fetchData,
-           _togglePanel, _switchTab, _clearHistory, _mountDebugButton };
+  return {
+    dispatch, getState, getHistory, subscribe, isLoading, getError, getFilter, fetchData,
+    _togglePanel, _switchTab, _clearHistory, _mountDebugButton, _runChecks,
+    _copyDebugReport, _buildDebugReport: _collectDiagnostics
+  };
 })();
 
-// ── Debug toggle button (bottom-right corner) ─────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', () => Store._mountDebugButton(), { once: true });
+} else {
   Store._mountDebugButton();
+}
+window.addEventListener('keydown', event => {
+  if (event.ctrlKey && event.altKey && String(event.key).toLowerCase() === 'd') {
+    event.preventDefault();
+    Store._togglePanel();
+  } else if (event.key === 'Escape' &&
+      document.getElementById('store-debug-btn')?.getAttribute('aria-expanded') === 'true') {
+    Store._togglePanel(false);
+  }
 });
 </script>
 
 <style>
-/* ── Debug toggle button ───────────────────────────────────────────────────── */
 #store-debug-btn {
-  position: fixed; bottom: 16px; right: 16px; z-index: 9998;
-  width: 40px; height: 40px; border-radius: 50%; border: none;
-  background: #1565C0; color: #fff; font-size: 18px;
-  cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.3);
-  display: flex; align-items: center; justify-content: center;
+  position: fixed; right: 16px; bottom: 16px; z-index: 9998;
+  min-width: 44px; height: 40px; padding: 0 12px; border: 0; border-radius: 6px;
+  background: #1565c0; color: #fff; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  font: 600 12px/1 system-ui, sans-serif;
 }
-#store-debug-btn:hover { background: #1976D2; }
+#store-debug-btn:hover { background: #1976d2; }
+#store-debug-btn:focus-visible { outline: 3px solid rgba(21, 101, 192, .35); outline-offset: 2px; }
+#store-debug-btn .sdp-tool-icon { width: 16px; height: 16px; }
 
-/* ── Debug panel ───────────────────────────────────────────────────────────── */
 #store-debug-panel {
-  position: fixed; bottom: 64px; right: 16px; z-index: 9999;
-  width: 380px; max-height: 480px; background: #1E1E1E; color: #D4D4D4;
-  border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,.5);
-  font-family: 'Courier New', monospace; font-size: 12px;
+  position: fixed; right: 16px; bottom: 64px; z-index: 9999;
+  width: min(760px, calc(100vw - 32px));
+  height: min(620px, calc(100vh - 88px));
+  height: min(620px, calc(100dvh - 88px));
+  min-height: 320px; background: #181a1f; color: #e2e6ec;
+  border: 1px solid #343944; border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
   display: none; flex-direction: column; overflow: hidden;
 }
 #sdp-header {
-  background: #2D2D2D; padding: 8px 12px;
-  display: flex; justify-content: space-between; align-items: center;
-  font-weight: 700; font-size: 13px; cursor: move; user-select: none;
-  border-bottom: 1px solid #444;
+  background: #24272e; padding: 10px 12px; border-bottom: 1px solid #3b404b;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  cursor: move; user-select: none;
 }
-#sdp-tabs {
-  display: flex; background: #252525; border-bottom: 1px solid #444;
+.sdp-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sdp-heading strong { font: 700 14px/1.2 system-ui, sans-serif; color: #fff; }
+.sdp-source {
+  border: 1px solid #566170; border-radius: 4px; padding: 2px 5px;
+  color: #b7c5d8; font-size: 10px; white-space: nowrap;
 }
+.sdp-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.sdp-action-button {
+  min-height: 28px; border: 1px solid #505866; border-radius: 4px; padding: 4px 8px;
+  background: #303540; color: #f1f3f5; cursor: pointer;
+  font: 600 11px/1 system-ui, sans-serif;
+}
+.sdp-action-button:hover { background: #3b424e; }
+.sdp-action-button:focus-visible, .sdp-tab:focus-visible { outline: 2px solid #64b5f6; outline-offset: -2px; }
+.sdp-close { border-color: #72565b; }
+
+#sdp-tabs { display: flex; flex: 0 0 auto; background: #202329; border-bottom: 1px solid #3b404b; }
 .sdp-tab {
-  flex: 1; padding: 6px; border: none; background: none;
-  color: #888; cursor: pointer; font-size: 12px; font-family: inherit;
+  flex: 1; min-width: 0; height: 36px; border: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: #a7adb8; cursor: pointer;
+  font: 600 12px/1 system-ui, sans-serif;
 }
-.sdp-tab.active { color: #4FC3F7; border-bottom: 2px solid #4FC3F7; }
-.sdp-pane { flex: 1; overflow-y: auto; padding: 8px; }
-#sdp-state-pre {
-  margin: 0; white-space: pre-wrap; word-break: break-all;
-  color: #9CDCFE; font-size: 11px; line-height: 1.5;
+.sdp-tab.active { color: #81d4fa; border-bottom-color: #29b6f6; background: #272b33; }
+.sdp-content { flex: 1 1 auto; min-height: 0; position: relative; }
+.sdp-pane { height: 100%; overflow: auto; padding: 12px; box-sizing: border-box; }
+.sdp-pane[hidden] { display: none; }
+.sdp-section { margin: 0 0 16px; }
+.sdp-section h3 { margin: 0 0 8px; color: #fff; font: 700 12px/1.2 system-ui, sans-serif; }
+.sdp-overview-row {
+  display: grid; grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 12px; padding: 7px 0; border-bottom: 1px solid #30343d;
 }
-.sdp-log-item {
-  padding: 6px 0; border-bottom: 1px solid #333; line-height: 1.4;
+.sdp-overview-label { color: #9fa8b6; }
+.sdp-overview-value { color: #dce7f5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sdp-check {
+  display: grid; grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 12px; padding: 7px 9px; margin-bottom: 5px; border-left: 3px solid #78909c;
+  background: #22262d;
 }
-.sdp-action { color: #4EC9B0; font-weight: 700; margin-right: 8px; }
-.sdp-time   { color: #888; font-size: 10px; }
-.sdp-payload{ color: #CE9178; font-size: 10px; margin-top: 2px; word-break: break-all; }
+.sdp-check[data-status="pass"], .sdp-check[data-status="ok"] { border-left-color: #43a047; }
+.sdp-check[data-status="warn"], .sdp-check[data-status="warning"] { border-left-color: #f9a825; }
+.sdp-check[data-status="fail"], .sdp-check[data-status="error"] { border-left-color: #e53935; }
+.sdp-check span { color: #b9c1ce; overflow-wrap: anywhere; }
+.sdp-record { padding: 9px; margin-bottom: 8px; border: 1px solid #333945; border-radius: 5px; background: #20242b; }
+.sdp-record-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sdp-record-top strong { color: #70d7c7; overflow-wrap: anywhere; }
+.sdp-record-top span { color: #929ba9; font-size: 10px; text-align: right; }
+.sdp-record pre, .sdp-state-pre {
+  margin: 7px 0 0; color: #efbc94; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.sdp-state-pre { margin: 0; color: #9fd4ff; }
+.sdp-empty { color: #9fa8b6; text-align: center; margin: 28px 12px; }
+#sdp-status {
+  flex: 0 0 auto; min-height: 28px; padding: 6px 12px; box-sizing: border-box;
+  border-top: 1px solid #343944; background: #202329; color: #9fa8b6;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#sdp-status.is-error { color: #ff8a80; }
+
+@media (max-width: 680px) {
+  #store-debug-btn { right: 10px; bottom: 10px; }
+  #store-debug-panel {
+    inset: 8px; width: auto; height: auto; min-height: 0; max-height: none; border-radius: 6px;
+  }
+  #sdp-header { align-items: flex-start; cursor: default; flex-direction: column; }
+  .sdp-actions { width: 100%; justify-content: stretch; }
+  .sdp-action-button { flex: 1; padding-inline: 5px; }
+  .sdp-overview-row, .sdp-check { grid-template-columns: 1fr; gap: 3px; }
+  .sdp-record-top { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .sdp-record-top span { text-align: left; }
+}
 </style>

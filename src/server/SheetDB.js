@@ -20,6 +20,17 @@ function assertServerContext_() {
   }
 }
 
+function withSheetDbTiming_(operation, sheetName, mode, fn) {
+  const attributes = {
+    sheet: typeof diagnosticSheetLabel_ === 'function' ? diagnosticSheetLabel_(sheetName) : 'UNKNOWN',
+    mode: mode === 'write' ? 'write' : 'read'
+  };
+  if (typeof withDiagnosticSpan_ === 'function') {
+    return withDiagnosticSpan_('sheetdb.' + String(operation || 'operation'), attributes, fn);
+  }
+  return fn();
+}
+
 function getSpreadsheet(sheetName) {
   assertServerContext_();
   if (isUserDatabaseSheet(sheetName)) {
@@ -32,15 +43,17 @@ function getSpreadsheet(sheetName) {
   return SpreadsheetApp.openById(SPREADSHEET_ID);
 }
 
-function getSheet(name) {
-  assertServerContext_();
-  const sheetName = normalizeSheetName(name);
-  const ss = getSpreadsheet(sheetName);
-  let sheet = ss.getSheetByName(sheetName);
-  if (!sheet) sheet = ss.insertSheet(sheetName);
-  return sheet;
+function getSheet(name, createIfMissing) {
+  return withSheetDbTiming_('open_sheet', name, createIfMissing === true ? 'write' : 'read', () => {
+    assertServerContext_();
+    const sheetName = normalizeSheetName(name);
+    const ss = getSpreadsheet(sheetName);
+    let sheet = ss.getSheetByName(sheetName);
+    if (!sheet && createIfMissing === true) sheet = ss.insertSheet(sheetName);
+    if (!sheet) throw new Error('Required sheet not found: ' + sheetName + '. Run setupSheets as an administrator.');
+    return sheet;
+  });
 }
-
 function normalizeSheetName(name) {
   return name === 'USERS' ? USER_DATABASE_SHEET_NAME : name;
 }
@@ -53,15 +66,20 @@ function isUserDatabaseSheet(sheetName) {
 }
 
 function getHeaders(sheetName) {
-  const sheet = getSheet(sheetName);
-  const lastCol = sheet.getLastColumn();
-  if (lastCol === 0) return [];
-  return sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  return withSheetDbTiming_('read_headers', sheetName, 'read', () => {
+    const sheet = getSheet(sheetName);
+    const lastCol = sheet.getLastColumn();
+    if (lastCol === 0) return [];
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    return typeof validateSheetHeaders_ === 'function'
+      ? validateSheetHeaders_(sheetName, headers)
+      : headers;
+  });
 }
 
 // Sheets-API-first read with SpreadsheetApp fallback (see readAllRowsWithFallback_).
 function getAllRows(sheetName) {
-  return readAllRowsWithFallback_(sheetName);
+  return withSheetDbTiming_('read_all', sheetName, 'read', () => readAllRowsWithFallback_(sheetName));
 }
 
 // Legacy SpreadsheetApp read — the fallback path used when the Sheets API is
@@ -70,17 +88,23 @@ function _legacyGetAllRows_(sheetName) {
   const sheet = getSheet(sheetName);
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
-  const headers = data[0];
-  return data.slice(1).map((row) => rowObjectFromHeaders_(headers, row));
+  const headers = typeof validateSheetHeaders_ === 'function'
+    ? validateSheetHeaders_(sheetName, data[0])
+    : data[0];
+  return data.slice(1).map((row) => rowObjectFromHeaders_(headers, row, true, sheetName));
 }
 
-function rowObjectFromHeaders_(headers, values, normalize) {
+function rowObjectFromHeaders_(headers, values, normalize, sheetName) {
   const obj = {};
   (headers || []).forEach((header, i) => {
     const key = String(header || '').trim();
     if (!key) return;
     const value = values ? values[i] : '';
-    obj[key] = normalize === false ? value : normalizeSheetValue(value);
+    obj[key] = normalize === false
+      ? value
+      : (sheetName && typeof parseSheetCell_ === 'function'
+        ? parseSheetCell_(sheetName, key, value)
+        : normalizeSheetValue(value));
   });
   return obj;
 }
@@ -90,36 +114,41 @@ function rowObjectFromHeaders_(headers, values, normalize) {
 // listed spreadsheet and concatenates the rows, tagging each row with
 // _source and _sourceName for downstream filtering.
 function getAggregatedRows(sheetName) {
-  assertServerContext_();
-  const sources = (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.AGGREGATE_SOURCES) || [];
-  if (!Array.isArray(sources) || !sources.length) return getAllRows(sheetName);
+  return withSheetDbTiming_('read_aggregated', sheetName, 'read', () => {
+    assertServerContext_();
+    const sources = (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.AGGREGATE_SOURCES) || [];
+    if (!Array.isArray(sources) || !sources.length) return getAllRows(sheetName);
 
-  const resolved = normalizeSheetName(sheetName);
-  const merged = [];
-  sources.forEach(src => {
-    if (!src || !src.spreadsheetId) return;
-    let ss;
-    try {
-      ss = SpreadsheetApp.openById(src.spreadsheetId);
-    } catch (e) {
-      Logger.log('[Aggregate] open failed for ' + (src.key || src.spreadsheetId) + ': ' + e.message);
-      return;
-    }
-    const sheet = ss.getSheetByName(resolved);
-    if (!sheet) return;
-    const data = sheet.getDataRange().getValues();
-    if (data.length < 2) return;
-    const headers = data[0];
-    data.slice(1).forEach(row => {
-      const obj = rowObjectFromHeaders_(headers, row);
-      obj._source = src.key || '';
-      obj._sourceName = src.name || src.key || '';
-      merged.push(obj);
+    const resolved = normalizeSheetName(sheetName);
+    const merged = [];
+    sources.forEach(src => {
+      if (!src || !src.spreadsheetId) return;
+      let ss;
+      try {
+        ss = SpreadsheetApp.openById(src.spreadsheetId);
+      } catch (e) {
+        if (typeof diagnosticLog_ === 'function') {
+          diagnosticLog_('WARN', 'DATA.AGGREGATE_SOURCE_UNAVAILABLE', 'aggregate_source_open_failed', {
+            sheet: diagnosticSheetLabel_(sheetName)
+          });
+        }
+        return;
+      }
+      const sheet = ss.getSheetByName(resolved);
+      if (!sheet) return;
+      const data = sheet.getDataRange().getValues();
+      if (data.length < 2) return;
+      const headers = data[0];
+      data.slice(1).forEach(row => {
+        const obj = rowObjectFromHeaders_(headers, row, true, resolved);
+        obj._source = src.key || '';
+        obj._sourceName = src.name || src.key || '';
+        merged.push(obj);
+      });
     });
+    return merged;
   });
-  return merged;
 }
-
 function isAggregatePortal() {
   const sources = (typeof CLIENT_CONFIG !== 'undefined' && CLIENT_CONFIG.AGGREGATE_SOURCES) || [];
   return Array.isArray(sources) && sources.length > 0;
@@ -137,69 +166,80 @@ function normalizeSheetValue(value) {
 }
 
 function findRowIndex(sheetName, idColumn, idValue) {
-  const indexedRow = typeof findIndexedRowNumber_ === 'function'
-    ? findIndexedRowNumber_(sheetName, idColumn, idValue)
-    : -1;
-  if (indexedRow > 1) return indexedRow;
-  const sheet = getSheet(sheetName);
-  const data = sheet.getDataRange().getValues();
-  if (!data.length || !data[0] || !data[0].length) return -1;
-  const headers = data[0];
-  const col = headers.indexOf(idColumn);
-  if (col === -1) return -1;
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][col]) === String(idValue)) return i + 1; // 1-based row
-  }
-  return -1;
+  return withSheetDbTiming_('read_find_row', sheetName, 'read', () => {
+    const indexedRow = typeof findIndexedRowNumber_ === 'function'
+      ? findIndexedRowNumber_(sheetName, idColumn, idValue)
+      : -1;
+    if (indexedRow > 1) return indexedRow;
+    const sheet = getSheet(sheetName);
+    const data = sheet.getDataRange().getValues();
+    if (!data.length || !data[0] || !data[0].length) return -1;
+    const headers = data[0];
+    const col = headers.indexOf(idColumn);
+    if (col === -1) return -1;
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][col]) === String(idValue)) return i + 1; // 1-based row
+    }
+    return -1;
+  });
 }
-
 // Inserts a row. The append goes through the Sheets API (SpreadsheetApp fallback) via
 // _appendRowWithFallback_; LockService + index sync are unchanged.
 function insertRow(sheetName, rowObj) {
-  _invalidateReadCache_();
-  const headers = getHeaders(sheetName);
-  if (!headers.length) {
-    throw new Error('Cannot insert row: sheet "' + sheetName + '" has no headers. Run setupSheets first.');
-  }
-  const row = headers.map((h) => (rowObj[h] !== undefined ? rowObj[h] : ""));
-  const lock = LockService.getScriptLock();
-  let rowNumber = 0;
-  lock.waitLock(10000);
-  try {
-    rowNumber = _appendRowWithFallback_(sheetName, row, headers.length);
-  } finally {
-    lock.releaseLock();
-  }
-  if (typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, rowObj, rowNumber);
+  return withSheetDbTiming_('write_insert', sheetName, 'write', () => {
+    _invalidateReadCache_();
+    const headers = getHeaders(sheetName);
+    if (!headers.length) {
+      throw new Error('Cannot insert row: sheet "' + sheetName + '" has no headers. Run setupSheets first.');
+    }
+    const rawRow = headers.map((h) => (rowObj[h] !== undefined ? rowObj[h] : ""));
+    const row = typeof sanitizeSheetRowValues_ === 'function' ? sanitizeSheetRowValues_(rawRow) : rawRow;
+    const lock = LockService.getScriptLock();
+    let rowNumber = 0;
+    lock.waitLock(10000);
+    try {
+      rowNumber = _appendRowWithFallback_(sheetName, row, headers.length);
+    } finally {
+      lock.releaseLock();
+    }
+    if (typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, rowObj, rowNumber);
+  });
 }
 
 // Updates a row by id. Tries the Sheets API path (targeted read-modify-write under the
 // script lock); any miss/uncertainty/error falls through to the authoritative
 // SpreadsheetApp path so behaviour and return values match the legacy implementation.
 function updateRow(sheetName, idColumn, idValue, updates) {
-  _invalidateReadCache_();
-  const headers = getHeaders(sheetName);
-  if (headers && headers.length) {
-    const lock = LockService.getScriptLock();
-    lock.waitLock(10000);
-    let res = _FALLBACK_;
-    try {
-      res = _sheetsApiUpdateRow_(sheetName, idColumn, idValue, updates, headers);
-    } catch (e) {
-      _noteSheetsApiError_(e);
-      Logger.log('[Write] Sheets API updateRow fell back for ' + sheetName + ' ' + idColumn + '=' + idValue + ': ' + (e && e.message || e));
-      res = _FALLBACK_;
-    } finally {
-      lock.releaseLock();
+  return withSheetDbTiming_('write_update', sheetName, 'write', () => {
+    _invalidateReadCache_();
+    const headers = getHeaders(sheetName);
+    if (headers && headers.length) {
+      const lock = LockService.getScriptLock();
+      lock.waitLock(10000);
+      let res = _FALLBACK_;
+      try {
+        res = _sheetsApiUpdateRow_(sheetName, idColumn, idValue, updates, headers);
+      } catch (e) {
+        _noteSheetsApiError_(e);
+        if (typeof diagnosticLog_ === 'function') {
+          diagnosticLog_('WARN', 'DATA.WRITE_FALLBACK', 'sheet_update_fallback', {
+            sheet: diagnosticSheetLabel_(sheetName),
+            idColumn: String(idColumn || '').slice(0, 80),
+            errorCategory: diagnosticErrorCategory_(e)
+          });
+        }
+        res = _FALLBACK_;
+      } finally {
+        lock.releaseLock();
+      }
+      if (res !== _FALLBACK_ && res && res.ok) {
+        if (typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, res.syncedRow, res.rowNumber);
+        return true;
+      }
     }
-    if (res !== _FALLBACK_ && res && res.ok) {
-      if (typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, res.syncedRow, res.rowNumber);
-      return true;
-    }
-  }
-  return _legacyUpdateRow_(sheetName, idColumn, idValue, updates);
+    return _legacyUpdateRow_(sheetName, idColumn, idValue, updates);
+  });
 }
-
 function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
   const sheet = getSheet(sheetName);
   // Fix #10: acquire lock BEFORE reading row index to prevent race condition
@@ -226,7 +266,13 @@ function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
     }
     if (rowIndex === -1) return false;
     if (rowIndex < 1) {
-      Logger.log('[SheetDB] Refusing invalid update row for ' + sheetName + ' ' + idColumn + '=' + idValue + ' rowIndex=' + rowIndex);
+      if (typeof diagnosticLog_ === 'function') {
+        diagnosticLog_('ERROR', 'DATA.INVALID_ROW_TARGET', 'sheet_update_invalid_row', {
+          sheet: diagnosticSheetLabel_(sheetName),
+          idColumn: String(idColumn || '').slice(0, 80),
+          rowIndex
+        });
+      }
       if (typeof rebuildIndexForSheet_ === 'function') rebuildIndexForSheet_(sheetName);
       return false;
     }
@@ -234,14 +280,23 @@ function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
     const updatedRow = headers.map((h, i) =>
       updates[h] !== undefined ? updates[h] : data[rowIndex][i]
     );
+    const safeUpdatedRow = typeof sanitizeSheetRowValues_ === 'function'
+      ? sanitizeSheetRowValues_(updatedRow)
+      : updatedRow;
     const targetRowNumber = rowIndex + 1;
     if (targetRowNumber < 2) {
-      Logger.log('[SheetDB] Refusing invalid target row for ' + sheetName + ' ' + idColumn + '=' + idValue + ' row=' + targetRowNumber);
+      if (typeof diagnosticLog_ === 'function') {
+        diagnosticLog_('ERROR', 'DATA.INVALID_ROW_TARGET', 'sheet_update_invalid_target', {
+          sheet: diagnosticSheetLabel_(sheetName),
+          idColumn: String(idColumn || '').slice(0, 80),
+          rowNumber: targetRowNumber
+        });
+      }
       if (typeof rebuildIndexForSheet_ === 'function') rebuildIndexForSheet_(sheetName);
       return false;
     }
-    sheet.getRange(targetRowNumber, 1, 1, headers.length).setValues([updatedRow]);
-    syncedRow = rowObjectFromHeaders_(headers, updatedRow);
+    sheet.getRange(targetRowNumber, 1, 1, headers.length).setValues([safeUpdatedRow]);
+    syncedRow = rowObjectFromHeaders_(headers, safeUpdatedRow, true, sheetName);
     syncedRowNumber = targetRowNumber;
   } finally {
     lock.releaseLock();
@@ -252,26 +307,33 @@ function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
 
 // Deletes a row by id. Sheets API (deleteDimension) first, SpreadsheetApp fallback.
 function deleteRow(sheetName, idColumn, idValue) {
-  _invalidateReadCache_();
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  let outcome = _FALLBACK_;
-  try {
-    outcome = _sheetsApiDeleteRow_(sheetName, idColumn, idValue);
-  } catch (e) {
-    _noteSheetsApiError_(e);
-    Logger.log('[Write] Sheets API deleteRow fell back for ' + sheetName + ' ' + idColumn + '=' + idValue + ': ' + (e && e.message || e));
-    outcome = _FALLBACK_;
-  } finally {
-    lock.releaseLock();
-  }
-  if (outcome === true) {
-    if (typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
-    return true;
-  }
-  return _legacyDeleteRow_(sheetName, idColumn, idValue);
+  return withSheetDbTiming_('write_delete', sheetName, 'write', () => {
+    _invalidateReadCache_();
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    let outcome = _FALLBACK_;
+    try {
+      outcome = _sheetsApiDeleteRow_(sheetName, idColumn, idValue);
+    } catch (e) {
+      _noteSheetsApiError_(e);
+      if (typeof diagnosticLog_ === 'function') {
+        diagnosticLog_('WARN', 'DATA.WRITE_FALLBACK', 'sheet_delete_fallback', {
+          sheet: diagnosticSheetLabel_(sheetName),
+          idColumn: String(idColumn || '').slice(0, 80),
+          errorCategory: diagnosticErrorCategory_(e)
+        });
+      }
+      outcome = _FALLBACK_;
+    } finally {
+      lock.releaseLock();
+    }
+    if (outcome === true) {
+      if (typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
+      return true;
+    }
+    return _legacyDeleteRow_(sheetName, idColumn, idValue);
+  });
 }
-
 function _legacyDeleteRow_(sheetName, idColumn, idValue) {
   const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
@@ -297,26 +359,32 @@ function _legacyDeleteRow_(sheetName, idColumn, idValue) {
 // Deletes every row matching filterFn. Sheets API (batched deleteDimension) first,
 // SpreadsheetApp fallback. Index rebuild runs once after the deletions.
 function deleteAllRowsWhere(sheetName, filterFn) {
-  _invalidateReadCache_();
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  let result = _FALLBACK_;
-  try {
-    result = _sheetsApiDeleteAllRowsWhere_(sheetName, filterFn);
-  } catch (e) {
-    _noteSheetsApiError_(e);
-    Logger.log('[Write] Sheets API deleteAllRowsWhere fell back for ' + sheetName + ': ' + (e && e.message || e));
-    result = _FALLBACK_;
-  } finally {
-    lock.releaseLock();
-  }
-  if (result !== _FALLBACK_) {
-    if (result > 0 && typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
-    return result;
-  }
-  return _legacyDeleteAllRowsWhere_(sheetName, filterFn);
+  return withSheetDbTiming_('write_delete_many', sheetName, 'write', () => {
+    _invalidateReadCache_();
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    let result = _FALLBACK_;
+    try {
+      result = _sheetsApiDeleteAllRowsWhere_(sheetName, filterFn);
+    } catch (e) {
+      _noteSheetsApiError_(e);
+      if (typeof diagnosticLog_ === 'function') {
+        diagnosticLog_('WARN', 'DATA.WRITE_FALLBACK', 'sheet_bulk_delete_fallback', {
+          sheet: diagnosticSheetLabel_(sheetName),
+          errorCategory: diagnosticErrorCategory_(e)
+        });
+      }
+      result = _FALLBACK_;
+    } finally {
+      lock.releaseLock();
+    }
+    if (result !== _FALLBACK_) {
+      if (result > 0 && typeof rebuildIndexAfterDelete_ === 'function') rebuildIndexAfterDelete_(sheetName);
+      return result;
+    }
+    return _legacyDeleteAllRowsWhere_(sheetName, filterFn);
+  });
 }
-
 function _legacyDeleteAllRowsWhere_(sheetName, filterFn) {
   const sheet = getSheet(sheetName);
   const lock = LockService.getScriptLock();
@@ -327,7 +395,7 @@ function _legacyDeleteAllRowsWhere_(sheetName, filterFn) {
     if (data.length < 2 || !data[0] || !data[0].length) return 0;
     const headers = data[0];
     for (let i = data.length - 1; i >= 1; i--) {
-      const row = rowObjectFromHeaders_(headers, data[i], false);
+      const row = rowObjectFromHeaders_(headers, data[i], false, sheetName);
       if (filterFn(row)) { sheet.deleteRow(i + 1); deleted++; }
     }
   } finally {
@@ -344,42 +412,53 @@ function queryRows(sheetName, filterFn) {
 // Safe: creates sheet if missing, writes header row if empty,
 // or appends only NEW columns to the right — never touches existing data.
 function safeInitHeaders(sheetName, requiredHeaders) {
-  _invalidateReadCache_();
-  requiredHeaders = Array.isArray(requiredHeaders) ? requiredHeaders.filter(Boolean) : [];
-  if (!requiredHeaders.length) {
-    Logger.log('[SheetDB] safeInitHeaders skipped empty header list for ' + sheetName);
-    return;
-  }
-  const sheet = getSheet(sheetName);
-  const lastCol = sheet.getLastColumn();
+  return withSheetDbTiming_('write_init_headers', sheetName, 'write', () => {
+    _invalidateReadCache_();
+    requiredHeaders = Array.isArray(requiredHeaders) ? requiredHeaders.filter(Boolean) : [];
+    if (!requiredHeaders.length) {
+      if (typeof diagnosticLog_ === 'function') {
+        diagnosticLog_('WARN', 'VALIDATION.INVALID_INPUT', 'sheet_headers_empty', {
+          sheet: diagnosticSheetLabel_(sheetName)
+        });
+      }
+      return;
+    }
+    const sheet = getSheet(sheetName, true);
+    const lastCol = sheet.getLastColumn();
 
-  // Sheet is brand new — write full header row
-  if (lastCol === 0 || sheet.getRange(1, 1).getValue() === "") {
-    sheet
-      .getRange(1, 1, 1, requiredHeaders.length)
-      .setValues([requiredHeaders]);
-    _styleHeaderRow(sheet, 1, requiredHeaders.length);
-    return;
-  }
+    // Sheet is brand new — write full header row
+    if (lastCol === 0 || sheet.getRange(1, 1).getValue() === "") {
+      sheet
+        .getRange(1, 1, 1, requiredHeaders.length)
+        .setValues([requiredHeaders]);
+      _styleHeaderRow(sheet, 1, requiredHeaders.length);
+      return;
+    }
 
-  // Sheet already has headers — find and append only missing columns
-  const existingHeaders = sheet
-    .getRange(1, 1, 1, lastCol)
-    .getValues()[0]
-    .map(String);
-  const missing = requiredHeaders.filter((h) => !existingHeaders.includes(h));
-  if (missing.length === 0) return; // nothing to do
+    // Sheet already has headers — find and append only missing columns
+    const existingHeaders = sheet
+      .getRange(1, 1, 1, lastCol)
+      .getValues()[0]
+      .map(String);
+    const missing = requiredHeaders.filter((h) => !existingHeaders.includes(h));
+    if (missing.length === 0) return; // nothing to do
 
-  const startCol = lastCol + 1;
-  sheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
-  _styleHeaderRow(sheet, startCol, missing.length);
+    const startCol = lastCol + 1;
+    sheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
+    _styleHeaderRow(sheet, startCol, missing.length);
+  });
 }
-
 function _styleHeaderRow(sheet, startCol, count) {
   startCol = Number(startCol || 0);
   count = Number(count || 0);
   if (startCol < 1 || count < 1) {
-    Logger.log('[SheetDB] Header styling skipped for invalid range startCol=' + startCol + ' count=' + count);
+    if (typeof diagnosticLog_ === 'function') {
+      diagnosticLog_('WARN', 'DATA.INVALID_RANGE', 'sheet_header_style_skipped', {
+        sheet: typeof sheet.getName === 'function' ? diagnosticSheetLabel_(sheet.getName()) : 'UNKNOWN',
+        startColumn: startCol,
+        columnCount: count
+      });
+    }
     return;
   }
   sheet
