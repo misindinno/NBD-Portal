@@ -570,6 +570,18 @@
   .sk-trow { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-bottom: 1px solid #f4f3f9; }
   .sk-trow:last-child { border-bottom: 0; }
   .sk-av { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; }
+  .table-loading-host { position: relative !important; min-height: 180px; }
+  .table-loading-overlay {
+    position: absolute; inset: 0; z-index: 25; overflow: hidden;
+    padding: 8px 16px 12px; box-sizing: border-box;
+    background: rgba(255,255,255,.96); pointer-events: auto; cursor: progress;
+  }
+  .table-loading-grid { display: flex; flex-direction: column; min-width: 680px; }
+  .table-loading-row {
+    display: flex; align-items: center; gap: 18px; min-height: 46px;
+    border-bottom: 1px solid #f1f0f7;
+  }
+  .table-loading-cell { height: 12px; min-width: 54px; max-width: 220px; }
   .sk-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
   .sk-chart { background: #fff; border: 1px solid #ecebf4; border-radius: 14px; padding: 14px;
     box-shadow: 0 4px 14px -10px rgba(40,30,80,.5); }

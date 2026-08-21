@@ -81,10 +81,12 @@ function getArchiveSuggestionsFast_(user) {
 
   const leads = _scopeAssignedRows(
     (rows[SHEET_NAMES.LEADS] || []).filter(l => {
-      if (_isArchivedLead_(l) || _isLeadPushedToNbd_(l)) return false;
+      if (_isArchivedLead_(l)) return false;
       const stage = stageMap[String(l['Stage ID'] || '').trim()] || {};
+      const isLost = _isLostArchiveLead_(l, stage);
+      if (_isLeadPushedToNbd_(l) && !isLost) return false;
       const isFinal = stage['Is Final Stage'] === true || String(stage['Is Final Stage'] || '').trim().toLowerCase() === 'true';
-      return !isFinal || _isLostArchiveLead_(l, stage);
+      return !isFinal || isLost;
     }),
     user
   );

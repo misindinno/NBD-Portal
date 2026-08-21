@@ -298,6 +298,54 @@ test('archive summaries and sort values cover suggestion and archived modes', ()
   ]))), { total: 2, followups: 7, notPicked: 3 });
 });
 
+test('post-load icon rendering is idempotent and Follow-up tab icons stay at 14px', () => {
+  const read = file => fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
+  const utils = read('AppUtils.html');
+  const css = read('CSSFollowupQuery.html');
+  assert.match(utils, /tagName\?\.toLowerCase\(\) === 'svg'/);
+  assert.doesNotMatch(utils, /target === document \|\|/);
+  assert.doesNotMatch(utils, /attrs\['data-lucide'\]\s*=/);
+  assert.match(utils, /removeAttribute\('data-lucide'\)/);
+  assert.match(css, /\.fu-page \.fu-tab > svg\s*\{[^}]*width:\s*14px !important;[^}]*height:\s*14px !important;/s);
+});
+
+test('primary worklists fetch complete collections once and process them client-side', () => {
+  const read = file => fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
+  const leads = read('Leads.html');
+  const followups = read('Followups.html');
+  const archive = read('Archive.html');
+  const core = read('AppCore.html');
+  const combined = [leads, followups, archive, core].join('\n');
+
+  assert.match(leads, /await api\.getLeads\(\)/);
+  assert.match(leads, /leadTable\.setFilter\(pred\.test\)/);
+  assert.match(followups, /_getFollowupPageSnapshot\(force, \{ includeHistory: true \}\)/);
+  assert.match(followups, /rows = _fuApplyFilters\(rows, ctx\)/);
+  assert.match(followups, /data\.slice\(0, _fuRenderedCount\)\.map\(_fuTableRow\)/);
+  assert.match(followups, /function _fuAppendVisibleRows\s*\(/);
+  assert.match(followups, /function _fuRouteIsActive\s*\(/);
+  assert.match(followups, /_fuSnapshotRequest\.promise/);
+  assert.match(archive, /api\.getArchiveData\(\)/);
+  assert.match(archive, /api\.getArchiveSuggestions\(\)/);
+  assert.match(archive, /api\.getLostArchiveLeads\(\)/);
+  assert.match(archive, /function _archFiltered\s*\(/);
+  assert.doesNotMatch(combined, /get(?:Leads|Followups|Archive)Page/);
+  assert.doesNotMatch(combined, /_leadRenderPagination|_fuPagination|_archPagHTML|_archSetPage/);
+
+  const store = read('Store.html');
+  assert.match(store, /function _installDebugButtonDrag\s*\(/);
+  assert.match(store, /DEBUG_BUTTON_POSITION_KEY/);
+  assert.match(store, /setPointerCapture/);
+  assert.match(store, /suppressClick/);
+  const loadingCss = read('CSS.html');
+  assert.match(read('AppUtils.html'), /function beginTableLoading\s*\(/);
+  assert.match(loadingCss, /\.table-loading-overlay\s*\{/);
+  for (const file of ['Followups.html', 'Leads.html', 'Archive.html']) {
+    const source = read(file);
+    assert.match(source, /beginTableLoading\s*\(/, file + ' must show rows while a full refresh is in flight');
+    assert.match(source, /finally\s*\{\s*finishLoading\(\)/, file + ' must clear the loading state');
+  }
+});
 let failures = 0;
 for (const { name, fn } of tests) {
   try {

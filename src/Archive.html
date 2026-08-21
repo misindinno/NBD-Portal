@@ -101,14 +101,13 @@
 </style>
 <script>
 // ── Archive page ──────────────────────────────────────────────────────────────
-// One shared shell (title + tabs + tools) with two tab states. Tab switches and
-// filter/sort/page changes re-render only what changed — the search input is never
-// rebuilt (no caret jump), and archive/restore update rows in place (no full reload).
+// One shared shell with three full-data tab caches. Each tab fetches once, then
+// search, status, owner, severity, and sorting run entirely in the browser.
 let _archiveTab = 'archived';
 const _archTabs = {
-  archived:    { rows: null, meta: null, search: '', owner: '', sortKey: 'archived', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() },
-  suggestions: { rows: null, meta: null, search: '', owner: '', status: '', severity: 'all', sortKey: 'streak', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() },
-  lost:        { rows: null, meta: null, search: '', owner: '', sortKey: 'updated', sortDir: 'desc', page: 1, pageSize: 10, selected: new Set() }
+  archived:    { rows: null, search: '', owner: '', sortKey: 'archived', sortDir: 'desc', selected: new Set() },
+  suggestions: { rows: null, search: '', owner: '', status: '', severity: 'all', sortKey: 'streak', sortDir: 'desc', selected: new Set() },
+  lost:        { rows: null, search: '', owner: '', sortKey: 'updated', sortDir: 'desc', selected: new Set() }
 };
 let _archSearchTimer = null;
 let _archLoadSeq = 0;
@@ -144,7 +143,7 @@ window.loadArchive = loadArchive;
 function _archiveSwitchTab(tab) { if (tab !== _archiveTab || !_archTabs[tab].rows) _archActivateTab(tab); }
 window._archiveSwitchTab = _archiveSwitchTab;
 
-async function _archActivateTab(tab, force) {
+async function _archActivateTab(tab, force = false) {
   const tabChanged = tab !== _archiveTab;
   if (tabChanged && _archSearchTimer) { clearTimeout(_archSearchTimer); _archSearchTimer = null; }
   _archiveTab = tab;
@@ -153,23 +152,28 @@ async function _archActivateTab(tab, force) {
   _archRenderTools();
   const t = _archTabs[tab];
   if (force) t.selected.clear();
-  if (!t.rows) _archShowLoading();
+  const shouldFetch = force || !t.rows;
+  const finishLoading = shouldFetch && t.rows && el('arch-live')
+    ? beginTableLoading(el('arch-live'), { rows: 9, columns: 7 })
+    : () => {};
+
   try {
-    const result = await api.getArchivePage({
-      tab,
-      page: t.page,
-      pageSize: t.pageSize,
-      search: t.search,
-      sortField: t.sortKey,
-      sortDir: t.sortDir,
-      filters: { owner: t.owner, status: t.status || '', severity: t.severity || 'all' }
-    });
-    if (seq !== _archLoadSeq || _archiveTab !== tab || !el('archive-page')) return;
-    t.rows = result.items || [];
-    t.meta = result;
-    t.page = Number(result.page || 1);
+    if (shouldFetch) {
+      if (!t.rows) _archShowLoading();
+      let rows;
+      if (tab === 'archived') {
+        const data = await api.getArchiveData();
+        rows = (data && data.archived) || [];
+      } else if (tab === 'suggestions') {
+        rows = (await api.getArchiveSuggestions()) || [];
+      } else {
+        rows = (await api.getLostArchiveLeads()) || [];
+      }
+      if (seq !== _archLoadSeq || _archiveTab !== tab || !el('archive-page')) return;
+      t.rows = rows;
+    }
     _archRenderKpis();
-    if (_archRenderedTab !== tab || !el('arch-live')) {
+    if (shouldFetch || _archRenderedTab !== tab || !el('arch-live')) {
       _archRenderCard();
       _archRenderedTab = tab;
     } else {
@@ -178,19 +182,22 @@ async function _archActivateTab(tab, force) {
   } catch (e) {
     if (seq !== _archLoadSeq || !el('archive-body')) return;
     if (!t.rows || !el('arch-live')) {
-      el('archive-body').innerHTML = `<div class="arch-card" style="padding:24px;color:#991b1b">Could not load: ${escapeHtml(e && e.message || e)}</div>`;
-      const k = el('archive-kpis'); if (k) k.innerHTML = '';
+      el('archive-body').innerHTML = '<div class="arch-card" style="padding:24px;color:#991b1b">Could not load: ' + escapeHtml(e && e.message || e) + '</div>';
+      const k = el('archive-kpis');
+      if (k) k.innerHTML = '';
       _archRenderedTab = '';
     } else if (typeof toast === 'function') {
-      toast(`Could not refresh archive: ${e && e.message || e}`, 'error');
+      toast('Could not refresh archive: ' + (e && e.message || e), 'error');
     }
+  } finally {
+    finishLoading();
   }
 }
 function _archRenderTools() {
   const tools = el('arch-tools');
   if (!tools) return;
   tools.innerHTML =
-    (_archiveTab === 'archived' ? `<button class="arch-btn" onclick="_exportArchiveCsv()">${icon('download', 14)} Export Page</button>` : '') +
+    (_archiveTab === 'archived' ? `<button class="arch-btn" onclick="_exportArchiveCsv()">${icon('download', 14)} Export</button>` : '') +
     `<button class="arch-btn" onclick="loadArchive(_archiveTab, true)">${icon('refresh-cw', 14)} Refresh</button>`;
   renderIcons(tools);
 }
@@ -229,11 +236,15 @@ function _archFmtTime(v) { if (v == null || v === '') return 0; if (typeof v ===
 function _archOwnerName(id) { return (App.config.userNameMap && App.config.userNameMap[id]) || id || '—'; }
 
 function _archOwners(t) {
-  return (((t.meta || {}).facets || {}).owners || [])
+  const map = {};
+  (t.rows || []).forEach(row => {
+    const id = String(row['Assigned To'] || '').trim();
+    if (id) map[id] = true;
+  });
+  return Object.keys(map)
     .map(id => ({ id, name: _archOwnerName(id) }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
-
 function _archLeadStatus(row) {
   const outcome = String(row && row._stageOutcome || '').trim().toLowerCase();
   const stageName = String(row && row._stageName || '').trim().toLowerCase();
@@ -246,11 +257,10 @@ function _archLeadStatus(row) {
 }
 
 function _archStatuses(t) {
-  const statuses = (((t.meta || {}).facets || {}).statuses || []).slice();
+  const statuses = Array.from(new Set((t.rows || []).map(_archLeadStatus).filter(Boolean)));
   if (t.status && !statuses.includes(t.status)) statuses.push(t.status);
   return statuses.sort((a, b) => String(a).localeCompare(String(b)));
 }
-
 function _archIsLostLead(lead, stage) {
   const status = String(lead && lead['Lead Status'] || '').trim().toLowerCase();
   if (status === 'lost') return true;
@@ -260,7 +270,44 @@ function _archIsLostLead(lead, stage) {
 }
 
 function _archFiltered(tab) {
-  return ((_archTabs[tab] || {}).rows || []).slice();
+  const t = _archTabs[tab];
+  let rows = (t.rows || []).slice();
+  if (tab === 'suggestions') {
+    if (t.severity === 'warn') rows = rows.filter(r => _archLeadStatus(r) === 'Lost' || Number(r._notPickedStreak) === 7);
+    else if (t.severity === 'crit') rows = rows.filter(r => _archLeadStatus(r) === 'Lost' || Number(r._notPickedStreak) >= 8);
+  }
+  if (t.owner) rows = rows.filter(r => String(r['Assigned To'] || '') === t.owner);
+  if (tab === 'suggestions' && t.status) rows = rows.filter(r => _archLeadStatus(r) === t.status);
+  if (t.search) {
+    const q = t.search.toLowerCase();
+    rows = rows.filter(r => {
+      const hay = [r['Company Name'], r['Client Description'], r['City'], r['State'],
+        _archOwnerName(r['Assigned To']), r['Lead ID'], r['_stageName'],
+        tab === 'archived' ? r['Archive Reason'] : '']
+        .map(x => String(x || '')).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  const dir = t.sortDir === 'asc' ? 1 : -1;
+  const val = (r) => {
+    if (tab === 'suggestions') {
+      if (t.sortKey === 'streak') return Number(r._notPickedStreak || 0);
+      if (t.sortKey === 'last') return _archFmtTime(r._lastNotPickedDate);
+      return Number(r._notPickedTotal || 0);
+    }
+    if (tab === 'lost') {
+      if (t.sortKey === 'pending') return Number(r._pendingDays || 0);
+      if (t.sortKey === 'fu') return Number(r._followupCount || 0);
+      if (t.sortKey === 'notpicked') return Number(r._notPickedCount || 0);
+      return _archFmtTime(r['Updated At'] || r['Stage Updated At'] || r['Created At']);
+    }
+    if (t.sortKey === 'pending') return Number(r._pendingDays || 0);
+    if (t.sortKey === 'notpicked') return Number(r._notPickedCount || 0);
+    if (t.sortKey === 'fu') return Number(r._followupCount || 0);
+    return _archFmtTime(r['Archived At']);
+  };
+  rows.sort((a, b) => (val(a) - val(b)) * dir);
+  return rows;
 }
 
 function _archTh(key, label) {
@@ -279,25 +326,29 @@ function _archRenderAll() {
 function _archRenderKpis() {
   const kpis = el('archive-kpis');
   if (!kpis) return;
-  const t = _archTabs[_archiveTab];
-  const summary = ((t.meta || {}).summary) || {};
   if (_archiveTab === 'suggestions') {
+    const t = _archTabs.suggestions;
+    const all = t.rows || [];
+    const crit = all.filter(r => Number(r._notPickedStreak) >= 8).length;
+    const warn = all.filter(r => Number(r._notPickedStreak) === 7).length;
     kpis.innerHTML = [
-      _archKpi({ label: 'All suggestions', val: Number(summary.total || 0), sub: '7+ unanswered or Lost status/stage', ic: 'inbox', variant: 'total', onclick: `_archSugSetSeverity('all')`, active: t.severity === 'all' }),
-      _archKpi({ label: 'Needs review', val: Number(summary.warning || 0), sub: 'exactly 7 not picked in a row', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: t.severity === 'warn' }),
-      _archKpi({ label: 'Critical', val: Number(summary.critical || 0), sub: '8+ not picked in a row', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: t.severity === 'crit' })
+      _archKpi({ label: 'All suggestions', val: all.length, sub: '7+ unanswered or Lost status/stage', ic: 'inbox', variant: 'total', onclick: `_archSugSetSeverity('all')`, active: t.severity === 'all' }),
+      _archKpi({ label: 'Needs review', val: warn, sub: 'exactly 7 not picked in a row', ic: 'triangle-alert', variant: 'warn', onclick: `_archSugSetSeverity('warn')`, active: t.severity === 'warn' }),
+      _archKpi({ label: 'Critical', val: crit, sub: '8+ not picked in a row', ic: 'flame', variant: 'crit', onclick: `_archSugSetSeverity('crit')`, active: t.severity === 'crit' })
     ].join('');
   } else if (_archiveTab === 'lost') {
+    const rows = _archTabs.lost.rows || [];
     kpis.innerHTML = [
-      _archKpi({ label: 'Lost Leads', val: Number(summary.total || 0), sub: 'ready to archive', ic: 'circle-x', variant: 'crit' }),
-      _archKpi({ label: 'Linked Follow-ups', val: Number(summary.followups || 0), sub: 'will be closed on archive', ic: 'phone', variant: 'total' }),
-      _archKpi({ label: 'Not Picked Count', val: Number(summary.notPicked || 0), sub: 'across lost leads', ic: 'phone-missed', variant: 'warn' })
+      _archKpi({ label: 'Lost Leads', val: rows.length, sub: 'ready to archive', ic: 'circle-x', variant: 'crit' }),
+      _archKpi({ label: 'Linked Follow-ups', val: rows.reduce((n, r) => n + Number(r._followupCount || 0), 0), sub: 'will be closed on archive', ic: 'phone', variant: 'total' }),
+      _archKpi({ label: 'Not Picked Count', val: rows.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), sub: 'across lost leads', ic: 'phone-missed', variant: 'warn' })
     ].join('');
   } else {
+    const rows = _archTabs.archived.rows || [];
     kpis.innerHTML = [
-      _archKpi({ label: 'Archived Leads', val: Number(summary.total || 0), sub: 'hidden from active work', ic: 'archive', variant: 'neutral' }),
-      _archKpi({ label: 'Archived Follow-ups', val: Number(summary.followups || 0), sub: 'linked records archived', ic: 'phone', variant: 'total' }),
-      _archKpi({ label: 'Not Picked Count', val: Number(summary.notPicked || 0), sub: 'before archive', ic: 'phone-missed', variant: 'crit' })
+      _archKpi({ label: 'Archived Leads', val: rows.length, sub: 'hidden from active work', ic: 'archive', variant: 'neutral' }),
+      _archKpi({ label: 'Archived Follow-ups', val: rows.reduce((n, r) => n + Number(r._followupCount || 0), 0), sub: 'linked records archived', ic: 'phone', variant: 'total' }),
+      _archKpi({ label: 'Not Picked Count', val: rows.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), sub: 'before archive', ic: 'phone-missed', variant: 'crit' })
     ].join('');
   }
   renderIcons(kpis);
@@ -354,14 +405,9 @@ function _archRenderLive() {
 function _archLiveHTML() {
   const tab = _archiveTab;
   const t = _archTabs[tab];
-  const paged = _archFiltered(tab);
-  const meta = t.meta || {};
-  const total = Number(meta.total || 0);
-  const pageCount = Math.max(1, Number(meta.totalPages || 1));
-  t.page = Number(meta.page || t.page || 1);
-  const start = total ? (t.page - 1) * t.pageSize : 0;
+  const rows = _archFiltered(tab);
   const selCount = t.selected.size;
-  const allOnPage = paged.length > 0 && paged.every(r => t.selected.has(String(r['Lead ID'])));
+  const allVisible = rows.length > 0 && rows.every(r => t.selected.has(String(r['Lead ID'])));
 
   const bulkbar = selCount ? `<div class="arch-bulkbar">
       <span class="arch-bulkbar-text">${selCount} selected</span>
@@ -373,24 +419,24 @@ function _archLiveHTML() {
       <button class="arch-btn" onclick="_archClearSel()">${icon('x', 14)} Clear</button>
     </div>` : '';
 
-  if (!paged.length) return bulkbar + _archEmptyHTML(tab, Number(((t.meta || {}).summary || {}).total || 0));
+  if (!rows.length) return bulkbar + _archEmptyHTML(tab, (t.rows || []).length);
 
   const head = tab === 'suggestions'
-    ? `<th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPage ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all on this page"></th>
+    ? `<th style="width:38px"><input type="checkbox" class="arch-check" ${allVisible ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all matching rows"></th>
        <th>Lead</th><th>Owner</th>
        ${_archTh('total', 'Status / Not Picked')}
        ${_archTh('streak', 'Longest run')}
        ${_archTh('last', 'Last attempt')}
        <th style="width:1%"></th>`
     : tab === 'lost'
-      ? `<th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPage ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all on this page"></th>
+      ? `<th style="width:38px"><input type="checkbox" class="arch-check" ${allVisible ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all matching rows"></th>
        <th>Lead</th><th>Owner</th><th>Stage</th>
        ${_archTh('pending', 'Pending')}
        ${_archTh('notpicked', 'Not Picked')}
        ${_archTh('fu', 'Follow-ups')}
        ${_archTh('updated', 'Updated')}
        <th style="width:1%"></th>`
-    : `<th style="width:38px"><input type="checkbox" class="arch-check" ${allOnPage ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all on this page"></th>
+    : `<th style="width:38px"><input type="checkbox" class="arch-check" ${allVisible ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all matching rows"></th>
        <th>Lead</th><th>Owner</th>
        ${_archTh('pending', 'Pending')}
        ${_archTh('notpicked', 'Not Picked')}
@@ -402,10 +448,9 @@ function _archLiveHTML() {
     <div class="arch-table-wrap">
       <table class="arch-table">
         <thead><tr>${head}</tr></thead>
-        <tbody>${paged.map(tab === 'suggestions' ? _archSugRowHTML : (tab === 'lost' ? _archLostRowHTML : _archArchivedRowHTML)).join('')}</tbody>
+        <tbody>${rows.map(tab === 'suggestions' ? _archSugRowHTML : (tab === 'lost' ? _archLostRowHTML : _archArchivedRowHTML)).join('')}</tbody>
       </table>
-    </div>
-    ${_archPagHTML(total, start, paged.length, pageCount)}`;
+    </div>`;
 }
 
 function _archSugRowHTML(row) {
@@ -520,82 +565,38 @@ function _archEmptyHTML(tab, totalAll) {
   </div>`;
 }
 
-function _archPagHTML(total, start, count, pageCount) {
-  const t = _archTabs[_archiveTab];
-  const from = total ? start + 1 : 0;
-  const to = start + count;
-  const btn = (label, page, opts) => `<button class="arch-pag-btn${opts && opts.active ? ' active' : ''}" ${opts && opts.disabled ? 'disabled' : ''} onclick="_archSetPage(${page})">${label}</button>`;
-  let nums = '';
-  const push = (p) => { nums += btn(String(p), p, { active: p === t.page }); };
-  const dots = () => { nums += '<span class="arch-pag-dots">…</span>'; };
-  if (pageCount <= 7) { for (let p = 1; p <= pageCount; p++) push(p); }
-  else {
-    push(1);
-    if (t.page > 3) dots();
-    for (let p = Math.max(2, t.page - 1); p <= Math.min(pageCount - 1, t.page + 1); p++) push(p);
-    if (t.page < pageCount - 2) dots();
-    push(pageCount);
-  }
-  return `<div class="arch-pag">
-    <span class="arch-pag-left">
-      <span class="arch-pag-info">Showing ${from}–${to} of ${total}</span>
-      <label class="arch-pag-size">Rows
-        <select onchange="_archSetPageSize(this.value)">
-          ${[10, 25, 50].map(n => `<option value="${n}"${n === t.pageSize ? ' selected' : ''}>${n}</option>`).join('')}
-        </select>
-      </label>
-    </span>
-    <span class="arch-pag-btns">${btn(icon('chevron-left', 14), t.page - 1, { disabled: t.page <= 1 })}${nums}${btn(icon('chevron-right', 14), t.page + 1, { disabled: t.page >= pageCount })}</span>
-  </div>`;
-}
-
-// ── State setters (re-render only the live zone; search is debounced) ───────────
-function _archReloadCurrent() {
-  return _archActivateTab(_archiveTab, false);
-}
+// ── State setters (all processing is local after the tab's full fetch) ───────────
 function _archSetSearch(v) {
   const tab = _archiveTab;
   const t = _archTabs[tab];
-  t.search = v; t.page = 1; t.selected.clear();
-  _archLoadSeq++;
+  t.search = v;
+  t.selected.clear();
   if (_archSearchTimer) clearTimeout(_archSearchTimer);
   _archSearchTimer = setTimeout(() => {
     _archSearchTimer = null;
-    if (_archiveTab === tab) _archActivateTab(tab, false);
-  }, 200);
+    if (_archiveTab === tab) _archRenderLive();
+  }, 120);
 }
-function _archCancelSearchReload() { if (_archSearchTimer) { clearTimeout(_archSearchTimer); _archSearchTimer = null; } }
-function _archSetOwner(v) { _archCancelSearchReload(); const t = _archTabs[_archiveTab]; t.owner = v; t.page = 1; t.selected.clear(); _archReloadCurrent(); }
-function _archSetStatus(v) { _archCancelSearchReload(); const t = _archTabs.suggestions; t.status = v; t.page = 1; t.selected.clear(); _archReloadCurrent(); }
+function _archSetOwner(v) { const t = _archTabs[_archiveTab]; t.owner = v; t.selected.clear(); _archRenderLive(); }
+function _archSetStatus(v) { const t = _archTabs.suggestions; t.status = v; t.selected.clear(); _archRenderLive(); }
 function _archSugSetSeverity(k) {
-  _archCancelSearchReload();
   const t = _archTabs.suggestions;
   t.severity = (k === 'all') ? 'all' : (t.severity === k ? 'all' : k);
-  t.page = 1;
   t.selected.clear();
-  _archReloadCurrent();
+  _archRenderKpis();
+  _archRenderLive();
 }
 function _archSetSort(k) {
-  _archCancelSearchReload();
   const t = _archTabs[_archiveTab];
   if (t.sortKey === k) t.sortDir = t.sortDir === 'asc' ? 'desc' : 'asc';
   else { t.sortKey = k; t.sortDir = 'desc'; }
-  t.page = 1;
-  _archReloadCurrent();
-}
-function _archSetPage(p) { _archCancelSearchReload(); _archTabs[_archiveTab].page = Math.max(1, p); _archReloadCurrent(); }
-function _archSetPageSize(n) {
-  _archCancelSearchReload();
-  const t = _archTabs[_archiveTab];
-  t.pageSize = Math.max(10, Number(n) || 10);
-  t.page = 1;
-  _archReloadCurrent();
+  _archRenderLive();
 }
 function _archToggle(id, checked) { const t = _archTabs[_archiveTab]; if (checked) t.selected.add(id); else t.selected.delete(id); _archRenderLive(); }
 function _archToggleAll(checked) {
   const t = _archTabs[_archiveTab];
-  (t.rows || []).forEach(r => {
-    const id = String(r['Lead ID']);
+  _archFiltered(_archiveTab).forEach(row => {
+    const id = String(row['Lead ID']);
     if (checked) t.selected.add(id); else t.selected.delete(id);
   });
   _archRenderLive();
@@ -606,45 +607,77 @@ window._archSetOwner = _archSetOwner;
 window._archSetStatus = _archSetStatus;
 window._archSugSetSeverity = _archSugSetSeverity;
 window._archSetSort = _archSetSort;
-window._archSetPage = _archSetPage;
-window._archSetPageSize = _archSetPageSize;
 window._archToggle = _archToggle;
 window._archToggleAll = _archToggleAll;
 window._archClearSel = _archClearSel;
-
 // ── In-place mutations (no full page reload — filters/page/tab survive) ─────────
 function _archApplyArchived(doneIds, reason) {
-  const ids = (doneIds || []).map(String);
-  if (!ids.length) return;
-  Object.entries(_archTabs).forEach(([tab, t]) => {
-    if (tab === _archiveTab && t.rows) t.rows = t.rows.filter(row => !ids.includes(String(row['Lead ID'])));
-    else { t.rows = null; t.meta = null; }
-    ids.forEach(id => t.selected.delete(id));
+  _archLoadSeq++;
+  const set = new Set((doneIds || []).map(String));
+  if (!set.size) return;
+  const sourceRows = []
+    .concat(_archTabs.suggestions.rows || [])
+    .concat(_archTabs.lost.rows || [])
+    .concat(AppCache.getRows('leads') || []);
+  // Build the archived-tab rows BEFORE touching the caches (we need the lead data).
+  // Keeping the tab's rows warm means switching to Archived right after archiving is
+  // instant — no refetch. A later force refresh still reconciles the approximations.
+  if (_archTabs.archived.rows) {
+    const ts = _nowStr();
+    const newRows = Array.from(set).map(id => {
+      const src = sourceRows.find(r => String(r['Lead ID']) === id);
+      if (!src) return null;
+      const fuCount = (AppCache.getRows('followups') || []).filter(f => String(f['Lead ID']) === id).length;
+      return Object.assign({}, src, {
+        'Lead Status': 'Archived',
+        'Is Archived': true,
+        'Archived At': ts,
+        'Archived By': (App.user && App.user.id) || '',
+        'Archive Reason': String(reason || '').trim() || 'Archived from portal',
+        _notPickedCount: Number(src._notPickedTotal || src._notPickedCount || 0),
+        _followupCount: Number(src._followupCount || fuCount || 0),
+        _latestFollowupStatus: '',
+        _pendingDays: Number(src._pendingDays || 0)
+      });
+    }).filter(Boolean);
+    _archTabs.archived.rows = [...newRows, ..._archTabs.archived.rows];
+  }
+  ['suggestions', 'lost'].forEach(tab => {
+    const t = _archTabs[tab];
+    if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
+    set.forEach(id => t.selected.delete(id));
   });
-  ids.forEach(id => {
+  if (el('archive-page') && (_archiveTab === 'suggestions' || _archiveTab === 'lost')) { _archRenderKpis(); _archRenderLive(); }
+  // In-place: drop the archived leads + their follow-ups from the cache and acknowledge
+  // our own write, so the revalidation poll doesn't refetch + repaint the whole portal.
+  Array.from(set).forEach(id => {
     try { AppCache.removeRow('leads', 'Lead ID', id); } catch (e) {}
     try { AppCache.removeRow('followups', 'Lead ID', id); } catch (e) {}
   });
-  if (typeof _ackOwnArchive === 'function') _ackOwnArchive(ids, reason || '');
-  _archRenderLive();
-  _archActivateTab(_archiveTab, false).catch(() => {});
+  if (typeof _ackOwnArchive === 'function') _ackOwnArchive(Array.from(set), reason || '');
+  try { renderSidebar(); } catch (e) {}
   if (typeof _refreshNavigationSummary_ === 'function') _refreshNavigationSummary_();
 }
 
 function _archApplyRestored(doneIds) {
-  const ids = (doneIds || []).map(String);
-  if (!ids.length) return;
-  Object.entries(_archTabs).forEach(([tab, t]) => {
-    if (tab === _archiveTab && t.rows) t.rows = t.rows.filter(row => !ids.includes(String(row['Lead ID'])));
-    else { t.rows = null; t.meta = null; }
-    ids.forEach(id => t.selected.delete(id));
-  });
-  AppCache.invalidate('leads');
-  AppCache.invalidate('followups');
-  _archRenderLive();
-  _archActivateTab(_archiveTab, false).catch(() => {});
+  _archLoadSeq++;
+  const set = new Set((doneIds || []).map(String));
+  if (!set.size) return;
+  const t = _archTabs.archived;
+  if (t.rows) t.rows = t.rows.filter(r => !set.has(String(r['Lead ID'])));
+  set.forEach(id => t.selected.delete(id));
+  _archTabs.suggestions.rows = null; // a restored lead may qualify again
+  _archTabs.lost.rows = null;        // a restored lead may still sit in a Lost stage
+  if (el('archive-page') && _archiveTab === 'archived') { _archRenderKpis(); _archRenderLive(); }
+  // A restore brings back rows the client can't reconstruct (the lead row + whichever
+  // follow-ups reopened) — refresh both collections now, in place (no skeleton), rather
+  // than invalidating and letting the poll repaint later.
+  if (typeof _refreshLeadsCache === 'function') _refreshLeadsCache().catch(() => {});
+  if (typeof _refreshFollowupsCache === 'function') _refreshFollowupsCache().catch(() => {});
+  try { renderSidebar(); } catch (e) {}
   if (typeof _refreshNavigationSummary_ === 'function') _refreshNavigationSummary_();
 }
+
 function _archiveOpenLead(leadId) {
   if (!leadId || typeof openLeadDetail !== 'function') return;
   // Pass the row we already hold in tab state so the dialog opens instantly with zero

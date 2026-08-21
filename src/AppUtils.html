@@ -68,14 +68,19 @@ function icon(name, size = 18, extraClass = '') {
 function renderIcons(root = document) {
   if (!window.lucide) return;
   const target = root || document;
-  if (target === document || !window.lucide.createElement || !window.lucide.icons) {
+  if (!window.lucide.createElement || !window.lucide.icons) {
+    document.querySelectorAll('svg[data-lucide]').forEach(svg => svg.removeAttribute('data-lucide'));
     window.lucide.createIcons({ attrs: { 'stroke-width': 2 } });
+    const rendered = document.querySelectorAll('svg[data-lucide]');
+    rendered.forEach(svg => svg.removeAttribute('data-lucide'));
     return;
   }
   const nodes = [];
   if (target.matches?.('[data-lucide]')) nodes.push(target);
   if (target.querySelectorAll) nodes.push(...target.querySelectorAll('[data-lucide]'));
   nodes.forEach(node => {
+    // Global refreshes must not recreate an SVG that Lucide already rendered.
+    // Replacing it again drops component-level sizing back to Lucide's 24px default.
     if (node.tagName?.toLowerCase() === 'svg') return;
     const name = node.getAttribute('data-lucide');
     const iconName = String(name || '').split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
@@ -83,7 +88,6 @@ function renderIcons(root = document) {
     if (!iconNode) return;
     const attrs = { 'stroke-width': 2 };
     Array.from(node.attributes || []).forEach(attr => { if (attr.name !== 'data-lucide') attrs[attr.name] = attr.value; });
-    attrs['data-lucide'] = name;
     node.replaceWith(window.lucide.createElement(iconNode, attrs));
   });
 }
@@ -160,6 +164,40 @@ function skeletonPage(type = 'table') {
   }
   // default 'table' — a clean worklist card (no avatar), used for sub-section loads
   return `<div class="sk-page">${worklist(8, false)}</div>`;
+}
+
+function tableRowsSkeleton(rows = 8, columns = 6) {
+  const rowCount = Math.max(3, Math.min(12, Number(rows) || 8));
+  const columnCount = Math.max(3, Math.min(8, Number(columns) || 6));
+  const widths = ['24%', '15%', '19%', '13%', '17%', '11%', '14%', '9%'];
+  return `<div class="table-loading-grid">${Array.from({ length: rowCount }, (_, rowIndex) =>
+    `<div class="table-loading-row">${Array.from({ length: columnCount }, (_, columnIndex) =>
+      `<span class="sk table-loading-cell" style="width:${widths[(rowIndex + columnIndex) % widths.length]}"></span>`
+    ).join('')}</div>`
+  ).join('')}</div>`;
+}
+
+function beginTableLoading(target, options = {}) {
+  const host = typeof target === 'string' ? el(target) : target;
+  if (!host) return () => {};
+  const previous = host.querySelector('.table-loading-overlay');
+  if (previous) previous.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'table-loading-overlay';
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'polite');
+  overlay.setAttribute('aria-label', options.label || 'Loading table data');
+  overlay.innerHTML = tableRowsSkeleton(options.rows, options.columns);
+  host.classList.add('table-loading-host');
+  host.setAttribute('aria-busy', 'true');
+  host.appendChild(overlay);
+  return () => {
+    overlay.remove();
+    if (!host.querySelector('.table-loading-overlay')) {
+      host.classList.remove('table-loading-host');
+      host.removeAttribute('aria-busy');
+    }
+  };
 }
 
 function setContentLoading(type = 'table') {

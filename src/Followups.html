@@ -2,27 +2,34 @@
 // ─── Follow-ups Page ─────────────────────────────────────────────────────────
 
 let _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
-let _fuPage = 1;
-let _fuPageSize = 25;
 let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_fuDensity')) || 'compact';
 let _fuFiltersOpen = false;
 let _fuPageSnapshot = null;
 let _fuShellReady = false;
-let _fuPageResult = null;
 let _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
 let _fuFilterTimer = null;
 let _fuLoadSeq = 0;
 let _fuCustomRows = [];
 let _fuCustomFacets = { states: [], cities: [], types: [], contactModes: [] };
+let _fuSnapshotRequest = null;
+let _fuSnapshotRequestId = 0;
+let _fuVisibleRows = [];
+let _fuRenderedCount = 0;
+const _FU_RENDER_CHUNK = 160;
+
+function _fuRouteIsActive() {
+  return String(App.currentPage || '').startsWith('followups') && !!el('fu-body');
+}
 
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
   el('page-title').textContent = 'Follow-ups';
   _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
-  _fuPage = 1;
   _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
   _fuCustomFacets = { states: [], cities: [], types: [], contactModes: [] };
-  _fuPageSnapshot = null; // cache removed — refetch fresh each time Follow-ups is opened (tab switches reuse this visit's data)
+  _fuPageSnapshot = null; // one full snapshot per Follow-ups visit
+  _fuSnapshotRequest = null;
+  _fuSnapshotRequestId++;
 
   const grp = el('nav-group-fu');
   if (grp) grp.classList.add('open');
@@ -43,7 +50,6 @@ async function loadFollowups(tab = 'all') {
 async function _fuSwitchTab(tab) {
   const previousTab = window.currentFollowupTab || 'all';
   window.currentFollowupTab = tab;
-  _fuPage = 1;
   if (previousTab === 'custom' && tab !== 'custom') {
     _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
   }
@@ -283,20 +289,22 @@ function _fuInstallShortcuts() {
 
 function _fuOnFilterChange(key, value) {
   _fuFilterState[key] = value;
-  _fuPage = 1;
   if (_fuFilterTimer) clearTimeout(_fuFilterTimer);
-  _fuFilterTimer = setTimeout(() => _renderFUTab(window.currentFollowupTab || 'all'), 180);
+  _fuFilterTimer = setTimeout(() => {
+    if (_fuRouteIsActive()) _renderFUTab(window.currentFollowupTab || 'all');
+  }, 180);
 }
 
 function _fuClearFilters() {
   _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
-  _fuPage = 1;
   // Reset the filter inputs without full page reload
   const s = el('fu-f-search'); if (s) s.value = '';
   const t = el('fu-f-type');   if (t) t.value = '';
   const u = el('fu-f-user');   if (u) u.value = '';
   const cm = el('fu-f-contact'); if (cm) cm.value = '';
   const st = el('fu-f-stage'); if (st) st.value = '';
+  const state = el('fu-f-state'); if (state) state.value = '';
+  const city = el('fu-f-city'); if (city) city.value = '';
   const f = el('fu-f-from');   if (f) f.value = '';
   const to = el('fu-f-to');    if (to) to.value = '';
   _renderFUTab(window.currentFollowupTab || 'all');
@@ -331,8 +339,9 @@ function _fuApplyFilters(rows, ctx) {
     if (f.city && String(lead?.['City'] || '') !== f.city) return false;
     // Closed tab rows use Done Date; open tabs use Planned Date
     const dateField = row['Done Date'] ? _fmtDate(row['Done Date']) : _fmtDate(_fuPlannedDate(row));
-    if (f.dateFrom && dateField && dateField < f.dateFrom) return false;
-    if (f.dateTo   && dateField && dateField > f.dateTo)   return false;
+    if ((f.dateFrom || f.dateTo) && !dateField) return false;
+    if (f.dateFrom && dateField < f.dateFrom) return false;
+    if (f.dateTo   && dateField > f.dateTo)   return false;
     return true;
   });
 }
@@ -346,78 +355,112 @@ async function _renderFUTab(tab, force = false) {
   const body = el('fu-body');
   if (!body) return;
   const seq = ++_fuLoadSeq;
-  try {
-    const started = performance.now();
-    const result = await api.getFollowupsPage({
-      tab,
-      page: _fuPage,
-      pageSize: _fuPageSize,
-      sortField: '_dueSort',
-      sortDir: 'asc',
-      search: _fuFilterState.search || '',
-      filters: { ..._fuFilterState }
-    });
-    if (seq !== _fuLoadSeq || !el('fu-body')) return;
-    result.browserMs = Math.round(performance.now() - started);
-    _fuPageResult = result;
-    _fuPage = Number(result.page || 1);
-    const hadFacets = (_fuFacets.states || []).length || (_fuFacets.cities || []).length;
-    _fuFacets = result.facets || _fuFacets;
-    if (!hadFacets) {
-      const filterBar = el('fu-filter-bar');
-      if (filterBar) filterBar.outerHTML = _fuModernFilterBarHTML();
-    }
+  const needsFetch = force || !_fuPageSnapshot || !_fuPageSnapshot.includeHistory;
+  const finishLoading = needsFetch ? beginTableLoading(body, { rows: 9, columns: 7 }) : () => {};
 
-    const snapshot = {
-      leads: result.leads || [],
-      followups: result.items || result.followups || [],
-      followupHistory: result.followupHistory || [],
-      summary: result.summary || {},
-      source: result.source || 'sheets-api',
-      fetchMs: result.fetchMs || 0,
-      browserMs: result.browserMs || 0,
-      fetchedAt: result.fetchedAt || ''
-    };
+  try {
+    const snapshot = await _getFollowupPageSnapshot(force, { includeHistory: true });
+    if (seq !== _fuLoadSeq || !_fuRouteIsActive()) return;
+    const todayStr = localDateInputValue();
+    let rows;
+    if (tab === 'closed') {
+      const historyRows = snapshot.followupHistory
+        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+      const historyFollowupIds = new Set(historyRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
+      const noNextRows = snapshot.followups
+        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+        .filter(_isNoNextPlannedFollowup)
+        .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || '')))
+        .map(r => ({ ...r, _closedNoNext: true }));
+      rows = historyRows.concat(noNextRows);
+    } else {
+      rows = snapshot.followups
+        .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+        .filter(_isOpenFollowupRow)
+        .filter(r => !_isNoNextPlannedFollowup(r));
+      if (tab === 'today') {
+        rows = rows.filter(r => _fmtDate(_fuPlannedDate(r)) === todayStr);
+      } else if (tab === 'overdue') {
+        rows = rows.filter(r => { const d = _fmtDate(_fuPlannedDate(r)); return d && d < todayStr; });
+      } else if (tab === 'future') {
+        rows = rows.filter(r => { const d = _fmtDate(_fuPlannedDate(r)); return d && d > todayStr; });
+      }
+    }
     const ctx = _buildFollowupContext(snapshot.leads, snapshot);
+    const previousFacets = JSON.stringify(_fuFacets);
+    const facetRows = (snapshot.followups || [])
+      .concat(snapshot.followupHistory || [])
+      .map(row => _decorateFollowup(row, ctx));
+    _fuFacets = _fuLocalFacets(facetRows);
+    if (previousFacets !== JSON.stringify(_fuFacets)) {
+      const filterBar = el('fu-filter-bar');
+      if (filterBar) {
+        filterBar.outerHTML = _fuModernFilterBarHTML();
+        renderIcons(el('fu-filter-bar'));
+      }
+    }
     const tabsEl = el('fu-tabs');
     if (tabsEl) { tabsEl.innerHTML = _fuTabsHTML(window.currentFollowupTab || 'all'); renderIcons(tabsEl); }
     _fuRenderOverview(ctx, snapshot);
-    const inlineChips = el('fu-filter-chips-inline');
-    if (inlineChips) { inlineChips.innerHTML = _fuFilterChipsHTML(); renderIcons(inlineChips); }
+    rows = _fuApplyFilters(rows, ctx);
+    const inlineChips = el('fu-filter-chips-inline'); if (inlineChips) { inlineChips.innerHTML = _fuFilterChipsHTML(); renderIcons(inlineChips); }
     const hasFilter = Object.values(_fuFilterState).some(Boolean);
     const emptyMsg = hasFilter
       ? `No follow-ups match the current filters. <a href="#" onclick="_fuClearFilters();return false" style="color:#4F46E5">Clear filters</a>`
       : `No ${tab} follow-ups found.`;
-    body.innerHTML = _fuTable(result.items || [], emptyMsg, ctx, result);
+    body.innerHTML = _fuTable(rows, emptyMsg, ctx);
     renderIcons(body);
     _fuAttachScrollCollapse();
   } catch (e) {
-    if (seq === _fuLoadSeq && body) body.innerHTML = `<p style="color:red">${escapeHtml(e.message || String(e))}</p>`;
+    if (seq === _fuLoadSeq && _fuRouteIsActive()) body.innerHTML = '<p style="color:red">' + escapeHtml(e.message || String(e)) + '</p>';
+  } finally {
+    finishLoading();
   }
 }
-
 async function _getFollowupPageSnapshot(force = false, options = {}) {
   const includeHistory = !!options.includeHistory;
   if (!force && _fuPageSnapshot && (!includeHistory || _fuPageSnapshot.includeHistory)) return _fuPageSnapshot;
-  const started = performance.now();
-  const data = await api.getFollowupPageSnapshot({ includeHistory });
-  const browserMs = Math.round(performance.now() - started);
-  _fuPageSnapshot = {
-    leads: data.leads || [],
-    followups: data.followups || [],
-    followupHistory: data.followupHistory || [],
-    includeHistory,
-    source: data.source || 'api',
-    fetchMs: data.fetchMs || 0,
-    browserMs,
-    fetchedAt: data.fetchedAt || ''
-  };
-  // Mirror the snapshot's follow-ups into AppCache so the on-change poll measures
-  // real changes (and refreshes only then) instead of firing on every tick here.
-  try { AppCache.setRows('followups', _fuPageSnapshot.followups); } catch (e) {}
-  return _fuPageSnapshot;
+  if (!force && _fuSnapshotRequest && (!includeHistory || _fuSnapshotRequest.includeHistory)) {
+    return _fuSnapshotRequest.promise;
+  }
+
+  const requestId = ++_fuSnapshotRequestId;
+  const promise = (async () => {
+    const started = performance.now();
+    const data = await api.getFollowupPageSnapshot({ includeHistory });
+    const snapshot = {
+      leads: data.leads || [],
+      followups: data.followups || [],
+      followupHistory: data.followupHistory || [],
+      includeHistory,
+      source: data.source || 'api',
+      fetchMs: data.fetchMs || 0,
+      browserMs: Math.round(performance.now() - started),
+      fetchedAt: data.fetchedAt || ''
+    };
+    if (requestId === _fuSnapshotRequestId) {
+      _fuPageSnapshot = snapshot;
+      try { AppCache.setRows('followups', snapshot.followups); } catch (e) {}
+    }
+    return snapshot;
+  })();
+
+  _fuSnapshotRequest = { requestId, includeHistory, promise };
+  try {
+    return await promise;
+  } finally {
+    if (_fuSnapshotRequest && _fuSnapshotRequest.requestId === requestId) _fuSnapshotRequest = null;
+  }
 }
 
+function _fuAppendVisibleRows() {
+  const tbody = el('fu-table-body');
+  if (!tbody || _fuRenderedCount >= _fuVisibleRows.length) return;
+  const end = Math.min(_fuVisibleRows.length, _fuRenderedCount + _FU_RENDER_CHUNK);
+  tbody.insertAdjacentHTML('beforeend', _fuVisibleRows.slice(_fuRenderedCount, end).map(_fuTableRow).join(''));
+  _fuRenderedCount = end;
+  renderIcons(tbody);
+}
 function _fuAttachScrollCollapse() {
   const scroll = document.querySelector('.fu-table-scroll');
   const page = document.querySelector('.fu-page');
@@ -428,6 +471,7 @@ function _fuAttachScrollCollapse() {
     ticking = true;
     requestAnimationFrame(() => {
       page.classList.toggle('fu-scrolled', scroll.scrollTop > 20);
+      if (scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 500) _fuAppendVisibleRows();
       ticking = false;
     });
   }, { passive: true });
@@ -438,7 +482,72 @@ async function _loadFollowupContext() {
   return _buildFollowupContext(data.leads || []);
 }
 
-function _fuRenderOverview(ctx, snapshot = {}) {
+function _fuRenderOverview(ctx, snapshot = _fuPageSnapshot || {}) {
+  if (!ctx && snapshot && snapshot.summary) return _fuRenderOverviewSummary(ctx, snapshot);
+  // Apply user filters (search, type, owner, contact mode, stage, from/to)
+  // so the upper KPI cards always reflect what the user is looking at.
+  const _applyKpiFilters = (rows) => _fuApplyFilters(rows, ctx);
+  const openRows = _applyKpiFilters((snapshot.followups || [])
+    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+    .filter(_isOpenFollowupRow)
+    .filter(r => !!_fmtDate(_fuPlannedDate(r))));
+  const allHistoryRows = (snapshot.followupHistory || [])
+    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change');
+  const historyFollowupIds = new Set(allHistoryRows.map(r => String(r['Follow-up ID'] || '')).filter(Boolean));
+  const historyRows = _applyKpiFilters(allHistoryRows);
+  const noNextClosedRows = _applyKpiFilters((snapshot.followups || [])
+    .filter(r => String(r['Follow-up Type'] || '').toLowerCase() !== 'stage change')
+    .filter(_isNoNextPlannedFollowup)
+    .filter(r => !historyFollowupIds.has(String(r['Follow-up ID'] || ''))));
+  const closedRows = historyRows.concat(noNextClosedRows);
+  const todayStr = localDateInputValue();
+  const counts = openRows.reduce((m, row) => {
+    const bucket = _followupDueBucket(row);
+    if (bucket === 'overdue') m.overdue++;
+    else if (bucket === 'today') m.today++;
+    else if (bucket === 'future') m.future++;
+    return m;
+  }, { overdue: 0, today: 0, future: 0 });
+  const closedToday = closedRows.filter(r => _fmtDate(r['Done Date'] || r['Updated At'] || r['Created At']) === todayStr).length;
+  const notPicked = historyRows.filter(r => String(r['Contact Mode'] || '') === 'Not Picked').length;
+  const connected = historyRows.filter(r => ['Call Connected', 'WhatsApp Chat'].includes(String(r['Contact Mode'] || ''))).length;
+  const rate = connected + notPicked ? Math.round((connected / (connected + notPicked)) * 100) : 0;
+  const _rates = (typeof computeCallRates === 'function') ? computeCallRates(historyRows) : { conversionRate: 0, conversions: 0 };
+  const activeTab = window.currentFollowupTab || 'all';
+  const tabCounts = {
+    all: openRows.length,
+    today: counts.today,
+    overdue: counts.overdue,
+    future: counts.future,
+    closed: closedRows.length,
+    custom: ''
+  };
+  Object.entries(tabCounts).forEach(([key, val]) => {
+    const node = el('fu-tab-count-' + key);
+    if (node) node.textContent = val === '' ? '' : val;
+  });
+  const kpiEl = el('fu-kpis');
+  if (!kpiEl) return;
+  const kpis = [
+    { key: 'overdue', label: 'Overdue', value: counts.overdue, sub: 'Needs attention', icon: 'circle-alert', cls: 'danger' },
+    { key: 'today', label: 'Due Today', value: counts.today, sub: 'Planned for today', icon: 'calendar-days', cls: 'success' },
+    { key: 'future', label: 'Upcoming', value: counts.future, sub: 'Future follow-ups', icon: 'calendar-clock', cls: 'blue' },
+    { key: 'closed', label: 'Closed', value: closedRows.length, sub: `${closedToday} closed today`, icon: 'check-circle-2', cls: 'neutral' },
+    { key: 'notpicked', label: 'Not Picked', value: notPicked, sub: 'Contact attempts', icon: 'phone-missed', cls: 'warning' },
+    { key: 'rate', label: 'Connection Call Rate', value: `${rate}%`, sub: `${connected} connected`, icon: 'activity', cls: 'purple' },
+    { key: 'conv', label: 'Conversion Rate', value: `${_rates.conversionRate}%`, sub: `${_rates.conversions} converted`, icon: 'trending-up', cls: 'success' }
+  ];
+  kpiEl.innerHTML = kpis.map(k => `
+    <button type="button" class="fu-kpi fu-kpi-${k.cls} ${activeTab === k.key ? 'active' : ''}" onclick="_fuKpiAction('${k.key}')">
+      <span class="fu-kpi-icon">${icon(k.icon, 17)}</span>
+      <span class="fu-kpi-value">${escapeHtml(k.value)}</span>
+      <span class="fu-kpi-label">${escapeHtml(k.label)}</span>
+      <span class="fu-kpi-sub">${escapeHtml(k.sub)}</span>
+    </button>`).join('') + _fuFetchBadge(snapshot);
+  renderIcons(kpiEl);
+}
+
+function _fuRenderOverviewSummary(ctx, snapshot = {}) {
   const summary = snapshot.summary || {};
   const activeTab = window.currentFollowupTab || 'all';
   const tabCounts = {
@@ -498,7 +607,6 @@ function _fuKpiAction(key) {
       renderIcons();
     }
     _fuFilterState.contactMode = 'Not Picked';
-    _fuPage = 1;
     _renderFUTab('closed');
   }
 }
@@ -653,26 +761,22 @@ function _fuCards(rows, emptyMsg, ctx) {
   }).join('');
 }
 
-function _fuTable(rows, emptyMsg, ctx, meta) {
-  const data = (rows || []).map(row => ctx ? _decorateFollowup(row, ctx) : row);
-  const remote = !!(meta && typeof meta.total === 'number');
-  const total = remote ? Number(meta.total || 0) : data.length;
-  const pageCount = remote ? Math.max(1, Number(meta.totalPages || 1)) : Math.max(1, Math.ceil(data.length / _fuPageSize));
-  _fuPage = remote ? Number(meta.page || 1) : Math.min(Math.max(1, _fuPage), pageCount);
-  const start = (_fuPage - 1) * _fuPageSize;
-  const paged = remote ? data : data.sort(_compareFollowupDue).slice(start, start + _fuPageSize);
-  const summary = remote ? ((meta && meta.summary) || {}) : _fuSummarizeLocalRows(data);
-  if (!remote && (window.currentFollowupTab || 'all') === 'custom') {
+function _fuTable(rows, emptyMsg, ctx) {
+  const data = (rows || [])
+    .map(row => ctx ? _decorateFollowup(row, ctx) : row)
+    .sort(_compareFollowupDue);  _fuVisibleRows = data;
+  _fuRenderedCount = Math.min(data.length, _FU_RENDER_CHUNK);
+  if ((window.currentFollowupTab || 'all') === 'custom') {
     _fuCustomRows = data.slice();
     _fuCustomFacets = _fuLocalFacets(data);
     _fuFacets = _fuCustomFacets;
-    _fuRenderOverview(null, { summary });
+    _fuRenderOverview(null, { summary: _fuSummarizeLocalRows(data) });
   }
-  const counts = {
-    overdue: Number(summary.overdue || 0),
-    today: Number(summary.today || 0),
-    future: Number(summary.future || 0)
-  };
+  const counts = data.reduce((m, row) => {
+    const bucket = _followupDueBucket(row);
+    if (bucket === 'overdue' || bucket === 'today' || bucket === 'future') m[bucket]++;
+    return m;
+  }, { overdue: 0, today: 0, future: 0 });
 
   const densityToggle = `
     <div class="fu-density-toggle" role="group" aria-label="Row density">
@@ -681,7 +785,7 @@ function _fuTable(rows, emptyMsg, ctx, meta) {
       <button class="${_fuDensity === 'ultra' ? 'active' : ''}" title="Ultra Compact" onclick="_fuSetDensity('ultra')">${icon('menu', 12)}</button>
     </div>`;
 
-  if (!paged.length) {
+  if (!data.length) {
     return `
       <div class="fu-worklist-card fu-density-${_fuDensity}">
         <div class="fu-worklist-head">
@@ -699,18 +803,13 @@ function _fuTable(rows, emptyMsg, ctx, meta) {
     <div class="fu-worklist-card fu-density-${_fuDensity}">
       <div class="fu-worklist-head">
         <div class="fu-worklist-head-left">
-          <div class="fu-worklist-title">Worklist <span class="fu-worklist-count">${total}</span></div>
+          <div class="fu-worklist-title">Worklist <span class="fu-worklist-count">${data.length}</span></div>
           <span class="fu-summary-pill danger" title="Overdue">${icon('circle-alert', 11)} ${counts.overdue}</span>
           <span class="fu-summary-pill success" title="Today">${icon('calendar-days', 11)} ${counts.today}</span>
           <span class="fu-summary-pill" title="Future">${icon('calendar-clock', 11)} ${counts.future}</span>
         </div>
         <div class="fu-worklist-tools">
           <span class="fu-kbd-hint" title="Keyboard: Up / Down move · Enter open lead &amp; history · D mark done">${icon('keyboard', 12)} ↑↓ · Enter</span>
-          <label class="fu-page-size">Rows
-            <select onchange="_fuSetPageSize(this.value)">
-              ${[10, 25, 50, 100].map(n => `<option value="${n}"${n === _fuPageSize ? ' selected' : ''}>${n}</option>`).join('')}
-            </select>
-          </label>
           ${densityToggle}
         </div>
       </div>
@@ -728,24 +827,10 @@ function _fuTable(rows, emptyMsg, ctx, meta) {
             <th>Action</th>
           </tr>
         </thead>
-        <tbody>${paged.map(_fuTableRow).join('')}</tbody>
+        <tbody id="fu-table-body">${data.slice(0, _fuRenderedCount).map(_fuTableRow).join('')}</tbody>
       </table>
       </div>
-      ${_fuPagination(total, start, paged.length, pageCount)}
     </div>`;
-}
-
-function _fuSetPageSize(value) {
-  _fuPageSize = Math.max(10, Number(value) || 25);
-  _fuPage = 1;
-  if ((window.currentFollowupTab || 'all') === 'custom') _fuRenderCustomResults();
-  else _renderFUTab(window.currentFollowupTab || 'all');
-}
-
-function _fuSetPage(page) {
-  _fuPage = Math.max(1, Number(page) || 1);
-  if ((window.currentFollowupTab || 'all') === 'custom') _fuRenderCustomResults();
-  else _renderFUTab(window.currentFollowupTab || 'all');
 }
 
 function _fuSetDensity(value) {
@@ -812,35 +897,6 @@ function _fuRefreshCurrent(force = false) {
   }
   return _renderFUTab(tab, force);
 }
-function _fuPagination(total, start, visibleCount, pageCount) {
-  const from = total ? start + 1 : 0;
-  const to = start + visibleCount;
-  const pages = _fuPageButtons(pageCount);
-  return `<div class="fu-pagination">
-    <div class="muted-text">Showing ${from}-${to} of ${total}</div>
-    <div class="fu-page-buttons">
-      <button class="fu-page-btn" ${_fuPage <= 1 ? 'disabled' : ''} onclick="_fuSetPage(${_fuPage - 1})">${icon('chevron-left', 14)}</button>
-      ${pages.map(p => p === '...'
-        ? `<span class="fu-page-ellipsis">...</span>`
-        : `<button class="fu-page-btn ${p === _fuPage ? 'active' : ''}" onclick="_fuSetPage(${p})">${p}</button>`
-      ).join('')}
-      <button class="fu-page-btn" ${_fuPage >= pageCount ? 'disabled' : ''} onclick="_fuSetPage(${_fuPage + 1})">${icon('chevron-right', 14)}</button>
-    </div>
-  </div>`;
-}
-
-function _fuPageButtons(pageCount) {
-  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
-  const set = new Set([1, pageCount, _fuPage - 1, _fuPage, _fuPage + 1]);
-  const nums = Array.from(set).filter(n => n >= 1 && n <= pageCount).sort((a, b) => a - b);
-  const out = [];
-  nums.forEach((n, i) => {
-    if (i && n - nums[i - 1] > 1) out.push('...');
-    out.push(n);
-  });
-  return out;
-}
-
 function _fuTableRow(r) {
   const leadId = r['Lead ID'] || '';
   const company = r._companyName || (leadId ? 'Linked lead unavailable' : 'Standalone');
@@ -1023,14 +1079,13 @@ function _followupCustomFieldMeta(row) {
 
 function _renderCustomQuery() {
   _fuCustomRows = [];
-  _fuPage = 1;
   el('fu-body').innerHTML = `
     <div class="query-builder">
       <div style="font-weight:600;margin-bottom:10px;font-size:13px">Build Query</div>
       <div id="query-rows"></div>
       <button class="query-add-btn" onclick="_addQueryRow()">${icon('plus', 14)} Add Filter</button>
       <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btn btn-primary btn-sm" onclick="_fuPage=1;_runCustomQuery()">Run Query</button>
+        <button class="btn btn-primary btn-sm" onclick="_runCustomQuery()">Run Query</button>
         <button class="btn btn-outlined btn-sm" onclick="_clearQuery()">Clear</button>
       </div>
     </div>

@@ -19,6 +19,7 @@ const Store = (() => {
   const MAX_DIAGNOSTIC_DEPTH = 6;
   const MAX_DIAGNOSTIC_ITEMS = 100;
   const MAX_DEBUG_REPORT_LENGTH = 100000;
+  const DEBUG_BUTTON_POSITION_KEY = 'portal.debug.button.position.v1';
   const SENSITIVE_KEY = /(?:authorization|cookie|credential|csrf|password|passwd|secret|token|api[-_]?key|client[-_]?secret|session[-_]?id|spreadsheet|folder[-_ ]?id|drive[-_ ]?id|e-?mail|phone|mobile|whatsapp|address|contact|user[-_ ]?id|lead[-_ ]?id|follow[-_ ]?up[-_ ]?id)/i;
 
   let _state = JSON.parse(JSON.stringify(INITIAL_STATE));
@@ -576,12 +577,99 @@ const Store = (() => {
     }
   }
 
+  function _debugButtonBounds(button, left, top) {
+    const margin = 8;
+    const maxLeft = Math.max(margin, window.innerWidth - button.offsetWidth - margin);
+    const maxTop = Math.max(margin, window.innerHeight - button.offsetHeight - margin);
+    return {
+      left: Math.min(Math.max(margin, Number(left) || margin), maxLeft),
+      top: Math.min(Math.max(margin, Number(top) || margin), maxTop)
+    };
+  }
+
+  function _positionDebugButton(button, left, top, persist) {
+    const next = _debugButtonBounds(button, left, top);
+    button.style.left = next.left + 'px';
+    button.style.top = next.top + 'px';
+    button.style.right = 'auto';
+    button.style.bottom = 'auto';
+    if (persist) {
+      try { localStorage.setItem(DEBUG_BUTTON_POSITION_KEY, JSON.stringify(next)); } catch (_) {}
+    }
+  }
+
+  function _installDebugButtonDrag(button) {
+    let drag = null;
+    let suppressClick = false;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(DEBUG_BUTTON_POSITION_KEY) || 'null');
+      if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+        requestAnimationFrame(() => _positionDebugButton(button, saved.left, saved.top, false));
+      }
+    } catch (_) {}
+
+    button.addEventListener('pointerdown', event => {
+      if (event.button !== undefined && event.button !== 0) return;
+      const rect = button.getBoundingClientRect();
+      drag = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        left: rect.left,
+        top: rect.top,
+        moved: false
+      };
+      _positionDebugButton(button, rect.left, rect.top, false);
+      button.setPointerCapture?.(event.pointerId);
+    });
+
+    button.addEventListener('pointermove', event => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      drag.moved = true;
+      suppressClick = true;
+      button.classList.add('is-dragging');
+      event.preventDefault();
+      _positionDebugButton(button, drag.left + dx, drag.top + dy, false);
+    });
+
+    const finishDrag = event => {
+      if (!drag || (event.pointerId !== undefined && drag.pointerId !== event.pointerId)) return;
+      const moved = drag.moved;
+      drag = null;
+      button.classList.remove('is-dragging');
+      if (moved) {
+        const rect = button.getBoundingClientRect();
+        _positionDebugButton(button, rect.left, rect.top, true);
+        setTimeout(() => { suppressClick = false; }, 0);
+      }
+    };
+    button.addEventListener('pointerup', finishDrag);
+    button.addEventListener('pointercancel', finishDrag);
+    button.addEventListener('click', event => {
+      if (suppressClick) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      _togglePanel();
+    });
+    window.addEventListener('resize', () => {
+      if (!button.isConnected || button.style.left === '') return;
+      const rect = button.getBoundingClientRect();
+      _positionDebugButton(button, rect.left, rect.top, false);
+    }, { passive: true });
+  }
+
   function _mountDebugButton() {
     if (!document.body || document.getElementById('store-debug-btn')) return;
     const button = _el('button', '', undefined);
     button.id = 'store-debug-btn';
     button.type = 'button';
-    button.title = 'Open portal diagnostics (Ctrl+Alt+D)';
+    button.title = 'Drag to move. Click to open portal diagnostics (Ctrl+Alt+D)';
     button.setAttribute('aria-label', 'Open portal diagnostics');
     button.setAttribute('aria-expanded', 'false');
     const icon = _el('i', 'sdp-tool-icon', undefined);
@@ -589,8 +677,8 @@ const Store = (() => {
     icon.setAttribute('aria-hidden', 'true');
     button.appendChild(icon);
     button.appendChild(_el('span', 'sdp-button-label', 'Debug'));
-    button.addEventListener('click', () => _togglePanel());
     document.body.appendChild(button);
+    _installDebugButtonDrag(button);
     if (typeof renderIcons === 'function') {
       try { renderIcons(button); } catch (_) {}
     }
@@ -623,12 +711,13 @@ window.addEventListener('keydown', event => {
 #store-debug-btn {
   position: fixed; right: 16px; bottom: 16px; z-index: 9998;
   min-width: 44px; height: 40px; padding: 0 12px; border: 0; border-radius: 6px;
-  background: #1565c0; color: #fff; cursor: pointer;
+  background: #1565c0; color: #fff; cursor: grab; touch-action: none; user-select: none;
   box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
   display: flex; align-items: center; justify-content: center; gap: 7px;
   font: 600 12px/1 system-ui, sans-serif;
 }
 #store-debug-btn:hover { background: #1976d2; }
+#store-debug-btn.is-dragging { cursor: grabbing; transition: none; }
 #store-debug-btn:focus-visible { outline: 3px solid rgba(21, 101, 192, .35); outline-offset: 2px; }
 #store-debug-btn .sdp-tool-icon { width: 16px; height: 16px; }
 

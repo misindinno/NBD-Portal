@@ -5,15 +5,42 @@
   let _leadFiltersOpen = false;
   let _leadDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_leadDensity')) || 'compact';
   let _leadSelected = new Set();
-  let _leadPageResult = { items: [], page: 1, pageSize: 25, total: 0, totalPages: 1, summary: {}, facets: {} };
   let _leadLoadSeq = 0;
-  let _leadFilterTimer = null;
 
   async function loadLeads(force = false) {
     el('page-title').textContent = 'Leads';
     if (!force) _leadSelected.clear();
-    if (!leadTable || !el('leads-page')) setContentLoading('fu');
-    await _leadFetchPage({ rebuild: !leadTable || !el('leads-page') });
+    const rebuild = !leadTable || !el('leads-page');
+    const filterIds = ['lead-search','lead-status-f','lead-priority-f','lead-stage-f','lead-state-f','lead-city-f'];
+    const previousFilters = rebuild ? null : filterIds.reduce((values, id) => {
+      const node = el(id);
+      values[id] = node ? node.value : '';
+      return values;
+    }, {});
+    if (rebuild) setContentLoading('fu');
+    const tableNode = el('lead-table');
+    const finishLoading = !rebuild && tableNode
+      ? beginTableLoading(tableNode, { rows: 10, columns: 7 })
+      : () => {};
+    const seq = ++_leadLoadSeq;
+    try {
+      let rows = AppCache.getRows('leads') || [];
+      if (force || !AppCache.isLoaded('leads')) {
+        rows = (await api.getLeads()) || [];
+        if (seq !== _leadLoadSeq || App.currentPage !== 'leads') return;
+        AppCache.setRows('leads', rows);
+      }
+      if (seq !== _leadLoadSeq || App.currentPage !== 'leads') return;
+      _renderLeadsTable(rows);
+      if (previousFilters) filterIds.forEach(id => { const node = el(id); if (node) node.value = previousFilters[id] || ''; });
+      applyLeadFilters();
+    } catch (err) {
+      if (seq !== _leadLoadSeq || App.currentPage !== 'leads') return;
+      const message = escapeHtml(err && err.message || String(err));
+      el('content').innerHTML = '<div class="card" style="padding:24px;color:#991b1b">Could not load leads: ' + message + '</div>';
+    } finally {
+      finishLoading();
+    }
   }
 
   function _leadKpiClick(key) {
@@ -106,7 +133,7 @@
   function _renderLeadKpis(leads) {
     const wrap = el('lead-kpis');
     if (!wrap) return;
-    const c = (_leadPageResult && _leadPageResult.summary) || _leadKpiCounts(leads || []);
+    const c = _leadKpiCounts(leads || []);
     const cards = [
       { key: '',       label: 'Total Leads', value: c.total || 0,  sub: 'matching leads', icon: 'users',          cls: 'neutral' },
       { key: 'open',   label: 'Open',        value: c.open || 0,   sub: 'in progress',    icon: 'circle-dot',     cls: 'blue' },
@@ -152,9 +179,15 @@
     const statusOpts = App.config.statuses.map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
     const priorityOpts = App.config.priorities.map(function (p) { return '<option>' + escapeHtml(p) + '</option>'; }).join('');
     const stageOpts = App.config.stages.map(function (s) { return '<option value="' + escapeHtml(s['Stage ID']) + '">' + escapeHtml(s['Stage Name']) + '</option>'; }).join('');
-    const facets = (_leadPageResult && _leadPageResult.facets) || {};
-    const stateOpts = (facets.states || []).map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
-    const cityOpts = (facets.cities || []).map(function (c) { return '<option>' + escapeHtml(c) + '</option>'; }).join('');
+    const stateSet = {}, citySet = {};
+    (leads || []).forEach(function (lead) {
+      const state = String(lead['State'] || '').trim();
+      const city = String(lead['City'] || '').trim();
+      if (state) stateSet[state] = true;
+      if (city) citySet[city] = true;
+    });
+    const stateOpts = Object.keys(stateSet).sort(function (a, b) { return a.localeCompare(b); }).map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
+    const cityOpts = Object.keys(citySet).sort(function (a, b) { return a.localeCompare(b); }).map(function (c) { return '<option>' + escapeHtml(c) + '</option>'; }).join('');
 
     el('content').innerHTML = `
     <div class="fu-page td-page fu-density-${_leadDensity}" id="leads-page">
@@ -212,7 +245,7 @@
         <div class="fu-worklist-card fu-density-${_leadDensity}" id="leads-worklist">
           <div class="fu-worklist-head">
             <div class="fu-worklist-head-left">
-              <div class="fu-worklist-title">Leads <span class="fu-worklist-count" id="lead-row-count">${_leadPageResult.total || 0}</span></div>
+              <div class="fu-worklist-title">Leads <span class="fu-worklist-count" id="lead-row-count">${sorted.length}</span></div>
               <div id="lead-bulk-bar" class="lead-bulk-bar" style="display:none"></div>
             </div>
             <div class="fu-worklist-tools">
@@ -224,7 +257,6 @@
             </div>
           </div>
           <div id="lead-table"></div>
-          <div id="lead-pagination"></div>
         </div>
       </div>
     </div>`;
@@ -394,9 +426,7 @@
     window.leadTable = leadTable;
     const refreshIcons = () => { const t = el('lead-table'); if (t) renderIcons(t); };
     leadTable.on('renderComplete', refreshIcons);
-    leadTable.on('pageLoaded', refreshIcons);
     leadTable.on('dataSorted', refreshIcons);
-    _leadRenderPagination();
   }
 
   async function _archiveLeadFromTable(leadId, row) {
@@ -540,91 +570,21 @@
   }
   window._leadFilterPredicate = _leadFilterPredicate;
 
-  function _leadPageQuery(page) {
-    return {
-      page: page || (_leadPageResult.page || 1),
-      pageSize: _leadPageResult.pageSize || 25,
-      sortField: '_sortKey',
-      sortDir: 'asc',
-      search: String(el('lead-search')?.value || '').trim(),
-      filters: {
-        status: el('lead-status-f')?.value || '',
-        priority: el('lead-priority-f')?.value || '',
-        stage: el('lead-stage-f')?.value || '',
-        state: el('lead-state-f')?.value || '',
-        city: el('lead-city-f')?.value || '',
-        statusTab: _leadStatusTab,
-        kpi: _leadKpiFilter
-      }
-    };
-  }
-
-  async function _leadFetchPage(options = {}) {
-    const seq = ++_leadLoadSeq;
-    const result = await api.getLeadsPage(_leadPageQuery(options.page));
-    if (seq !== _leadLoadSeq || App.currentPage !== 'leads') return;
-    _leadPageResult = result || { items: [], page: 1, pageSize: 25, total: 0, totalPages: 1, summary: {}, facets: {} };
-    if (options.rebuild || !leadTable || !el('lead-table')) {
-      _renderLeadsTable(_leadPageResult.items || []);
-      return;
-    }
-    await leadTable.replaceData(_leadPageResult.items || []);
-    const count = el('lead-row-count');
-    if (count) count.textContent = _leadPageResult.total || 0;
-    _renderLeadKpis(_leadPageResult.items || []);
-    _leadRenderPagination();
-    renderIcons(el('lead-table'));
-  }
-
-  function _leadRenderPagination() {
-    const node = el('lead-pagination');
-    if (!node) return;
-    const meta = _leadPageResult || {};
-    const total = Number(meta.total || 0);
-    const page = Number(meta.page || 1);
-    const pageCount = Math.max(1, Number(meta.totalPages || 1));
-    const start = total ? (page - 1) * Number(meta.pageSize || 25) : 0;
-    const count = (meta.items || []).length;
-    const pages = [];
-    for (let p = 1; p <= pageCount; p++) {
-      if (pageCount <= 7 || p === 1 || p === pageCount || Math.abs(p - page) <= 1) pages.push(p);
-      else if (pages[pages.length - 1] !== '...') pages.push('...');
-    }
-    node.innerHTML = `<div class="fu-pagination">
-      <div class="muted-text">Showing ${total ? start + 1 : 0}-${start + count} of ${total}</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <label class="fu-page-size">Rows
-          <select onchange="_leadSetPageSize(this.value)">
-            ${[10,25,50,100].map(n => `<option value="${n}"${n === Number(meta.pageSize || 25) ? ' selected' : ''}>${n}</option>`).join('')}
-          </select>
-        </label>
-        <div class="fu-page-buttons">
-          <button class="fu-page-btn" ${page <= 1 ? 'disabled' : ''} onclick="_leadSetPage(${page - 1})">${icon('chevron-left', 14)}</button>
-          ${pages.map(p => p === '...' ? '<span class="fu-page-ellipsis">...</span>' : `<button class="fu-page-btn ${p === page ? 'active' : ''}" onclick="_leadSetPage(${p})">${p}</button>`).join('')}
-          <button class="fu-page-btn" ${page >= pageCount ? 'disabled' : ''} onclick="_leadSetPage(${page + 1})">${icon('chevron-right', 14)}</button>
-        </div>
-      </div>
-    </div>`;
-    renderIcons(node);
-  }
-
-  function _leadSetPage(page) {
-    _leadFetchPage({ page: Math.max(1, Number(page) || 1) }).catch(err => toast(err.message || err, 'error'));
-  }
-
-  function _leadSetPageSize(size) {
-    _leadPageResult.pageSize = Math.max(10, Number(size) || 25);
-    _leadFetchPage({ page: 1 }).catch(err => toast(err.message || err, 'error'));
-  }
-
   function applyLeadFilters() {
-    if (_leadFilterTimer) clearTimeout(_leadFilterTimer);
-    _leadFilterTimer = setTimeout(() => {
-      _leadFetchPage({ page: 1 }).catch(err => toast(err.message || err, 'error'));
-    }, 180);
+    const pred = _leadFilterPredicate();
+    if (leadTable) {
+      if (pred.hasAny) leadTable.setFilter(pred.test);
+      else leadTable.clearFilter();
+    }
+    const allLeads = AppCache.getRows('leads') || [];
+    const visible = pred.hasAny ? allLeads.filter(pred.test) : allLeads;
+    const count = el('lead-row-count');
+    if (count) count.textContent = visible.length;
+    _renderLeadKpis(visible);
+    _leadSelected.clear();
+    _leadUpdateBulkBar();
   }
   window.applyLeadFilters = applyLeadFilters;
-
   async function openLeadForm(data = {}) {
     if (_isLeadPushedToNbd(data)) {
       toast('Lead is already moved to NBD and cannot be edited in LQ.', 'info');
