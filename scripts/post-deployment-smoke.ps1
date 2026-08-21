@@ -22,7 +22,7 @@ for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
     $response = Invoke-WebRequest -Uri $url -UseBasicParsing -MaximumRedirection 8 -TimeoutSec 45
     $body = [string]$response.Content
     $status = [int]$response.StatusCode
-    $hasShell = $body -match 'id=[\x22\x27]app-shell[\x22\x27]'
+    $hasShell = ($body -match 'app-shell') -and ($body -match 'renderSidebar')
     $hasDiagnostics = $body -match 'PortalDiagnostics'
     $hasTitle = $body -match '<title>[^<]+</title>'
 
