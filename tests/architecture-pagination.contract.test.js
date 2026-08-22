@@ -308,6 +308,10 @@ test('post-load icon rendering is idempotent and Follow-up tab icons stay at 14p
   assert.match(utils, /removeAttribute\('data-lucide'\)/);
   assert.match(utils, /classList\.add\('portal-icon'\)/);
   assert.match(utils, /\['lucide', 'portal-icon'/);
+  assert.match(utils, /\['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height'\]/);
+  assert.match(utils, /style\.setProperty\(prop, sizePx, 'important'\)/);
+  assert.match(utils, /style\.setProperty\('flex', '0 0 ' \+ sizePx, 'important'\)/);
+  assert.match(utils, /lockPortalIconSize\(renderedIcon, node\)/);
   assert.match(css, /\.fu-page \.fu-tab > svg\s*\{[^}]*width:\s*14px !important;[^}]*height:\s*14px !important;/s);
 });
 
