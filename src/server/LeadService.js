@@ -77,6 +77,7 @@ function saveLead(data, email) {
     const leadId = _leadIdFromPayload(data);
     const skipped = data['__stage_skipped'] === 'true' || data['skipped'] === true;
     if (leadId) {
+      const coreOnly = data['__edit_scope'] === 'core';
       data['Lead ID'] = leadId;
       const existing = _leadSaveStep_('load existing lead', () => getLead(leadId));
       if (!existing || !existing.lead) return respond(null, 'Lead not found.');
@@ -85,14 +86,16 @@ function saveLead(data, email) {
       if (user.role === 'SALES') data['Assigned To'] = user.id;
       const updateDuplicate = _leadSaveStep_('check update duplicate', () => _leadDuplicateMessage_(data, leadId));
       if (updateDuplicate) return respond(null, updateDuplicate);
-      const prepared = _leadSaveStep_('prepare update payload', () => _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped));
+      const prepared = _leadSaveStep_('prepare update payload', () => _prepareLeadPayload(data, data['Stage ID'] || existing.lead['Stage ID'], existing.lead, skipped, { skipCustomFields: coreOnly }));
       const finalAssignedTo = prepared['Assigned To'] || existing.lead['Assigned To'] || user.id;
       _leadSaveStep_('validate assigned user department', () => _assertLeadAssignedUserAllowed_(finalAssignedTo));
       _leadSaveStep_('apply update status', () => _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']));
       const updatePayload = { ...prepared, 'Updated At': now() };
       const updated = _leadSaveStep_('update lead row', () => updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(updatePayload)));
       if (!updated) return respond(null, 'Lead update failed. Lead ID was not found in the lead sheet.');
-      _leadSaveStep_('upsert lead custom fields', () => upsertCustomFieldValues_('Leads', leadId, prepared, user.id, prepared['Stage ID'] || existing.lead['Stage ID']));
+      if (!coreOnly) {
+        _leadSaveStep_('upsert lead custom fields', () => upsertCustomFieldValues_('Leads', leadId, prepared, user.id, prepared['Stage ID'] || existing.lead['Stage ID']));
+      }
       _bumpStamp('leads');
       return respond(leadId);
     }
@@ -285,13 +288,15 @@ function _leadIdFromPayload(data) {
   return String(data['Lead ID'] || data['LeadID'] || data['Lead Id'] || data['ID'] || '').trim();
 }
 
-function _prepareLeadPayload(data, stageId, existing, skipped) {
+function _prepareLeadPayload(data, stageId, existing, skipped, options) {
   const payload = { ...data };
+  delete payload['__edit_scope'];
   // Lead names are stored in Proper Case on every save path (Lead Form, detail edit,
   // bulk entry) so lists, dialogs and exports show one consistent casing.
   ['Company Name', 'Contact Person'].forEach(k => {
     if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k]) payload[k] = toProperCase_(payload[k]);
   });
+  if (options && options.skipCustomFields) return payload;
   const fields = getLeadCustomFieldsForStage(stageId);
   fields.forEach(field => {
     const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];

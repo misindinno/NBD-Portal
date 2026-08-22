@@ -6,7 +6,7 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
     const leadId = _leadRowId(d);
     const initialStage = cfg.stages.find(s => s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE') || cfg.stages[0];
     return `<form id="lead-form">
-    ${leadId ? `<input type="hidden" name="Lead ID" value="${escapeHtml(leadId)}">` : ''}
+    ${leadId ? `<input type="hidden" name="Lead ID" value="${escapeHtml(leadId)}"><input type="hidden" name="__edit_scope" value="core">` : ''}
     <input type="hidden" name="Stage ID" value="${escapeHtml(d['Stage ID'] || (initialStage ? initialStage['Stage ID'] : ''))}">
     <div class="form-row">
       <div class="form-group"><label>Company Name *</label>
@@ -67,7 +67,7 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
             ${cfg.users.map(u => `<option value="${escapeHtml(u.id)}" ${d['Assigned To'] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
           </select></div>` : ''}
       </div>
-    ${buildLeadCustomFieldsHTML(d, customFields, configOptions)}
+    ${leadId ? '' : buildLeadCustomFieldsHTML(d, customFields, configOptions)}
     <div class="modal-footer">
       <button type="button" class="btn btn-outlined" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>

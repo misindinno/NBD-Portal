@@ -321,10 +321,14 @@ test('loaded portal icons keep the shared 16px content and 18px sidebar contract
   assert.match(css, /#sidebar \.portal-icon,[\s\S]*?width:\s*18px !important;[\s\S]*?height:\s*18px !important;/);
 });
 
-test('existing lead edit forms expose backend-required custom fields', () => {
+test('existing lead edit forms are core-only and preserve custom stage fields', () => {
   const sharedForm = fs.readFileSync(path.join(ROOT, 'src', 'LeadFormShared.html'), 'utf8');
-  assert.match(sharedForm, /\$\{buildLeadCustomFieldsHTML\(d, customFields, configOptions\)\}/);
-  assert.doesNotMatch(sharedForm, /leadId\s*\?\s*['"]{2}\s*:\s*buildLeadCustomFieldsHTML/);
+  const leadService = fs.readFileSync(path.join(ROOT, 'src', 'server', 'LeadService.js'), 'utf8');
+  assert.match(sharedForm, /name="__edit_scope" value="core"/);
+  assert.match(sharedForm, /leadId\s*\?\s*['"]{2}\s*:\s*buildLeadCustomFieldsHTML/);
+  assert.match(leadService, /skipCustomFields:\s*coreOnly/);
+  assert.match(leadService, /if \(!coreOnly\)\s*\{\s*_leadSaveStep_\('upsert lead custom fields'/s);
+  assert.match(leadService, /if \(options && options\.skipCustomFields\) return payload;/);
 });
 
 test('primary worklists fetch complete collections once and process them client-side', () => {
