@@ -306,13 +306,15 @@ test('post-load icon rendering is idempotent and Follow-up tab icons stay at 14p
   assert.doesNotMatch(utils, /target === document \|\|/);
   assert.doesNotMatch(utils, /attrs\['data-lucide'\]\s*=/);
   assert.match(utils, /removeAttribute\('data-lucide'\)/);
+  assert.match(utils, /classList\.add\('portal-icon'\)/);
+  assert.match(utils, /\['lucide', 'portal-icon'/);
   assert.match(css, /\.fu-page \.fu-tab > svg\s*\{[^}]*width:\s*14px !important;[^}]*height:\s*14px !important;/s);
 });
 
 test('loaded portal icons keep the shared 14px content and 16px sidebar contract', () => {
   const css = fs.readFileSync(path.join(ROOT, 'src', 'CSS.html'), 'utf8');
-  assert.match(css, /#main \.lucide,[\s\S]*?width:\s*14px !important;[\s\S]*?height:\s*14px !important;/);
-  assert.match(css, /#sidebar \.lucide\s*\{[\s\S]*?width:\s*16px !important;[\s\S]*?height:\s*16px !important;/);
+  assert.match(css, /#main \.portal-icon,[\s\S]*?width:\s*14px !important;[\s\S]*?height:\s*14px !important;/);
+  assert.match(css, /#sidebar \.portal-icon,[\s\S]*?width:\s*16px !important;[\s\S]*?height:\s*16px !important;/);
 });
 
 test('existing lead edit forms expose backend-required custom fields', () => {

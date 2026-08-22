@@ -72,7 +72,10 @@ function renderIcons(root = document) {
     document.querySelectorAll('svg[data-lucide]').forEach(svg => svg.removeAttribute('data-lucide'));
     window.lucide.createIcons({ attrs: { 'stroke-width': 2 } });
     const rendered = document.querySelectorAll('svg[data-lucide]');
-    rendered.forEach(svg => svg.removeAttribute('data-lucide'));
+    rendered.forEach(svg => {
+      svg.classList.add('portal-icon');
+      svg.removeAttribute('data-lucide');
+    });
     return;
   }
   const nodes = [];
@@ -88,6 +91,10 @@ function renderIcons(root = document) {
     if (!iconNode) return;
     const attrs = { 'stroke-width': 2 };
     Array.from(node.attributes || []).forEach(attr => { if (attr.name !== 'data-lucide') attrs[attr.name] = attr.value; });
+    const classes = ['lucide', 'portal-icon', 'lucide-' + String(name || '').replace(/[^a-z0-9-]/gi, '')]
+      .concat(String(attrs.class || '').split(/\s+/))
+      .filter(Boolean);
+    attrs.class = Array.from(new Set(classes)).join(' ');
     node.replaceWith(window.lucide.createElement(iconNode, attrs));
   });
 }

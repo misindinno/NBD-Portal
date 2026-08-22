@@ -749,16 +749,20 @@
   }
   /* Stable icon contract. Lucide replaces placeholders after render, so keep
      final SVG dimensions authoritative across initial and loaded states. */
-  #main .lucide,
-  body > .modal-overlay .lucide,
-  body > .cmdk-overlay .lucide {
+  #main .portal-icon,
+  #main svg.lucide,
+  body > .modal-overlay .portal-icon,
+  body > .modal-overlay svg.lucide,
+  body > .cmdk-overlay .portal-icon,
+  body > .cmdk-overlay svg.lucide {
     width: 14px !important;
     height: 14px !important;
     min-width: 14px;
     max-width: 14px;
     flex: 0 0 14px;
   }
-  #sidebar .lucide {
+  #sidebar .portal-icon,
+  #sidebar svg.lucide {
     width: 16px !important;
     height: 16px !important;
     min-width: 16px;
