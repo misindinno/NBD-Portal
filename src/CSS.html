@@ -747,4 +747,22 @@
   .choices, .choices__list, .choices__input {
     font-family: 'Manrope', system-ui, sans-serif;
   }
+  /* Stable icon contract. Lucide replaces placeholders after render, so keep
+     final SVG dimensions authoritative across initial and loaded states. */
+  #main .lucide,
+  body > .modal-overlay .lucide,
+  body > .cmdk-overlay .lucide {
+    width: 14px !important;
+    height: 14px !important;
+    min-width: 14px;
+    max-width: 14px;
+    flex: 0 0 14px;
+  }
+  #sidebar .lucide {
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px;
+    max-width: 16px;
+    flex: 0 0 16px;
+  }
 </style>
