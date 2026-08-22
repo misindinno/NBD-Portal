@@ -67,7 +67,7 @@ function icon(name, size = 18, extraClass = '') {
 
 function lockPortalIconSize(svg, contextNode = svg) {
   if (!svg) return svg;
-  const size = contextNode?.closest?.('#sidebar') ? 16 : 14;
+  const size = contextNode?.closest?.('#sidebar') ? 18 : 16;
   const sizePx = String(size) + 'px';
   svg.classList.add('portal-icon');
   svg.setAttribute('width', String(size));

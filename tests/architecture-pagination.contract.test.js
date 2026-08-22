@@ -298,7 +298,7 @@ test('archive summaries and sort values cover suggestion and archived modes', ()
   ]))), { total: 2, followups: 7, notPicked: 3 });
 });
 
-test('post-load icon rendering is idempotent and Follow-up tab icons stay at 14px', () => {
+test('post-load icon rendering is idempotent and Follow-up tab icons stay at 16px', () => {
   const read = file => fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
   const utils = read('AppUtils.html');
   const css = read('CSSFollowupQuery.html');
@@ -312,13 +312,13 @@ test('post-load icon rendering is idempotent and Follow-up tab icons stay at 14p
   assert.match(utils, /style\.setProperty\(prop, sizePx, 'important'\)/);
   assert.match(utils, /style\.setProperty\('flex', '0 0 ' \+ sizePx, 'important'\)/);
   assert.match(utils, /lockPortalIconSize\(renderedIcon, node\)/);
-  assert.match(css, /\.fu-page \.fu-tab > svg\s*\{[^}]*width:\s*14px !important;[^}]*height:\s*14px !important;/s);
+  assert.match(css, /\.fu-page \.fu-tab > svg\s*\{[^}]*width:\s*16px !important;[^}]*height:\s*16px !important;/s);
 });
 
-test('loaded portal icons keep the shared 14px content and 16px sidebar contract', () => {
+test('loaded portal icons keep the shared 16px content and 18px sidebar contract', () => {
   const css = fs.readFileSync(path.join(ROOT, 'src', 'CSS.html'), 'utf8');
-  assert.match(css, /#main \.portal-icon,[\s\S]*?width:\s*14px !important;[\s\S]*?height:\s*14px !important;/);
-  assert.match(css, /#sidebar \.portal-icon,[\s\S]*?width:\s*16px !important;[\s\S]*?height:\s*16px !important;/);
+  assert.match(css, /#main \.portal-icon,[\s\S]*?width:\s*16px !important;[\s\S]*?height:\s*16px !important;/);
+  assert.match(css, /#sidebar \.portal-icon,[\s\S]*?width:\s*18px !important;[\s\S]*?height:\s*18px !important;/);
 });
 
 test('existing lead edit forms expose backend-required custom fields', () => {
