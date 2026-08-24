@@ -825,6 +825,9 @@ function _requireConfigReader() {
 
 function _requireBulkEntry_() {
   const user = _apiUser();
+  if (!['ADMIN', 'MANAGER', 'SALES'].includes(user.role)) {
+    throw new Error('Permission denied. Bulk Entry requires a lead write role.');
+  }
   const isLqPortal = String(CLIENT_CONFIG.APP_TITLE || '').toLowerCase().includes('lq');
   if (isLqPortal && (user.role === 'ADMIN' || userHasModule(user, 'BulkEntry'))) return user;
   if (!isLqPortal && user.role === 'ADMIN') return user;

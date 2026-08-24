@@ -22,7 +22,7 @@ function getBulkConfig() {
     'follow-up type': 'Follow-up Type', 'followup type': 'Follow-up Type',
   };
 
-  return rows.map(r => {
+  const configured = rows.map(r => {
     const cfg = _normalizeBulkConfigRow_(r);
     if (!cfg.fieldName || !cfg.targetColumn) return null;
     if (!cfg.allowedValues.length) {
@@ -38,6 +38,42 @@ function getBulkConfig() {
     }
     return cfg;
   }).filter(Boolean);
+  return _bulkAddRequiredInitialStageFields_(configured, configTypeMap);
+}
+
+function _bulkAddRequiredInitialStageFields_(configured, configTypeMap) {
+  const output = (configured || []).slice();
+  const known = output.reduce((map, field) => {
+    map[String(field.fieldName || '').trim().toLowerCase()] = true;
+    map[String(field.targetHeader || '').trim().toLowerCase()] = true;
+    return map;
+  }, {});
+  const stageId = _bulkInitialStageId_();
+  getLeadCustomFieldsForStage(stageId).forEach(field => {
+    const required = field['Is Required'] === true || field['Is Required'] === 'TRUE';
+    const fieldType = String(field['Field Type'] || 'Text').trim();
+    const skipVisibility = String(field['Skip Visibility'] || 'normal').trim().toLowerCase();
+    const key = _customEffectiveColumnKey_(field, stageId);
+    const label = String(field['Field Name'] || key).trim();
+    if (!required || !key || fieldType === 'Formula' || skipVisibility === 'skip_only') return;
+    if (known[label.toLowerCase()] || known[key.toLowerCase()]) return;
+    const dropdownSource = String(field['Dropdown Source'] || '').trim();
+    const allowedValues = fieldType === 'Select' && dropdownSource && configTypeMap[dropdownSource]
+      ? configTypeMap[dropdownSource].slice()
+      : [];
+    output.push({
+      fieldName: label,
+      required: true,
+      dataType: fieldType === 'Number' ? 'Number' : fieldType === 'Date' ? 'Date' : 'Text',
+      targetColumn: key,
+      targetHeader: key,
+      validationRule: fieldType === 'Date' ? 'validDate' : 'optional',
+      allowedValues
+    });
+    known[label.toLowerCase()] = true;
+    known[key.toLowerCase()] = true;
+  });
+  return output;
 }
 
 function _bulkAssignableUsers_() {
@@ -66,7 +102,7 @@ function validateBulkRows(rows, mode) {
 
 function _bulkValidationContext_() {
   const config = getBulkConfig();
-  const leads = _bulkLeadIndexRows_();
+  const leads = mergeCustomFieldValues_('Leads', _bulkLeadIndexRows_());
   return {
     config,
     leads,
@@ -99,6 +135,9 @@ function _validateBulkRowsWithContext_(rows, mode, ctx) {
     }
     const batchDuplicate = _bulkBatchDuplicate_(item.row, batchMap, mode);
     if (mode === 'create' && batchDuplicate) fieldErrors.push({ fieldName: null, message: batchDuplicate });
+    if (!fieldErrors.length && (mode === 'create' || lead)) {
+      _bulkLeadDomainErrors_(item, mode, lead).forEach(error => fieldErrors.push(error));
+    }
     if (fieldErrors.length) errorRows.push({ rowNumber: item.rowNumber, errors: fieldErrors.map(e => e.message).join('; '), fieldErrors, ...item.input });
     else {
       if (mode === 'update' && lead) updateLeadMap[lead['Lead ID']] = true;
@@ -138,7 +177,7 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
     ? _trySaveBulkCreateFast_(sourceRows, validByRow, errorByRow, userEmail, initialStageId, batchId)
     : null;
   if (fastCreate) {
-    logBulkImport(fastCreate.summary, userEmail);
+    _safeLogBulkImport_(fastCreate.summary, userEmail);
     return fastCreate;
   }
   sourceRows.forEach((row, i) => {
@@ -165,7 +204,7 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
     errors,
     saved
   };
-  logBulkImport(summary, userEmail);
+  _safeLogBulkImport_(summary, userEmail);
   return {
     batchId,
     summary,
@@ -590,6 +629,29 @@ function _bulkUpdatePayload_(row, leadId) {
   return payload;
 }
 
+function _bulkLeadDomainErrors_(item, mode, lead) {
+  mode = _bulkMode_(mode);
+  const existing = lead || {};
+  const payload = mode === 'update'
+    ? _bulkUpdatePayload_(item.row, existing['Lead ID'])
+    : { ...(item.row || {}) };
+  const stageId = payload['Stage ID'] || existing['Stage ID'] || _bulkInitialStageId_();
+  if (mode === 'create' && !payload['Stage ID']) payload['Stage ID'] = stageId;
+  const skipped = payload['__stage_skipped'] === 'true' || payload['skipped'] === true;
+  try {
+    _prepareLeadPayload(payload, stageId, existing, skipped);
+    return [];
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error || 'Lead validation failed');
+    const field = getLeadCustomFieldsForStage(stageId).find(candidate => {
+      const label = String(candidate['Field Name'] || '').trim();
+      const validationMessage = String(candidate['Validation Message'] || '').trim();
+      return (validationMessage && validationMessage === message) || (label && message.indexOf(label) !== -1);
+    });
+    return [{ fieldName: field ? field['Field Name'] : null, message }];
+  }
+}
+
 function checkDuplicate(row, existingMap, excludeLeadId) {
   excludeLeadId = String(excludeLeadId || '').trim();
   const phone = _bulkNormPhone_(row['Phone']);
@@ -616,6 +678,15 @@ function _bulkBatchDuplicate_(row, batchMap, mode) {
   if (email) batchMap.email[email] = true;
   if (company) batchMap.company[company] = true;
   return '';
+}
+
+function _safeLogBulkImport_(summary, userEmail) {
+  try {
+    logBulkImport(summary, userEmail);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error || 'Unknown audit error');
+    try { Logger.log('[BulkService] Audit log failed after save: ' + message); } catch (_) {}
+  }
 }
 
 function logBulkImport(summary, userEmail) {

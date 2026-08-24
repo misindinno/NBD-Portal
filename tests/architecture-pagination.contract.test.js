@@ -331,6 +331,20 @@ test('existing lead edit forms are core-only and preserve custom stage fields', 
   assert.match(leadService, /if \(options && options\.skipCustomFields\) return payload;/);
 });
 
+test('bulk validation shares save-time rules and always exports request failures', () => {
+  const bulkService = fs.readFileSync(path.join(ROOT, 'src', 'BulkService.js'), 'utf8');
+  const bulkView = fs.readFileSync(path.join(ROOT, 'src', 'BulkView.html'), 'utf8');
+  const api = fs.readFileSync(path.join(ROOT, 'src', 'server', 'Api.js'), 'utf8');
+  assert.match(bulkService, /_bulkAddRequiredInitialStageFields_\(configured, configTypeMap\)/);
+  assert.match(bulkService, /mergeCustomFieldValues_\('Leads', _bulkLeadIndexRows_\(\)\)/);
+  assert.match(bulkService, /_bulkLeadDomainErrors_\(item, mode, lead\)/);
+  assert.match(bulkService, /_prepareLeadPayload\(payload, stageId, existing, skipped\)/);
+  assert.match(bulkService, /_safeLogBulkImport_\(fastCreate\.summary, userEmail\)/);
+  assert.match(bulkService, /_safeLogBulkImport_\(summary, userEmail\)/);
+  assert.match(bulkView, /const failedRows = _gridRows\(\)\.map/);
+  assert.match(bulkView, /errors\.push\(\{ rowNumber: item\.rowNumber, errors: message, fieldErrors: \[\], \.\.\.item\.data \}\)/);
+  assert.match(api, /Bulk Entry requires a lead write role/);
+});
 test('primary worklists fetch complete collections once and process them client-side', () => {
   const read = file => fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
   const leads = read('Leads.html');

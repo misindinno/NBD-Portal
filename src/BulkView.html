@@ -482,8 +482,17 @@ const BulkView = (() => {
         result.summary?.errors ? 'warning' : 'success');
       return result;
     } catch (err) {
+      const message = err.message || String(err);
+      const failedRows = _gridRows().map(item => ({
+        rowNumber: item.rowNumber,
+        errors: message,
+        fieldErrors: [],
+        ...item.data
+      }));
+      _markErrors(failedRows);
+      _renderSummary({ total: failedRows.length, valid: 0, errors: failedRows.length });
       _setProgress(0, 'Validation failed');
-      Swal.fire('Validation failed', err.message || String(err), 'error');
+      Swal.fire('Validation failed', message, 'error');
       throw err;
     } finally {
       _setBusy(false);
@@ -564,6 +573,7 @@ const BulkView = (() => {
       return;
     }
     _setBusy(true);
+    _markErrors([]);
     _setProgress(5, 'Validating before save...');
     try {
       const validation = await api.validateBulkRows(_rows(), bulkMode);
@@ -639,8 +649,21 @@ const BulkView = (() => {
         `${saved} lead(s) saved. ${failed} failed.`,
         failed ? 'warning' : 'success');
     } catch (err) {
+      const message = err.message || String(err);
+      const knownRows = new Set((errors || []).map(row => Number(row.rowNumber)));
+      gridRows.forEach(item => {
+        const row = hot && hot.getSourceDataAtRow(item.rowNumber - 1);
+        if (String(row && row.__status__ || '').toLowerCase() === 'saved' || knownRows.has(item.rowNumber)) return;
+        errors.push({ rowNumber: item.rowNumber, errors: message, fieldErrors: [], ...item.data });
+      });
+      _markErrors(errors);
+      const saved = gridRows.filter(item => {
+        const row = hot && hot.getSourceDataAtRow(item.rowNumber - 1);
+        return String(row && row.__status__ || '').toLowerCase() === 'saved';
+      }).length;
+      _renderSummary({ total: gridRows.length, valid: saved, errors: gridRows.length - saved });
       _setProgress(0, 'Save failed');
-      Swal.fire('Save failed', err.message || String(err), 'error');
+      Swal.fire('Save failed', message, 'error');
     } finally {
       _setBusy(false);
     }
