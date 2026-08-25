@@ -338,11 +338,6 @@ function _passwordV2Hash_(password, salt, iterations) {
   return _hexBytes_(bytes);
 }
 
-function _encodePasswordV2_(password) {
-  const iterations = AUTH_PASSWORD_ITERATIONS;
-  const salt = Utilities.getUuid().replace(/-/g, '');
-  return ['v2', iterations, salt, _passwordV2Hash_(password, salt, iterations)].join('$');
-}
 
 function _verifyPasswordV2_(password, stored) {
   const parts = String(stored || '').split('$');
@@ -395,20 +390,22 @@ function validateUserPassword_(email, password) {
   if (!stored) return null;
 
   let valid = false;
-  let upgrade = false;
+  let restorePlaintext = false;
   if (stored.indexOf('v2$') === 0) {
     valid = _verifyPasswordV2_(candidatePassword, stored);
+    restorePlaintext = valid;
   } else if (/^[a-f0-9]{64}$/i.test(stored)) {
     valid = _constantTimeEqual_(_hashPassword(candidatePassword), stored);
-    upgrade = valid;
+    restorePlaintext = valid;
   } else {
     valid = _constantTimeEqual_(stored, candidatePassword);
-    upgrade = valid;
   }
   if (!valid) return null;
-  if (upgrade) {
+  // Staff List passwords are stored as plaintext for this portal. Legacy hashes
+  // remain readable and are converted after one successful login.
+  if (restorePlaintext) {
     updateRow(SHEET_NAMES.USERS, 'Email Address', user['Email Address'], {
-      'Password': _encodePasswordV2_(candidatePassword)
+      'Password': candidatePassword
     });
   }
   return user;

@@ -345,6 +345,14 @@ test('bulk validation shares save-time rules and always exports request failures
   assert.match(bulkView, /errors\.push\(\{ rowNumber: item\.rowNumber, errors: message, fieldErrors: \[\], \.\.\.item\.data \}\)/);
   assert.match(api, /Bulk Entry requires a lead write role/);
 });
+test('staff passwords remain in the portal plaintext sheet format', () => {
+  const auth = fs.readFileSync(path.join(ROOT, 'src', 'server', 'AuthService.js'), 'utf8');
+  const code = fs.readFileSync(path.join(ROOT, 'src', 'server', 'Code.js'), 'utf8');
+  assert.match(code, /payload\['Password'\]\s*=\s*data\['Password'\]\s*\|\|\s*''/);
+  assert.match(auth, /'Password':\s*candidatePassword/);
+  assert.doesNotMatch(auth, /function _encodePasswordV2_/);
+  assert.doesNotMatch(auth, /'Password':\s*_encodePasswordV2_/);
+});
 test('primary worklists fetch complete collections once and process them client-side', () => {
   const read = file => fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
   const leads = read('Leads.html');
