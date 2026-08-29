@@ -298,6 +298,15 @@ test('archive summaries and sort values cover suggestion and archived modes', ()
   ]))), { total: 2, followups: 7, notPicked: 3 });
 });
 
+test('archive restore schedules the lead and reopened follow-ups for today', () => {
+  const archive = fs.readFileSync(path.join(ROOT, 'src', 'server', 'ArchiveService.js'), 'utf8');
+  assert.match(archive, /const restoredPlannedDate = today\(\);/);
+  assert.equal((archive.match(/const restoredPlannedDate = today\(\);/g) || []).length, 1);
+  assert.match(archive, /'Next Follow-up Date': restoredPlannedDate/);
+  assert.match(archive, /'Planned Date': restoredPlannedDate/);
+  assert.doesNotMatch(archive, /followup\['Planned Date'\]\s*\|\|\s*today\(\)/);
+});
+
 test('post-load icon rendering is idempotent and Follow-up tab icons stay at 16px', () => {
   const read = file => fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
   const utils = read('AppUtils.html');

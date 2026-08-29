@@ -273,6 +273,7 @@ function restoreArchivedLead(leadId, email) {
   let restoredStatus = String(lead['Pre-Archive Status'] || '').trim();
   if (!restoredStatus || restoredStatus.toLowerCase() === 'archived') restoredStatus = leadLifecycleStatus_(lead, stage);
   const ts = now();
+  const restoredPlannedDate = today();
   const followups = getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId);
   try {
     updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_({
@@ -282,13 +283,13 @@ function restoreArchivedLead(leadId, email) {
       'Archived At': '',
       'Archived By': '',
       'Archive Reason': '',
+      'Next Follow-up Date': restoredPlannedDate,
       'Updated At': ts
     }));
     followups.forEach(followup => {
       if (!followup['Follow-up ID']) return;
       const wasAutoClosed = String(followup['Status'] || '') === 'Closed' && String(followup['Outcome'] || '') === 'Lead archived';
       if (!wasAutoClosed) return;
-      const restoredPlannedDate = followup['Planned Date'] || today();
       updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], {
         'Status': 'Open',
         'Outcome': '',
