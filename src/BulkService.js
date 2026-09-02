@@ -409,6 +409,7 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
   if (saved) {
     _bumpStamp('leads');
     _bumpStamp('followups');
+    pushFsrLeadIds_(leadIds, 'client.created');
   }
   return {
     batchId,
@@ -903,6 +904,7 @@ function _bulkCreateInitialFollowupForLead_(lead, user) {
   updateRow(SHEET_NAMES.LEADS, 'Lead ID', lead['Lead ID'], patch);
   _bumpStamp('leads');
   _bumpStamp('followups');
+  pushFsrLeadById_(lead['Lead ID'], 'client.updated');
 }
 
 function _bulkInitialStageId_() {

@@ -378,8 +378,14 @@ function adminDiagnosticSnapshot_(user) {
         whatsAppGroupId: !!properties.getProperty('WA_GROUP_ID'),
         whatsAppUsername: !!properties.getProperty('MAS_USERNAME'),
         whatsAppPassword: !!properties.getProperty('MAS_PASSWORD'),
-        whatsAppApiKey: !!properties.getProperty('MAS_API_KEY')
+        whatsAppApiKey: !!properties.getProperty('MAS_API_KEY'),
+        fsrWebhookUrl: !!properties.getProperty('FSR_WEBHOOK_URL'),
+        fsrWebhookSecret: !!properties.getProperty('FSR_WEBHOOK_SECRET')
       };
+    }),
+    runDiagnosticCheck_('fsrWebhook', () => {
+      const status = _fsrClientWebhookStatus_();
+      return { ...status, healthy: status.configured && status.editTriggerInstalled };
     }),
     runDiagnosticCheck_('runtime', () => ({
       engine: 'V8',

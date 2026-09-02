@@ -131,6 +131,15 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
     Logger.log('[NBD Push] Non-critical audit/cache update failed for ' + leadId + ': ' + (e && e.message || e));
   }
 
+  pushFsrLeadById_(leadId, 'client.updated');
+  if (operation.targetRowNumber) {
+    _pushFsrLeadRows_(
+      [operation.targetRowNumber],
+      operation.kind === 'created' ? 'client.created' : 'client.updated',
+      targetSheet
+    );
+  }
+
   if (operation.kind === 'mapped') {
     return respond({ leadId, nbdLeadId: operation.nbdLeadId, mapped: true });
   }
@@ -190,7 +199,7 @@ function _mapLeadToNbdUnderLock_(spreadsheetId, targetSheet, targetHeaders, lead
   } catch (e) {
     Logger.log('[NBD Push] Deferred index rebuild for mapped lead ' + mapToNbdLeadId + ': ' + (e && e.message || e));
   }
-  return { kind: 'mapped', nbdLeadId: mapToNbdLeadId };
+  return { kind: 'mapped', nbdLeadId: mapToNbdLeadId, targetRowNumber: Number(updated) || 0 };
 }
 
 function _createNbdLeadUnderLock_(ctx) {
@@ -235,8 +244,9 @@ function _createNbdLeadUnderLock_(ctx) {
     'Updated At': ts
   };
 
+  let targetRowNumber = 0;
   try {
-    const targetRowNumber = _appendExternalRow_(ctx.targetSheet, ctx.targetHeaders, row);
+    targetRowNumber = _appendExternalRow_(ctx.targetSheet, ctx.targetHeaders, row);
     _upsertExternalLeadIndex_(ctx.targetSpreadsheetId, row, targetRowNumber);
     _appendExternalRow_(ctx.followupSheet, ctx.followupHeaders, followup);
     if (!_updateNbdSourceLeadUnderLock_(ctx.leadId, nbdLeadId, ts)) {
@@ -257,7 +267,7 @@ function _createNbdLeadUnderLock_(ctx) {
     }
     throw _nbdPushFailure_('NBD push could not be completed. Partial target records were rolled back; please retry.', true);
   }
-  return { kind: 'created', nbdLeadId, nbdFollowupId };
+  return { kind: 'created', nbdLeadId, nbdFollowupId, targetRowNumber };
 }
 
 function _updateNbdSourceLeadUnderLock_(leadId, nbdLeadId, ts) {
@@ -697,7 +707,7 @@ function _updateExternalRow_(sheet, headers, keyCol, keyVal, patch) {
       const colIdx = headers.indexOf(h);
       if (colIdx !== -1) sheet.getRange(i + 1, colIdx + 1).setValue(neutralizeSheetFormula_(patch[h]));
     });
-    return true;
+    return i + 1;
   }
   return false;
 }

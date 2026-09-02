@@ -97,6 +97,7 @@ function saveLead(data, email) {
         _leadSaveStep_('upsert lead custom fields', () => upsertCustomFieldValues_('Leads', leadId, prepared, user.id, prepared['Stage ID'] || existing.lead['Stage ID']));
       }
       _bumpStamp('leads');
+      pushFsrLeadById_(leadId, 'client.updated');
       return respond(leadId);
     }
     const id = generateUUID();
@@ -139,6 +140,7 @@ function saveLead(data, email) {
       }));
       _bumpStamp('leads');
       _bumpStamp('followups');
+      pushFsrLeadById_(id, 'client.created');
       return respond(id);
     } catch (e) {
       if (leadInserted) _leadSaveStep_('rollback lead row', () => deleteRow(SHEET_NAMES.LEADS, 'Lead ID', id));
@@ -474,6 +476,7 @@ function updateLeadStage(leadId, newStageId, note, email, fromStageId) {
     note || `Stage updated to ${stageName}`,
     user.id
   );
+  pushFsrLeadById_(leadId, 'client.updated');
   return respond({ leadId, stageId: newStageId, leadStatus: leadPatch['Lead Status'] || lead['Lead Status'] || 'Open' });
 }
 
@@ -526,6 +529,7 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email, fromSt
 
   const logNote = note || `Stage updated to ${stage['Stage Name']}${skipped ? ' (custom fields skipped)' : ''}`;
   insertLeadActivityLog_(leadId, 'Stage Change', lead['Stage ID'] || '', newStageId, logNote, user.id);
+  pushFsrLeadById_(leadId, 'client.updated');
   return respond({ leadId, stageId: newStageId, leadStatus: leadPatch['Lead Status'], patch: leadPatch });
 }
 
@@ -587,6 +591,7 @@ function saveLeadStageFields(leadId, stageId, fields, email) {
   try { sendStageFieldsWhatsApp_(lead, stageId, stageName, fields || {}, user); }
   catch (waErr) { Logger.log('[StageFields] WhatsApp notify failed: ' + waErr); }
   _bumpStamp('leads');
+  pushFsrLeadById_(leadId, 'client.updated');
   return respond(true);
 }
 

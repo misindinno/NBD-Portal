@@ -253,6 +253,7 @@ function archiveLead(leadId, reason, email, opts) {
   }
 
   if (!(opts && opts.skipStamps)) _bumpArchiveStamps_();
+  pushFsrLeadById_(leadId, 'client.updated');
   return respond({ leadId, patch });
 }
 
@@ -305,6 +306,7 @@ function restoreArchivedLead(leadId, email) {
     throw error;
   }
   _bumpArchiveStamps_();
+  pushFsrLeadById_(leadId, 'client.updated');
   return respond({ leadId, status: restoredStatus || 'Open' });
 }
 

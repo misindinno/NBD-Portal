@@ -143,6 +143,7 @@ function saveFollowup(data, email) {
     _bumpStamp('leads');
   }
   _bumpStamp('followups');
+  if (lead) pushFsrLeadById_(lead['Lead ID'], 'client.updated');
   return respond(id);
 }
 
@@ -284,6 +285,7 @@ function markFollowupDone(followupId, data, email) {
 
   _bumpStamp('followups');
   _bumpStamp('followup_history');
+  if (lead) pushFsrLeadById_(lead['Lead ID'], 'client.updated');
   return respond({
     followup: { ...row, ...followupPatch },
     history,
@@ -372,6 +374,7 @@ function _reopenClosedNonFinalFollowupsNextMonday_() {
   let skippedFinalStage = 0;
   let skippedNoLead = 0;
   let skippedOpen = 0;
+  const reopenedLeadIds = {};
 
   getAllRows(SHEET_NAMES.FOLLOWUPS).forEach(followup => {
     const followupId = String(followup['Follow-up ID'] || '').trim();
@@ -407,11 +410,13 @@ function _reopenClosedNonFinalFollowupsNextMonday_() {
       'Updated At': ts
     });
     reopened++;
+    reopenedLeadIds[leadId] = true;
   });
 
   if (reopened) {
     _bumpStamp('followups');
     _bumpStamp('leads');
+    pushFsrLeadIds_(Object.keys(reopenedLeadIds), 'client.updated');
   }
 
   return { nextMonday, reopened, skippedFinalStage, skippedNoLead, skippedOpen };
