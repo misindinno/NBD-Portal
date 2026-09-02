@@ -82,7 +82,7 @@ function onOpen() {
     .addItem('⚙️ Run Setup', 'setupSheets')
     .addItem('🔐 Migrate Portal Permissions', 'migrateUserPortalAccess')
     .addItem('🔐 Update Permissions', 'updatePermissions')
-    .addItem('🔗 Install FSR Sync Trigger', 'installFsrClientEditTrigger')
+    .addItem('🔗 Install FSR Create + Update Triggers', 'installFsrClientTriggers')
     .addSeparator()
     .addItem('🔄 Push Update to All Clients', 'pushUpdate')
     .addItem('🧭 Rebuild Indexes', 'rebuildAllIndexes')

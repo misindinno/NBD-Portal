@@ -5,6 +5,17 @@ const FSR_WEBHOOK_URL_PROPERTY_ = 'FSR_WEBHOOK_URL';
 const FSR_WEBHOOK_SECRET_PROPERTY_ = 'FSR_WEBHOOK_SECRET';
 const FSR_CLIENT_SHEET_PROPERTY_ = 'FSR_CLIENT_SHEET';
 const FSR_WEBHOOK_BATCH_SIZE_ = 50;
+const FSR_WEBHOOK_RESPONSE_LOG_LIMIT_ = 2000;
+const FSR_WEBHOOK_MAX_ATTEMPTS_ = 3;
+const FSR_WEBHOOK_RETRY_BASE_MS_ = 1000;
+const FSR_EVENT_TYPES_ = [
+  'client.created',
+  'client.updated',
+  'client.assigned',
+  'client.merged',
+  'client.closed',
+  'client.deleted'
+];
 
 function handleFsrClientEdit(event) {
   if (!event || !event.range) return;
@@ -17,40 +28,50 @@ function handleFsrClientCreate(event) {
 }
 
 function installFsrClientTriggers() {
-  requireContainerAdmin_(false);
-  installFsrClientEditTrigger();
-  installFsrClientCreateTrigger();
-  return 'FSR lead/client edit and form-submit triggers installed.';
+  return withServerContext_(() => {
+    requireContainerAdmin_(false);
+    _installFsrClientTrigger_('handleFsrClientEdit', ScriptApp.EventType.ON_EDIT);
+    _installFsrClientTrigger_('handleFsrClientCreate', ScriptApp.EventType.ON_FORM_SUBMIT);
+    return 'FSR lead/client edit and form-submit triggers installed.';
+  });
 }
 
 function installFsrClientEditTrigger() {
-  requireContainerAdmin_(false);
-  return _installFsrClientTrigger_('handleFsrClientEdit', ScriptApp.EventType.ON_EDIT);
+  return withServerContext_(() => {
+    requireContainerAdmin_(false);
+    return _installFsrClientTrigger_('handleFsrClientEdit', ScriptApp.EventType.ON_EDIT);
+  });
 }
 
 function installFsrClientCreateTrigger() {
-  requireContainerAdmin_(false);
-  return _installFsrClientTrigger_('handleFsrClientCreate', ScriptApp.EventType.ON_FORM_SUBMIT);
+  return withServerContext_(() => {
+    requireContainerAdmin_(false);
+    return _installFsrClientTrigger_('handleFsrClientCreate', ScriptApp.EventType.ON_FORM_SUBMIT);
+  });
 }
 
 function setFsrClientWebhookProperties(url, secret, sheetName) {
-  requireContainerAdmin_(false);
-  url = String(url || '').trim();
-  secret = String(secret || '').trim();
-  sheetName = String(sheetName || SHEET_NAMES.LEADS).trim();
-  if (!/^https:\/\//i.test(url)) throw new Error('FSR webhook URL must be public HTTPS.');
-  if (!secret) throw new Error('FSR webhook secret is required.');
-  PropertiesService.getScriptProperties().setProperties({
-    FSR_WEBHOOK_URL: url,
-    FSR_WEBHOOK_SECRET: secret,
-    FSR_CLIENT_SHEET: sheetName
-  }, false);
-  return { configured: true, sheetName, url };
+  return withServerContext_(() => {
+    requireContainerAdmin_(false);
+    url = String(url || '').trim();
+    secret = String(secret || '').trim();
+    sheetName = String(sheetName || SHEET_NAMES.LEADS).trim();
+    if (!/^https:\/\//i.test(url)) throw new Error('FSR webhook URL must be public HTTPS.');
+    if (!secret) throw new Error('FSR webhook secret is required.');
+    PropertiesService.getScriptProperties().setProperties({
+      FSR_WEBHOOK_URL: url,
+      FSR_WEBHOOK_SECRET: secret,
+      FSR_CLIENT_SHEET: sheetName
+    }, false);
+    return { configured: true, sheetName, url };
+  });
 }
 
 function getFsrClientWebhookStatus() {
-  requireContainerAdmin_(false);
-  return _fsrClientWebhookStatus_();
+  return withServerContext_(() => {
+    requireContainerAdmin_(false);
+    return _fsrClientWebhookStatus_();
+  });
 }
 
 function _fsrClientWebhookStatus_() {
@@ -66,8 +87,10 @@ function _fsrClientWebhookStatus_() {
 }
 
 function pushFsrCreatedRow(rowNumber) {
-  requireContainerAdmin_(false);
-  return withServerContext_(() => _pushFsrLeadRows_([Number(rowNumber)], 'client.created'));
+  return withServerContext_(() => {
+    requireContainerAdmin_(false);
+    return _pushFsrLeadRows_([Number(rowNumber)], 'client.created');
+  });
 }
 
 function pushFsrLeadById_(leadId, eventType, sheet) {
@@ -122,97 +145,235 @@ function _pushFsrLeadRows_(rowNumbers, eventType, sheet) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
     .map(header => String(header || '').trim());
   const deliveries = uniqueRows
-    .map(rowNumber => _fsrBuildLeadDelivery_(sheet, headers, rowNumber, eventType, config))
+    .map(rowNumber => _fsrBuildLeadDelivery_(sheet, headers, rowNumber, eventType))
     .filter(Boolean);
   const results = [];
   for (let offset = 0; offset < deliveries.length; offset += FSR_WEBHOOK_BATCH_SIZE_) {
-    _fsrPostDeliveryBatch_(deliveries.slice(offset, offset + FSR_WEBHOOK_BATCH_SIZE_)).forEach(result => results.push(result));
+    _fsrPostDeliveryBatch_(deliveries.slice(offset, offset + FSR_WEBHOOK_BATCH_SIZE_), config).forEach(result => results.push(result));
   }
   return results;
 }
 
-function _fsrBuildLeadDelivery_(sheet, headers, rowNumber, eventType, config) {
+function _fsrBuildLeadDelivery_(sheet, headers, rowNumber, eventType) {
   const values = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
   const row = {};
   headers.forEach((header, index) => {
     if (header) row[header] = normalizeSheetValue(values[index]);
   });
-  const recordId = String(row['Lead ID'] || '').trim();
-  const clientName = String(row['Company Name'] || row['Client Name'] || '').trim();
-  if (!recordId || !clientName) return null;
+  const recordId = _fsrLeadValue_(row, ['Lead ID', 'Client ID', 'ID'], 160);
+  const data = _fsrClientDataFromLead_(row);
+  if (!recordId || !data.name) return null;
 
-  const timestamp = String(Date.now());
+  const normalizedEvent = _fsrEventType_(eventType);
   const payload = {
-    event: eventType || 'client.updated',
+    schemaVersion: '1.0',
+    eventType: normalizedEvent,
+    occurredAt: new Date().toISOString(),
     source: {
-      system: 'google_sheets',
-      spreadsheetId: sheet.getParent().getId(),
-      sheetName: sheet.getName(),
-      rowNumber,
-      recordId
+      recordId,
+      clientId: recordId
     },
-    client: _fsrClientPayloadFromLead_(row),
-    row
+    data
   };
-  const body = JSON.stringify(payload);
+  const version = Number(_fsrLeadValue_(row, ['Version', 'Record Version'], 20));
+  if (Number.isInteger(version) && version >= 0) payload.source.version = version;
+  if (normalizedEvent === 'client.merged') {
+    const mergedIntoRecordId = _fsrLeadValue_(row, ['Merged Into Record ID', 'Merged Into Client ID'], 160);
+    if (!mergedIntoRecordId) throw new Error('Merged Into Record ID is required for client.merged.');
+    payload.data.mergedIntoRecordId = mergedIntoRecordId;
+  }
+
   return {
-    request: {
-      url: config.url,
-      method: 'post',
-      contentType: 'application/json',
-      payload: body,
-      muteHttpExceptions: true,
-      headers: {
-        'X-FSR-Timestamp': timestamp,
-        'X-FSR-Signature': 'sha256=' + _fsrWebhookSignature_(config.secret, timestamp + '.' + body)
-      }
-    },
-    event: payload.event,
+    body: JSON.stringify(payload),
+    event: normalizedEvent,
+    eventId: 'evt_' + Utilities.getUuid(),
+    requestId: 'req_' + Utilities.getUuid(),
     recordId,
     rowNumber
   };
 }
 
-function _fsrPostDeliveryBatch_(deliveries) {
+function _fsrPostDeliveryBatch_(deliveries, config) {
   if (!deliveries.length) return [];
-  try {
-    const responses = UrlFetchApp.fetchAll(deliveries.map(delivery => delivery.request));
-    return deliveries.map((delivery, index) => {
-      const status = responses[index].getResponseCode();
+  const resultsByEventId = {};
+  let pending = deliveries.slice();
+
+  for (let attempt = 1; attempt <= FSR_WEBHOOK_MAX_ATTEMPTS_ && pending.length; attempt++) {
+    let responses;
+    try {
+      responses = UrlFetchApp.fetchAll(pending.map(delivery => _fsrRequestForAttempt_(delivery, config)));
+    } catch (error) {
+      pending.forEach(delivery => _logFsrWebhookFailure_('delivery_attempt_failed', error, {
+        attempt,
+        event: delivery.event,
+        eventId: delivery.eventId,
+        requestId: delivery.requestId,
+        sourceRecordId: delivery.recordId,
+        rowNumber: delivery.rowNumber
+      }));
+      if (attempt < FSR_WEBHOOK_MAX_ATTEMPTS_) {
+        Utilities.sleep(FSR_WEBHOOK_RETRY_BASE_MS_ * Math.pow(2, attempt - 1));
+        continue;
+      }
+      pending.forEach(delivery => {
+        resultsByEventId[delivery.eventId] = _fsrDeliveryErrorResult_(delivery, error, attempt);
+      });
+      break;
+    }
+
+    const retry = [];
+    pending.forEach((delivery, index) => {
+      const response = responses[index];
+      const status = response.getResponseCode();
+      const responseBody = _fsrWebhookResponseForLog_(response);
       const result = {
         status,
         event: delivery.event,
+        eventId: delivery.eventId,
+        requestId: delivery.requestId,
         recordId: delivery.recordId,
-        rowNumber: delivery.rowNumber
+        rowNumber: delivery.rowNumber,
+        attempt,
+        response: responseBody
       };
-      if (status < 200 || status >= 300) {
-        _logFsrWebhookFailure_('delivery_rejected', new Error('FSR webhook HTTP ' + status), result);
+      _logFsrWebhookResponse_(delivery, status, responseBody, attempt);
+      if (_fsrRetryableStatus_(status) && attempt < FSR_WEBHOOK_MAX_ATTEMPTS_) {
+        retry.push(delivery);
+        return;
       }
-      return result;
+      if (status < 200 || status >= 300) {
+        _logFsrWebhookFailure_('delivery_rejected', new Error('FSR webhook HTTP ' + status), {
+          status,
+          attempt,
+          event: delivery.event,
+          eventId: delivery.eventId,
+          requestId: delivery.requestId,
+          sourceRecordId: delivery.recordId,
+          rowNumber: delivery.rowNumber
+        });
+      }
+      resultsByEventId[delivery.eventId] = result;
     });
-  } catch (error) {
-    _logFsrWebhookFailure_('delivery_failed', error, { batchSize: deliveries.length });
-    return deliveries.map(delivery => ({
-      error: diagnosticErrorSummary_(error),
+
+    pending = retry;
+    if (pending.length) Utilities.sleep(FSR_WEBHOOK_RETRY_BASE_MS_ * Math.pow(2, attempt - 1));
+  }
+
+  return deliveries.map(delivery => resultsByEventId[delivery.eventId] || {
+    error: 'Webhook delivery ended without a result.',
+    event: delivery.event,
+    eventId: delivery.eventId,
+    requestId: delivery.requestId,
+    recordId: delivery.recordId,
+    rowNumber: delivery.rowNumber
+  });
+}
+
+function _fsrRequestForAttempt_(delivery, config) {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  return {
+    url: config.url,
+    method: 'post',
+    contentType: 'application/json',
+    payload: delivery.body,
+    muteHttpExceptions: true,
+    headers: {
+      'X-FSR-Event-Id': delivery.eventId,
+      'X-FSR-Timestamp': timestamp,
+      'X-FSR-Signature': 'v1=' + _fsrWebhookSignature_(config.secret, timestamp + '.' + delivery.body),
+      'X-Request-Id': delivery.requestId
+    }
+  };
+}
+
+function _fsrRetryableStatus_(status) {
+  return status === 429 || status === 500 || status === 503;
+}
+
+function _fsrDeliveryErrorResult_(delivery, error, attempt) {
+  return {
+    error: diagnosticErrorSummary_(error),
+    event: delivery.event,
+    eventId: delivery.eventId,
+    requestId: delivery.requestId,
+    recordId: delivery.recordId,
+    rowNumber: delivery.rowNumber,
+    attempt
+  };
+}
+
+function _logFsrWebhookResponse_(delivery, status, responseBody, attempt) {
+  try {
+    diagnosticLog_(status >= 200 && status < 300 ? 'INFO' : 'WARN', 'INTEGRATION.FSR_WEBHOOK', 'delivery_response', {
+      status,
+      attempt,
       event: delivery.event,
-      recordId: delivery.recordId,
-      rowNumber: delivery.rowNumber
-    }));
+      eventId: delivery.eventId,
+      requestId: delivery.requestId,
+      sourceRecordId: delivery.recordId,
+      rowNumber: delivery.rowNumber,
+      response: responseBody
+    });
+  } catch (_) {
+    try {
+      Logger.log('[FSR webhook response] ' + JSON.stringify({
+        status,
+        attempt,
+        event: delivery.event,
+        eventId: delivery.eventId,
+        requestId: delivery.requestId,
+        rowNumber: delivery.rowNumber
+      }));
+    } catch (_) {}
   }
 }
 
-function _fsrClientPayloadFromLead_(row) {
+function _fsrWebhookResponseForLog_(response) {
+  try {
+    const text = String(response && response.getContentText ? response.getContentText() : '').trim();
+    if (!text) return null;
+    const truncated = text.length > FSR_WEBHOOK_RESPONSE_LOG_LIMIT_;
+    const bounded = text.slice(0, FSR_WEBHOOK_RESPONSE_LOG_LIMIT_);
+    if (!truncated) {
+      try { return JSON.parse(bounded); }
+      catch (_) {}
+    }
+    return { body: bounded, truncated };
+  } catch (error) {
+    return { unavailable: true, reason: diagnosticErrorSummary_(error) };
+  }
+}
+
+function _fsrClientDataFromLead_(row) {
   return {
-    'Client ID': row['Lead ID'] || '',
-    'Client Name': row['Company Name'] || row['Client Name'] || '',
-    'Contact Person': row['Contact Person'] || '',
-    'Phone': row['Phone'] || row['Primary Mobile'] || '',
-    'Address': row['Address'] || '',
-    'City': row['City'] || '',
-    'State': row['State'] || '',
-    'Status': row['Lead Status'] || row['Status'] || '',
-    'Assigned To': row['Assigned To'] || row['Sales Person'] || ''
+    name: _fsrLeadValue_(row, ['Company Name', 'Client Name', 'Shop Name', 'Firm Name', 'Name'], 200),
+    contact: _fsrLeadValue_(row, ['Contact Person', 'Primary Contact Person', 'Contact Name'], 160),
+    phone: _fsrLeadValue_(row, ['Primary Mobile', 'Primary Mobile Number', 'Primary Contact Number', 'Phone', 'Mobile', 'Alternate Mobile'], 40),
+    address: _fsrLeadValue_(row, ['Address', 'Full Address', 'Billing Address', 'Location'], 500),
+    city: _fsrLeadValue_(row, ['City', 'District'], 120),
+    state: _fsrLeadValue_(row, ['State', 'State Name', 'Province', 'Region'], 120),
+    leadSource: _fsrLeadValue_(row, ['Source', 'Lead Source', 'Enquiry Source', 'Inquiry Source', 'Campaign Source'], 160),
+    status: _fsrLeadValue_(row, ['Lead Status', 'Status', 'Client Status', 'Active Status'], 80) || 'ACTIVE',
+    assignedTo: _fsrLeadValue_(row, ['Assigned User ID', 'Assigned User Id', 'Assigned User', 'Assigned To', 'Owner', 'Sales Person', 'Salesperson', 'FSR'], 200)
   };
+}
+
+function _fsrLeadValue_(row, aliases, maxLength) {
+  for (let index = 0; index < aliases.length; index++) {
+    const value = row[aliases[index]];
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      return String(value).trim().slice(0, maxLength);
+    }
+  }
+  return '';
+}
+
+function _fsrEventType_(eventType) {
+  const normalized = String(eventType || 'client.updated').trim().toLowerCase();
+  if (FSR_EVENT_TYPES_.indexOf(normalized) === -1) {
+    throw new Error('Unsupported FSR webhook event type: ' + normalized);
+  }
+  return normalized;
 }
 
 function _fsrLeadRowNumbersById_(sheet, wanted) {
@@ -228,7 +389,7 @@ function _fsrLeadRowNumbersById_(sheet, wanted) {
 }
 
 function _fsrWebhookSignature_(secret, message) {
-  const bytes = Utilities.computeHmacSha256Signature(message, secret);
+  const bytes = Utilities.computeHmacSha256Signature(message, secret, Utilities.Charset.UTF_8);
   return bytes.map(byte => {
     const value = byte < 0 ? byte + 256 : byte;
     return ('0' + value.toString(16)).slice(-2);
