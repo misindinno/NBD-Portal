@@ -167,6 +167,7 @@ const api = {
   getLead:             (id)    => api._authedRead('apiGetLead', id),
   getLeadFieldValues:  (id)    => api._authedRead('apiGetLeadFieldValues', id),
   getVisits:           ()      => api._authedRead('apiGetVisits'),
+  getClientVisitHistory: (f)    => api._authedRead('apiGetClientVisitHistory', f || {}),
   saveVisit:           (p)     => api._authedRead('apiSaveVisit', p || {}),
   updateVisit:         (p)     => api._authedRead('apiUpdateVisit', p || {}),
   deleteVisit:         (id)    => api._authedRead('apiDeleteVisit', id || ''),

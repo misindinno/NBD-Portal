@@ -470,14 +470,15 @@ function apiMoveLeadStageWithFields(token, payload) {
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiGetLead', () => {
-    const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields']);
+    const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields', 'Visits']);
     const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', id);
     const lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
     const followups = _scopeFollowupRows(getFollowups({ leadId: id, includeClosed: true }), user);
     if (!lead || (!_canReadAssignedRow(lead, user) && !followups.length)) return respond(null, 'Lead not found.');
     const followupHistory = _scopeFollowupHistoryRows(getFollowupHistory({ leadId: id }), user);
+    const visitHistory = _scopeLeadLinkedRows(getClientVisitHistory({ leadId: id }), user, ['createdBy']);
     const activityLogs = _scopeActivityLogRows(getLeadActivityLogs({ leadId: id }), user);
-    return respond({ lead, followups, followupHistory, activityLogs });
+    return respond({ lead, followups, followupHistory, visitHistory, activityLogs });
   });
 }
 
@@ -487,6 +488,24 @@ function apiGetVisits(token) {
   return apiGuard_('apiGetVisits', () => {
     const user = _requireModule('Visits');
     return respond(_scopeLeadLinkedRows(getVisits(), user, ['Created By']));
+  });
+}
+
+function apiGetClientVisitHistory(token, filters) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetClientVisitHistory', () => {
+    const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields', 'Visits']);
+    const data = filters || {};
+    const leadId = String(data.leadId || data.clientId || data['Lead ID'] || data['Client ID'] || '').trim();
+    if (!leadId) return respond(null, 'Client ID is required.');
+    const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
+    if (!lead || !_canReadAssignedRow(lead, user)) return respond(null, 'Client not found.');
+    return respond({
+      clientId: leadId,
+      leadId: leadId,
+      client: lead,
+      visits: _scopeLeadLinkedRows(getClientVisitHistory({ leadId: leadId }), user, ['createdBy'])
+    });
   });
 }
 

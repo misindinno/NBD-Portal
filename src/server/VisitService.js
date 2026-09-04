@@ -32,6 +32,53 @@ function getVisits() {
     .sort((a, b) => new Date(b['DATE'] || b['Visit Date'] || b['Created At'] || 0) - new Date(a['DATE'] || a['Visit Date'] || a['Created At'] || 0));
 }
 
+function getClientVisitHistory(filters) {
+  ensureVisitSheets_();
+  filters = filters || {};
+  const leadId = String(filters.leadId || filters.clientId || filters['Lead ID'] || filters['Client ID'] || '').trim();
+  if (!leadId) return [];
+
+  const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId) || null;
+  const visits = getAllRows(SHEET_NAMES.VISITS)
+    .filter(v => String(v['Lead ID'] || '').trim() === leadId)
+    .sort((a, b) => new Date(b['DATE'] || b['Visit Date'] || b['Created At'] || 0) - new Date(a['DATE'] || a['Visit Date'] || a['Created At'] || 0));
+
+  return visits.map(v => normalizeClientVisitHistoryRow_(v, lead));
+}
+
+function normalizeClientVisitHistoryRow_(visit, lead) {
+  visit = visit || {};
+  lead = lead || {};
+  const formData = {};
+  VISIT_MASTER_FIELDS.forEach(field => {
+    if (['Visit ID', 'Lead ID', 'Created By', 'Created At', 'Updated At'].indexOf(field) !== -1) return;
+    const value = visit[field];
+    if (value !== undefined && value !== null && String(value).trim() !== '') formData[field] = value;
+  });
+  return {
+    'Visit ID': visit['Visit ID'] || '',
+    'Lead ID': visit['Lead ID'] || '',
+    'Created By': visit['Created By'] || '',
+    visitId: visit['Visit ID'] || '',
+    leadId: visit['Lead ID'] || '',
+    clientId: visit['Lead ID'] || '',
+    clientName: lead['Company Name'] || lead['Client Description'] || '',
+    contactPerson: lead['Contact Person'] || '',
+    phone: visit['CONTACT NO.'] || lead['Phone'] || '',
+    city: visit['CITY'] || lead['City'] || '',
+    source: visit['source'] || lead['Source'] || '',
+    visitDate: visit['DATE'] || visit['Visit Date'] || '',
+    outcome: visit['VISIT'] || visit['CONVERSION'] || '',
+    remarks: visit['FEEDBACK'] || '',
+    attachmentUrl: visit['FEEDBACK ATTACHEMT'] || '',
+    createdBy: visit['Created By'] || '',
+    createdAt: visit['Created At'] || '',
+    updatedAt: visit['Updated At'] || '',
+    formData: formData,
+    raw: visit
+  };
+}
+
 // Saves a visit report from the Visits form; logs the visit on the lead and notifies WhatsApp.
 function saveVisit(data, email) {
   ensureVisitSheets_();

@@ -12,6 +12,7 @@ async function openLeadDetail(leadId, seed) {
     const histLoaded = AppCache.isLoaded('followupHistory');
     const logLoaded  = AppCache.isLoaded('activityLogs');
     let followupHistory = histLoaded ? AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId) : [];
+    let visitHistory = [];
     let activityLogs    = logLoaded  ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId) : [];
     let detailPending = !histLoaded || !logLoaded;
 
@@ -42,6 +43,7 @@ async function openLeadDetail(leadId, seed) {
         if (data && data.lead) {
           lead = data.lead;
           followupHistory = data.followupHistory || [];
+          visitHistory    = data.visitHistory || [];
           activityLogs    = data.activityLogs || [];
           detailPending = false;
         }
@@ -113,8 +115,9 @@ async function openLeadDetail(leadId, seed) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <div class="tabs" style="margin-bottom:0;border:none">
         <button class="tab-btn active" onclick="switchTab(this,'tab-history')">Follow-up History <kbd class="tab-kbd">1</kbd></button>
-        <button class="tab-btn" onclick="switchTab(this,'tab-log')">Activity Logs <kbd class="tab-kbd">2</kbd></button>
-        ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead <kbd class="tab-kbd">3</kbd></button>`}
+        <button class="tab-btn" onclick="switchTab(this,'tab-visits')">Visit History <kbd class="tab-kbd">2</kbd></button>
+        <button class="tab-btn" onclick="switchTab(this,'tab-log')">Activity Logs <kbd class="tab-kbd">3</kbd></button>
+        ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead <kbd class="tab-kbd">4</kbd></button>`}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : ''}
@@ -133,6 +136,9 @@ async function openLeadDetail(leadId, seed) {
     <div id="tab-history" class="tab-pane">
       ${detailPending ? _leadDetailTabLoading() : _followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
     </div>
+    <div id="tab-visits" class="tab-pane" style="display:none">
+      ${visitHistory.length ? _clientVisitHistoryTable(visitHistory, 'No client visits recorded yet.', fuContext) : _leadDetailTabLoading()}
+    </div>
     <div id="tab-log" class="tab-pane" style="display:none">
       ${detailPending ? _leadDetailTabLoading() : _activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
     </div>
@@ -146,6 +152,22 @@ async function openLeadDetail(leadId, seed) {
       ${buildLeadFormHTML(lead, leadFields, configOptions)}
     </div>`}`);
     overlay.querySelector('.modal')?.classList.add('modal-wide');
+
+    const _fillVisitHistory = (visits) => {
+      if (!overlay || !overlay.isConnected) return;
+      visitHistory = Array.isArray(visits) ? visits : [];
+      const vEl = overlay.querySelector('#tab-visits');
+      if (vEl) vEl.innerHTML = _clientVisitHistoryTable(visitHistory, 'No client visits recorded yet.', fuContext);
+      renderIcons(overlay);
+    };
+    const _showVisitHistoryError = () => {
+      const vEl = overlay && overlay.querySelector('#tab-visits');
+      if (vEl) vEl.innerHTML = '<div style="padding:24px;color:#b45309;font-size:13px">Could not load visit history. Close and reopen to retry.</div>';
+    };
+
+    api.getClientVisitHistory({ clientId: leadId })
+      .then(data => _fillVisitHistory((data && data.visits) || visitHistory || []))
+      .catch(() => visitHistory.length ? _fillVisitHistory(visitHistory) : _showVisitHistoryError());
 
     let _editDirty = false;
     const _bindEditForm = () => {
@@ -234,6 +256,52 @@ async function openLeadDetail(leadId, seed) {
   function _leadDetailTabLoading() {
     return '<div style="padding:36px 20px;text-align:center;color:#9ca3af;font-size:13px">'
       + '<span class="spinner" style="display:block;margin:0 auto 12px"></span>Loading…</div>';
+  }
+
+  function _clientVisitHistoryTable(rows, emptyMsg, ctx) {
+    const data = (rows || []).slice().sort((a, b) => _leadDetailTimeValue(b.visitDate || b['DATE'] || b.createdAt || b['Created At']) - _leadDetailTimeValue(a.visitDate || a['DATE'] || a.createdAt || a['Created At']));
+    if (!data.length) return `<div class="table-wrap fu-table-wrap"><table class="fu-table history-table"><tbody><tr><td class="empty-table-cell">${escapeHtml(emptyMsg)}</td></tr></tbody></table></div>`;
+    return `<div class="table-wrap fu-table-wrap">
+      <table class="fu-table history-table">
+        <thead><tr>
+          <th>Visit Date</th><th>Outcome</th><th>Submitted By</th><th>Remarks</th><th>Form Data</th><th>Evidence</th>
+        </tr></thead>
+        <tbody>${data.map(row => {
+          const formData = row.formData || {};
+          const formBits = Object.keys(formData)
+            .filter(key => ['FEEDBACK', 'FEEDBACK ATTACHEMT'].indexOf(key) === -1)
+            .slice(0, 8)
+            .map(key => `<span class="visit-form-chip"><strong>${escapeHtml(_visitFieldLabel(key))}</strong> ${escapeHtml(formData[key])}</span>`)
+            .join('');
+          const outcome = row.outcome || formData['CONVERSION'] || formData['VISIT'] || '-';
+          const evidence = row.attachmentUrl
+            ? `<a class="btn btn-outlined btn-sm" href="${escapeHtml(row.attachmentUrl)}" target="_blank" rel="noopener">${icon('image', 13)} View</a>`
+            : '<span class="muted-text">-</span>';
+          return `<tr>
+            <td>${formatDate(row.visitDate || row['DATE']) || '-'}</td>
+            <td><span class="badge" style="background:#E8F5E9;color:#2E7D32">${escapeHtml(outcome)}</span></td>
+            <td>${escapeHtml(ctx?.userMap?.[row.createdBy || row['Created By']] || row.createdBy || row['Created By'] || '-')}</td>
+            <td><div class="fu-discussion" title="${escapeHtml(row.remarks || '')}">${escapeHtml(row.remarks || '-')}</div></td>
+            <td><div class="visit-form-chip-grid">${formBits || '<span class="muted-text">No form data</span>'}</div></td>
+            <td>${evidence}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
+  }
+
+  function _visitFieldLabel(key) {
+    return String(key || '')
+      .replace('ACCOMODATION', 'Accommodation')
+      .replace('ATTACHEMT', 'Attachment')
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, ch => ch.toUpperCase());
+  }
+
+  function _leadDetailTimeValue(value) {
+    const time = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(time) ? time : 0;
   }
 
   function switchTab(btn, tabId) {
