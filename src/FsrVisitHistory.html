@@ -1,0 +1,87 @@
+<style>
+  .fsr-history-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin:16px 0; }
+  .fsr-history-list { display:grid; gap:12px; }
+  .fsr-history-card { border:1px solid #e5e7eb; border-radius:10px; padding:16px; background:#fff; }
+  .fsr-history-heading { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+  .fsr-history-title { font-size:14px; font-weight:700; color:#111827; }
+  .fsr-history-meta { font-size:12px; color:#6b7280; margin-top:4px; overflow-wrap:anywhere; }
+  .fsr-history-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:12px 0 0; }
+  .fsr-history-fields dt { font-size:11px; color:#6b7280; margin-bottom:3px; }
+  .fsr-history-fields dd { margin:0; font-size:13px; color:#374151; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .fsr-history-note { font-size:12px; color:#6b7280; line-height:1.6; }
+  .fsr-history-message { padding:24px 12px; text-align:center; color:#6b7280; font-size:13px; }
+  .fsr-history-evidence { display:flex; flex-wrap:wrap; gap:12px; margin-top:14px; font-size:12px; }
+</style>
+<script>
+function _fsrHistoryDate(value) {
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime()) ? date.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' }) : '—';
+}
+
+function _fsrHistoryEvidenceUrl(value, origin) {
+  try {
+    const base = new URL(origin);
+    const url = new URL(value, base);
+    if (base.protocol !== 'https:' || base.username || base.password || url.origin !== base.origin || !/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(url.pathname)) return '';
+    return base.origin + url.pathname;
+  } catch (_) { return ''; }
+}
+
+function _fsrHistoryCard(visit, origin) {
+  const fields = [
+    ['Remarks', visit.remarks], ['Outcome', visit.visitOutcome], ['Next action', visit.nextAction],
+    ['Follow-up date', visit.followUpDate], ['Requirement', visit.requirement],
+    ['Contact person', visit.contactPerson], ['Phone', visit.phone], ['Order number', visit.orderNumber],
+    ['Order value', visit.orderValue], ['Company at visit', visit.companyName]
+  ].filter(pair => pair[1] != null && pair[1] !== '');
+  const photos = Array.isArray(visit.shopImageUrls) && visit.shopImageUrls.length ? visit.shopImageUrls : visit.shopImageUrl ? [visit.shopImageUrl] : [];
+  const evidence = photos.map((url, index) => [`Shop photo ${index + 1}`, url]);
+  evidence.push(['Visit form', visit.formImageUrl], ['Order form', visit.orderFormImageUrl]);
+  const links = evidence.map(pair => {
+    const url = pair[1] ? _fsrHistoryEvidenceUrl(pair[1], origin) : '';
+    return url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(pair[0])}</a>` : '';
+  }).filter(Boolean);
+  return `<article class="fsr-history-card">
+    <div class="fsr-history-heading"><div>
+      <div class="fsr-history-title">${escapeHtml(_fsrHistoryDate(visit.visitDate))}</div>
+      <div class="fsr-history-meta">${escapeHtml(visit.salespersonName || visit.submittedBy || 'Salesperson not recorded')}</div>
+      <div class="fsr-history-meta">${escapeHtml(visit.submissionId || visit.id)}</div>
+    </div><span class="badge">${escapeHtml(visit.reviewStatus || 'Submitted')}</span></div>
+    ${fields.length ? `<dl class="fsr-history-fields">${fields.map(pair => `<div><dt>${escapeHtml(pair[0])}</dt><dd>${escapeHtml(String(pair[1]))}</dd></div>`).join('')}</dl>` : '<p class="fsr-history-note">No additional visit details recorded.</p>'}
+    ${links.length ? `<div class="fsr-history-evidence">${links.join('')}</div><p class="fsr-history-note" style="margin-top:8px">Evidence opens in FSR and requires an authorized FSR login.</p>` : ''}
+  </article>`;
+}
+
+function _mountFsrVisitHistory(overlay, leadId) {
+  const tab = overlay.querySelector('[data-fsr-history-tab]');
+  const panel = overlay.querySelector('[data-fsr-history-panel]');
+  if (!tab || !panel) return;
+  let loaded = false, busy = false, visits = [], nextOffset = null, total = 0, origin = '', configured = false;
+  function render(error) {
+    panel.innerHTML = `<div class="fsr-history-toolbar"><strong style="font-size:14px">FSR visits (${total})</strong><button type="button" class="btn btn-outlined btn-sm" data-fsr-refresh ${busy ? 'disabled' : ''}>Refresh history</button></div>
+      ${!configured && loaded ? '<p class="fsr-history-note">FSR API access is not configured. Ask your administrator to complete the integration setup.</p>' : ''}
+      ${error ? '<div role="alert" class="fsr-history-message">Visit history could not be loaded. Use Refresh history to retry.</div>' : ''}
+      <div class="fsr-history-list">${visits.map(visit => _fsrHistoryCard(visit, origin)).join('')}</div>
+      ${busy ? '<p role="status" class="fsr-history-message">Loading FSR visit history…</p>' : !visits.length && !error ? '<p class="fsr-history-message">No FSR visits found for this client yet.</p>' : ''}
+      ${nextOffset !== null ? `<button type="button" class="btn btn-outlined btn-sm" data-fsr-more style="margin-top:14px" ${busy ? 'disabled' : ''}>Load more visits</button>` : ''}`;
+    panel.querySelector('[data-fsr-refresh]').addEventListener('click', () => load(0));
+    panel.querySelector('[data-fsr-more]')?.addEventListener('click', () => load(nextOffset));
+  }
+  async function load(offset) {
+    if (busy || !overlay.isConnected) return;
+    busy = true;
+    if (!offset) { visits = []; nextOffset = null; }
+    render(false);
+    let error = false;
+    try {
+      const data = await api.getFsrVisitHistory(leadId, offset);
+      if (!overlay.isConnected) return;
+      const page = Array.isArray(data.visits) ? data.visits : [];
+      visits = offset ? [...visits, ...page.filter(item => !visits.some(existing => existing.id === item.id))] : page;
+      total = data.total || 0; nextOffset = data.nextOffset; origin = data.fsrOrigin || ''; configured = data.configured === true; loaded = true;
+    } catch (_) { error = true; }
+    finally { busy = false; if (overlay.isConnected) render(error); }
+  }
+  tab.addEventListener('click', () => { if (!loaded) void load(0); });
+}
+</script>

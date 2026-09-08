@@ -470,6 +470,21 @@ function apiGetLead(token, id) {
   });
 }
 
+// FSR is read-only and uses the same row/follow-up visibility as lead details.
+function apiGetFsrVisitHistory(token, id, page) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetFsrVisitHistory', () => {
+    const user = _requireAnyModule(['Leads', 'Followups', 'Archive']);
+    const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', id);
+    if (!lead) return respond(null, 'Lead not found.');
+    if (!_canReadAssignedRow(lead, user)) {
+      const followups = _scopeFollowupRows(getFollowups({ leadId: id, includeClosed: true }), user);
+      if (!followups.length) return respond(null, 'Lead not found.');
+    }
+    return respond(_fsrReadLeadVisits_(String(lead['Lead ID']), page));
+  });
+}
+
 function apiGetLeadFieldValues(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiGetLeadFieldValues', () => {

@@ -198,3 +198,7 @@ CONCAT({{Lead Name}}, " - ", {{Source}})     → string concat
 ```
 
 Placeholders use `{{Field Name}}` matching exact column names in the sheet.
+
+## FSR visit history
+
+The **FSR Visit History** tab reads current visits from the FSR API using the lead ID. Configure the FSR URL and API key in Apps Script properties. See [setup instructions](docs/FSR_VISIT_HISTORY.md).
