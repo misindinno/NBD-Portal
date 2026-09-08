@@ -147,17 +147,9 @@ function sheetSchemas_() {
       'Is Visible': bool, 'Skip Visibility': bool, 'Per Stage': bool
     }
   };
-  [SHEET_NAMES.LEAD_FIELD_VALUES, SHEET_NAMES.FOLLOWUP_FIELD_VALUES, SHEET_NAMES.VISIT_FIELD_VALUES].forEach(name => {
+  [SHEET_NAMES.LEAD_FIELD_VALUES, SHEET_NAMES.FOLLOWUP_FIELD_VALUES].forEach(name => {
     SHEET_SCHEMA_CACHE_[name] = { required: [], fields: { 'Updated At': date } };
   });
-  SHEET_SCHEMA_CACHE_[SHEET_NAMES.VISITS] = {
-    required: [],
-    fields: {
-      'DATE': date, 'Created At': date, 'Updated At': date,
-      'ACCOMODATION TOUR': number, 'ACCOMODATION STAY': number, 'AMOUNT': number,
-      'LEADS': number, 'FSR': number, 'SC': number, 'VISIT': number, 'CONVERSION': number
-    }
-  };
   [SHEET_NAMES.IDX_LEADS, SHEET_NAMES.IDX_FOLLOWUPS, SHEET_NAMES.IDX_USERS].forEach(name => {
     SHEET_SCHEMA_CACHE_[name] = {
       required: [],

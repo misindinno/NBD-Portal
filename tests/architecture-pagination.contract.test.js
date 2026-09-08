@@ -38,8 +38,6 @@ function loadServerHelpers() {
       FIELD_CONFIG: 'FIELD_CONFIG',
       LEAD_FIELD_VALUES: 'LEAD_FIELD_VALUES',
       FOLLOWUP_FIELD_VALUES: 'FOLLOWUP_FIELD_VALUES',
-      VISIT_FIELD_VALUES: 'VISIT_FIELD_VALUES',
-      VISITS: 'VISITS',
       IDX_LEADS: 'IDX_LEADS',
       IDX_FOLLOWUPS: 'IDX_FOLLOWUPS',
       IDX_USERS: 'IDX_USERS',
@@ -95,7 +93,7 @@ test('schema parsing coerces typed cells and trims text cells', () => {
   assert.equal(helpers.parseSheetCell_('PIPELINE_STAGES', 'Stage Order', '12'), 12);
   assert.equal(helpers.parseSheetCell_('LEAD_MASTER', 'Lead ID', '  L-1  '), 'L-1');
   assert.equal(helpers.parseSheetCell_('FIELD_CONFIG', 'Is Required', 'YES'), true);
-  assert.equal(helpers.parseSheetCell_('VISITS', 'AMOUNT', '1250.50'), 1250.5);
+  assert.equal(helpers.parseSheetCell_('PIPELINE_STAGES', 'Stage Order', '1250.50'), 1250.5);
   assert.equal(helpers.parseSheetCell_('BULK_IMPORT_LOG', 'Total Rows', '30'), 30);
   assert.equal(helpers.parseSheetCell_('LEAD_MASTER', 'Unknown', null), '');
 });

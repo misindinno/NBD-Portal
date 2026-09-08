@@ -300,7 +300,7 @@ function apiGlobalSearch(token, query) {
 function apiUploadFile(token, filePayload, fieldKey) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiUploadFile', () => {
-    _requireAnyModule(['Leads', 'LeadForm', 'Pipeline', 'BulkEntry', 'Visits']);
+    _requireAnyModule(['Leads', 'LeadForm', 'Pipeline', 'BulkEntry']);
     if (!filePayload || !filePayload.data) return respond(null, 'No file data provided.');
     const field = fieldKey
       ? (queryRows(SHEET_NAMES.FIELD_CONFIG, r => r['Column Key'] === fieldKey)[0] ||
@@ -346,17 +346,6 @@ function apiSaveLead(token, payload) {
       });
       throw new Error('Save lead failed: ' + safeClientErrorMessage_(e));
     }
-  });
-}
-
-// Stage Fields form — updates a lead's custom fields for a chosen stage (fields only).
-function apiSaveLeadStageFields(token, payload) {
-  _currentApiToken_ = token || '';
-  return apiGuard_('apiSaveLeadStageFields', () => {
-    const user = _requireAnyModule(['StageFields', 'Leads', 'LeadForm']);
-    const data = payload || {};
-    return withTrustedWriteUser_(user.email, () =>
-      saveLeadStageFields(data.leadId, data.stageId, data.fields || {}, user.email));
   });
 }
 
@@ -470,75 +459,21 @@ function apiMoveLeadStageWithFields(token, payload) {
 function apiGetLead(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiGetLead', () => {
-    const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields', 'Visits']);
+    const user = _requireAnyModule(['Leads', 'Followups', 'Archive']);
     const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', id);
     const lead = baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
     const followups = _scopeFollowupRows(getFollowups({ leadId: id, includeClosed: true }), user);
     if (!lead || (!_canReadAssignedRow(lead, user) && !followups.length)) return respond(null, 'Lead not found.');
     const followupHistory = _scopeFollowupHistoryRows(getFollowupHistory({ leadId: id }), user);
-    const visitHistory = _scopeLeadLinkedRows(getClientVisitHistory({ leadId: id }), user, ['createdBy']);
     const activityLogs = _scopeActivityLogRows(getLeadActivityLogs({ leadId: id }), user);
-    return respond({ lead, followups, followupHistory, visitHistory, activityLogs });
-  });
-}
-
-// Client Visits — visit reports linked to leads (Visits page + kiosk visit form).
-function apiGetVisits(token) {
-  _currentApiToken_ = token || '';
-  return apiGuard_('apiGetVisits', () => {
-    const user = _requireModule('Visits');
-    return respond(_scopeLeadLinkedRows(getVisits(), user, ['Created By']));
-  });
-}
-
-function apiGetClientVisitHistory(token, filters) {
-  _currentApiToken_ = token || '';
-  return apiGuard_('apiGetClientVisitHistory', () => {
-    const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields', 'Visits']);
-    const data = filters || {};
-    const leadId = String(data.leadId || data.clientId || data['Lead ID'] || data['Client ID'] || '').trim();
-    if (!leadId) return respond(null, 'Client ID is required.');
-    const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
-    if (!lead || !_canReadAssignedRow(lead, user)) return respond(null, 'Client not found.');
-    return respond({
-      clientId: leadId,
-      leadId: leadId,
-      client: lead,
-      visits: _scopeLeadLinkedRows(getClientVisitHistory({ leadId: leadId }), user, ['createdBy'])
-    });
-  });
-}
-
-function apiSaveVisit(token, payload) {
-  _currentApiToken_ = token || '';
-  return apiGuard_('apiSaveVisit', () => {
-    const user = _requireModule('Visits');
-    return withTrustedWriteUser_(user.email, () => saveVisit(payload || {}, user.email));
-  });
-}
-
-// Lightweight lead read for the Stage Fields form — just the lead + its custom-field
-// values (no follow-ups / history / logs), so selecting a lead is fast.
-function apiUpdateVisit(token, payload) {
-  _currentApiToken_ = token || '';
-  return apiGuard_('apiUpdateVisit', () => {
-    const user = _requireModule('Visits');
-    return withTrustedWriteUser_(user.email, () => updateVisit(payload || {}, user.email));
-  });
-}
-
-function apiDeleteVisit(token, visitId) {
-  _currentApiToken_ = token || '';
-  return apiGuard_('apiDeleteVisit', () => {
-    const user = _requireModule('Visits');
-    return withTrustedWriteUser_(user.email, () => deleteVisit(visitId || '', user.email));
+    return respond({ lead, followups, followupHistory, activityLogs });
   });
 }
 
 function apiGetLeadFieldValues(token, id) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiGetLeadFieldValues', () => {
-    const user = _requireAnyModule(['Leads', 'Followups', 'Archive', 'StageFields']);
+    const user = _requireAnyModule(['Leads', 'Followups', 'Archive']);
     const lead = getLeadCustomValues(id);
     if (!lead || !_canReadAssignedRow(lead, user)) return respond(null, 'Lead not found.');
     return respond({ lead });

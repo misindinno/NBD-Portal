@@ -9,8 +9,7 @@ function getLeads() {
   return rows.filter(row => !_isArchivedLead_(row));
 }
 
-// Lightweight read for the Stage Fields form: the lead merged with its custom-field
-// values only (no follow-ups / history / activity logs), so lead selection stays snappy.
+// Lightweight lead-detail read: merge custom-field values without loading history.
 function getLeadCustomValues(leadId) {
   const baseLead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
   return baseLead ? getRowsWithCustomFieldValues_('Leads', [baseLead])[0] : null;
@@ -559,40 +558,6 @@ function deleteLead(leadId, email) {
 
 function _canWriteLead(lead, user) {
   return ['ADMIN', 'MANAGER'].includes(user.role) || lead['Assigned To'] === user.id;
-}
-
-// Updates a lead's custom-field values for one stage (from the Stage Fields form).
-// Does NOT change the lead's current stage — fields only.
-function saveLeadStageFields(leadId, stageId, fields, email) {
-  const trustedEmail = TRUSTED_WRITE_EMAIL;
-  if (!trustedEmail) throw new Error('Direct write calls are disabled.');
-  const result = getCurrentUserByEmail_(trustedEmail);
-  if (!result.success) throw new Error(result.error);
-  const user = result.data;
-  leadId = String(leadId || '').trim();
-  stageId = String(stageId || '').trim();
-  if (!leadId) return respond(null, 'No lead selected.');
-  if (!stageId) return respond(null, 'No stage selected.');
-  // Enforce the per-stage "Update Stage Form" opt-in: only stages explicitly enabled for
-  // the form can be saved through it (blocks a hand-crafted request for a disabled stage).
-  const allowedStages = getPortalSettings_().stageFieldFormStages || [];
-  if (allowedStages.indexOf(stageId) === -1) {
-    return respond(null, 'This stage is not enabled for the Stage Fields form.');
-  }
-  const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
-  if (!lead) return respond(null, 'Lead not found.');
-  if (!_canReadAssignedRow(lead, user)) return respond(null, 'Permission denied.');
-  if (_isLeadPushedToNbd_(lead)) return respond(null, 'Lead is already pushed to NBD and is locked in LQ.');
-  upsertCustomFieldValues_('Leads', leadId, fields || {}, user.id, stageId);
-  updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_({ 'Updated At': now() }));
-  const stageName = (getAllStages().find(s => String(s['Stage ID']) === stageId) || {})['Stage Name'] || stageId;
-  insertLeadActivityLog_(leadId, 'Update Stage Fields', stageName, stageName, 'Stage fields updated via form', user.id);
-  // WhatsApp notification with the saved stage fields (never fails the save).
-  try { sendStageFieldsWhatsApp_(lead, stageId, stageName, fields || {}, user); }
-  catch (waErr) { Logger.log('[StageFields] WhatsApp notify failed: ' + waErr); }
-  _bumpStamp('leads');
-  pushFsrLeadById_(leadId, 'client.updated');
-  return respond(true);
 }
 
 function _isLeadPushedToNbd_(lead) {

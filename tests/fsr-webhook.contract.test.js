@@ -56,7 +56,11 @@ test('every lead mutation family emits a best-effort webhook event', () => {
   const archive = read('src/server/ArchiveService.js');
   const bulk = read('src/BulkService.js');
   const nbdPush = read('src/server/NbdPushService.js');
-  assert.ok((lead.match(/pushFsrLeadById_\(/g) || []).length >= 5);
+  for (const name of ['saveLead', 'updateLeadStage', 'moveLeadStageWithFields']) {
+    const body = lead.match(new RegExp('^function ' + name + '\\([\\s\\S]*?(?=^function |$(?![\\s\\S]))', 'm'));
+    assert.ok(body, 'Missing lead mutation: ' + name);
+    assert.match(body[0], /pushFsrLeadById_\(/, name + ' must emit a webhook update');
+  }
   assert.ok((followup.match(/pushFsrLead/g) || []).length >= 3);
   assert.equal((archive.match(/pushFsrLeadById_\(/g) || []).length, 2);
   assert.match(bulk, /pushFsrLeadIds_\(leadIds, 'client\.created'\)/);

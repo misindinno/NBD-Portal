@@ -1,13 +1,13 @@
 // ─── AuthService.js ──────────────────────────────────────────────────────────
 
 const ROLE_PERMISSIONS = {
-  ADMIN:   ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry','StageFields','Visits'],
+  ADMIN:   ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry'],
   MANAGER: ['Leads','Pipeline','Followups','Reports'],
   SALES:   ['Leads','Pipeline','Followups'],
   USER:    ['Followups'],
   VIEWER:  ['Leads','Pipeline','Followups','Reports']
 };
-const ALL_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry','StageFields','Visits'];
+const ALL_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry'];
 let TRUSTED_WRITE_EMAIL = '';
 
 function withTrustedWriteUser_(email, fn) {
@@ -217,9 +217,10 @@ function getRoleModules(role) {
 }
 
 function getEffectiveUserModules(row, role) {
-  if (String(row['Allowed Modules'] || '').trim().toUpperCase() === 'NONE') return [];
-  const modules = parseUserModules(row['Allowed Modules']);
-  return modules.length ? modules : getRoleModules(role);
+  const allowed = row['Allowed Modules'];
+  // Explicit permissions may contain modules that no longer exist. An empty
+  // parsed list must not grant the role defaults in that case.
+  return String(allowed || '').trim() ? parseUserModules(allowed) : getRoleModules(role);
 }
 
 function parseUserModules(value) {

@@ -93,12 +93,6 @@ function saveStage(stage, email) {
       "Created At": now(),
     });
   }
-  // "Update Stage Form" is stored as an enabled-stage allow-list (Script Property), not a
-  // sheet column — the STAGES sheet has no header for it so a column write would be dropped.
-  if (Object.prototype.hasOwnProperty.call(stage, "Show On Stage Field Form")) {
-    const show = stage["Show On Stage Field Form"] !== false && stage["Show On Stage Field Form"] !== "FALSE";
-    _setStageFieldFormVisibility_(stageId, show);
-  }
   invalidateAppConfigCache();
   _bumpStamp('stages');
   return respond({ stageId, movedLeadCount, targetStageName: targetStage ? targetStage['Stage Name'] : '' });
@@ -129,18 +123,6 @@ function _moveLeadsFromInactiveStage_(leads, sourceStage, targetStage, userId) {
     }
   }
   return movedIds.length;
-}
-
-// Toggles whether a stage appears on the Stage Fields form by maintaining an allow-list of
-// enabled stage IDs in Script Properties (default: not shown until opted in).
-function _setStageFieldFormVisibility_(stageId, show) {
-  const props = PropertiesService.getScriptProperties();
-  let allowed = _parseIdList_(props.getProperty('STAGE_FIELD_FORM_STAGES'));
-  const has = allowed.indexOf(stageId) !== -1;
-  if (show && !has) allowed.push(stageId);
-  else if (!show && has) allowed = allowed.filter((id) => id !== stageId);
-  else return;
-  props.setProperty('STAGE_FIELD_FORM_STAGES', allowed.join(','));
 }
 
 function reorderStages(orderedIds, email) {
@@ -321,22 +303,10 @@ function getPortalSettings_() {
     return {
       visibleDepartments: _parseDepartmentList_(props.getProperty('PORTAL_VISIBLE_DEPARTMENTS')),
       escalateFormUrl: String(props.getProperty('PORTAL_ESCALATE_FORM_URL') || '').trim(),
-      // Stages enabled for the Stage Fields ("Update Stage") form (opt-in). Empty = none.
-      stageFieldFormStages: _parseIdList_(props.getProperty('STAGE_FIELD_FORM_STAGES')),
     };
   } catch (e) {
-    return { visibleDepartments: [], escalateFormUrl: '', stageFieldFormStages: [] };
+    return { visibleDepartments: [], escalateFormUrl: '' };
   }
-}
-
-// Parses a comma-separated ID list (used for the Stage Fields form's hidden-stage list).
-function _parseIdList_(value) {
-  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
-  return String(value || "")
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean)
-    .filter((v, i, a) => a.indexOf(v) === i);
 }
 
 function _activeUserDepartments_() {

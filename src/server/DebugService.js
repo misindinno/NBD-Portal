@@ -375,10 +375,6 @@ function adminDiagnosticSnapshot_(user) {
       return {
         authSigningSecret: !!properties.getProperty('AUTH_SIGNING_SECRET'),
         googleClientId: !!properties.getProperty('GOOGLE_CLIENT_ID'),
-        whatsAppGroupId: !!properties.getProperty('WA_GROUP_ID'),
-        whatsAppUsername: !!properties.getProperty('MAS_USERNAME'),
-        whatsAppPassword: !!properties.getProperty('MAS_PASSWORD'),
-        whatsAppApiKey: !!properties.getProperty('MAS_API_KEY'),
         fsrWebhookUrl: !!properties.getProperty('FSR_WEBHOOK_URL'),
         fsrWebhookSecret: !!properties.getProperty('FSR_WEBHOOK_SECRET')
       };

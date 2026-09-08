@@ -175,7 +175,6 @@ function _installConfigRouteFallback() {
   };
   if (!window.openStageForm) window.openStageForm = function(data = {}) {
     const isEdit = !!data['Stage ID'];
-    const _sffShown = (App.config.settings?.stageFieldFormStages || []).map(String).includes(String(data['Stage ID'] || ''));
     const overlay = showModal(`
       <div class="modal-header">
         <h2>${isEdit ? 'Edit' : 'Add'} Stage</h2>
@@ -204,7 +203,6 @@ function _installConfigRouteFallback() {
               { name:'Is Final Stage',  label:'Is Final Stage',  ic:'flag',         checked: window._sheetTruthy(data['Is Final Stage'], false),  col:'#7c3aed', abg:'#f5f3ff', ab:'#8b5cf6', ibg:'#ede9fe' },
               { name:'Is Initial Stage',label:'Is Initial Stage',ic:'play',         checked: window._sheetTruthy(data['Is Initial Stage'], false),col:'#2563eb', abg:'#eff6ff', ab:'#3b82f6', ibg:'#dbeafe' },
               { name:'Is Skippable',    label:'Allow Skip',      ic:'skip-forward', checked: window._sheetTruthy(data['Is Skippable'], false),    col:'#d97706', abg:'#fffbeb', ab:'#f59e0b', ibg:'#fef3c7' },
-              { name:'Show On Stage Field Form', label:'Update Stage Form', ic:'file-cog', checked: _sffShown,                                   col:'#4f46e5', abg:'#eef2ff', ab:'#6366f1', ibg:'#e0e7ff' },
             ].map(o => `
             <label class="cfg-stg-toggle" data-col="${o.col}" data-abg="${o.abg}" data-ab="${o.ab}" data-ibg="${o.ibg}"
               style="display:flex;align-items:center;gap:10px;padding:11px 14px;border:1.5px solid ${o.checked?o.ab:'#e5e7eb'};border-radius:12px;cursor:pointer;background:${o.checked?o.abg:'#fafafa'};transition:border-color .15s,background .15s,box-shadow .15s;box-shadow:0 1px 2px rgba(0,0,0,.04)">
@@ -250,7 +248,6 @@ function _installConfigRouteFallback() {
         'Is Final Stage': fd.has('Is Final Stage'),
         'Is Initial Stage': fd.has('Is Initial Stage'),
         'Is Skippable': fd.has('Is Skippable'),
-        'Show On Stage Field Form': fd.has('Show On Stage Field Form')
       };
       if (isEdit) payload['Stage ID'] = data['Stage ID'];
       const btn = e.target.querySelector('[type=submit]');
@@ -446,8 +443,6 @@ const _PAGE_META = {
   followups: { title: 'Follow Up',        crumb: 'Follow Up' },
   archive:   { title: 'Archive',          crumb: 'Archive' },
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
-  stagefields: { title: 'Stage Fields',   crumb: 'Stage Fields' },
-  visits:    { title: 'Client Visits',    crumb: 'Visits' },
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
   config:    { title: 'Config',           crumb: 'Config' },
 };
@@ -543,8 +538,6 @@ async function navigate(page) {
     }
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
-    else if (page === 'stagefields')       await _runPageLoader(page, 'loadStageFieldForm');
-    else if (page === 'visits')            await _runPageLoader(page, 'loadVisits');
     else if (page === 'archive')           await _runPageLoader(page, 'loadArchive', ['archived']);
     else if (page === 'bulkview')          await _runPageLoader(page, 'loadBulkView');
     else el('content').innerHTML = '<p>Page not found.</p>';
@@ -584,8 +577,7 @@ function renderInitialLoading() {
       section(46, [[100, true], [76], [64], [88]]) +
       section(56, [[60]]);
   }
-  // Match the boot skeleton to the page being opened so a deep-linked form (e.g. the
-  // Stage Fields kiosk link) shows a form skeleton, not the dashboard/today one.
+  // Match the boot skeleton to the requested page.
   let bootType = 'today';
   try {
     const raw = (typeof _initialRequestedPage === 'function')
@@ -628,8 +620,6 @@ function renderSidebar() {
   const leadItems = [
     show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master', badge(leadsCount, 'Pending (not in final stage)')) : '',
     show('LeadForm')  ? navItem('leadform', 'file-plus',  'Lead Form')   : '',
-    show('StageFields') ? navItem('stagefields', 'file-cog', 'Stage Fields') : '',
-    show('Visits') ? navItem('visits', 'map-pin', 'Visits') : '',
     show('Archive')   ? navItem('archive',  'archive',    'Archive')     : '',
     canUseBulkEntry ? navItem('bulkview', 'table-2',    'Bulk Entry')  : '',
   ].filter(Boolean).join('');
@@ -691,14 +681,12 @@ function canNavigate(page) {
   };
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
-  if (page === 'stagefields') return App.user.role === 'ADMIN' || hasModule('StageFields');
-  if (page === 'visits')    return App.user.role === 'ADMIN' || hasModule('Visits');
   if (page === 'bulkview') {
     const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
     return isLqPortal ? (hasModule('BulkEntry') || App.user.role === 'ADMIN') : App.user.role === 'ADMIN';
   }
   if (page === 'today')     return !!App.user;
-  return hasModule(moduleMap[page] || page);
+  return !!moduleMap[page] && hasModule(moduleMap[page]);
 }
 
 function defaultPageForUser() {

@@ -43,8 +43,6 @@ const files = {
   lead: read('src/server/LeadService.js'),
   nbd: read('src/server/NbdPushService.js'),
   sheetDb: read('src/server/SheetDB.js'),
-  visit: read('src/server/VisitService.js'),
-  whatsapp: read('src/server/WhatsAppService.js'),
   bigQuery: read('src/server/BigQueryService.js')
 };
 
@@ -66,10 +64,6 @@ test('central role and permission helpers require trusted API identity', () => {
   assert.match(compatibilityHelper, /return\s+requireRole\(\s*allowedRoles\s*\)/);
   assert.doesNotMatch(compatibilityHelper, /getCurrentUserByEmail_\(\s*email\s*\)/);
 
-  const visitActor = topLevelFunction(files.visit, '_visitActor_');
-  assert.match(visitActor, /TRUSTED_WRITE_EMAIL/);
-  assert.match(visitActor, /Direct write calls are disabled/);
-  assert.doesNotMatch(visitActor, /getCurrentUserByEmail_\(\s*email\s*\)/);
 });
 
 test('critical domain mutation surfaces reject direct browser execution', () => {
@@ -78,14 +72,10 @@ test('critical domain mutation surfaces reject direct browser execution', () => 
     [files.lead, 'updateLeadStage', /requireRole\(/],
     [files.lead, 'moveLeadStageWithFields', /requireRole\(/],
     [files.lead, 'deleteLead', /TRUSTED_WRITE_EMAIL/],
-    [files.lead, 'saveLeadStageFields', /TRUSTED_WRITE_EMAIL/],
     [files.archive, 'archiveLead', /TRUSTED_WRITE_EMAIL/],
     [files.archive, 'restoreArchivedLead', /TRUSTED_WRITE_EMAIL/],
     [files.followup, 'saveFollowup', /requireRoleForEmail_\(/],
     [files.followup, 'markFollowupDone', /requireRoleForEmail_\(/],
-    [files.visit, 'saveVisit', /_visitActor_\(/],
-    [files.visit, 'updateVisit', /_visitActor_\(/],
-    [files.visit, 'deleteVisit', /_visitActor_\(/],
     [files.config, 'addConfig', /requireConfigEditor\(/],
     [files.config, 'updateConfigStatus', /requireConfigEditor\(/],
     [files.config, 'savePortalSettings', /requireConfigEditor\(/],
@@ -127,16 +117,12 @@ test('administrator maintenance entry points require the container-admin gate', 
 test('authenticated API mutation wrappers establish trusted write context', () => {
   const wrappers = {
     apiSaveLead: 'saveLead',
-    apiSaveLeadStageFields: 'saveLeadStageFields',
     apiDeleteLead: 'deleteLead',
     apiArchiveLead: 'archiveLead',
     apiArchiveLeads: 'archiveLead',
     apiRestoreArchivedLead: 'restoreArchivedLead',
     apiUpdateLeadStage: 'updateLeadStage',
     apiMoveLeadStageWithFields: 'moveLeadStageWithFields',
-    apiSaveVisit: 'saveVisit',
-    apiUpdateVisit: 'updateVisit',
-    apiDeleteVisit: 'deleteVisit',
     apiSavePortalSettings: 'savePortalSettings',
     apiAddConfig: 'addConfig',
     apiUpdateConfigStatus: 'updateConfigStatus',
@@ -168,24 +154,6 @@ test('password login is throttled and resets failures after successful authentic
   assert.match(limiter, /AUTH_LOGIN_ATTEMPT_LIMIT/);
   assert.match(files.auth, /const\s+AUTH_LOGIN_ATTEMPT_WINDOW\s*=\s*300/);
 });
-test('WhatsApp credentials come only from Script Properties', () => {
-  const configBody = topLevelFunction(files.whatsapp, '_waConfig_');
-  for (const key of ['WA_GROUP_ID', 'MAS_USERNAME', 'MAS_PASSWORD', 'MAS_API_KEY']) {
-    assert.match(configBody, new RegExp("getProperty\\(\\s*['\"]" + key + "['\"]\\s*\\)"), 'Missing Script Property ' + key);
-  }
-
-  assert.doesNotMatch(
-    files.whatsapp,
-    /\b(?:groupId|username|password|apiKey)\s*:\s*['"`]\s*[^'"`\s][^'"`]*['"`]/i,
-    'WhatsApp credential-like fields must not contain non-empty string literals'
-  );
-  assert.doesNotMatch(
-    files.whatsapp,
-    /\b(?:WA_GROUP_ID|MAS_USERNAME|MAS_PASSWORD|MAS_API_KEY)\b\s*=\s*['"`][^'"`]+['"`]/,
-    'WhatsApp secret identifiers must not be assigned literal values'
-  );
-});
-
 test('doGet and Google redirect preserve browser and token security boundaries', () => {
   const doGet = topLevelFunction(files.code, 'doGet');
   assert.doesNotMatch(doGet, /XFrameOptionsMode\s*\.\s*ALLOWALL/);

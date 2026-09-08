@@ -16,7 +16,8 @@ $contractTests = @(
   (Join-Path $rootPath 'tests\architecture-pagination.contract.test.js'),
   (Join-Path $rootPath 'tests\server-security-surface.contract.test.js'),
   (Join-Path $rootPath 'tests\debug-architecture.contract.test.js'),
-  (Join-Path $rootPath 'tests\stage-deactivation.contract.test.js')
+  (Join-Path $rootPath 'tests\stage-deactivation.contract.test.js'),
+  (Join-Path $rootPath 'tests\removed-features.contract.test.js')
 )
 $browserProbe = Join-Path $rootPath 'scripts\browser-portal-debug.js'
 $postDeploySmoke = Join-Path $rootPath 'scripts\post-deployment-smoke.ps1'

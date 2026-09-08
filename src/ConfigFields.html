@@ -19,7 +19,7 @@ async function loadFieldConfig() {
     api.getAllConfigs()
   ]);
   window._cfgFieldContext = {
-    fields: (fields || []).filter(f => (f['Sheet Name'] || 'Leads') !== 'Visits'),
+    fields: (fields || []).filter(f => FieldValidation.ALLOWED_SHEETS.includes(f['Sheet Name'] || 'Leads')),
     stages,
     configs
   };
