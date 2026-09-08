@@ -256,10 +256,14 @@ function _installConfigRouteFallback() {
       const btn = e.target.querySelector('[type=submit]');
       setButtonLoading(btn);
       try {
-        await api.saveStage(payload);
+        const savedStage = await api.saveStage(payload);
+        AppCache.invalidate('leads');
+        AppCache.invalidate('activityLogs');
         await _refreshAppConfig().catch(() => {});
         overlay.remove();
-        toast('Stage saved!');
+        toast(savedStage && savedStage.movedLeadCount
+          ? 'Stage saved! ' + savedStage.movedLeadCount + ' lead(s) moved to ' + savedStage.targetStageName + '.'
+          : 'Stage saved!');
         if (App.currentPage === 'config') await window.loadStagesConfig();
       } catch (err) {
         resetButtonLoading(btn);

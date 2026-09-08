@@ -63,10 +63,28 @@ function getAllStages() {
 }
 
 function saveStage(stage, email) {
-  requireConfigEditor();
+  const user = requireConfigEditor();
   let stageId = stage["Stage ID"];
+  let movedLeadCount = 0;
+  let targetStage = null;
   if (stageId) {
-    updateRow(SHEET_NAMES.STAGES, "Stage ID", stageId, stage);
+    const stages = getAllStages();
+    const currentIndex = stages.findIndex(s => String(s['Stage ID']) === String(stageId));
+    if (currentIndex === -1) return respond(null, 'Stage not found.');
+    if (stage['Is Active'] === false || stage['Is Active'] === 'FALSE') {
+      const leads = queryRows(SHEET_NAMES.LEADS, r => String(r['Stage ID']) === String(stageId));
+      targetStage = stages.slice(0, currentIndex).reverse()
+        .find(s => s['Is Active'] === true || s['Is Active'] === 'TRUE');
+      if (leads.length && !targetStage) {
+        return respond(null, 'Cannot deactivate this stage because it has leads and no previous active stage. Activate an earlier stage or move its leads first.');
+      }
+      // Move before hiding the stage. A failed migration leaves the source stage
+      // available, and retrying only moves the leads still assigned to it.
+      if (leads.length) movedLeadCount = _moveLeadsFromInactiveStage_(leads, stages[currentIndex], targetStage, user.id);
+    }
+    if (!updateRow(SHEET_NAMES.STAGES, "Stage ID", stageId, stage)) {
+      return respond(null, 'Stage update failed. Stage was not found.');
+    }
   } else {
     stageId = generateUUID();
     insertRow(SHEET_NAMES.STAGES, {
@@ -83,7 +101,34 @@ function saveStage(stage, email) {
   }
   invalidateAppConfigCache();
   _bumpStamp('stages');
-  return respond(true);
+  return respond({ stageId, movedLeadCount, targetStageName: targetStage ? targetStage['Stage Name'] : '' });
+}
+
+// Configuration reassignment preserves lead status, follow-ups, custom fields,
+// archive metadata, and ownership; it does not complete a sales pipeline step.
+function _moveLeadsFromInactiveStage_(leads, sourceStage, targetStage, userId) {
+  const movedIds = [];
+  const timestamp = now();
+  try {
+    leads.forEach(lead => {
+      const leadId = lead['Lead ID'];
+      const updated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, {
+        'Stage ID': targetStage['Stage ID'],
+        'Stage Updated At': timestamp,
+        'Updated At': timestamp
+      });
+      if (!updated) throw new Error('Lead reassignment failed. Please retry saving the stage.');
+      movedIds.push(leadId);
+      insertLeadActivityLog_(leadId, 'Stage Change', sourceStage['Stage ID'], targetStage['Stage ID'],
+        'Automatically reassigned to ' + targetStage['Stage Name'] + ' while deactivating stage ' + sourceStage['Stage Name'] + '.', userId);
+    });
+  } finally {
+    if (movedIds.length) {
+      _bumpStamp('leads');
+      pushFsrLeadIds_(movedIds, 'client.updated');
+    }
+  }
+  return movedIds.length;
 }
 
 // Toggles whether a stage appears on the Stage Fields form by maintaining an allow-list of
