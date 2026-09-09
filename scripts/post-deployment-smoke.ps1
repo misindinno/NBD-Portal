@@ -24,14 +24,15 @@ for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
     $status = [int]$response.StatusCode
     $hasShell = ($body -match 'app-shell') -and ($body -match 'renderSidebar')
     $hasDiagnostics = $body -match 'PortalDiagnostics'
+    $hasFsrHistory = ($body -match 'data-fsr-history-tab') -and ($body -match '_mountFsrVisitHistory') -and ($body -match 'apiGetFsrVisitHistory')
     $hasTitle = $body -match '<title>[^<]+</title>'
 
-    if ($status -eq 200 -and $hasShell -and $hasDiagnostics -and $hasTitle) {
+    if ($status -eq 200 -and $hasShell -and $hasDiagnostics -and $hasTitle -and $hasFsrHistory) {
       Write-Host "==> Smoke passed: $ClientName (HTTP $status, $($body.Length) bytes)" -ForegroundColor Green
       return
     }
 
-    $failures.Add("attempt=$attempt status=$status bytes=$($body.Length) shell=$hasShell diagnostics=$hasDiagnostics title=$hasTitle")
+    $failures.Add("attempt=$attempt status=$status bytes=$($body.Length) shell=$hasShell diagnostics=$hasDiagnostics title=$hasTitle fsrHistory=$hasFsrHistory")
   } catch {
     $failures.Add("attempt=$attempt error=$($_.Exception.Message)")
   }
