@@ -42,6 +42,8 @@ function requestMeta_(options) {
 }
 
 function errorCodeFrom_(error) {
+  const fsrError = typeof _fsrHistoryErrorInfo_ === 'function' ? _fsrHistoryErrorInfo_(error) : null;
+  if (fsrError) return fsrError.code;
   const message = String(error && error.message || error || 'Unknown error');
   if (/SESSION_EXPIRED/i.test(message)) return 'SESSION_EXPIRED';
   if (/ACCESS_DENIED|permission denied|not authorized/i.test(message)) return 'FORBIDDEN';

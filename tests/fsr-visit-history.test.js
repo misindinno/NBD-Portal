@@ -146,3 +146,71 @@ test('one key is reused across every configured portal and responses must match 
  }
  const h=harness();delete h.context.CLIENT_CONFIG.FSR_SOURCE_KEY;assert.throws(()=>h.read(),/source key in ClientConfig/);assert.equal(h.calls.length,0);
 });
+
+
+test('real API guard preserves safe FSR failures through both sanitization passes', () => {
+  function guardedHarness() {
+    const h = harness();
+    h.context.Utilities = { getUuid: () => 'history-request-id' };
+    h.context.withServerContext_ = fn => fn();
+    for (const file of ['Utils.js', 'ArchitectureCore.js', 'DebugService.js', 'Api.js']) {
+      vm.runInContext(fs.readFileSync(path.join(root, 'src/server', file), 'utf8'), h.context);
+    }
+    h.context.logServerError_ = () => {};
+    h.context.finalizeRequestDiagnostics_ = () => {};
+    h.context._requireAnyModule = () => ({ id: 'admin', role: 'ADMIN' });
+    h.context.getRowByIndexedId_ = () => ({ 'Lead ID': 'NBD-00123' });
+    h.context._canReadAssignedRow = () => true;
+    h.request = () => h.context.apiGetFsrVisitHistory('test-token', 'NBD-00123', 0);
+    return h;
+  }
+  for (const [status, code, message] of [
+    [401, 'FSR_ACCESS_DENIED', 'API access was rejected'],
+    [403, 'FSR_ACCESS_DENIED', 'API access was rejected'],
+    [404, 'FSR_ENDPOINT_NOT_FOUND', 'endpoint was not found'],
+    [409, 'FSR_CLIENT_AMBIGUOUS', 'unique client'],
+    [429, 'FSR_RATE_LIMITED', 'too many requests'],
+    [500, 'FSR_UNAVAILABLE', 'temporarily unavailable']
+  ]) {
+    const h = guardedHarness();
+    h.status(status);
+    const result = h.request();
+    assert.equal(result.success, false);
+    assert.equal(result.code, code);
+    assert.ok(result.error.includes(message));
+    assert.equal(result.meta.operation, 'apiGetFsrVisitHistory');
+    assert.equal(result.meta.requestId, 'history-request-id');
+    assert.ok(!JSON.stringify(result).includes(key));
+  }
+  const invalidConfig = guardedHarness();
+  invalidConfig.props.FSR_API_KEY = 'invalid';
+  assert.equal(invalidConfig.request().code, 'FSR_CONFIGURATION_ERROR');
+  assert.equal(invalidConfig.calls.length, 0);
+  const missingSource = guardedHarness();
+  delete missingSource.context.CLIENT_CONFIG.FSR_SOURCE_KEY;
+  assert.equal(missingSource.request().code, 'FSR_CONFIGURATION_ERROR');
+  const invalidResponse = guardedHarness();
+  invalidResponse.body.data.client.id = 'another-client';
+  assert.equal(invalidResponse.request().code, 'FSR_INVALID_RESPONSE');
+  const network = guardedHarness();
+  network.fail();
+  assert.equal(network.request().code, 'FSR_UNAVAILABLE');
+  const unexpected = guardedHarness();
+  unexpected.context._fsrReadLeadVisits_ = () => { throw new Error('FSR API access was rejected. Ask an administrator to check the API key. ' + key); };
+  const result = unexpected.request();
+  assert.equal(result.code, 'INTERNAL_ERROR');
+  assert.equal(result.error, 'Request failed. Please retry or contact an administrator.');
+  assert.ok(!JSON.stringify(result).includes(key));
+});
+
+test('history UI displays safe actionable configuration and upstream failure messages', () => {
+  const context = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(root, 'src/FsrVisitHistory.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1], context);
+  for (const message of [
+    'Configure the FSR source key in ClientConfig.',
+    'FSR could not identify a unique client. Ask an administrator to check the portal source key.',
+    'FSR visit history is temporarily unavailable. Try again.'
+  ]) {
+    assert.equal(context._fsrHistoryErrorMessage(new Error(message)), message);
+  }
+});

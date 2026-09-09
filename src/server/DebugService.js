@@ -36,6 +36,8 @@ function redactDiagnosticText_(value) {
 }
 
 function safeClientErrorMessage_(error) {
+  const fsrError = typeof _fsrHistoryErrorInfo_ === 'function' ? _fsrHistoryErrorInfo_(error) : null;
+  if (fsrError) return fsrError.message;
   const category = diagnosticErrorCategory_(error);
   const sanitized = redactDiagnosticText_(error && error.message || error || 'Request failed.');
   if (category === 'AUTH.SESSION_EXPIRED') return 'SESSION_EXPIRED';
