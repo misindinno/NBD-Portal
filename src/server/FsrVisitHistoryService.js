@@ -12,9 +12,11 @@ function _fsrReadLeadVisits_(leadId, page) {
   if (!/^https:\/\/[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?(?::443)?$/.test(baseUrl) || !/^fsr_api_[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/.test(key)) {
     throw new Error('Check the FSR API URL and key in Script Properties.');
   }
+  const sourceKey = typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.FSR_SOURCE_KEY : '';
+  if (!/^[a-z0-9][a-z0-9_-]{0,99}$/.test(sourceKey || '')) throw new Error('Configure the FSR source key in ClientConfig.');
   let response;
   try {
-    response = UrlFetchApp.fetch(baseUrl + '/api/v1/clients/' + encodeURIComponent(leadId) + '/visits?limit=20&offset=' + offset, {
+    response = UrlFetchApp.fetch(baseUrl + '/api/v1/clients/' + encodeURIComponent(leadId) + '/visits?limit=20&offset=' + offset + '&sourceKey=' + encodeURIComponent(sourceKey), {
       method: 'get', headers: { Accept: 'application/json', Authorization: 'Bearer ' + key },
       muteHttpExceptions: true, followRedirects: false
     });
@@ -28,7 +30,7 @@ function _fsrReadLeadVisits_(leadId, page) {
   try { data = JSON.parse(response.getContentText()).data; }
   catch (_) { throw new Error('FSR returned an invalid history response.'); }
   const pagination = data && data.pagination;
-  if (!data || !data.client || data.client.id !== leadId || !Array.isArray(data.visits) || data.visits.length > 20 ||
+  if (!data || !data.client || data.client.id !== leadId || data.client.sourceKey !== sourceKey || !Array.isArray(data.visits) || data.visits.length > 20 ||
       data.visits.some(visit => !visit || typeof visit.id !== 'string' || visit.sourceRecordId !== leadId || visit.sourceKey !== data.client.sourceKey) ||
       !pagination || pagination.offset !== offset || pagination.limit !== 20 || !Number.isInteger(pagination.total) || pagination.total < 0 ||
       (pagination.nextOffset !== null && (pagination.nextOffset !== offset + 20 || pagination.nextOffset >= pagination.total))) {

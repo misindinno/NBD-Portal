@@ -1,6 +1,7 @@
 // ClientConfig.js - nbd-lamination
 
 const CLIENT_CONFIG = {
+  FSR_SOURCE_KEY: 'nbd-lamination-portal',
   SPREADSHEET_ID:               '1_INBusaKi3TdGe-1MjlOdnTL-XdRdhWnBxwE5_3HBpw',
   NBD_TARGET_SPREADSHEET_ID:    '',
   USER_DATABASE_SPREADSHEET_ID: '1jFr5BFta-ry6mJ8GGOh1p0gk2vhCRs4bv-RayBfX4BA',

@@ -11,6 +11,7 @@ function harness() {
   const body = { data: { client: { id: 'NBD-00123', sourceKey: 'nbd-portal' }, visits: [{ id: 'v1', sourceKey: 'nbd-portal', sourceRecordId: 'NBD-00123', remarks: 'Current' }], pagination: { offset: 0, limit: 20, total: 1, nextOffset: null } } };
   let status = 200, unavailable = false;
   const context = vm.createContext({
+    CLIENT_CONFIG: { FSR_SOURCE_KEY: "nbd-portal" },
     assertServerContext_() {}, PropertiesService: { getScriptProperties: () => ({ getProperty: name => props[name] }) },
     UrlFetchApp: { fetch(url, options) {
       calls.push({ url, options });
@@ -26,7 +27,7 @@ test('server reads live visits by exact lead ID without exposing the API key', (
   const result = h.read();
   assert.equal(result.visits[0].remarks, 'Current');
   assert.equal(result.configured, true);
-  assert.equal(h.calls[0].url, 'https://fsr.example.com/api/v1/clients/NBD-00123/visits?limit=20&offset=0');
+  assert.equal(h.calls[0].url, 'https://fsr.example.com/api/v1/clients/NBD-00123/visits?limit=20&offset=0&sourceKey=nbd-portal');
   assert.equal(h.calls[0].options.headers.Authorization, 'Bearer ' + key);
   assert.equal(h.calls[0].options.followRedirects, false);
   assert.ok(!JSON.stringify(result).includes(key));
@@ -131,4 +132,17 @@ test('all shared portal lead dialogs expose and mount the FSR history tab',()=>{
  const source=fs.readFileSync(path.join(root,'src/LeadDetail.html'),'utf8');
  const historyLines=source.split('\n').filter(line=>/data-fsr-history|_mountFsrVisitHistory/.test(line));assert.equal(historyLines.length,3);assert.ok(historyLines.every(line=>!line.includes('_isNBDPortal')));
  for(const client of ['nbd-client1','nbd-lamination','lq-portal','lq-lamination']) assert.ok(fs.existsSync(path.join(root,'clients',client,'ClientConfig.js')));
+});
+
+test('one key is reused across every configured portal and responses must match that portal', () => {
+ for(const [client,source] of [['nbd-client1','nbd-portal'],['nbd-lamination','nbd-lamination-portal'],['lq-portal','lq-portal'],['lq-lamination','lq-lamination-portal']]) {
+  const h=harness(); const config=vm.runInNewContext(fs.readFileSync(path.join(root,'clients',client,'ClientConfig.js'),'utf8')+';CLIENT_CONFIG');
+  assert.equal(config.FSR_SOURCE_KEY,source); h.context.CLIENT_CONFIG=config;
+  h.body.data.client.sourceKey=source; h.body.data.visits[0].sourceKey=source;
+  assert.equal(h.read().configured,true); assert.equal(h.calls[0].options.headers.Authorization,'Bearer '+key);
+  assert.ok(h.calls[0].url.endsWith('&sourceKey='+source));
+  h.body.data.client.sourceKey='wrong-portal';h.body.data.visits[0].sourceKey='wrong-portal';
+  assert.throws(()=>h.read(),/invalid history response/);
+ }
+ const h=harness();delete h.context.CLIENT_CONFIG.FSR_SOURCE_KEY;assert.throws(()=>h.read(),/source key in ClientConfig/);assert.equal(h.calls.length,0);
 });
