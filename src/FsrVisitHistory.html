@@ -1,4 +1,5 @@
 <style>
+  [data-fsr-history-count][hidden] { display:none; }
   .fsr-history-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin:16px 0; }
   .fsr-history-list { display:grid; gap:12px; }
   .fsr-history-card { border:1px solid #e5e7eb; border-radius:10px; padding:16px; background:#fff; }
@@ -29,10 +30,11 @@ function _fsrHistoryEvidenceUrl(value, origin) {
 
 function _fsrHistoryCard(visit, origin) {
   const fields = [
-    ['Remarks', visit.remarks], ['Outcome', visit.visitOutcome], ['Next action', visit.nextAction],
-    ['Follow-up date', visit.followUpDate], ['Requirement', visit.requirement],
+    ['Category', visit.category], ['Remarks', visit.remarks], ['Outcome', visit.visitOutcome], ['Next action', visit.nextAction],
+    ['Follow-up date', visit.followUpDate ? _fsrHistoryDate(visit.followUpDate) : ''], ['Requirement', visit.requirement], ['Lead type', visit.leadType],
     ['Contact person', visit.contactPerson], ['Phone', visit.phone], ['Order number', visit.orderNumber],
-    ['Order value', visit.orderValue], ['Company at visit', visit.companyName]
+    ['Order value', visit.orderValue], ['Order received', visit.orderReceived == null ? '' : visit.orderReceived ? 'Yes' : 'No'],
+    ['Company at visit', visit.companyName], ['Company on form', visit.formCompanyName], ['City', visit.city], ['State', visit.state]
   ].filter(pair => pair[1] != null && pair[1] !== '');
   const photos = Array.isArray(visit.shopImageUrls) && visit.shopImageUrls.length ? visit.shopImageUrls : visit.shopImageUrl ? [visit.shopImageUrl] : [];
   const evidence = photos.map((url, index) => [`Shop photo ${index + 1}`, url]);
@@ -52,36 +54,54 @@ function _fsrHistoryCard(visit, origin) {
   </article>`;
 }
 
+// Display only known server messages; upstream bodies and credentials never reach the UI.
+function _fsrHistoryErrorMessage(error) {
+  const text = String(error && error.message || error || '');
+  const messages = [
+    'FSR API access was rejected. Ask an administrator to check the API key.',
+    'Check the FSR API URL and key in Script Properties.',
+    'FSR history endpoint was not found. Ask an administrator to check the deployed FSR URL.',
+    'FSR is receiving too many requests. Wait a moment, then refresh history.',
+    'FSR returned an invalid history response.'
+  ];
+  return messages.find(message => text.includes(message)) || 'Visit history could not be loaded. Use Refresh history to retry.';
+}
+
 function _mountFsrVisitHistory(overlay, leadId) {
   const tab = overlay.querySelector('[data-fsr-history-tab]');
   const panel = overlay.querySelector('[data-fsr-history-panel]');
   if (!tab || !panel) return;
-  let loaded = false, busy = false, visits = [], nextOffset = null, total = 0, origin = '', configured = false;
+  const count = overlay.querySelector('[data-fsr-history-count]');
+  let loaded = false, busy = false, visits = [], nextOffset = null, total = 0, origin = '', configured = false, updatedAt = '';
   function render(error) {
-    panel.innerHTML = `<div class="fsr-history-toolbar"><strong style="font-size:14px">FSR visits (${total})</strong><button type="button" class="btn btn-outlined btn-sm" data-fsr-refresh ${busy ? 'disabled' : ''}>Refresh history</button></div>
-      ${!configured && loaded ? '<p class="fsr-history-note">FSR API access is not configured. Ask your administrator to complete the integration setup.</p>' : ''}
-      ${error ? '<div role="alert" class="fsr-history-message">Visit history could not be loaded. Use Refresh history to retry.</div>' : ''}
+    panel.setAttribute('aria-busy', String(busy));
+    panel.innerHTML = `<div class="fsr-history-toolbar"><div><strong style="font-size:14px">FSR visit history</strong>${configured ? '<p class="fsr-history-note">Showing ' + visits.length + ' of ' + total + ' visits' + (updatedAt ? ' · Updated ' + escapeHtml(updatedAt) : '') + '</p>' : ''}</div><button type="button" class="btn btn-outlined btn-sm" data-fsr-refresh ${busy ? 'disabled' : ''}>Refresh history</button></div>
+      ${!configured && loaded ? '<p class="fsr-history-note">FSR API access is not configured. Ask your administrator to set FSR_API_BASE_URL and FSR_API_KEY in this portal’s Script Properties.</p>' : ''}
+      ${error ? '<div role="alert" class="fsr-history-message">' + escapeHtml(error) + (visits.length ? ' Previously loaded visits are still shown below.' : '') + '</div>' : ''}
       <div class="fsr-history-list">${visits.map(visit => _fsrHistoryCard(visit, origin)).join('')}</div>
-      ${busy ? '<p role="status" class="fsr-history-message">Loading FSR visit history…</p>' : !visits.length && !error ? '<p class="fsr-history-message">No FSR visits found for this client yet.</p>' : ''}
-      ${nextOffset !== null ? `<button type="button" class="btn btn-outlined btn-sm" data-fsr-more style="margin-top:14px" ${busy ? 'disabled' : ''}>Load more visits</button>` : ''}`;
+      ${busy ? '<p role="status" class="fsr-history-message">Loading FSR visit history…</p>' : configured && !visits.length && !error ? '<p class="fsr-history-message">No FSR visits found for this client yet.</p>' : ''}
+      ${configured && nextOffset !== null ? `<button type="button" class="btn btn-outlined btn-sm" data-fsr-more style="margin-top:14px" ${busy ? 'disabled' : ''}>Load more visits</button>` : ''}`;
     panel.querySelector('[data-fsr-refresh]').addEventListener('click', () => load(0));
     panel.querySelector('[data-fsr-more]')?.addEventListener('click', () => load(nextOffset));
+    if (count) { count.hidden = !configured; count.textContent = configured ? String(total) : ''; }
   }
   async function load(offset) {
     if (busy || !overlay.isConnected) return;
     busy = true;
-    if (!offset) { visits = []; nextOffset = null; }
-    render(false);
-    let error = false;
+    render('');
+    let error = '';
     try {
       const data = await api.getFsrVisitHistory(leadId, offset);
       if (!overlay.isConnected) return;
       const page = Array.isArray(data.visits) ? data.visits : [];
       visits = offset ? [...visits, ...page.filter(item => !visits.some(existing => existing.id === item.id))] : page;
       total = data.total || 0; nextOffset = data.nextOffset; origin = data.fsrOrigin || ''; configured = data.configured === true; loaded = true;
-    } catch (_) { error = true; }
+      updatedAt = new Date().toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+    } catch (failure) { error = _fsrHistoryErrorMessage(failure); }
     finally { busy = false; if (overlay.isConnected) render(error); }
   }
   tab.addEventListener('click', () => { if (!loaded) void load(0); });
+  // Read independently of the normal lead detail request so the dialog stays usable.
+  void load(0);
 }
 </script>

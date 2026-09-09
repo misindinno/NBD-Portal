@@ -115,7 +115,7 @@ async function openLeadDetail(leadId, seed) {
         <button class="tab-btn active" onclick="switchTab(this,'tab-history')">Follow-up History <kbd class="tab-kbd">1</kbd></button>
         <button class="tab-btn" onclick="switchTab(this,'tab-log')">Activity Logs <kbd class="tab-kbd">2</kbd></button>
         ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead <kbd class="tab-kbd">3</kbd></button>`}
-        ${_isNBDPortal() ? '<button class="tab-btn" data-fsr-history-tab onclick="switchTab(this,\'tab-fsr-visits\')">FSR Visit History <kbd class="tab-kbd">' + (isNbdLocked ? '3' : '4') + '</kbd></button>' : ''}
+        ${'<button class="tab-btn" data-fsr-history-tab onclick="switchTab(this,\'tab-fsr-visits\')">FSR Visit History <span class="badge" data-fsr-history-count hidden></span> <kbd class="tab-kbd">' + (isNbdLocked ? '3' : '4') + '</kbd></button>'}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : ''}
@@ -134,7 +134,7 @@ async function openLeadDetail(leadId, seed) {
     <div id="tab-history" class="tab-pane">
       ${detailPending ? _leadDetailTabLoading() : _followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
     </div>
-    ${_isNBDPortal() ? '<div id="tab-fsr-visits" class="tab-pane" style="display:none" data-fsr-history-panel></div>' : ''}
+    <div id="tab-fsr-visits" class="tab-pane" style="display:none" data-fsr-history-panel></div>
     <div id="tab-log" class="tab-pane" style="display:none">
       ${detailPending ? _leadDetailTabLoading() : _activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
     </div>
@@ -148,7 +148,7 @@ async function openLeadDetail(leadId, seed) {
       ${buildLeadFormHTML(lead, leadFields, configOptions)}
     </div>`}`);
     overlay.querySelector('.modal')?.classList.add('modal-wide');
-    if (_isNBDPortal()) _mountFsrVisitHistory(overlay, String(lead['Lead ID']));
+    _mountFsrVisitHistory(overlay, String(lead['Lead ID']));
 
     let _editDirty = false;
     const _bindEditForm = () => {

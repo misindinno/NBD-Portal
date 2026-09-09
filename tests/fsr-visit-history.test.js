@@ -68,7 +68,9 @@ test('rejects cross-client responses, mismatched visit scopes and malformed pagi
 test('upstream auth, redirect and network failures never expose credentials or response bodies', () => {
   const h = harness();
   h.status(401); assert.throws(() => h.read(), /API access was rejected/);
-  for (const status of [302, 404, 429, 500]) { h.status(status); assert.throws(() => h.read(), /temporarily unavailable/); }
+  h.status(404); assert.throws(() => h.read(), /endpoint was not found/);
+  h.status(429); assert.throws(() => h.read(), /too many requests/);
+  for (const status of [302, 500]) { h.status(status); assert.throws(() => h.read(), /temporarily unavailable/); }
   h.fail();
   assert.throws(() => h.read(), error => !error.message.includes(key) && error.message.includes('temporarily unavailable'));
 });
@@ -95,4 +97,38 @@ test('history UI escapes API content and rejects unsafe evidence URLs', () => {
   assert.equal(context._fsrHistoryEvidenceUrl('/api/files/id', 'https://fsr.example.com'), 'https://fsr.example.com/api/files/id');
   const card = context._fsrHistoryCard({ id: 'id', remarks: '<img src=x onerror=alert(1)>', shopImageUrls: [] }, 'https://fsr.example.com');
   assert.ok(card.includes('&lt;img')); assert.ok(!card.includes('<img'));
+});
+
+function uiHarness() {
+  const requests=[];
+  function button() { return { handlers:{}, addEventListener(name,fn){this.handlers[name]=fn;}, click(){return this.handlers.click?.();} }; }
+  const tab=button(), count={hidden:true,textContent:''};
+  const panel={html:'',buttons:{},attributes:{},setAttribute(k,v){this.attributes[k]=v;},get innerHTML(){return this.html;},set innerHTML(value){this.html=value;this.buttons={'[data-fsr-refresh]':button(),...(value.includes('data-fsr-more')?{'[data-fsr-more]':button()}: {})};},querySelector(selector){return this.buttons[selector];}};
+  const overlay={isConnected:true,querySelector(selector){return {'[data-fsr-history-tab]':tab,'[data-fsr-history-panel]':panel,'[data-fsr-history-count]':count}[selector];}};
+  const context=vm.createContext({URL,escapeHtml:value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),api:{getFsrVisitHistory:(id,offset)=>new Promise((resolve,reject)=>requests.push({id,offset,resolve,reject}))}});
+  vm.runInContext(fs.readFileSync(path.join(root,'src/FsrVisitHistory.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1],context);
+  context._mountFsrVisitHistory(overlay,'000123');
+  return {requests,tab,panel,count,overlay,context};
+}
+const settle=()=>new Promise(resolve=>setImmediate(resolve));
+const page=(visits,total=visits.length,nextOffset=null)=>({configured:true,visits,total,nextOffset,fsrOrigin:'https://fsr.example.com'});
+test('history starts on lead open, deduplicates in-flight reads and displays Category/order fields',async()=>{
+ const h=uiHarness();assert.equal(h.requests.length,1);assert.equal(h.requests[0].id,'000123');assert.equal(h.panel.attributes['aria-busy'],'true');h.tab.click();assert.equal(h.requests.length,1);
+ h.requests[0].resolve(page([{id:'v1',category:'GOLD',orderNumber:'ORD-001',orderReceived:false,remarks:'Saved visit'}]));await settle();
+ assert.ok(h.panel.html.includes('GOLD'));assert.ok(h.panel.html.includes('ORD-001'));assert.ok(h.panel.html.includes('<dd>No</dd>'));assert.equal(h.count.textContent,'1');assert.equal(h.count.hidden,false);assert.equal(h.panel.attributes['aria-busy'],'false');
+});
+test('failed refresh preserves history; retry replaces it and load-more appends without duplicates',async()=>{
+ const h=uiHarness();h.requests[0].resolve(page([{id:'v1',remarks:'Original'}],21,20));await settle();
+ h.panel.querySelector('[data-fsr-refresh]').click();assert.ok(h.panel.html.includes('Original'));h.requests[1].reject(new Error('private upstream '+key));await settle();assert.ok(h.panel.html.includes('Original'));assert.ok(h.panel.html.includes('Previously loaded'));assert.ok(!h.panel.html.includes(key));
+ h.panel.querySelector('[data-fsr-refresh]').click();h.requests[2].resolve(page([{id:'v2',remarks:'Replacement'}],21,20));await settle();assert.ok(!h.panel.html.includes('Original'));assert.ok(h.panel.html.includes('Replacement'));
+ h.panel.querySelector('[data-fsr-more]').click();assert.equal(h.requests[3].offset,20);h.requests[3].resolve(page([{id:'v2',remarks:'Duplicate'},{id:'v3',remarks:'Older'}],21,null));await settle();assert.ok(h.panel.html.includes('Older'));assert.ok(!h.panel.html.includes('Duplicate'));assert.ok(!h.panel.html.includes('data-fsr-more'));
+});
+test('configuration and detached-dialog states do not display misleading empty history',async()=>{
+ const h=uiHarness();h.requests[0].resolve({configured:false,total:0,visits:[],nextOffset:null,fsrOrigin:''});await settle();assert.ok(h.panel.html.includes('not configured'));assert.ok(!h.panel.html.includes('No FSR visits'));assert.equal(h.count.hidden,true);
+ const closed=uiHarness(),before=closed.panel.html;closed.overlay.isConnected=false;closed.requests[0].resolve(page([{id:'late',remarks:'Late reply'}]));await settle();assert.equal(closed.panel.html,before);
+});
+test('all shared portal lead dialogs expose and mount the FSR history tab',()=>{
+ const source=fs.readFileSync(path.join(root,'src/LeadDetail.html'),'utf8');
+ const historyLines=source.split('\n').filter(line=>/data-fsr-history|_mountFsrVisitHistory/.test(line));assert.equal(historyLines.length,3);assert.ok(historyLines.every(line=>!line.includes('_isNBDPortal')));
+ for(const client of ['nbd-client1','nbd-lamination','lq-portal','lq-lamination']) assert.ok(fs.existsSync(path.join(root,'clients',client,'ClientConfig.js')));
 });

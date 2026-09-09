@@ -201,4 +201,4 @@ Placeholders use `{{Field Name}}` matching exact column names in the sheet.
 
 ## FSR visit history
 
-The **FSR Visit History** tab reads current visits from the FSR API using the lead ID. Configure the FSR URL and API key in Apps Script properties. See [setup instructions](docs/FSR_VISIT_HISTORY.md).
+In NBD, NBD Lamination, LQ and LQ Lamination, the **FSR Visit History** tab reads current visits from the FSR API using the lead ID. History loads when the lead opens, with refresh and pagination controls. Configure the FSR URL and API key in Apps Script properties. See [setup instructions](docs/FSR_VISIT_HISTORY.md).

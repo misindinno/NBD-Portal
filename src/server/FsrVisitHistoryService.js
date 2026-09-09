@@ -21,6 +21,8 @@ function _fsrReadLeadVisits_(leadId, page) {
   } catch (_) { throw new Error('FSR visit history is temporarily unavailable. Try again.'); }
   const status = response.getResponseCode();
   if (status === 401 || status === 403) throw new Error('FSR API access was rejected. Ask an administrator to check the API key.');
+  if (status === 404) throw new Error('FSR history endpoint was not found. Ask an administrator to check the deployed FSR URL.');
+  if (status === 429) throw new Error('FSR is receiving too many requests. Wait a moment, then refresh history.');
   if (status !== 200) throw new Error('FSR visit history is temporarily unavailable. Try again.');
   let data;
   try { data = JSON.parse(response.getContentText()).data; }
