@@ -202,3 +202,7 @@ Placeholders use `{{Field Name}}` matching exact column names in the sheet.
 ## FSR visit history
 
 In NBD, NBD Lamination, LQ and LQ Lamination, the **FSR Visit History** tab reads current visits from the FSR API using the lead ID. History loads when the lead opens, with refresh and pagination controls. Configure the FSR URL and API key in Apps Script properties. See [setup instructions](docs/FSR_VISIT_HISTORY.md).
+
+## Callyzer call webhook
+
+Use **System → Webhooks** to enable call remarks and copy the receiving URL. Callyzer employee tags identify the portal user; no webhook secret is required. See [setup and payload details](docs/CALLYZER_WEBHOOK.md).

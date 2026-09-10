@@ -19,7 +19,8 @@ $contractTests = @(
   (Join-Path $rootPath 'tests\stage-deactivation.contract.test.js'),
   (Join-Path $rootPath 'tests\removed-features.contract.test.js'),
   (Join-Path $rootPath 'tests\fsr-webhook.contract.test.js'),
-  (Join-Path $rootPath 'tests\fsr-visit-history.test.js')
+  (Join-Path $rootPath 'tests\fsr-visit-history.test.js'),
+  (Join-Path $rootPath 'tests\call-webhook.test.js')
 )
 $browserProbe = Join-Path $rootPath 'scripts\browser-portal-debug.js'
 $postDeploySmoke = Join-Path $rootPath 'scripts\post-deployment-smoke.ps1'

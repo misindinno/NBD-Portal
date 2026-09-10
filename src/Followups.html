@@ -1012,7 +1012,8 @@ function _activityLogCards(rows, emptyMsg, ctx) {
 }
 
 function _followupHistoryTable(rows, emptyMsg, ctx) {
-  const data = (rows || []).slice().sort((a, b) => _followupTimeValue(b['Created At'] || b['Done Date']) - _followupTimeValue(a['Created At'] || a['Done Date']));
+  const historyTime = row => row['Call ID'] ? [row['Call Date'], row['Call Time']].join(' ') : row['Created At'] || row['Done Date'];
+  const data = (rows || []).slice().sort((a, b) => _followupTimeValue(historyTime(b)) - _followupTimeValue(historyTime(a)));
   if (!data.length) return `<div class="table-wrap fu-table-wrap"><table class="fu-table history-table"><tbody><tr><td class="empty-table-cell">${escapeHtml(emptyMsg)}</td></tr></tbody></table></div>`;
   return `<div class="table-wrap fu-table-wrap">
     <table class="fu-table history-table">
@@ -1031,10 +1032,10 @@ function _followupHistoryTable(rows, emptyMsg, ctx) {
           : '-';
         return `<tr>
           <td>${formatDate(row['Planned Date']) || '-'}</td>
-          <td>${formatDateTime(row['Created At']) || '-'}</td>
+          <td>${row['Call ID'] ? escapeHtml([row['Call Date'], row['Call Time']].filter(Boolean).join(' ')) : formatDateTime(row['Created At']) || '-'}</td>
           <td>${escapeHtml(ctx?.userMap?.[row['Done By']] || row['Done By'] || '-')}</td>
           <td>${contactModeHTML}</td>
-          <td><div class="fu-discussion" title="${escapeHtml(row['Remark'] || '')}">${escapeHtml(row['Remark'] || '-')}</div></td>
+          <td>${_callRemarkHtml(row)}</td>
           <td>${stageLabel !== '-' ? `<span class="badge" style="background:#E3F2FD;color:#1565C0">${escapeHtml(stageLabel)}</span>` : '-'}</td>
           <td>${formatDate(row['Next Planned Date']) || '-'}</td>
         </tr>`;

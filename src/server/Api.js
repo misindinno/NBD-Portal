@@ -553,6 +553,22 @@ function apiRunSheetsApiSampleWrite(token, payload) {
   });
 }
 
+function apiGetCallWebhook(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetCallWebhook', () => {
+    _requireConfigReader();
+    return respond(_callWebhookPage_());
+  });
+}
+
+function apiSaveCallWebhook(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiSaveCallWebhook', () => {
+    const user = _requireConfigReader();
+    return withTrustedWriteUser_(user.email, () => respond(_saveCallWebhook_(payload)));
+  });
+}
+
 function apiSavePortalSettings(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiSavePortalSettings', () => {

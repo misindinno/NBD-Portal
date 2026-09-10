@@ -25,14 +25,15 @@ for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
     $hasShell = ($body -match 'app-shell') -and ($body -match 'renderSidebar')
     $hasDiagnostics = $body -match 'PortalDiagnostics'
     $hasFsrHistory = ($body -match 'data-fsr-history-tab') -and ($body -match '_mountFsrVisitHistory') -and ($body -match 'apiGetFsrVisitHistory')
+    $hasCallWebhook = ($body -match 'loadWebhooks') -and ($body -match 'apiGetCallWebhook') -and ($body -match '_callRemarkHtml')
     $hasTitle = $body -match '<title>[^<]+</title>'
 
-    if ($status -eq 200 -and $hasShell -and $hasDiagnostics -and $hasTitle -and $hasFsrHistory) {
+    if ($status -eq 200 -and $hasShell -and $hasDiagnostics -and $hasTitle -and $hasFsrHistory -and $hasCallWebhook) {
       Write-Host "==> Smoke passed: $ClientName (HTTP $status, $($body.Length) bytes)" -ForegroundColor Green
       return
     }
 
-    $failures.Add("attempt=$attempt status=$status bytes=$($body.Length) shell=$hasShell diagnostics=$hasDiagnostics title=$hasTitle fsrHistory=$hasFsrHistory")
+    $failures.Add("attempt=$attempt status=$status bytes=$($body.Length) shell=$hasShell diagnostics=$hasDiagnostics title=$hasTitle fsrHistory=$hasFsrHistory callWebhook=$hasCallWebhook")
   } catch {
     $failures.Add("attempt=$attempt error=$($_.Exception.Message)")
   }

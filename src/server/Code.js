@@ -4,6 +4,22 @@
 //   - google.script.run API calls read and write data synchronously (Sheets API
 //     primary, SpreadsheetApp fallback). The async job queue has been removed.
 
+// Public, unsigned Callyzer endpoint; all other POST routes are rejected.
+function doPost(e) {
+  return withRequestContext_('callyzerWebhook', () => withServerContext_(() => {
+    let result;
+    try {
+      result = e && e.parameter && e.parameter.webhook === 'callyzer'
+        ? _receiveCallyzer_(e.postData && e.postData.contents || '')
+        : { success: false, code: 'UNKNOWN_WEBHOOK' };
+    } catch (error) {
+      logServerError_(error, { api: 'callyzerWebhook' });
+      result = { success: false, code: 'PROCESSING_FAILED', retry: true };
+    }
+    return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+  }));
+}
+
 function doGet(e) {
   return withServerContext_(() => {
     try {

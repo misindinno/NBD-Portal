@@ -444,6 +444,7 @@ const _PAGE_META = {
   archive:   { title: 'Archive',          crumb: 'Archive' },
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
+  webhooks:  { title: 'Webhooks',         crumb: 'Webhooks' },
   config:    { title: 'Config',           crumb: 'Config' },
 };
 
@@ -536,6 +537,7 @@ async function navigate(page) {
       if (_canAddFollowup()) await _runPageLoader(page, 'openFollowupForm');
       else toast('Only admins can add follow-ups.', 'error');
     }
+    else if (page === 'webhooks')          await _runPageLoader(page, 'loadWebhooks');
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
     else if (page === 'archive')           await _runPageLoader(page, 'loadArchive', ['archived']);
@@ -628,6 +630,7 @@ function renderSidebar() {
   if (u.canEditConfig || u.canManageUsers) {
     html += `<div class="nav-section">System</div>`;
     html += navItem('config', 'settings-2', 'Config');
+    if (u.canEditConfig) html += navItem('webhooks', 'webhook', 'Webhooks');
   }
 
   nav.innerHTML = html;
@@ -679,6 +682,7 @@ function canNavigate(page) {
     followups: 'Followups', 'followups-today': 'Followups',
     'followups-overdue': 'Followups', 'followups-custom': 'Followups', 'followups-new': 'Followups'
   };
+  if (page === 'webhooks')  return !!App.user.canEditConfig;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
   if (page === 'bulkview') {
