@@ -18,7 +18,7 @@ async function loadWebhooks() {
             <input id="call-webhook-url" class="form-control" readonly value="${escapeHtml(data.url)}" style="flex:1;min-width:220px">
             <button type="button" class="btn btn-outlined" id="copy-call-webhook">Copy URL</button>
           </div>
-          <p style="font-size:13px;color:#64748b;margin:10px 0 18px">Paste this URL in Callyzer and leave Secret blank. Add the portal user ID as an employee tag. Call dates and times are shown as supplied by Callyzer; portal timezone: ${escapeHtml(data.timeZone)}.</p>
+          <p style="font-size:13px;color:#64748b;margin:10px 0 18px">Paste this URL in Callyzer and leave Secret blank. The bare /exec URL also works. Add the portal user ID as an employee tag. Call dates and times are shown as supplied by Callyzer; portal timezone: ${escapeHtml(data.timeZone)}.</p>
           <button type="submit" class="btn btn-primary">Save webhook</button>
         </form>
       </div>

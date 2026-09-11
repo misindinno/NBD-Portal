@@ -8,6 +8,8 @@ Each deployment has its own endpoint and enable/pause setting:
 https://script.google.com/macros/s/DEPLOYMENT_ID/exec?webhook=callyzer
 ```
 
+The bare deployment URL ending in `/exec` also accepts Callyzer calls; `?webhook=callyzer` is optional. Unknown named webhook routes are rejected.
+
 The webhook starts paused. Saving its setting initializes its sheets automatically; existing data is preserved. Pausing stops further ingestion and keeps previously received remarks. Changing the URL in Callyzer is unnecessary when the same Apps Script deployment is updated.
 
 ## Employee user tags
@@ -60,13 +62,13 @@ POST the JSON array from the supplied Callyzer documentation. Example:
 
 ## Delivery results and limits
 
-Responses contain `success`, counts (`added`, `updated`, `duplicate`, `unmatched`, `ambiguous`, `invalidUser`, `invalid`), and, for request failures, a `code`. Public receipts exclude lead IDs, user IDs, notes, phone numbers and recording links. Valid batches acknowledge independently skipped calls in their counts; correct their source data and resend them.
+Delivery receipts contain `success`, counts (`added`, `updated`, `duplicate`, `unmatched`, `ambiguous`, `invalidUser`, `invalid`), and, for request failures, a `code`. Public receipts exclude lead IDs, user IDs, notes, phone numbers and recording links. Valid batches acknowledge independently skipped calls in their counts; correct their source data and resend them.
 
 The Webhooks page shows the latest 30 deliveries and up to 20 problematic call IDs per delivery. The dedicated `CALL_WEBHOOK_DELIVERIES` sheet retains the latest 100 deliveries. Call records remain in `FOLLOWUP_HISTORY` so retry deduplication survives delivery-log retention.
 
 Limits: 1,000,000 payload characters, 100 employees and 200 calls per request. Invalid JSON/structure returns `INVALID_PAYLOAD`; empty or oversized call batches return `BATCH_LIMIT`. Individual invalid calls are skipped while valid ones are processed. `BUSY` and `PROCESSING_FAILED` set `retry: true`; retries safely resume partially written batches.
 
-Apps Script ContentService redirects to its response URL and does not support custom response status codes here. Senders must follow redirects and inspect the JSON body, rather than treating HTTP 200 as proof that every call was attached. Source-side Callyzer delivery and recording accessibility must be verified using a real call after setup.
+By default, the endpoint returns a direct HTML acknowledgement containing the receipt, avoiding the Google ContentService redirect that can time out in webhook clients. Check Recent deliveries to confirm that calls were attached; HTTP 200 alone is not proof of a match. Machine clients that explicitly require JSON can append `&format=json` (or `?format=json` on the bare URL), but must follow ContentService redirects and inspect `success` in the JSON. Apps Script does not support custom response status codes here. Source-side Callyzer delivery and recording accessibility must be verified using a real call after setup.
 
 ## Validation
 

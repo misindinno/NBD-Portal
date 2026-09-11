@@ -57,13 +57,14 @@ function harness(options = {}) {
     SpreadsheetApp: { flush: () => {} }, _invalidateReadCache_: () => {}, _bumpStamp: key => stamps.push(key),
     requireConfigEditor: () => { if (options.forbid) throw Error('Permission denied'); },
     logServerError_: () => {},
+    HtmlService: { createHtmlOutput: body => ({ html: body }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: body => ({ body, setMimeType() { return this; } }) },
   });
   vm.runInContext(read('src/server/ArchitectureCore.js'), context);
   vm.runInContext(read('src/server/CallWebhookService.js'), context);
   vm.runInContext(read('src/server/Code.js'), context);
   function payload(calls, tags = [UID]) { return JSON.stringify([{ emp_name: 'Untrusted employee label', emp_tags: tags, call_logs: calls }]); }
-  const send = (calls, tags) => JSON.parse(context.doPost({ parameter: { webhook: 'callyzer' }, postData: { contents: payload(calls, tags) } }).body);
+  const send = (calls, tags) => JSON.parse(context.doPost({ parameter: { webhook: 'callyzer', format: 'json' }, postData: { contents: payload(calls, tags) } }).body);
   const history = () => (sheets.get('HISTORY')?.rows.slice(1) || []).map(row => Object.fromEntries(sheet('HISTORY').rows[0].map((h, i) => [h, row[i] ?? ''])));
   return { context, send, history, sheets, props, stamps, leads, locked: () => locked };
 }
@@ -141,7 +142,7 @@ test('disabled, oversized, malformed, unknown and busy requests have explicit fa
   assert.equal(h.context._receiveCallyzer_('{').code, 'INVALID_PAYLOAD');
   assert.equal(h.context._receiveCallyzer_('{}').code, 'INVALID_PAYLOAD');
   assert.equal(h.send(Array.from({ length: 201 }, () => call())).code, 'BATCH_LIMIT');
-  assert.equal(JSON.parse(h.context.doPost({ parameter: {} }).body).code, 'UNKNOWN_WEBHOOK');
+  assert.equal(JSON.parse(h.context.doPost({ parameter: { webhook: 'unknown', format: 'json' } }).body).code, 'UNKNOWN_WEBHOOK');
   assert.equal(h.history().length, 0);
 });
 
@@ -183,4 +184,22 @@ test('webhook management API requires authenticated configuration permission', (
   const ui = vm.createContext({ window: { loadConfig() {} }, App: { user: { modules: [], canManageUsers: true } } });
   vm.runInContext(read('src/AppUI.html').replace(/^<script>/, '').replace(/<\/script>\s*$/, ''), ui);
   assert.equal(ui.canNavigate('webhooks'), false); ui.App.user.canEditConfig = true; assert.equal(ui.canNavigate('webhooks'), true);
+});
+
+test('Callyzer receives a direct HTML acknowledgement from bare and named POST URLs', () => {
+  for (const parameter of [{}, { webhook: 'callyzer' }]) {
+    const h = harness();
+    const result = h.context.doPost({ parameter, postData: { contents: JSON.stringify([{ emp_tags: [UID], call_logs: [call()] }]) } });
+    assert.match(result.html, /^<pre>/);
+    assert.match(result.html, /&quot;added&quot;:1/);
+    assert.equal(result.body, undefined, 'default response must not use the redirecting ContentService');
+    assert.equal(h.history().length, 1);
+  }
+});
+
+test('direct acknowledgements preserve failure receipts without exposing HTML from payloads', () => {
+  const h = harness({ disabled: true });
+  assert.match(h.context.doPost({ parameter: {}, postData: { contents: '[]' } }).html, /WEBHOOK_DISABLED/);
+  assert.match(h.context.doPost({ parameter: { webhook: '<script>bad</script>' } }).html, /UNKNOWN_WEBHOOK/);
+  assert.equal(h.history().length, 0);
 });
