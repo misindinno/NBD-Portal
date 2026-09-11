@@ -203,3 +203,77 @@ test('direct acknowledgements preserve failure receipts without exposing HTML fr
   assert.match(h.context.doPost({ parameter: { webhook: '<script>bad</script>' } }).html, /UNKNOWN_WEBHOOK/);
   assert.equal(h.history().length, 0);
 });
+
+test('debug logs preserve received employee tags and the exact response without exposing payloads publicly', () => {
+  const h = harness();
+  const response = h.send([call()], null);
+  assert.equal(response.invalidUser, 1);
+  const page = h.context._callWebhookPage_();
+  const entry = page.deliveries[0];
+  assert.equal(entry.requestPayload, undefined);
+  const detail = h.context._callWebhookDelivery_(entry.deliveryId);
+  assert.equal(JSON.parse(detail.requestPayload)[0].emp_tags, null);
+  assert.equal(JSON.parse(detail.requestPayload)[0].call_logs[0].id, 'call-001');
+  assert.deepEqual(JSON.parse(detail.responseBody), response);
+  assert.ok(detail.processingMs >= 0);
+  assert.equal(detail.payloadTruncated, false);
+  for (const key of ['requestPayload','responseBody','deliveryId','issues']) assert.equal(key in response, false);
+});
+
+test('debug payload size is bounded without truncating the saved call remark', () => {
+  const h = harness();
+  h.send([call({ extra: 'x'.repeat(40000) })]);
+  const entry = h.context._callWebhookPage_().deliveries[0];
+  const detail = h.context._callWebhookDelivery_(entry.deliveryId);
+  assert.equal(detail.requestPayload.length, 30000);
+  assert.equal(detail.payloadTruncated, true);
+  assert.ok(detail.payloadCharacters > 40000);
+  assert.match(h.history()[0].Remark, /Send quotation/);
+});
+
+test('paused, malformed and partially failed deliveries retain debugging receipts', () => {
+  const paused = harness({ disabled: true }); paused.send([call()]);
+  let entry = paused.context._callWebhookPage_().deliveries[0];
+  assert.equal(JSON.parse(paused.context._callWebhookDelivery_(entry.deliveryId).responseBody).code, 'WEBHOOK_DISABLED');
+  const h = harness();
+  h.context.doPost({ parameter: {}, postData: { contents: '{broken' } });
+  entry = h.context._callWebhookPage_().deliveries[0];
+  assert.equal(h.context._callWebhookDelivery_(entry.deliveryId).requestPayload, '{broken');
+  assert.equal(JSON.parse(h.context._callWebhookDelivery_(entry.deliveryId).responseBody).code, 'INVALID_PAYLOAD');
+  const failed = harness({ failAfter: 1 }); const response = failed.send([call(), call({ id: 'call-2' })]);
+  entry = failed.context._callWebhookPage_().deliveries[0];
+  assert.equal(entry.added, 1);
+  assert.deepEqual(JSON.parse(failed.context._callWebhookDelivery_(entry.deliveryId).responseBody), response);
+});
+
+test('debug logs are best-effort and cannot turn a saved call into a failed webhook response', () => {
+  const h = harness(); h.context._recordCallWebhook_ = () => { throw Error('logging unavailable'); };
+  assert.equal(h.send([call()]).added, 1); assert.equal(h.history().length, 1);
+});
+
+test('delivery detail lookup requires configuration permission and rejects invalid or expired IDs', () => {
+  const h = harness();
+  assert.throws(() => h.context._callWebhookDelivery_('<script>'), /Invalid delivery/);
+  assert.throws(() => h.context._callWebhookDelivery_('missing'), /not found/);
+  const ctx = vm.createContext({}); vm.runInContext(read('src/server/Api.js'), ctx);
+  ctx.apiGuard_ = (name, fn) => fn(); ctx._requireConfigReader = () => { throw Error('Permission denied'); };
+  assert.throws(() => ctx.apiGetCallWebhookDelivery('bad', 'id'), /Permission denied/);
+});
+
+test('debug payloads render as text and are fetched only when expanded', async () => {
+  const nodes = Object.fromEntries(['[data-debug-meta]','[data-request]','[data-response]'].map(key => [key, { textContent: '' }]));
+  const panel = { dataset: {}, innerHTML: '', textContent: '', querySelector: key => nodes[key] };
+  const summary = { dataset: { deliveryId: 'delivery1' }, parentElement: { querySelector: () => panel } };
+  let fetches = 0;
+  const ctx = vm.createContext({ api: { getCallWebhookDelivery: async id => {
+    assert.equal(id, 'delivery1'); fetches++;
+    return { requestPayload: '{"note":"<img src=x onerror=alert(1)>"}', responseBody: '{"invalidUser":1}', payloadTruncated: true, payloadCharacters: 40000 };
+  } } });
+  vm.runInContext(read('src/Webhooks.html').replace(/^<script>/, '').replace(/<\/script>\s*$/, ''), ctx);
+  assert.equal(fetches, 0);
+  await ctx._loadCallWebhookDelivery(summary);
+  assert.match(nodes['[data-request]'].textContent, /<img/);
+  assert.doesNotMatch(panel.innerHTML, /<img/);
+  assert.match(nodes['[data-debug-meta]'].textContent, /Truncated/);
+  await ctx._loadCallWebhookDelivery(summary); assert.equal(fetches, 1);
+});

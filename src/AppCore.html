@@ -165,6 +165,7 @@ const api = {
   getNavigationSummary: ()     => api._authedRead('apiGetNavigationSummary'),
   globalSearch:         (q)     => api._authedRead('apiGlobalSearch', q || ''),
   getLead:             (id)    => api._authedRead('apiGetLead', id),
+  getCallWebhookDelivery: (id) => api._authedRead('apiGetCallWebhookDelivery', id),
   getCallWebhook:      () => api._authedRead('apiGetCallWebhook'),
   saveCallWebhook:     (p) => api._authedRead('apiSaveCallWebhook', p),
   getFsrVisitHistory:  (id, page) => api._authedRead('apiGetFsrVisitHistory', id, page),

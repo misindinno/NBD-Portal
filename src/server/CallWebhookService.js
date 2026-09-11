@@ -40,13 +40,46 @@ function _saveCallWebhook_(payload) {
 function _ensureCallWebhookSheets_() {
   ensureFollowupSheets_();
   safeInitHeaders(SHEET_NAMES.FOLLOWUP_HISTORY, CALL_HISTORY_HEADERS_);
-  safeInitHeaders(CALL_WEBHOOK_DELIVERIES_, ['Received At','Result']);
+  safeInitHeaders(CALL_WEBHOOK_DELIVERIES_, ['Received At','Result','Request Payload','Response Body']);
 }
 
-function _callWebhookLog_(result) {
-  const sheet = getSheet(CALL_WEBHOOK_DELIVERIES_);
-  sheet.getRange(sheet.getLastRow() + 1, 1, 1, 2).setValues([[result.receivedAt, JSON.stringify(result)]]);
-  if (sheet.getLastRow() > 101) sheet.deleteRows(2, sheet.getLastRow() - 101);
+// Request bodies stay out of the list response and are loaded only on demand.
+function _recordCallWebhook_(raw, result, response, startedAt) {
+  assertServerContext_();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
+  try {
+    safeInitHeaders(CALL_WEBHOOK_DELIVERIES_, ['Received At','Result','Request Payload','Response Body']);
+    const payload = typeof raw === 'string' ? raw : '';
+    const entry = {
+      ...result, receivedAt: result.receivedAt || now(),
+      deliveryId: Utilities.getUuid(),
+      processingMs: Math.max(0, Date.now() - startedAt),
+      payloadCharacters: payload.length, payloadTruncated: payload.length > 30000
+    };
+    const sheet = getSheet(CALL_WEBHOOK_DELIVERIES_);
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 4).setValues([sanitizeSheetRowValues_([
+      entry.receivedAt, JSON.stringify(entry), payload.slice(0, 30000), JSON.stringify(response)
+    ])]);
+    if (sheet.getLastRow() > 101) sheet.deleteRows(2, sheet.getLastRow() - 101);
+  } finally { lock.releaseLock(); }
+}
+
+function _callWebhookDelivery_(deliveryId) {
+  assertServerContext_();
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(String(deliveryId || ''))) throw new Error('Invalid delivery ID.');
+  const sheet = getSpreadsheet(CALL_WEBHOOK_DELIVERIES_).getSheetByName(CALL_WEBHOOK_DELIVERIES_);
+  if (sheet && sheet.getLastRow() > 1) {
+    const summaries = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+    for (let i = summaries.length - 1; i >= 0; i--) {
+      let entry;
+      try { entry = JSON.parse(summaries[i][1]); } catch (_) { continue; }
+      if (entry.deliveryId !== deliveryId) continue;
+      const detail = sheet.getRange(i + 2, 3, 1, 2).getValues()[0];
+      return { ...entry, requestPayload: String(detail[0] || ''), responseBody: String(detail[1] || '') };
+    }
+  }
+  throw new Error('Webhook delivery not found. It may have expired from the recent log.');
 }
 
 function _callPhone_(value, countryCode) {
@@ -134,13 +167,11 @@ function _receiveCallyzer_(raw) {
     try { employees = JSON.parse(raw); } catch (_) { employees = null; }
     if (!Array.isArray(employees) || !employees.length || employees.length > 100 || employees.some(e => !e || !Array.isArray(e.call_logs))) {
       Object.assign(result, { success: false, code: 'INVALID_PAYLOAD' });
-      _callWebhookLog_(result);
       return result;
     }
     result.total = employees.reduce((sum, e) => sum + e.call_logs.length, 0);
     if (!result.total || result.total > 200) {
       Object.assign(result, { success: false, code: 'BATCH_LIMIT', maximumCalls: 200 });
-      _callWebhookLog_(result);
       return result;
     }
     const users = new Map(getUsersWithPortalAccess_('', false).map(u => [String(u['ID'] || u['User ID'] || '').trim().toLowerCase(), String(u['ID'] || u['User ID'] || '')]));
@@ -185,14 +216,9 @@ function _receiveCallyzer_(raw) {
       existing.set(call.id, { record, row });
       result[prior ? 'updated' : 'added']++;
     }));
-    _callWebhookLog_(result);
-    // Counts acknowledge delivery without disclosing lead identities or call content.
-    const { issues, ...receipt } = result;
-    return receipt;
+    return result;
   } catch (error) {
-    if (result) {
-      try { _callWebhookLog_({ ...result, success: false, code: 'PROCESSING_FAILED', retry: true }); } catch (_) {}
-    }
+    if (result) error.callWebhookResult = result;
     throw error;
   } finally {
     try {

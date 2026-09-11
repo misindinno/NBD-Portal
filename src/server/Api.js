@@ -561,6 +561,14 @@ function apiGetCallWebhook(token) {
   });
 }
 
+function apiGetCallWebhookDelivery(token, deliveryId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetCallWebhookDelivery', () => {
+    _requireConfigReader();
+    return respond(_callWebhookDelivery_(deliveryId));
+  });
+}
+
 function apiSaveCallWebhook(token, payload) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiSaveCallWebhook', () => {

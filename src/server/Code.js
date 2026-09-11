@@ -7,22 +7,31 @@
 // Public, unsigned Callyzer endpoint. The bare deployment URL also accepts calls.
 function doPost(e) {
   return withRequestContext_('callyzerWebhook', () => withServerContext_(() => {
-    let result;
+    const startedAt = Date.now();
+    const raw = e && e.postData && e.postData.contents || '';
+    let result, logResult;
     try {
       const route = String(e && e.parameter && e.parameter.webhook || '');
       result = !route || route === 'callyzer'
-        ? _receiveCallyzer_(e.postData && e.postData.contents || '')
+        ? _receiveCallyzer_(raw)
         : { success: false, code: 'UNKNOWN_WEBHOOK' };
     } catch (error) {
       logServerError_(error, { api: 'callyzerWebhook' });
       result = { success: false, code: 'PROCESSING_FAILED', retry: true };
+      logResult = { ...(error.callWebhookResult || {}), ...result };
+    }
+    // Keep the private request and skipped-call details out of public receipts.
+    const { issues, ...receipt } = result;
+    if (result.code !== 'UNKNOWN_WEBHOOK') {
+      try { _recordCallWebhook_(raw, logResult || result, receipt, startedAt); }
+      catch (error) { logServerError_(error, { api: 'callyzerWebhookLog' }); }
     }
     // ContentService redirects to googleusercontent.com, which some webhook
     // clients time out following. Callyzer only needs the direct acknowledgement.
     if (e && e.parameter && e.parameter.format === 'json') {
-      return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify(receipt)).setMimeType(ContentService.MimeType.JSON);
     }
-    return HtmlService.createHtmlOutput('<pre>' + _serverHtmlEscape_(JSON.stringify(result)) + '</pre>');
+    return HtmlService.createHtmlOutput('<pre>' + _serverHtmlEscape_(JSON.stringify(receipt)) + '</pre>');
   }));
 }
 

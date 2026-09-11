@@ -79,3 +79,9 @@ node --test tests/*.test.js
 ```
 
 The deployment preflight includes the webhook regression tests. Tests cover unsigned routing, configuration permissions, both tag formats, phone matching, repeated/newer events, partial-failure retries, malformed inputs, recording URL validation, formula neutralization and safe HTML rendering.
+
+## Request and response debugging
+
+For new deliveries, open **Webhooks → Recent deliveries → Request / response**. This shows the received Callyzer JSON (including `emp_tags`), NBD response receipt, and processing time. Details are fetched only when expanded and require configuration access. Raw request data is never included in the public webhook acknowledgement.
+
+The latest 100 delivery logs are retained. Each payload is limited to its first 30,000 characters, with the original character count and an explicit truncation notice; this limit does not change call processing. Existing older logs have no saved payload. Paused, malformed, and processing-failed requests are also logged when storage is available. Logging is best-effort: a busy lock or storage failure may prevent a debug entry, but cannot change an otherwise successful call receipt.
