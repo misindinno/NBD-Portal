@@ -463,7 +463,7 @@ function _followupRows(withCustomFields) {
 function _followupHistoryRows() {
   return isAggregatePortal()
     ? getAggregatedRows(SHEET_NAMES.FOLLOWUP_HISTORY)
-    : getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY);
+    : (typeof _mergeCallHistory_ === 'function' ? _mergeCallHistory_(getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY)) : getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY));
 }
 
 function _leadActivityRows() {

@@ -10,7 +10,7 @@ function harness(options = {}) {
   const sheets = new Map();
   const props = new Map([['CALLYZER_WEBHOOK_ENABLED', options.disabled ? 'false' : 'true']]);
   let locked = false, mutations = 0, failAfter = options.failAfter;
-  const stamps = [];
+  const stamps = []; let uuid = 0; const triggers = [];
   function sheet(name) {
     if (sheets.has(name)) return sheets.get(name);
     const rows = [];
@@ -21,7 +21,7 @@ function harness(options = {}) {
         getValues: () => Array.from({ length: h }, (_, i) => Array.from({ length: w }, (_, j) => rows[r - 1 + i]?.[c - 1 + j] ?? '')),
         setValues: data => {
           assert.ok(locked, 'writes must hold one script lock');
-          if (name === 'HISTORY' && r > 1 && failAfter === mutations++) { failAfter = undefined; throw Error('write interrupted'); }
+          if (name === (options.failSheet || 'CALL_LOGS') && r > 1 && failAfter === mutations++) { failAfter = undefined; throw Error('write interrupted'); }
           data.forEach((row, i) => { rows[r - 1 + i] ||= []; row.forEach((v, j) => { rows[r - 1 + i][c - 1 + j] = v; }); });
         },
       }),
@@ -34,13 +34,13 @@ function harness(options = {}) {
   const leads = options.leads || [{ 'Lead ID': 'L1', Phone: '9876543210', 'Stage ID': 'S1', 'Assigned To': UID }];
   const users = options.users || [{ ID: UID, Name: 'Portal User' }];
   const context = vm.createContext({
-    console, Map, Set, Date, JSON, URL, Utilities: { getUuid: () => "test-request" },
-    CLIENT_CONFIG: {}, SHEET_NAMES: { LEADS: 'LEADS', FOLLOWUP_HISTORY: 'HISTORY' },
+    console, Map, Set, Date, JSON, URL, Utilities: { getUuid: () => "test-request-" + (++uuid) },
+    CLIENT_CONFIG: {}, SHEET_NAMES: { LEADS: 'LEADS', FOLLOWUP_HISTORY: 'HISTORY', LEAD_ACTIVITY_LOGS: 'ACTIVITY' },
     normalizeSheetName: x => x,
     assertServerContext_: () => {},
     withServerContext_: fn => fn(), withRequestContext_: (name, fn) => fn(),
     PropertiesService: { getScriptProperties: () => ({ getProperty: key => props.get(key), setProperty: (key, value) => props.set(key, value) }) },
-    ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/deployment/exec' }) },
+    ScriptApp: { getProjectTriggers: () => triggers, newTrigger: name => ({ timeBased() { return this; }, everyMinutes() { return this; }, create() { triggers.push({ getHandlerFunction: () => name }); } }), getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/deployment/exec' }) },
     Session: { getScriptTimeZone: () => 'Asia/Kolkata' },
     LockService: { getScriptLock: () => ({ waitLock() { assert.ok(!locked); locked = true; }, tryLock() { if (options.busy) return false; assert.ok(!locked); locked = true; return true; }, releaseLock() { locked = false; } }) },
     now: () => '2026-09-10 12:00:00',
@@ -50,23 +50,38 @@ function harness(options = {}) {
       const rows = sheet(name).rows; if (!rows.length) rows.push([]);
       wanted.forEach(h => { if (!rows[0].includes(h)) rows[0].push(h); });
     },
-    ensureFollowupSheets_: () => context.safeInitHeaders('HISTORY', headers),
+    ensureFollowupSheets_: () => { context.safeInitHeaders('HISTORY', headers); context.safeInitHeaders('ACTIVITY', ['Log ID','Lead ID','Action Type','Old Value','New Value','Remark','Created By','Created At']); },
     getAllRows: name => { assert.equal(name, 'LEADS'); return leads; },
     getUsersWithPortalAccess_: () => users,
     rowObjectFromHeaders_: (heads, row) => Object.fromEntries(heads.map((h, i) => [h, row[i] ?? ''])),
     SpreadsheetApp: { flush: () => {} }, _invalidateReadCache_: () => {}, _bumpStamp: key => stamps.push(key),
     requireConfigEditor: () => { if (options.forbid) throw Error('Permission denied'); },
     logServerError_: () => {},
+    _scopeAssignedRows: (rows, user) => rows.filter(l => user.role === 'ADMIN' || l['Assigned To'] === user.id),
+    _canReadAssignedRow: (lead, user) => user.role === 'ADMIN' || lead['Assigned To'] === user.id,
+    _canWriteLead: (lead, user) => user.role === 'ADMIN' || lead['Assigned To'] === user.id,
+    _isLeadPushedToNbd_: lead => !!lead['NBD Lead ID'],
+    canEditConfigPermission: user => user.role === 'ADMIN' || !!user.canEditConfig,
+    userHasModule: (user, name) => (user.modules || []).includes(name),
+    requireRole: () => { if (options.forbid) throw Error('Permission denied'); },
+    generateUUID: () => 'uuid-' + (++uuid), syncIndexRow_: () => {}, pushFsrLeadById_: () => {},
     HtmlService: { createHtmlOutput: body => ({ html: body }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: body => ({ body, setMimeType() { return this; } }) },
   });
   vm.runInContext(read('src/server/ArchitectureCore.js'), context);
   vm.runInContext(read('src/server/CallWebhookService.js'), context);
+  vm.runInContext(read('src/server/CallLogService.js'), context);
+  vm.runInContext(read('src/server/CallInboxService.js'), context);
   vm.runInContext(read('src/server/Code.js'), context);
+  if (!options.queued) context._enqueueCallyzer_ = raw => context._receiveCallyzer_(raw);
+  const leadHeaders = [...new Set(['Lead ID','Phone','Alternate No','Company Name','Contact Person','Stage ID','Assigned To','Is Archived','Lead Status','Updated At', ...leads.flatMap(Object.keys)])];
+  sheet('LEADS').rows.push(leadHeaders, ...leads.map(l => leadHeaders.map(h => l[h] ?? '')));
   function payload(calls, tags = [UID]) { return JSON.stringify([{ emp_name: 'Untrusted employee label', emp_tags: tags, call_logs: calls }]); }
   const send = (calls, tags) => JSON.parse(context.doPost({ parameter: { webhook: 'callyzer', format: 'json' }, postData: { contents: payload(calls, tags) } }).body);
-  const history = () => (sheets.get('HISTORY')?.rows.slice(1) || []).map(row => Object.fromEntries(sheet('HISTORY').rows[0].map((h, i) => [h, row[i] ?? ''])));
-  return { context, send, history, sheets, props, stamps, leads, locked: () => locked };
+  const records = () => context._callTable_('CALL_LOGS').rows.map(r => r.record);
+  const history = () => records().map(context._callHistoryProjection_);
+  return { context, send, history, records, sheets, props, stamps, leads, triggers, locked: () => locked };
+
 }
 const call = changes => ({ id: 'call-001', client_country_code: '91', client_number: '9876543210', call_date: '2026-09-09', call_time: '17:49:41', duration: '30', call_type: 'Outgoing', note: 'Send quotation', crm_status: 'Interested', call_recording_url: 'https://media1.callyzer.co/recording.mp3', modified_at: '2026-09-09 17:52:00', call_method: 'PhoneCall', call_mode: 'Voice', ...changes });
 
@@ -90,12 +105,12 @@ test('plain, lower-case and id= employee tags resolve user IDs; unrelated tags a
   }
 });
 
-test('missing, inactive/unknown and multiple user tags are reported without attaching calls', () => {
+test('missing, inactive/unknown and multiple user tags save anonymous calls', () => {
   for (const tags of [[], ['unknown'], [UID, 'user-2']]) {
     const h = harness({ users: [{ ID: UID }, { ID: 'user-2' }] });
-    assert.equal(h.send([call()], tags).invalidUser, 1); assert.equal(h.history().length, 0);
+    assert.equal(h.send([call()], tags).anonymous, 1); assert.equal(h.history()[0]['Done By'], 'Anonymous user');
   }
-  const h = harness({ users: [] }); assert.equal(h.send([call()]).invalidUser, 1);
+  const h = harness({ users: [] }); assert.equal(h.send([call()]).anonymous, 1);
 });
 
 test('retries and older events do not duplicate or overwrite, newer events update the same entry', () => {
@@ -110,7 +125,7 @@ test('international and alternate phone formats match; shared numbers and archiv
   const h = harness({ leads: [{ 'Lead ID': 'L1', Phone: '1234567890', 'Alternate No': '+91 (98765) 43210' }] });
   assert.equal(h.send([call({ client_number: '00919876543210' })]).added, 1);
   for (const leads of [[], [{ 'Lead ID': 'L1', Phone: '9876543210', 'Is Archived': true }], [{ 'Lead ID': 'L1', Phone: '9876543210' }, { 'Lead ID': 'L2', Phone: '9876543210' }]]) {
-    const x = harness({ leads }); const r = x.send([call()]); assert.equal(r.unmatched + r.ambiguous, 1); assert.equal(x.history().length, 0);
+    const x = harness({ leads }); const r = x.send([call()]); assert.equal(r.unmatched + r.ambiguous, 1); assert.equal(x.history().length, 1); assert.equal(x.history()[0]['Lead ID'] || '', '');
   }
 });
 
@@ -130,7 +145,7 @@ test('mixed batches isolate invalid records, including malformed calendar dates 
 
 test('unsafe recording URLs are removed and remarks are stored as text', () => {
   const h = harness(); h.send([call({ note: '=IMPORTXML("https://example.com")', call_recording_url: 'javascript:alert(1)' })]);
-  assert.equal(h.history()[0]['Call Recording URL'], ''); assert.ok(h.history()[0].Remark.startsWith("'="));
+  assert.equal(h.history()[0]['Call Recording URL'], ''); assert.ok(h.records()[0].Note.startsWith("'="));
   for (const url of ['http://example.com/a', 'https://user:pass@example.com/a', 'https://example.com/"bad', 'https://example.com\\evil']) assert.equal(h.context._callRecordingUrl_(url), '');
 });
 
@@ -207,7 +222,7 @@ test('direct acknowledgements preserve failure receipts without exposing HTML fr
 test('debug logs preserve received employee tags and the exact response without exposing payloads publicly', () => {
   const h = harness();
   const response = h.send([call()], null);
-  assert.equal(response.invalidUser, 1);
+  assert.equal(response.anonymous, 1);
   const page = h.context._callWebhookPage_();
   const entry = page.deliveries[0];
   assert.equal(entry.requestPayload, undefined);
@@ -242,7 +257,7 @@ test('paused, malformed and partially failed deliveries retain debugging receipt
   assert.equal(JSON.parse(h.context._callWebhookDelivery_(entry.deliveryId).responseBody).code, 'INVALID_PAYLOAD');
   const failed = harness({ failAfter: 1 }); const response = failed.send([call(), call({ id: 'call-2' })]);
   entry = failed.context._callWebhookPage_().deliveries[0];
-  assert.equal(entry.added, 1);
+  assert.equal(failed.history().length, 1);
   assert.deepEqual(JSON.parse(failed.context._callWebhookDelivery_(entry.deliveryId).responseBody), response);
 });
 
@@ -276,4 +291,163 @@ test('debug payloads render as text and are fetched only when expanded', async (
   assert.doesNotMatch(panel.innerHTML, /<img/);
   assert.match(nodes['[data-debug-meta]'].textContent, /Truncated/);
   await ctx._loadCallWebhookDelivery(summary); assert.equal(fetches, 1);
+});
+
+const admin = { id: 'admin', role: 'ADMIN', email: 'admin@example.test', modules: ['Leads'] };
+function mappingHarness(extra = {}) {
+  const h = harness({ leads: [{ 'Lead ID': 'L1', 'Company Name': 'Client One', 'Contact Person': 'Person', Phone: '9123456780', 'Alternate No': '', 'Stage ID': 'S1', 'Assigned To': UID }], ...extra });
+  h.send([call(), call({ id: 'call-2' })], null);
+  return h;
+}
+const mapping = changes => ({ callId: 'call-001', leadId: 'L1', expectedPhone: '9123456780', expectedAlternate: '', mapRelated: true, ...changes });
+
+test('queued acknowledgement persists calls before processing and workers upsert them exactly once', () => {
+  const h = harness({ queued: true });
+  const response = h.send([call(), call({ id: 'call-2' })], null);
+  assert.equal(response.status, 'Received'); assert.equal(response.queued, 2); assert.equal(h.records().length, 0);
+  assert.equal(h.triggers.length, 1);
+  h.context.processCallWebhookInbox_();
+  assert.equal(h.records().length, 2); assert.equal(h.records()[0]['User Name'], 'Anonymous user');
+  assert.equal(h.context._callWebhookPage_().deliveries[0].status, 'Completed');
+  const initial = JSON.parse(h.context._callWebhookDelivery_(response.deliveryId).responseBody);
+  assert.deepEqual(initial, response);
+  h.send([call(), call({ id: 'call-2' })]); h.context.processCallWebhookInbox_();
+  assert.equal(h.records().length, 2); assert.equal(h.records()[0]['User ID'], UID); assert.equal(h.triggers.length, 1);
+});
+
+test('58 calls with repeated numbers remain 58 calls and run in bounded worker batches', () => {
+  const h = harness({ queued: true, leads: [] });
+  const calls = Array.from({ length: 58 }, (_, i) => call({ id: 'call-' + i, client_number: String(9800000000 + i % 39), duration: i < 33 ? 0 : 32, modified_at: i < 33 ? null : '2026-09-09 17:52:00', synced_at: '2026-09-09 17:52:00' }));
+  assert.equal(h.send(calls).queued, 58);
+  h.context.processCallWebhookInbox_(); assert.equal(h.records().length, 25);
+  h.context.processCallWebhookInbox_(); assert.equal(h.records().length, 50);
+  h.context.processCallWebhookInbox_(); assert.equal(h.records().length, 58);
+  assert.equal(new Set(h.records().map(r => r['Customer Number'])).size, 39);
+  assert.equal(h.records().filter(r => r.Duration === 0).length, 33);
+});
+
+test('failed worker rows are retained, retried and never acknowledged as processed prematurely', () => {
+  const h = harness({ queued: true }); const response = h.send([call()]);
+  const original = h.context._upsertCallsLocked_;
+  h.context._upsertCallsLocked_ = () => { throw Error('storage temporarily unavailable'); };
+  for (let i = 0; i < 3; i++) h.context.processCallWebhookInbox_();
+  assert.equal(h.context._callWebhookPage_().deliveries[0].status, 'Failed');
+  assert.equal(h.records().length, 0);
+  h.context._upsertCallsLocked_ = original;
+  assert.equal(h.context._retryCallDelivery_(response.deliveryId).retried, 1);
+  h.context.processCallWebhookInbox_();
+  assert.equal(h.records().length, 1); assert.equal(h.context._callWebhookPage_().deliveries[0].status, 'Completed');
+});
+
+test('same-revision enrichment adds recordings and users while null retries preserve existing details', () => {
+  const h = harness(); h.send([call({ call_recording_url: null, note: null })], null);
+  assert.equal(h.send([call()]).updated, 1);
+  assert.equal(h.records()[0]['User ID'], UID); assert.ok(h.records()[0]['Recording URL']);
+  h.send([call({ note: null, call_recording_url: null, modified_at: '2026-09-09 17:59:00' })], null);
+  assert.equal(h.records()[0].Note, 'Send quotation'); assert.equal(h.records()[0]['User ID'], UID);
+});
+
+test('mapping fills an empty alternate number, links related calls and records an audit entry', () => {
+  const h = mappingHarness();
+  const result = h.context._mapCallToClient_(admin, mapping());
+  assert.equal(result.mapped, 2); assert.equal(result.contactField, 'Alternate No');
+  const lead = h.context._callTable_('LEADS').rows[0].record;
+  assert.equal(lead.Phone, '9123456780'); assert.equal(lead['Alternate No'], '919876543210');
+  assert.ok(h.records().every(r => r['Lead ID'] === 'L1' && r['Match Source'] === 'Manual'));
+  assert.equal(h.context._callTable_('ACTIVITY').rows[0].record['Created By'], 'admin');
+  // The real Sheets reader sees the updated contact on the next request.
+  h.leads[0]['Alternate No'] = lead['Alternate No'];
+  h.send([call({ id: 'new-call' })]);
+  assert.equal(h.records().find(r => r['Call ID'] === 'new-call')['Lead ID'], 'L1');
+  h.send([call({ modified_at: '2026-09-09 18:00:00' })]);
+  assert.equal(h.records()[0]['Match Source'], 'Manual');
+});
+
+test('mapping fills a primary phone when empty and can leave related calls unmapped', () => {
+  const h = mappingHarness({ leads: [{ 'Lead ID': 'L1', Phone: '', 'Alternate No': '', 'Assigned To': UID }] });
+  assert.equal(h.context._mapCallToClient_(admin, mapping({ expectedPhone: '', mapRelated: false })).contactField, 'Phone');
+  assert.equal(h.records().filter(r => r['Lead ID']).length, 1);
+});
+
+test('mapping requires an explicit field choice for two occupied contact slots and detects stale forms', () => {
+  const h = mappingHarness({ leads: [{ 'Lead ID': 'L1', Phone: '9123456780', 'Alternate No': '9234567890', 'Assigned To': UID }] });
+  assert.throws(() => h.context._mapCallToClient_(admin, mapping()), /numbers changed/);
+  assert.throws(() => h.context._mapCallToClient_(admin, mapping({ expectedAlternate: '9234567890' })), /choose which/i);
+  h.context._mapCallToClient_(admin, mapping({ expectedAlternate: '9234567890', replaceField: 'Alternate No' }));
+  assert.equal(h.context._callTable_('LEADS').rows[0].record.Phone, '9123456780');
+});
+
+test('shared client numbers require confirmation before mapping an ambiguous call', () => {
+  const h = harness({ leads: [{ 'Lead ID': 'L1', Phone: '9876543210' }, { 'Lead ID': 'L2', Phone: '9876543210' }] }); h.send([call()]);
+  assert.equal(h.records()[0]['Match Status'], 'Needs Review');
+  assert.throws(() => h.context._mapCallToClient_(admin, mapping({ expectedPhone: '9876543210' })), /another client/);
+  h.context._mapCallToClient_(admin, mapping({ expectedPhone: '9876543210', confirmSharedNumber: true }));
+  assert.equal(h.records()[0]['Lead ID'], 'L1');
+});
+
+test('mapping failure rolls back both contact numbers and already linked calls', () => {
+  const h = mappingHarness();
+  const original = h.context._writeCallRow_; let writes = 0;
+  h.context._writeCallRow_ = (...args) => { if (++writes === 3) throw Error('injected write failure'); return original(...args); };
+  assert.throws(() => h.context._mapCallToClient_(admin, mapping()), /injected/);
+  assert.equal(h.context._callTable_('LEADS').rows[0].record['Alternate No'], '');
+  assert.ok(h.records().every(r => !r['Lead ID']));
+  assert.equal(h.locked(), false);
+});
+
+test('call access is client scoped and unmatched calls/mapping are restricted to authorized managers', () => {
+  const h = harness(); h.send([call(), call({ id: 'unmatched', client_number: '9800000000' })]);
+  const staff = { id: 'other', role: 'SALES', modules: ['Leads'] };
+  assert.equal(h.context._getCallLogs_(staff, {}).total, 0);
+  assert.throws(() => h.context._getCallLogs_(staff, { leadId: 'L1' }), /not found/);
+  const owner = { ...staff, id: UID };
+  assert.equal(h.context._getCallLogs_(owner, {}).total, 1);
+  assert.equal(h.context._getCallLogs_(admin, {}).total, 2);
+  assert.throws(() => h.context._callMappingContext_(owner, 'unmatched', ''), /Permission denied/);
+  assert.throws(() => h.context._mapCallToClient_(owner, mapping()), /Permission denied/);
+});
+
+test('calls are filtered and paged server-side, including anonymous callers and date bounds', () => {
+  const h = harness(); h.send(Array.from({ length: 31 }, (_, i) => call({ id: 'c' + i })), null);
+  assert.equal(h.context._getCallLogs_(admin, { page: 2 }).rows.length, 6);
+  assert.equal(h.context._getCallLogs_(admin, { caller: '' }).total, 31);
+  assert.equal(h.context._getCallLogs_(admin, { from: '2026-09-10' }).total, 0);
+  assert.equal(h.context._getCallLogs_(admin, { search: 'no such client' }).total, 0);
+});
+
+test('legacy calls migrate once and remark projections keep manual history without duplicated calls', () => {
+  const h = harness();
+  const headers = ['Call ID','Lead ID','Done By','Call Date','Call Time','Call Duration Seconds','Remark','Call Updated At'];
+  const sheet = h.context.getSheet('HISTORY');
+  sheet.rows.push(headers, ['old-call','L1',UID,'2026-09-08','12:00:00',15,'Existing call note','2026-09-08 12:01:00']);
+  h.context._prepareCallStorage_(); h.context._prepareCallStorage_();
+  assert.equal(h.records().length, 1);
+  const rows = h.context._mergeCallHistory_([{ 'Call ID': 'old-call', 'Lead ID': 'L1' }, { 'History ID': 'manual', Remark: 'Manual note' }]);
+  assert.equal(rows.length, 2); assert.equal(rows[0].Remark, 'Manual note'); assert.equal(rows[1].Remark, 'Existing call note');
+});
+
+test('call management APIs enforce session/module guards before any data access', () => {
+  const ctx = vm.createContext({}); vm.runInContext(read('src/server/Api.js'), ctx);
+  ctx.respond = value => value; ctx._getCallLogs_ = ctx._callMappingContext_ = () => { throw Error('Unexpected data access'); };
+  ctx.apiGuard_ = (_, fn) => fn(); ctx._requireModule = ctx._requireAnyModule = ctx._requireConfigReader = () => { throw Error('Permission denied'); };
+  for (const [name, args] of [['apiGetCallLogs',[{}]],['apiGetCallMappingContext',['c','']],['apiMapCallToClient',[{}]],['apiRetryCallDelivery',['d']]]) assert.throws(() => ctx[name]('invalid', ...args), /Permission denied/);
+});
+
+
+test('inbox retention preserves complete delivery totals after completed rows are pruned', () => {
+  const h = harness({ queued: true });
+  const calls = Array.from({ length: 200 }, (_, i) => call({ id: 'retention-' + i }));
+  for (let batch = 0; batch < 3; batch++) {
+    h.send(calls);
+    for (let run = 0; run < 8; run++) h.context.processCallWebhookInbox_();
+  }
+  h.context.processCallWebhookInbox_();
+  const deliveries = h.context._callWebhookPage_().deliveries;
+  assert.equal(deliveries.length, 3);
+  for (const delivery of deliveries) {
+    assert.equal(delivery.status, 'Completed');
+    assert.equal(delivery.processed, 200);
+  }
+  assert.ok(h.context._callTable_('CALL_WEBHOOK_INBOX').rows.length <= 500);
+  assert.equal(h.records().length, 200);
 });

@@ -1,76 +1,79 @@
-# Callyzer call webhook
+# Callyzer calls and webhook
 
-Open **System → Webhooks** with a user who can edit configuration. Enable **Receive Callyzer calls**, save, and copy the URL into Callyzer. Leave Callyzer's **Secret** field blank. The receiving endpoint does not use a secret, signature, API key, or portal login token.
+## Setup
 
-Each deployment has its own endpoint and enable/pause setting:
+1. Open **System → Webhooks** as a configuration editor.
+2. Enable **Receive Callyzer calls**, save, and copy the URL into Callyzer. Leave Secret blank.
+3. Add each employee's portal user ID to their Callyzer employee tags. Plain IDs and `id=USER_ID` are supported, case-insensitively.
+4. Send a test delivery. Inspect its progress under **Recent deliveries**, then open **Calls**.
 
-```text
-https://script.google.com/macros/s/DEPLOYMENT_ID/exec?webhook=callyzer
-```
+The endpoint is the existing Apps Script deployment URL, optionally followed by `?webhook=callyzer`. The bare `/exec` URL also works. No webhook secret, signature, API key or portal login token is required for delivery. Management APIs require a portal session and the appropriate permissions.
 
-The bare deployment URL ending in `/exec` also accepts Callyzer calls; `?webhook=callyzer` is optional. Unknown named webhook routes are rejected.
+## Calls section
 
-The webhook starts paused. Saving its setting initializes its sheets automatically; existing data is preserved. Pausing stops further ingestion and keeps previously received remarks. Changing the URL in Callyzer is unnecessary when the same Apps Script deployment is updated.
+**Calls** provides All calls, Matched, Unmatched and Needs Review views. Search by client, number or caller; filter by date range, caller and direction. Results are sorted by call time and paged in groups of 25.
 
-## Employee user tags
+Each row shows the caller, source employee details, customer number, linked client, call date/time, direction, duration, method/mode, remark, CRM result and recording link. Each client's detail dialog also has a **Call Logs** tab scoped to that client.
 
-Put the portal user's ID in the Callyzer employee's **Tags** field. The Webhooks page lists active users and their IDs for copying. Either of these formats works, case-insensitively:
+Times are displayed as supplied by Callyzer, without timezone conversion. Zero-duration calls are retained and keep Callyzer's direction/type. A missing recording shows “Not available”; only HTTPS recording URLs become links.
 
-```text
-C6F91250-022A-4162-9196-44866796D14C
-id=C6F91250-022A-4162-9196-44866796D14C
-```
+## Caller identification
 
-Exactly one distinct active portal user must match the employee's `emp_tags`. Other labels are ignored. Missing, unknown, inactive, or conflicting user tags are reported as `invalidUser`. The saved history uses the portal user ID as **Done By**, rather than the employee name supplied in the request.
+Employee `emp_tags` identify the caller; `call_logs[].id` identifies the call. Exactly one matching active portal user yields that user's name. Missing, null, unknown, inactive or conflicting user tags produce **Anonymous user**, without discarding the call. The original employee name and number remain available as source details.
 
-## Payload and matching
+A later valid tag enriches an anonymous record even when the call revision is unchanged. Missing tags on later retries do not erase an already identified caller. Conflicting identified users flag the call for review.
 
-POST the JSON array from the supplied Callyzer documentation. Example:
+## Client matching and manual mapping
 
-```json
-[
-  {
-    "emp_name": "Example User",
-    "emp_tags": ["C6F91250-022A-4162-9196-44866796D14C"],
-    "call_logs": [
-      {
-        "id": "example-call-001",
-        "client_country_code": "91",
-        "client_number": "9876543210",
-        "call_date": "2026-09-10",
-        "call_time": "14:30:00",
-        "duration": "87",
-        "call_type": "Outgoing",
-        "note": "Customer requested a quotation.",
-        "crm_status": "Interested",
-        "call_method": "PhoneCall",
-        "call_mode": "Voice",
-        "call_recording_url": "https://media1.callyzer.co/example.mp3",
-        "modified_at": "2026-09-10 14:32:00"
-      }
-    ]
-  }
-]
-```
+Normalize `client_country_code` and `client_number`, then compare against client Phone and Alternate No. Bare ten-digit portal numbers default to country code 91; save international numbers with their full country code. One active client match links the call. No match retains it as Unmatched. Multiple matches produce Needs Review. Existing links are retained across repeat deliveries.
 
-- Match `client_number` against **Phone** or **Alternate No** in the receiving portal. Spaces, brackets, dashes, `+`, `00` prefixes and Indian local trunk prefixes are normalized. Bare ten-digit portal numbers default to country code 91; store other countries' numbers with their full country code.
-- Attach only to one non-archived matching lead. No match is `unmatched`; multiple matches are `ambiguous`. Calls are not used to create new leads.
-- Store the call note, CRM result, type, method and mode in a **Follow-up History → Remark** entry. Display the call date/time, duration and HTTPS recording link alongside it. A recording URL is optional; invalid URLs are omitted.
-- Call times are displayed as supplied by Callyzer, without timezone conversion. Configure Callyzer consistently with the portal timezone shown on the Webhooks page.
-- Call IDs deduplicate across deliveries. A newer `modified_at` updates the same row; otherwise `synced_at`, then the call timestamp is used for ordering. Equal or older revisions are duplicates. Updates cannot reassign an existing call to another lead or user.
-- The webhook records history only. It does not close an open follow-up, change the lead stage, schedule reminders, or overwrite existing manual remarks.
+Administrators and managers with configuration permission can see unmatched calls. Mapping also requires Leads access, a lead-write role, and permission to edit the selected client. Archived or LQ clients already pushed to NBD cannot be changed by mapping.
 
-## Delivery results and limits
+For an unlinked call, choose **Map to client**, search for a client, select it, and review the current numbers:
 
-Delivery receipts contain `success`, counts (`added`, `updated`, `duplicate`, `unmatched`, `ambiguous`, `invalidUser`, `invalid`), and, for request failures, a `code`. Public receipts exclude lead IDs, user IDs, notes, phone numbers and recording links. Valid batches acknowledge independently skipped calls in their counts; correct their source data and resend them.
+- If the incoming number is already saved, keep contact fields unchanged.
+- If Phone is empty, fill Phone.
+- Otherwise, fill an empty Alternate No.
+- If both fields contain different numbers, explicitly choose which one to replace.
+- If another client already has the number, explicitly confirm it is shared. Future automatic matches remain ambiguous while the number is shared.
 
-The Webhooks page shows the latest 30 deliveries and up to 20 problematic call IDs per delivery. The dedicated `CALL_WEBHOOK_DELIVERIES` sheet retains the latest 100 deliveries. Call records remain in `FOLLOWUP_HISTORY` so retry deduplication survives delivery-log retention.
+The default option also maps other currently unlinked calls with the same normalized number; uncheck it to map only the selected call. Saving records the mapping actor, time, and contact change in the client's activity log. A stale form is rejected if contact numbers changed after the dialog loaded. Ordinary write failures restore both the contact fields and affected call records. Google Sheets is not a transactional database; an execution terminated outside normal error handling may need review/retry.
 
-Limits: 1,000,000 payload characters, 100 employees and 200 calls per request. Invalid JSON/structure returns `INVALID_PAYLOAD`; empty or oversized call batches return `BATCH_LIMIT`. Individual invalid calls are skipped while valid ones are processed. `BUSY` and `PROCESSING_FAILED` set `retry: true`; retries safely resume partially written batches.
+## Upserts and storage
 
-By default, the endpoint returns a direct HTML acknowledgement containing the receipt, avoiding the Google ContentService redirect that can time out in webhook clients. Check Recent deliveries to confirm that calls were attached; HTTP 200 alone is not proof of a match. Machine clients that explicitly require JSON can append `&format=json` (or `?format=json` on the bare URL), but must follow ContentService redirects and inspect `success` in the JSON. Apps Script does not support custom response status codes here. Source-side Callyzer delivery and recording accessibility must be verified using a real call after setup.
+`CALL_LOGS` is the authoritative call store. The unique key is Callyzer call ID within the receiving portal, never the phone number. Different calls to the same number remain separate.
 
-## Validation
+- New ID: insert.
+- Identical replay: leave unchanged.
+- Newer revision: update the same record.
+- Equal revision: fill missing optional details such as a recording.
+- Older revision: retain newer call details.
+- Null optional fields do not erase existing notes or recordings.
+- Revision order uses `modified_at`, then `synced_at`, then the call timestamp.
+- A changed customer number on an existing call is flagged instead of silently moving the call to another client.
+- Manual client mappings survive later webhook updates.
+
+Existing call entries in FOLLOWUP_HISTORY are copied into CALL_LOGS in resumable groups of 200. The source entries remain intact. The follow-up history view merges canonical calls with manual history, hiding only legacy call entries whose IDs were successfully migrated. Legacy records without the original customer number show “Number unavailable” until a later delivery enriches them. No other client, lead stage or manual follow-up is modified by call ingestion.
+
+## Durable processing and retries
+
+Webhook delivery first validates and stores each call in `CALL_WEBHOOK_INBOX`, then acknowledges the accepted delivery. An installable one-minute trigger (`processCallWebhookInbox_`) processes up to 25 calls or about 45 seconds per run. The trigger is installed when enabling the webhook or accepting the first delivery. The Apps Script deploying account must retain its existing script/Sheets permissions.
+
+A queued call is marked Done only after its canonical upsert succeeds. Repeated payloads or a crash between upsert and completion marking are safe to retry by call ID. Processing retries three times before Failed. Configuration editors can use **Retry processing** on the Webhooks page. Pending and failed inbox rows are never removed by retention; older fully completed deliveries are pruned as whole batches once completed inbox rows exceed 500, preserving delivery totals.
+
+Limits: 1,000,000 request characters, 100 employees, 200 calls per request, and 2,000 pending/failed inbox items. Invalid individual calls are reported while valid calls are queued. A full/busy inbox returns a failure receipt with `retry: true`; unaccepted calls must be resent.
+
+The default acknowledgement is HTML to avoid the Google ContentService redirect that previously caused delivery timeouts. Machine clients can opt into JSON with `format=json`, but must follow the redirect. HTTP 200 indicates transport completion; inspect the receipt and delivery processing status for acceptance and completion. “Received” does not mean all calls have already been linked.
+
+## Request / response debugging
+
+**Webhooks → Recent deliveries → Request / response** shows the received Callyzer data (including tags), original acknowledgement and request processing time. The summary separately shows background processing progress: Received, Processing, Completed or Failed, and inserted/updated/duplicate/anonymous/unmatched counts.
+
+Details load only on expansion and require configuration permission. Public acknowledgements exclude lead identities, call contents and raw request data. The last 100 delivery logs are retained; the page lists the latest 30. Payload previews are limited to the first 30,000 characters and clearly marked when truncated. This preview limit does not truncate queued valid calls.
+
+Logging is best-effort and cannot make an accepted delivery fail. Missing older debug payloads and expired delivery logs do not remove canonical calls or pending queue entries.
+
+## Verification
 
 ```powershell
 node scripts/check-syntax.js
@@ -78,10 +81,4 @@ node --test tests/call-webhook.test.js
 node --test tests/*.test.js
 ```
 
-The deployment preflight includes the webhook regression tests. Tests cover unsigned routing, configuration permissions, both tag formats, phone matching, repeated/newer events, partial-failure retries, malformed inputs, recording URL validation, formula neutralization and safe HTML rendering.
-
-## Request and response debugging
-
-For new deliveries, open **Webhooks → Recent deliveries → Request / response**. This shows the received Callyzer JSON (including `emp_tags`), NBD response receipt, and processing time. Details are fetched only when expanded and require configuration access. Raw request data is never included in the public webhook acknowledgement.
-
-The latest 100 delivery logs are retained. Each payload is limited to its first 30,000 characters, with the original character count and an explicit truncation notice; this limit does not change call processing. Existing older logs have no saved payload. Paused, malformed, and processing-failed requests are also logged when storage is available. Logging is best-effort: a busy lock or storage failure may prevent a debug entry, but cannot change an otherwise successful call receipt.
+Tests cover caller tags/anonymous fallback, retries and enrichment, 58-call batches, queue failures, client matching, contact mapping and rollback, access scope, migration, pagination, and payload escaping. Browser checks cover the Calls page, contact-mapping dialog and client-scoped tab.

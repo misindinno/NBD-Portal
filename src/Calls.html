@@ -1,0 +1,129 @@
+<script>
+async function loadCalls() {
+  el('page-title').textContent = 'Calls';
+  el('content').innerHTML = '<div data-calls-view></div>';
+  _mountCallsView(el('content').querySelector('[data-calls-view]'), '');
+}
+
+function _mountCallsView(host, leadId) {
+  if (!host || host._callsState) return;
+  const state = { host, leadId, page: 1, status: 'all', sequence: 0 };
+  host._callsState = state;
+  host.innerHTML = `
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px"><div><h3>${leadId ? 'Client call logs' : 'Calls'}</h3><p style="font-size:12px;color:#64748b;margin-top:4px">Callers come from employee tags. Unknown callers appear as Anonymous user.</p></div><button type="button" class="btn btn-outlined btn-sm" data-refresh>Refresh</button></div>
+      ${leadId ? '' : `<div class="tabs" data-call-tabs style="flex-wrap:wrap">${['all','Matched','Unmatched','Needs Review'].map((key,i) => `<button type="button" class="tab-btn ${i === 0 ? 'active' : ''}" data-call-status="${key}">${key === 'all' ? 'All calls' : key} <span data-count></span></button>`).join('')}</div>`}
+      <form data-call-filters style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <label style="font-size:12px;flex:1;min-width:180px">Search<input class="form-control" name="search" placeholder="Client, number or caller"></label>
+        <label style="font-size:12px">From<input class="form-control" name="from" type="date"></label>
+        <label style="font-size:12px">To<input class="form-control" name="to" type="date"></label>
+        <label style="font-size:12px">Caller<select class="form-control" name="caller"><option value="all">All callers</option></select></label>
+        <label style="font-size:12px">Direction<select class="form-control" name="type">${['all','Incoming','Outgoing','Missed','Rejected'].map(t => `<option value="${t}">${t === 'all' ? 'All directions' : t}</option>`).join('')}</select></label>
+        <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+      </form>
+    </div><div data-call-results aria-live="polite"></div>`;
+  host.querySelector('[data-call-filters]').onsubmit = e => { e.preventDefault(); state.page = 1; _loadCallsPage(state); };
+  host.querySelector('[data-refresh]').onclick = () => _loadCallsPage(state);
+  host.querySelectorAll('[data-call-status]').forEach(button => button.onclick = () => {
+    state.status = button.dataset.callStatus; state.page = 1; _loadCallsPage(state);
+    host.querySelectorAll('[data-call-status]').forEach(b => b.classList.toggle('active', b === button));
+  });
+  _loadCallsPage(state);
+}
+
+async function _loadCallsPage(state) {
+  const host = state.host, target = host.querySelector('[data-call-results]');
+  const form = host.querySelector('[data-call-filters]');
+  const seq = ++state.sequence;
+  const values = Object.fromEntries(new FormData(form));
+  if (values.caller === 'anonymous') values.caller = '';
+  target.innerHTML = '<div class="card" style="padding:24px">Loading calls…</div>';
+  try {
+    const data = await api.getCallLogs({ ...values, leadId: state.leadId, status: state.status, page: state.page });
+    if (!host.isConnected || seq !== state.sequence) return;
+    state.page = data.page;
+    host.querySelectorAll('[data-call-status]').forEach(b => {
+      b.querySelector('[data-count]').textContent = '(' + (data.counts[b.dataset.callStatus] || 0) + ')';
+      if (b.dataset.callStatus === 'Unmatched') b.hidden = !data.canManageUnmatched;
+    });
+    const caller = form.elements.caller, selected = caller.value;
+    caller.innerHTML = '<option value="all">All callers</option>' + data.callers.map(u => `<option value="${escapeHtml(u.id || 'anonymous')}">${escapeHtml(u.name)}</option>`).join('');
+    caller.value = selected; if (!caller.value) caller.value = 'all';
+    target.innerHTML = _callsTableHtml(data.rows) + `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0"><span>${data.total} call(s) · Page ${data.page} of ${Math.max(1,Math.ceil(data.total / data.pageSize))}</span><div style="display:flex;gap:8px"><button class="btn btn-outlined btn-sm" data-prev ${data.page <= 1 ? 'disabled' : ''}>Previous</button><button class="btn btn-outlined btn-sm" data-next ${data.page * data.pageSize >= data.total ? 'disabled' : ''}>Next</button></div></div>`;
+    target.querySelector('[data-prev]').onclick = () => { state.page--; _loadCallsPage(state); };
+    target.querySelector('[data-next]').onclick = () => { state.page++; _loadCallsPage(state); };
+    target.querySelectorAll('[data-map-call]').forEach(button => button.onclick = () => _openCallMapping(button.dataset.mapCall, () => _loadCallsPage(state)));
+    renderIcons(target);
+  } catch (error) {
+    if (seq !== state.sequence) return;
+    target.innerHTML = `<div class="card" style="padding:20px">${escapeHtml(error.message || 'Unable to load calls')} <button class="btn btn-outlined btn-sm" data-retry>Retry</button></div>`;
+    target.querySelector('[data-retry]').onclick = () => _loadCallsPage(state);
+  }
+}
+
+function _callsTableHtml(rows) {
+  if (!rows.length) return '<div class="card" style="padding:30px;text-align:center;color:#64748b">No calls match these filters.</div>';
+  return `<div class="card table-wrap"><table><thead><tr><th>Date / time</th><th>Caller</th><th>Client / number</th><th>Call</th><th>Duration</th><th>Remark / result</th><th>Recording</th><th>Matching</th></tr></thead><tbody>${rows.map(row => {
+    let recording = 'Not available';
+    try { const url = new URL(row['Recording URL']); if (url.protocol === 'https:' && !url.username && !url.password) recording = `<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">Open recording</a>`; } catch (_) {}
+    const seconds = Math.max(0, Number(row.Duration) || 0);
+    return `<tr>
+      <td style="white-space:nowrap">${escapeHtml(row['Call Date'])}<br><span style="color:#64748b">${escapeHtml(row['Call Time'])}</span></td>
+      <td>${escapeHtml(row['User Name'] || 'Anonymous user')}<details style="font-size:11px;color:#64748b;margin-top:4px"><summary>Source employee</summary>${escapeHtml(row['Employee Name'] || 'Not provided')}<br>${escapeHtml(row['Employee Number'] || '')}</details></td>
+      <td>${escapeHtml(row.clientName || row['Customer Name'] || 'Unmatched client')}<div style="color:#64748b;font-size:12px">${escapeHtml(row['Customer Number'] || 'Number unavailable')}</div></td>
+      <td>${escapeHtml(row.Type || '')}<div style="font-size:11px;color:#64748b">${escapeHtml([row.Method,row.Mode].filter(Boolean).join(' / '))}</div></td>
+      <td style="white-space:nowrap">${Math.floor(seconds / 60)}m ${seconds % 60}s</td>
+      <td style="min-width:180px;max-width:300px;white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(row.Note || row['Legacy Remark'] || '—')}${row.Outcome ? `<div style="font-weight:600;margin-top:5px">${escapeHtml(row.Outcome)}</div>` : ''}</td>
+      <td>${recording}</td>
+      <td><span class="badge">${escapeHtml(row['Match Status'])}</span>${row.Conflict ? `<div style="font-size:11px;color:#b45309;max-width:220px">${escapeHtml(row.Conflict)}</div>` : ''}${row.canMap ? `<button class="btn btn-outlined btn-sm" style="margin-top:8px" data-map-call="${escapeHtml(row['Call ID'])}">Map to client</button>` : ''}</td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+
+async function _openCallMapping(callId, onSaved) {
+  const overlay = showModal(`<div class="modal-header"><h2>Map call to client</h2><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div><div class="modal-body" data-call-map><p>Loading client choices…</p></div>` );
+  const host = overlay.querySelector('[data-call-map]');
+  let context, selected, sequence = 0;
+  try { context = await api.getCallMappingContext(callId, ''); }
+  catch (error) { host.textContent = error.message; return; }
+  if (!overlay.isConnected) return;
+  host.innerHTML = `<p style="margin-bottom:12px">Customer number: <b>${escapeHtml(context.call['Customer Number'])}</b></p>
+    <form data-map-search style="display:flex;gap:8px;margin-bottom:12px"><input class="form-control" name="query" placeholder="Search company, contact or number"><button class="btn btn-outlined" type="submit">Search</button></form>
+    <div data-clients></div><div data-contact-preview style="margin-top:16px"></div>
+    <label style="display:flex;gap:8px;margin:16px 0"><input type="checkbox" data-map-related checked>Also map other unmatched calls from this number (${Math.max(0,context.related - 1)})</label>
+    <label style="display:flex;gap:8px;font-size:12px;margin-bottom:16px"><input type="checkbox" data-shared> I confirm this number may be shared with another client.</label>
+    <p data-map-error style="color:#b91c1c" role="alert"></p><div class="modal-footer"><button class="btn btn-primary" data-save-mapping disabled>Map and update contact</button></div>`;
+  const displayClients = data => {
+    const box = host.querySelector('[data-clients]');
+    box.innerHTML = `<label>Select client<select class="form-control" data-client><option value="">Choose a client</option>${data.clients.map(l => `<option value="${escapeHtml(l.id)}">${escapeHtml(l.name)}${l.contact ? ' — ' + escapeHtml(l.contact) : ''}</option>`).join('')}</select></label><p style="font-size:12px;color:#64748b">Showing ${data.clients.length} of ${data.total} matches. Search to narrow the list.</p>`;
+    box.querySelector('select').onchange = event => {
+      selected = data.clients.find(l => l.id === event.target.value);
+      host.querySelector('[data-save-mapping]').disabled = !selected;
+      const preview = host.querySelector('[data-contact-preview]');
+      if (!selected) { preview.innerHTML = ''; return; }
+      const normalize = value => { let n = String(value || '').replace(/\D/g,''); if(n.startsWith('00'))n=n.slice(2); if(n.length === 11 && n[0] === '0')n=n.slice(1);return n.length===10?'91'+n:n; };
+      const exists = [selected.phone, selected.alternate].some(n => normalize(n) === context.call['Customer Number']);
+      preview.innerHTML = `<div class="card" style="padding:12px"><div>Primary: ${escapeHtml(selected.phone || 'Empty')}</div><div>Alternate: ${escapeHtml(selected.alternate || 'Empty')}</div>${exists ? '<p style="margin-top:8px">This number is already saved; contact details will stay the same.</p>' : !selected.phone || !selected.alternate ? `<p style="margin-top:8px">The call number will be saved as ${selected.phone ? 'alternate' : 'primary'} phone.</p>` : '<label style="display:block;margin-top:10px">Both contact fields are filled. Choose which number to replace:<select class="form-control" data-replace><option value="">Choose a field</option><option value="Phone">Primary phone</option><option value="Alternate No">Alternate number</option></select></label>'}</div>`;
+    };
+  };
+  displayClients(context);
+  host.querySelector('[data-map-search]').onsubmit = async event => {
+    event.preventDefault(); const seq = ++sequence;
+    selected = null; host.querySelector('[data-save-mapping]').disabled = true; host.querySelector('[data-contact-preview]').innerHTML = '';
+    try { const data = await api.getCallMappingContext(callId, event.target.elements.query.value); if (seq === sequence && overlay.isConnected) displayClients(data); }
+    catch (error) { host.querySelector('[data-map-error]').textContent = error.message; }
+  };
+  host.querySelector('[data-save-mapping]').onclick = async event => {
+    if (!selected) return;
+    const replace = host.querySelector('[data-replace]');
+    if (replace && !replace.value) { host.querySelector('[data-map-error]').textContent = 'Choose which existing number to replace.'; return; }
+    const button = event.target; setButtonLoading(button);
+    try {
+      const result = await api.mapCallToClient({ callId, leadId: selected.id, expectedPhone: selected.phone, expectedAlternate: selected.alternate, replaceField: replace?.value || '', mapRelated: host.querySelector('[data-map-related]').checked, confirmSharedNumber: host.querySelector('[data-shared]').checked });
+      toast(result.mapped + ' call(s) mapped'); overlay.remove(); onSaved();
+      api.getLeads().then(rows => AppCache.setRows('leads', rows)).catch(() => {});
+    } catch (error) { host.querySelector('[data-map-error]').textContent = error.message; }
+    finally { resetButtonLoading(button); }
+  };
+}
+</script>

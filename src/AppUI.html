@@ -444,6 +444,7 @@ const _PAGE_META = {
   archive:   { title: 'Archive',          crumb: 'Archive' },
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
+  calls:     { title: 'Calls', crumb: 'Calls' },
   webhooks:  { title: 'Webhooks',         crumb: 'Webhooks' },
   config:    { title: 'Config',           crumb: 'Config' },
 };
@@ -537,6 +538,7 @@ async function navigate(page) {
       if (_canAddFollowup()) await _runPageLoader(page, 'openFollowupForm');
       else toast('Only admins can add follow-ups.', 'error');
     }
+    else if (page === 'calls')             await _runPageLoader(page, 'loadCalls');
     else if (page === 'webhooks')          await _runPageLoader(page, 'loadWebhooks');
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
     else if (page === 'leadform')          await _runPageLoader(page, 'loadLeadForm');
@@ -615,6 +617,7 @@ function renderSidebar() {
   const mainItems = [
     navItem('today',     'activity',         "Today's Activity"),
     show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount, 'Overdue + Today + New leads without follow-up'))   : '',
+    (show('Leads') || show('Followups')) ? navItem('calls', 'phone', 'Calls') : '',
     show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
   ].filter(Boolean).join('');
   if (mainItems) html += `<div class="nav-section">Main</div>${mainItems}`;
@@ -682,6 +685,7 @@ function canNavigate(page) {
     followups: 'Followups', 'followups-today': 'Followups',
     'followups-overdue': 'Followups', 'followups-custom': 'Followups', 'followups-new': 'Followups'
   };
+  if (page === 'calls')     return App.user.role === 'ADMIN' || hasModule('Leads') || hasModule('Followups');
   if (page === 'webhooks')  return !!App.user.canEditConfig;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');

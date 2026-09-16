@@ -31,7 +31,7 @@ function _saveCallWebhook_(payload) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    if (payload.enabled) _ensureCallWebhookSheets_();
+    if (payload.enabled) { _ensureCallWebhookSheets_(); _ensureCallStorageLocked_(); _ensureCallWorker_(); }
     PropertiesService.getScriptProperties().setProperty(CALLYZER_ENABLED_KEY_, String(payload.enabled));
     return _callWebhookSettings_();
   } finally { lock.releaseLock(); }
@@ -53,7 +53,7 @@ function _recordCallWebhook_(raw, result, response, startedAt) {
     const payload = typeof raw === 'string' ? raw : '';
     const entry = {
       ...result, receivedAt: result.receivedAt || now(),
-      deliveryId: Utilities.getUuid(),
+      deliveryId: result.deliveryId || Utilities.getUuid(),
       processingMs: Math.max(0, Date.now() - startedAt),
       payloadCharacters: payload.length, payloadTruncated: payload.length > 30000
     };
@@ -94,7 +94,7 @@ function _callPhone_(value, countryCode) {
 }
 
 function _callText_(value, limit) {
-  return typeof value === 'string' || typeof value === 'number' ? String(value).trim().slice(0, limit) : '';
+  return typeof value === 'string' || typeof value === 'number' ? String(value).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim().slice(0, limit) : '';
 }
 
 function _callRecordingUrl_(value) {
@@ -121,6 +121,8 @@ function _normalizeCall_(employee, call) {
   if (modified && !revision) return null;
   return {
     id, phone, date, time, duration: Number(duration), type,
+    tags: (Array.isArray(employee.emp_tags) ? employee.emp_tags : []).slice(0, 50).map(t => _callText_(t, 150)),
+    customerName: _callText_(call.client_name, 200), employeeNumber: _callPhone_(employee.emp_number, employee.emp_country_code),
     note: _callText_(call.note, 10000), outcome: _callText_(call.crm_status, 200),
     employee: _callText_(employee.emp_name, 150) || _callText_(employee.emp_code, 100) || 'Callyzer',
     method: _callText_(call.call_method, 40), mode: _callText_(call.call_mode, 40),
@@ -129,100 +131,15 @@ function _normalizeCall_(employee, call) {
   };
 }
 
-function _callHistoryRecord_(call, lead, existing) {
-  const summary = [call.type, call.method, call.mode].filter(Boolean).join(' / ');
-  return {
-    ...(existing || {}),
-    'History ID': 'CALLYZER:' + call.id,
-    'Lead ID': lead['Lead ID'],
-    'Done Date': call.date,
-    'Done By': call.userId,
-    'Follow-up Type': 'Call',
-    'Contact Mode': call.type,
-    'Remark': [call.note, call.outcome ? 'Call result: ' + call.outcome : '', summary].filter(Boolean).join('\n'),
-    'Outcome': call.outcome,
-    'Stage ID': existing ? existing['Stage ID'] : lead['Stage ID'] || '',
-    'Created At': existing ? existing['Created At'] : now(),
-    'Call ID': call.id,
-    'Call Date': call.date,
-    'Call Time': call.time,
-    'Call Duration Seconds': call.duration,
-    'Call Recording URL': call.recording,
-    'Call Updated At': call.revision
-  };
-}
-
+// Synchronous processing helper for controlled imports and regression tests.
 function _receiveCallyzer_(raw) {
   assertServerContext_();
-  if (typeof raw !== 'string' || raw.length > 1000000) return { success: false, code: 'PAYLOAD_TOO_LARGE' };
+  if (!_callWebhookSettings_().enabled) return { success: false, code: 'WEBHOOK_DISABLED' };
+  const batch = _parseCallyzerBatch_(raw);
+  if (batch.error) return { success: false, code: batch.error };
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) return { success: false, code: 'BUSY', retry: true };
-  let touched = false;
-  let result;
+  if (!lock.tryLock(1000)) return { success: false, code: 'BUSY', retry: true };
   try {
-    if (!_callWebhookSettings_().enabled) return { success: false, code: 'WEBHOOK_DISABLED' };
-    _ensureCallWebhookSheets_();
-    result = { receivedAt: now(), success: true, total: 0, added: 0, updated: 0, duplicate: 0, unmatched: 0, ambiguous: 0, invalid: 0, invalidUser: 0, issues: [] };
-    let employees;
-    try { employees = JSON.parse(raw); } catch (_) { employees = null; }
-    if (!Array.isArray(employees) || !employees.length || employees.length > 100 || employees.some(e => !e || !Array.isArray(e.call_logs))) {
-      Object.assign(result, { success: false, code: 'INVALID_PAYLOAD' });
-      return result;
-    }
-    result.total = employees.reduce((sum, e) => sum + e.call_logs.length, 0);
-    if (!result.total || result.total > 200) {
-      Object.assign(result, { success: false, code: 'BATCH_LIMIT', maximumCalls: 200 });
-      return result;
-    }
-    const users = new Map(getUsersWithPortalAccess_('', false).map(u => [String(u['ID'] || u['User ID'] || '').trim().toLowerCase(), String(u['ID'] || u['User ID'] || '')]));
-    const leads = getAllRows(SHEET_NAMES.LEADS).filter(l => !safeBooleanValue_(l['Is Archived']) && String(l['Lead Status'] || '').toLowerCase() !== 'archived');
-    const byPhone = new Map();
-    leads.forEach(lead => {
-      new Set([_callPhone_(lead.Phone), _callPhone_(lead['Alternate No'])].filter(Boolean)).forEach(phone => {
-        if (!byPhone.has(phone)) byPhone.set(phone, []);
-        byPhone.get(phone).push(lead);
-      });
-    });
-    const sheet = getSheet(SHEET_NAMES.FOLLOWUP_HISTORY);
-    const headers = getHeaders(SHEET_NAMES.FOLLOWUP_HISTORY);
-    const values = sheet.getDataRange().getValues();
-    const existing = new Map();
-    values.slice(1).forEach((row, i) => {
-      const record = rowObjectFromHeaders_(headers, row, true, SHEET_NAMES.FOLLOWUP_HISTORY);
-      if (record['Call ID']) existing.set(String(record['Call ID']), { record, row: i + 2 });
-    });
-    const issue = (status, input) => {
-      result[status]++;
-      if (result.issues.length < 20) result.issues.push({ status, callId: _callText_(input && input.id, 200) });
-    };
-    employees.forEach(employee => employee.call_logs.forEach(input => {
-      const tags = Array.isArray(employee.emp_tags) ? employee.emp_tags : [];
-      const ids = [...new Set(tags.map(tag => _callText_(tag, 250).replace(/^id\s*=\s*/i, '').toLowerCase()).filter(tag => users.has(tag)))];
-      if (ids.length !== 1) { issue('invalidUser', input); return; }
-      const call = _normalizeCall_(employee, input);
-      if (!call) { issue('invalid', input); return; }
-      call.userId = users.get(ids[0]);
-      const matches = byPhone.get(call.phone) || [];
-      if (matches.length !== 1) { issue(matches.length ? 'ambiguous' : 'unmatched', input); return; }
-      const prior = existing.get(call.id);
-      if (prior && (prior.record['Lead ID'] !== matches[0]['Lead ID'] || prior.record['Done By'] !== call.userId)) { issue('ambiguous', input); return; }
-      if (prior && String(prior.record['Call Updated At']) >= call.revision) { result.duplicate++; return; }
-      const record = _callHistoryRecord_(call, matches[0], prior && prior.record);
-      const row = prior ? prior.row : sheet.getLastRow() + 1;
-      // Keep the idempotency read and write under one lock. insertRow/updateRow
-      // acquire and release that same lock, so use the sheet directly here.
-      touched = true;
-      sheet.getRange(row, 1, 1, headers.length).setNumberFormat('@').setValues([sanitizeSheetRowValues_(headers.map(h => record[h] === undefined ? '' : record[h]))]);
-      existing.set(call.id, { record, row });
-      result[prior ? 'updated' : 'added']++;
-    }));
-    return result;
-  } catch (error) {
-    if (result) error.callWebhookResult = result;
-    throw error;
-  } finally {
-    try {
-      if (touched) { SpreadsheetApp.flush(); _invalidateReadCache_(); _bumpStamp('followup_history'); }
-    } finally { lock.releaseLock(); }
-  }
+    return { success: true, receivedAt: now(), total: batch.total, invalid: batch.invalid, issues: batch.issues, ..._upsertCallsLocked_(batch.items) };
+  } finally { lock.releaseLock(); }
 }

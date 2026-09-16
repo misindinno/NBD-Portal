@@ -553,6 +553,32 @@ function apiRunSheetsApiSampleWrite(token, payload) {
   });
 }
 
+function apiGetCallLogs(token, options) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetCallLogs', () => respond(_getCallLogs_(_requireAnyModule(['Leads','Followups','Archive']), options || {})));
+}
+
+function apiGetCallMappingContext(token, callId, search) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetCallMappingContext', () => respond(_callMappingContext_(_requireModule('Leads'), callId, search)));
+}
+
+function apiMapCallToClient(token, payload) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiMapCallToClient', () => {
+    const user = _requireModule('Leads');
+    return withTrustedWriteUser_(user.email, () => respond(_mapCallToClient_(user, payload)));
+  });
+}
+
+function apiRetryCallDelivery(token, deliveryId) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiRetryCallDelivery', () => {
+    const user = _requireConfigReader();
+    return withTrustedWriteUser_(user.email, () => respond(_retryCallDelivery_(deliveryId)));
+  });
+}
+
 function apiGetCallWebhook(token) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiGetCallWebhook', () => {

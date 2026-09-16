@@ -116,6 +116,7 @@ async function openLeadDetail(leadId, seed) {
         <button class="tab-btn" onclick="switchTab(this,'tab-log')">Activity Logs <kbd class="tab-kbd">2</kbd></button>
         ${isNbdLocked ? '' : `<button class="tab-btn" onclick="switchTab(this,'tab-edit')">Edit Lead <kbd class="tab-kbd">3</kbd></button>`}
         ${'<button class="tab-btn" data-fsr-history-tab onclick="switchTab(this,\'tab-fsr-visits\')">FSR Visit History <span class="badge" data-fsr-history-count hidden></span> <kbd class="tab-kbd">' + (isNbdLocked ? '3' : '4') + '</kbd></button>'}
+        <button class="tab-btn" onclick="switchTab(this,'tab-calls')">Call Logs</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : ''}
@@ -134,6 +135,7 @@ async function openLeadDetail(leadId, seed) {
     <div id="tab-history" class="tab-pane">
       ${detailPending ? _leadDetailTabLoading() : _followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
     </div>
+    <div id="tab-calls" class="tab-pane" style="display:none" data-call-lead="${escapeHtml(String(lead['Lead ID']))}"></div>
     <div id="tab-fsr-visits" class="tab-pane" style="display:none" data-fsr-history-panel></div>
     <div id="tab-log" class="tab-pane" style="display:none">
       ${detailPending ? _leadDetailTabLoading() : _activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
@@ -242,6 +244,10 @@ async function openLeadDetail(leadId, seed) {
   function switchTab(btn, tabId) {
     btn.closest('.modal').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+    if (tabId === 'tab-calls') {
+      const host = btn.closest('.modal').querySelector('#tab-calls');
+      _mountCallsView(host, host.dataset.callLead);
+    }
     btn.closest('.modal').querySelectorAll('.tab-pane').forEach(pane => {
       pane.style.display = pane.id === tabId ? '' : 'none';
     });

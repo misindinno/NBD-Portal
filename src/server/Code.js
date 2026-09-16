@@ -2,7 +2,7 @@
 // Runtime setup:
 //   - doGet serves the portal UI.
 //   - google.script.run API calls read and write data synchronously (Sheets API
-//     primary, SpreadsheetApp fallback). The async job queue has been removed.
+//     primary, SpreadsheetApp fallback). Callyzer calls use a dedicated durable inbox.
 
 // Public, unsigned Callyzer endpoint. The bare deployment URL also accepts calls.
 function doPost(e) {
@@ -13,7 +13,7 @@ function doPost(e) {
     try {
       const route = String(e && e.parameter && e.parameter.webhook || '');
       result = !route || route === 'callyzer'
-        ? _receiveCallyzer_(raw)
+        ? _enqueueCallyzer_(raw)
         : { success: false, code: 'UNKNOWN_WEBHOOK' };
     } catch (error) {
       logServerError_(error, { api: 'callyzerWebhook' });

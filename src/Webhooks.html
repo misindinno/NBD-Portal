@@ -60,9 +60,9 @@ async function loadWebhooks() {
 
 function _callWebhookDeliveryHtml(rows) {
   if (!rows.length) return '<p style="color:#64748b;padding:20px 0">No deliveries yet. Enable the webhook and send calls from Callyzer.</p>';
-  return `<div class="table-wrap"><table><thead><tr><th>Received</th><th>Calls</th><th>Added</th><th>Updated</th><th>Duplicates</th><th>Needs attention</th></tr></thead><tbody>${rows.map(row => {
-    const problems = [['unmatched','No matching lead'],['ambiguous','Multiple or conflicting matches'],['invalidUser','Missing, unknown or multiple user tags'],['invalid','Invalid call data']].filter(([key]) => row[key]).map(([key,label]) => `${label}: ${Number(row[key])}`).join(' · ');
-    return `<tr><td>${escapeHtml(row.receivedAt)}</td><td>${Number(row.total || 0)}</td><td>${Number(row.added || 0)}</td><td>${Number(row.updated || 0)}</td><td>${Number(row.duplicate || 0)}</td><td>${escapeHtml(row.code || problems || 'None')}${row.issues && row.issues.length ? `<details><summary style="cursor:pointer;margin-top:5px">Call IDs</summary>${row.issues.map(issue => `<div style="font-size:12px;overflow-wrap:anywhere">${escapeHtml(issue.status)}: ${escapeHtml(issue.callId || '(missing ID)')}</div>`).join('')}</details>` : ''}${row.deliveryId ? `<details style="margin-top:8px"><summary style="cursor:pointer" data-delivery-id="${escapeHtml(row.deliveryId)}" onclick="_loadCallWebhookDelivery(this)">Request / response</summary><div data-webhook-detail></div></details>` : '<div style="font-size:12px;color:#64748b">Payload unavailable for this older delivery.</div>'}</td></tr>`;
+  return `<div class="table-wrap"><table><thead><tr><th>Received</th><th>Status</th><th>Calls</th><th>Added</th><th>Updated</th><th>Duplicates</th><th>Needs attention</th></tr></thead><tbody>${rows.map(row => {
+    const problems = [['anonymous','Anonymous caller'],['unmatched','No matching lead'],['ambiguous','Multiple or conflicting matches'],['invalidUser','Missing, unknown or multiple user tags'],['invalid','Invalid call data']].filter(([key]) => row[key]).map(([key,label]) => `${label}: ${Number(row[key])}`).join(' · ');
+    return `<tr><td>${escapeHtml(row.receivedAt)}</td><td>${escapeHtml(row.status || (row.success ? 'Completed' : 'Failed'))}${row.queued !== undefined ? `<div style="font-size:11px">${Number(row.processed || 0)} / ${Number(row.queued)} processed</div>` : ''}${row.status === 'Failed' && row.deliveryId ? `<button class="btn btn-outlined btn-sm" data-delivery-id="${escapeHtml(row.deliveryId)}" onclick="_retryCallDeliveryUi(this)">Retry processing</button>` : ''}</td><td>${Number(row.total || 0)}</td><td>${Number(row.added || 0)}</td><td>${Number(row.updated || 0)}</td><td>${Number(row.duplicate || 0)}</td><td>${escapeHtml(row.code || problems || 'None')}${row.issues && row.issues.length ? `<details><summary style="cursor:pointer;margin-top:5px">Call IDs</summary>${row.issues.map(issue => `<div style="font-size:12px;overflow-wrap:anywhere">${escapeHtml(issue.status)}: ${escapeHtml(issue.callId || '(missing ID)')}</div>`).join('')}</details>` : ''}${row.deliveryId ? `<details style="margin-top:8px"><summary style="cursor:pointer" data-delivery-id="${escapeHtml(row.deliveryId)}" onclick="_loadCallWebhookDelivery(this)">Request / response</summary><div data-webhook-detail></div></details>` : '<div style="font-size:12px;color:#64748b">Payload unavailable for this older delivery.</div>'}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 
@@ -82,6 +82,13 @@ async function _loadCallWebhookDelivery(summary) {
   } catch (error) {
     panel.textContent = (error.message || 'Unable to load delivery') + ' Close and reopen to retry.';
   } finally { delete panel.dataset.loading; }
+}
+
+async function _retryCallDeliveryUi(button) {
+  setButtonLoading(button);
+  try { const result = await api.retryCallDelivery(button.dataset.deliveryId); toast(result.retried + ' call(s) queued for retry'); await loadWebhooks(); }
+  catch (error) { toast(error.message, 'error'); }
+  finally { resetButtonLoading(button); }
 }
 
 function _callRemarkHtml(row) {
