@@ -726,6 +726,7 @@ function _decorateFollowup(row, ctx) {
     _state: lead ? (lead['State'] || '') : '',
     _leadSource: lead ? (lead['Source'] || '') : '',
     _sourcePortal: lead ? (lead['Source Portal'] || lead._sourceName || lead._source || '') : '',
+    _leadCategory: lead ? (lead['Category'] || '') : '',
     _lastDoneDate: ctx?.lastDoneMap?.[row['Lead ID']] || ''
   };
 }
@@ -751,6 +752,7 @@ function _fuCards(rows, emptyMsg, ctx) {
         ${r._clientLabel ? `<span>${icon('building-2', 12)} ${escapeHtml(r._clientLabel)}</span>` : (r._leadLabel ? `<span style="color:#aaa">${icon('target', 12)} ${escapeHtml(r._leadLabel)}</span>` : '<span style="color:#aaa">Standalone</span>')}
         ${r._leadSource ? `<span class="fu-source-chip" title="${escapeHtml(r._leadSource)}">${icon('git-branch', 12)} ${escapeHtml(r._leadSource)}</span>` : ''}
         ${r._sourcePortal && r._sourcePortal !== r._leadSource ? `<span class="fu-source-chip fu-source-chip-muted" title="${escapeHtml(r._sourcePortal)}">${icon('layers', 12)} ${escapeHtml(r._sourcePortal)}</span>` : ''}
+        ${r._leadCategory ? `<span class="fu-category-chip" title="${escapeHtml(r._leadCategory)}">${icon('tag', 12)} ${escapeHtml(r._leadCategory)}</span>` : ''}
         ${_followupCustomFieldMeta(r)}
       </div>
       ${r['Next Follow-up Date'] ? `<div style="display:flex;align-items:center;gap:12px;background:#EEF2FF;border-radius:4px;padding:6px 10px;font-size:12px">
@@ -939,9 +941,11 @@ function _fuTableRow(r) {
 function _fuSourceCell(r) {
   const source = String(r._leadSource || '').trim();
   const portal = String(r._sourcePortal || '').trim();
-  if (!source && !portal) return '<span class="muted-text">—</span>';
+  const category = String(r._leadCategory || '').trim();
+  if (!source && !portal && !category) return '<span class="muted-text">—</span>';
   return `<div class="fu-source-cell">
     ${source ? `<span class="fu-source-chip" title="${escapeHtml(source)}">${icon('git-branch', 12)} ${escapeHtml(source)}</span>` : ''}
+    ${category ? `<span class="fu-category-chip" title="${escapeHtml(category)}">${icon('tag', 11)} ${escapeHtml(category)}</span>` : ''}
     ${portal && portal !== source ? `<span class="fu-source-portal" title="${escapeHtml(portal)}">${icon('layers', 11)} ${escapeHtml(portal)}</span>` : ''}
   </div>`;
 }

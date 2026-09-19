@@ -135,7 +135,12 @@ function _isCacheableReadSheet_(sheetName) {
   if (!_CACHEABLE_READ_SHEETS_) {
     _CACHEABLE_READ_SHEETS_ = [
       SHEET_NAMES.CONFIG, SHEET_NAMES.STAGES, SHEET_NAMES.FIELD_CONFIG,
-      SHEET_NAMES.USERS, SHEET_NAMES.USER_PORTAL_ACCESS
+      SHEET_NAMES.USERS, SHEET_NAMES.USER_PORTAL_ACCESS,
+      // Leads/Followups are large and read multiple times within a single request
+      // (e.g. getNavigationSummary_ reads Leads directly, then again via
+      // getFollowups -> _existingVisibleLeadIdSet_). Cache within the execution;
+      // every write path calls _invalidateReadCache_() so this stays consistent.
+      SHEET_NAMES.LEADS, SHEET_NAMES.FOLLOWUPS
     ].reduce((m, name) => { m[normalizeSheetName(name)] = true; return m; }, {});
   }
   return !!_CACHEABLE_READ_SHEETS_[normalizeSheetName(sheetName)];

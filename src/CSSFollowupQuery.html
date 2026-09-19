@@ -507,6 +507,13 @@
     background: linear-gradient(135deg, #F8FAFC, #E2E8F0); color: #475569;
     border-color: rgba(71,85,105,.14);
   }
+  .fu-category-chip {
+    display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px;
+    background: linear-gradient(135deg, #ECFDF5, #A7F3D0); color: #065F46;
+    font-size: 11px; font-weight: 700; border: 1px solid rgba(6,95,70,.12);
+    white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .fu-category-chip svg { flex-shrink: 0; }
   .fu-source-cell {
     display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 130px;
   }
@@ -850,6 +857,7 @@
   .fu-page .fu-stage-chip { background: #ede9fe; color: #7c3aed; border: none; }
   .fu-page .fu-source-chip { background: #f3e8ff; color: #9333ea; border: none; }
   .fu-page .fu-source-chip-muted { background: #eef1f5; color: #64748b; }
+  .fu-page .fu-category-chip { background: #d1fae5; color: #047857; border: none; }
   .fu-page .fu-owner-avatar { background: linear-gradient(135deg, var(--brand), var(--brand-3)); box-shadow: none; }
   .fu-page .fu-owner-name { color: #2c2a40; }
   .fu-page .fu-icon-action { border: none; border-radius: 9px; background: #f3f2f8; color: #6f6c84; box-shadow: none; }
