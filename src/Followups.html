@@ -1,16 +1,16 @@
 <script>
 // ─── Follow-ups Page ─────────────────────────────────────────────────────────
 
-let _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
+let _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', source: '', category: '', dateFrom: '', dateTo: '' };
 let _fuDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_fuDensity')) || 'compact';
 let _fuFiltersOpen = false;
 let _fuPageSnapshot = null;
 let _fuShellReady = false;
-let _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
+let _fuFacets = { states: [], cities: [], types: [], contactModes: [], sources: [], categories: [] };
 let _fuFilterTimer = null;
 let _fuLoadSeq = 0;
 let _fuCustomRows = [];
-let _fuCustomFacets = { states: [], cities: [], types: [], contactModes: [] };
+let _fuCustomFacets = { states: [], cities: [], types: [], contactModes: [], sources: [], categories: [] };
 let _fuSnapshotRequest = null;
 let _fuSnapshotRequestId = 0;
 let _fuVisibleRows = [];
@@ -24,9 +24,9 @@ function _fuRouteIsActive() {
 async function loadFollowups(tab = 'all') {
   window.currentFollowupTab = tab;
   el('page-title').textContent = 'Follow-ups';
-  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
-  _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
-  _fuCustomFacets = { states: [], cities: [], types: [], contactModes: [] };
+  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', source: '', category: '', dateFrom: '', dateTo: '' };
+  _fuFacets = { states: [], cities: [], types: [], contactModes: [], sources: [], categories: [] };
+  _fuCustomFacets = { states: [], cities: [], types: [], contactModes: [], sources: [], categories: [] };
   _fuPageSnapshot = null; // one full snapshot per Follow-ups visit
   _fuSnapshotRequest = null;
   _fuSnapshotRequestId++;
@@ -51,7 +51,7 @@ async function _fuSwitchTab(tab) {
   const previousTab = window.currentFollowupTab || 'all';
   window.currentFollowupTab = tab;
   if (previousTab === 'custom' && tab !== 'custom') {
-    _fuFacets = { states: [], cities: [], types: [], contactModes: [] };
+    _fuFacets = { states: [], cities: [], types: [], contactModes: [], sources: [], categories: [] };
   }
   if (!_fuShellReady || !el('fu-body')) {
     await loadFollowups(tab);
@@ -181,6 +181,8 @@ function _fuFilterChipsHTML() {
   if (f.stage) chips.push(['stage', `Stage: ${(stages.find(s => s['Stage ID'] === f.stage) || {})['Stage Name'] || f.stage}`]);
   if (f.state) chips.push(['state', `State: ${f.state}`]);
   if (f.city) chips.push(['city', `City: ${f.city}`]);
+  if (f.source) chips.push(['source', `Source: ${f.source}`]);
+  if (f.category) chips.push(['category', `Category: ${f.category}`]);
   if (f.dateFrom) chips.push(['dateFrom', `From: ${f.dateFrom}`]);
   if (f.dateTo) chips.push(['dateTo', `To: ${f.dateTo}`]);
   return chips.map(([key, label]) => `<button class="fu-filter-chip" onclick="_fuOnFilterChange('${key}','')">${escapeHtml(label)} ${icon('x', 11)}</button>`).join('');
@@ -188,7 +190,7 @@ function _fuFilterChipsHTML() {
 
 function _fuActiveFilterCount() {
   const f = _fuFilterState;
-  return ['type','assignedTo','contactMode','stage','state','city','dateFrom','dateTo'].filter(k => f[k]).length;
+  return ['type','assignedTo','contactMode','stage','state','city','source','category','dateFrom','dateTo'].filter(k => f[k]).length;
 }
 
 function _fuModernFilterBarHTML() {
@@ -200,6 +202,8 @@ function _fuModernFilterBarHTML() {
   const modes = ['Call Connected', 'WhatsApp Chat', 'Not Picked'];
   const fuStates = _fuFacets.states || [];
   const fuCities = _fuFacets.cities || [];
+  const fuSources = _fuFacets.sources || [];
+  const fuCategories = _fuFacets.categories || [];
   return `
   <div class="fu-filter-bar" id="fu-filter-bar" style="display:${_fuFiltersOpen ? 'block' : 'none'}">
     <div class="fu-filter-card-grid">
@@ -229,6 +233,14 @@ function _fuModernFilterBarHTML() {
       <label class="fu-filter"><span>City</span><select id="fu-f-city" onchange="_fuOnFilterChange('city',this.value)">
         <option value="">All Cities</option>
         ${fuCities.map(c=>`<option value="${escapeHtml(c)}"${f.city===c?' selected':''}>${escapeHtml(c)}</option>`).join('')}
+      </select></label>
+      <label class="fu-filter"><span>Source</span><select id="fu-f-source" onchange="_fuOnFilterChange('source',this.value)">
+        <option value="">All Sources</option>
+        ${fuSources.map(s=>`<option value="${escapeHtml(s)}"${f.source===s?' selected':''}>${escapeHtml(s)}</option>`).join('')}
+      </select></label>
+      <label class="fu-filter"><span>Category</span><select id="fu-f-category" onchange="_fuOnFilterChange('category',this.value)">
+        <option value="">All Categories</option>
+        ${fuCategories.map(c=>`<option value="${escapeHtml(c)}"${f.category===c?' selected':''}>${escapeHtml(c)}</option>`).join('')}
       </select></label>
       <label class="fu-filter fu-date"><span>From</span><input type="date" id="fu-f-from" value="${escapeHtml(f.dateFrom)}" onchange="_fuOnFilterChange('dateFrom',this.value)"></label>
       <label class="fu-filter fu-date"><span>To</span><input type="date" id="fu-f-to" value="${escapeHtml(f.dateTo)}" onchange="_fuOnFilterChange('dateTo',this.value)"></label>
@@ -296,7 +308,7 @@ function _fuOnFilterChange(key, value) {
 }
 
 function _fuClearFilters() {
-  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', dateFrom: '', dateTo: '' };
+  _fuFilterState = { search: '', type: '', assignedTo: '', contactMode: '', stage: '', state: '', city: '', source: '', category: '', dateFrom: '', dateTo: '' };
   // Reset the filter inputs without full page reload
   const s = el('fu-f-search'); if (s) s.value = '';
   const t = el('fu-f-type');   if (t) t.value = '';
@@ -305,6 +317,8 @@ function _fuClearFilters() {
   const st = el('fu-f-stage'); if (st) st.value = '';
   const state = el('fu-f-state'); if (state) state.value = '';
   const city = el('fu-f-city'); if (city) city.value = '';
+  const src = el('fu-f-source'); if (src) src.value = '';
+  const cat = el('fu-f-category'); if (cat) cat.value = '';
   const f = el('fu-f-from');   if (f) f.value = '';
   const to = el('fu-f-to');    if (to) to.value = '';
   _renderFUTab(window.currentFollowupTab || 'all');
@@ -312,7 +326,7 @@ function _fuClearFilters() {
 
 function _fuApplyFilters(rows, ctx) {
   const f = _fuFilterState;
-  if (!f.search && !f.type && !f.assignedTo && !f.contactMode && !f.stage && !f.state && !f.city && !f.dateFrom && !f.dateTo) {
+  if (!f.search && !f.type && !f.assignedTo && !f.contactMode && !f.stage && !f.state && !f.city && !f.source && !f.category && !f.dateFrom && !f.dateTo) {
     return (rows || []).filter(row => _fuHasValidLead(row, ctx));
   }
   const searchQ = f.search.toLowerCase().trim();
@@ -337,6 +351,8 @@ function _fuApplyFilters(rows, ctx) {
     if (f.stage && lead?.['Stage ID'] !== f.stage && row['Stage ID'] !== f.stage && row['Updated Stage ID'] !== f.stage) return false;
     if (f.state && String(lead?.['State'] || '') !== f.state) return false;
     if (f.city && String(lead?.['City'] || '') !== f.city) return false;
+    if (f.source && String(lead?.['Source'] || '') !== f.source) return false;
+    if (f.category && String(lead?.['Category'] || '') !== f.category) return false;
     // Closed tab rows use Done Date; open tabs use Planned Date
     const dateField = row['Done Date'] ? _fmtDate(row['Done Date']) : _fmtDate(_fuPlannedDate(row));
     if ((f.dateFrom || f.dateTo) && !dateField) return false;
@@ -877,7 +893,9 @@ function _fuLocalFacets(rows) {
     states: values('_state'),
     cities: values('_city'),
     types: values('Follow-up Type'),
-    contactModes: values('Contact Mode')
+    contactModes: values('Contact Mode'),
+    sources: values('_leadSource'),
+    categories: values('_leadCategory')
   };
 }
 
