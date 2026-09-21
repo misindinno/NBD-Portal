@@ -6,7 +6,7 @@ const BulkView = (() => {
   let lastBatchId = '';
   let bulkMode = 'create';
   let bulkTab = 'entry';
-  const BULK_CHUNK_SIZE = 25;
+  const BULK_CHUNK_SIZE = 10;
 
   // ── Lazy-load Handsontable + Papaparse on demand ─────────────────────────────
   // These are heavy (~1 MB) and only the Bulk Entry page needs them, so they are
@@ -28,7 +28,7 @@ const BulkView = (() => {
       _injectBulkLib('link', 'hot-css', { rel: 'stylesheet', href: 'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css' });
       _injectBulkLib('script', 'hot-js', { src: 'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js' });
       _injectBulkLib('script', 'papa-js', { src: 'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js' });
-      const deadline = Date.now() + 25000;
+      const deadline = Date.now() + 45000;
       (function poll() {
         if (typeof Handsontable !== 'undefined' && typeof Papa !== 'undefined') return resolve(true);
         if (Date.now() > deadline) { _bulkLibsPromise = null; return resolve(false); }
@@ -606,7 +606,7 @@ const BulkView = (() => {
 
       let savedCount = 0;
       const chunks = _chunk(validItems, BULK_CHUNK_SIZE);
-      // Save each chunk synchronously (25 rows/call stays well under the GAS time limit).
+      // Smaller requests reduce the chance of exceeding the Apps Script execution limit.
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const chunkNo = i + 1;

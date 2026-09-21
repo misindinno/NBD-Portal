@@ -350,7 +350,7 @@ test('bulk validation shares save-time rules and always exports request failures
   assert.match(bulkService, /_safeLogBulkImport_\(summary, userEmail\)/);
   assert.match(bulkView, /const failedRows = _gridRows\(\)\.map/);
   assert.match(bulkView, /errors\.push\(\{ rowNumber: item\.rowNumber, errors: message, fieldErrors: \[\], \.\.\.item\.data \}\)/);
-  assert.match(api, /Bulk Entry requires a lead write role/);
+  assert.match(api, /userHasModule\(user, 'BulkEntry'\)/);
 });
 test('staff passwords remain in the portal plaintext sheet format', () => {
   const auth = fs.readFileSync(path.join(ROOT, 'src', 'server', 'AuthService.js'), 'utf8');

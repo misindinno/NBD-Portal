@@ -239,7 +239,7 @@ function _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode) {
       payload = validation.validRows[0] || {};
     }
     if (mode === 'create' && !payload['Stage ID']) payload['Stage ID'] = initialStageId || _bulkInitialStageId_();
-    const response = withTrustedWriteUser_(userEmail, () => saveLead(payload, userEmail));
+    const response = withTrustedWriteUser_(userEmail, () => saveLead(payload, userEmail, true));
     if (!response || !response.success) {
       return {
         rowNumber: source.__rowNumber,
@@ -301,7 +301,7 @@ function _trySaveBulkCreateFast_(sourceRows, validByRow, errorByRow, userEmail, 
 }
 
 function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, initialStageId, batchId) {
-  const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
+  const user = requireBulkEntryWriter_();
   const ts = now();
   const followupDate = today();
   const fuTypes = getConfigByType('Follow-up Type');
@@ -547,7 +547,7 @@ function createBulkFollowupOnlyRow(row, rowNumber, userEmail) {
       };
     }
     const result = withTrustedWriteUser_(userEmail, () => {
-      const user = requireRole(['ADMIN', 'MANAGER', 'SALES']);
+      const user = requireBulkEntryWriter_();
       if (!_canWriteLead(lead, user)) throw new Error('Permission denied for this lead.');
       if (_bulkLeadHasAnyFollowup_(lead['Lead ID'])) {
         throw new Error('Follow-up already exists for this lead.');

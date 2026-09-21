@@ -498,10 +498,10 @@ async function navigate(page) {
     _recordNavigationDiagnostic_('navigation.stalled', { navigationId, page, durationMs }, 'warn');
     try {
       if (window.PortalDiagnostics && typeof window.PortalDiagnostics.showRecoveryPanel === 'function') {
-        window.PortalDiagnostics.showRecoveryPanel('The ' + page + ' page did not finish loading within 30 seconds.');
+        window.PortalDiagnostics.showRecoveryPanel('The ' + page + ' page did not finish loading within 60 seconds.');
       }
     } catch (e) {}
-  }, 30000);
+  }, 60000);
   const contentEl = el('content');
   const titleEl = el('page-title');
   if (!contentEl) {
@@ -602,8 +602,7 @@ function renderSidebar() {
   const fuCount = Number(summary.followupsDue || summary.overdue || 0);
   const pipeCount = Number(summary.pipeline || summary.leadsOpen || summary.leads || 0);
   const leadsCount = Number(summary.leadsPending || summary.leadsOpen || summary.leads || 0);
-  const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
-  const canUseBulkEntry = isLqPortal ? show('BulkEntry') : u.role === 'ADMIN';
+  const canUseBulkEntry = show('BulkEntry');
   const badge = (n, title) => n > 0 ? `<span class="nav-badge"${title ? ` title="${title}"` : ''}>${n > 99 ? '99+' : n}</span>` : '';
 
   const navItem = (page, lucideIcon, label, extraBadge = '') =>
@@ -689,10 +688,7 @@ function canNavigate(page) {
   if (page === 'webhooks')  return !!App.user.canEditConfig;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
   if (page === 'leadform')  return hasModule('LeadForm');
-  if (page === 'bulkview') {
-    const isLqPortal = String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase().includes('lq');
-    return isLqPortal ? (hasModule('BulkEntry') || App.user.role === 'ADMIN') : App.user.role === 'ADMIN';
-  }
+  if (page === 'bulkview') return hasModule('BulkEntry') || App.user.role === 'ADMIN';
   if (page === 'today')     return !!App.user;
   return !!moduleMap[page] && hasModule(moduleMap[page]);
 }

@@ -292,6 +292,15 @@ function requireRole(allowedRoles) {
   return result.data;
 }
 
+function requireBulkEntryWriter_() {
+  const trustedEmail = TRUSTED_WRITE_EMAIL;
+  if (!trustedEmail) throw new Error('Direct write calls are disabled. Use the queue API.');
+  const result = getCurrentUserByEmail_(trustedEmail);
+  if (!result.success) throw new Error(result.error);
+  if (result.data.role !== 'ADMIN' && !userHasModule(result.data, 'BulkEntry')) throw new Error('Permission denied.');
+  return result.data;
+}
+
 function requireRoleForEmail_(allowedRoles, email) {
   // The email argument is retained for compatibility, but identity always comes
   // from withTrustedWriteUser_ in the authenticated API layer.

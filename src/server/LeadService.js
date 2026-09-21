@@ -70,9 +70,9 @@ function getLead(leadId) {
   return { lead, followups, followupHistory, activityLogs };
 }
 
-function saveLead(data, email) {
+function saveLead(data, email, bulkOperation) {
   return _leadSaveStep_('saveLead', () => {
-    const user = _leadSaveStep_('authorize user', () => requireRole(['ADMIN', 'MANAGER', 'SALES']));
+    const user = _leadSaveStep_('authorize user', () => bulkOperation === true ? requireBulkEntryWriter_() : requireRole(['ADMIN', 'MANAGER', 'SALES']));
     const leadId = _leadIdFromPayload(data);
     const skipped = data['__stage_skipped'] === 'true' || data['skipped'] === true;
     if (leadId) {
