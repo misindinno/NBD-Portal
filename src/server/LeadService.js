@@ -103,7 +103,7 @@ function saveLead(data, email, bulkOperation) {
     if (user.role === 'SALES') data['Assigned To'] = user.id;
     const duplicate = _leadSaveStep_('check create duplicate', () => _leadDuplicateMessage_(data, ''));
     if (duplicate) return respond(null, duplicate);
-    const prepared = _leadSaveStep_('prepare create payload', () => _prepareLeadPayload(data, data['Stage ID'], {}, skipped));
+    const prepared = _leadSaveStep_('prepare create payload', () => _prepareLeadPayload(data, data['Stage ID'], {}, skipped, { allowEmptyGlobalOnCreate: true }));
     _leadSaveStep_('apply create status', () => _applyLeadStatusFromStage(prepared, prepared['Stage ID']));
     const followupDate = today();
     const leadRow = {
@@ -318,7 +318,9 @@ function _prepareLeadPayload(data, stageId, existing, skipped, options) {
       } else if (skipped && skipVis === 'normal') {
         if (value !== undefined && value !== '') _validateCustomFieldValue({ ...field, 'Is Required': false }, value);
       } else {
-        _validateCustomFieldValue(field, value);
+        const validationField = options && options.allowEmptyGlobalOnCreate && !field['Stage ID']
+          ? { ...field, 'Is Required': false } : field;
+        _validateCustomFieldValue(validationField, value);
       }
     }
     if (value !== undefined) payload[key] = value;

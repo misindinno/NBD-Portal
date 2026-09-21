@@ -25,17 +25,17 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, sect
     return `<div class="custom-field-section" data-skippable="${isSkippable ? 'true' : 'false'}">
     <h3 style="font-size:14px;font-weight:600;margin:8px 0 12px;color:var(--md-primary)">${escapeHtml(sectionTitle)}</h3>
     ${skipToggle}
-    ${visibleFields.map(f => _customFieldControlHTML(f, d, configOptions)).join('')}
+    ${visibleFields.map(f => _customFieldControlHTML(f, d, configOptions, { globalOptionalOnCreate: isNewLead })).join('')}
   </div>`;
   }
 
-  function _customFieldControlHTML(field, d, configOptions) {
+  function _customFieldControlHTML(field, d, configOptions, options = {}) {
     const baseKey = field['Column Key'];
     const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
     const key = isPerStage ? baseKey + '__' + (d['Stage ID'] || '') : baseKey;
     const type = field['Field Type'] || 'Text';
     const value = d[key] !== undefined ? d[key] : '';
-    const required = type !== 'Formula' && (field['Is Required'] === true || field['Is Required'] === 'TRUE');
+    const required = type !== 'Formula' && (field['Is Required'] === true || field['Is Required'] === 'TRUE') && !(options.globalOptionalOnCreate && !field['Stage ID']);
     const help = field['Help Text'] ? `<div style="font-size:11px;color:#777;margin-top:3px">${escapeHtml(field['Help Text'])}</div>` : '';
     const attrs = `name="${escapeHtml(key)}" data-custom-key="${escapeHtml(key)}" data-required="${required ? 'true' : 'false'}"`;
     let control = '';
@@ -361,21 +361,7 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, sect
 
 
   function _uploadFileToServer(fileData, fieldKey) {
-    return new Promise((resolve, reject) => {
-      google.script.run
-        .withSuccessHandler(r => {
-          if (r && r.success) return resolve(r.data || '');
-          const msg = (r && r.error) ? r.error : 'File upload failed.';
-          if (/SESSION_EXPIRED/i.test(msg)) {
-            AuthToken.clear();
-            showLoginOverlay('Your session expired. Please sign in again.');
-            return reject(new Error('Session expired — please sign in again.'));
-          }
-          reject(new Error(msg));
-        })
-        .withFailureHandler(err => reject(new Error(err && err.message ? err.message : 'File upload failed.')))
-        .apiUploadFile(App.token, fileData, fieldKey);
-    });
+    return api.uploadFile(fileData, fieldKey);
   }
 
   function _cfRemoveFile(btn) {
@@ -397,12 +383,7 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, sect
   }
 
   function _checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
-    return new Promise((resolve, reject) => {
-      google.script.run
-        .withSuccessHandler(r => resolve(r && r.success ? (r.data || []) : []))
-        .withFailureHandler(() => resolve([]))
-        .apiCheckLeadDuplicates(App.token, phone || '', email || '', excludeLeadId || '', companyName || '');
-    });
+    return api.checkLeadDuplicates(phone, email, excludeLeadId, companyName);
   }
 
   function _showDuplicateWarning(duplicates) {
