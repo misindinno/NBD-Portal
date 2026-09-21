@@ -78,7 +78,9 @@ function saveLead(data, email, bulkOperation) {
     if (leadId) {
       const coreOnly = data['__edit_scope'] === 'core';
       data['Lead ID'] = leadId;
-      const existing = _leadSaveStep_('load existing lead', () => getLead(leadId));
+      const existing = _leadSaveStep_('load existing lead', () => ({
+        lead: coreOnly ? getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId) : getLeadCustomValues(leadId)
+      }));
       if (!existing || !existing.lead) return respond(null, 'Lead not found.');
       if (!_canWriteLead(existing.lead, user)) return respond(null, 'Permission denied.');
       if (_isLeadPushedToNbd_(existing.lead)) return respond(null, 'Lead is already pushed to NBD and cannot be edited in LQ.');
@@ -101,8 +103,6 @@ function saveLead(data, email, bulkOperation) {
     }
     const id = generateUUID();
     if (user.role === 'SALES') data['Assigned To'] = user.id;
-    const duplicate = _leadSaveStep_('check create duplicate', () => _leadDuplicateMessage_(data, ''));
-    if (duplicate) return respond(null, duplicate);
     const prepared = _leadSaveStep_('prepare create payload', () => _prepareLeadPayload(data, data['Stage ID'], {}, skipped, { allowEmptyGlobalOnCreate: true }));
     _leadSaveStep_('apply create status', () => _applyLeadStatusFromStage(prepared, prepared['Stage ID']));
     const followupDate = today();
@@ -120,7 +120,7 @@ function saveLead(data, email, bulkOperation) {
       const insertResult = _leadSaveStep_('insert lead master row', () => _insertLeadMasterRowBlockingDuplicates_(leadRow));
       if (!insertResult.success) return respond(null, insertResult.error);
       leadInserted = true;
-      _leadSaveStep_('upsert create custom fields', () => upsertCustomFieldValues_('Leads', id, prepared, user.id, prepared['Stage ID']));
+      _leadSaveStep_('upsert create custom fields', () => upsertCustomFieldValues_('Leads', id, prepared, user.id, prepared['Stage ID'], { newEntity: true }));
       const fuTypes = _leadSaveStep_('load followup type config', () => getConfigByType('Follow-up Type'));
       _leadSaveStep_('ensure followup sheets', () => ensureFollowupSheets_());
       _leadSaveStep_('insert initial followup', () => insertRow(SHEET_NAMES.FOLLOWUPS, {

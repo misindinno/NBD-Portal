@@ -15,6 +15,7 @@ $syntaxScript = Join-Path $rootPath 'scripts\check-syntax.js'
 $contractTests = @(
   (Join-Path $rootPath 'tests\architecture-pagination.contract.test.js'),
   (Join-Path $rootPath 'tests\bulk-permission.test.js'),
+  (Join-Path $rootPath 'tests\bulk-save.test.js'),
   (Join-Path $rootPath 'tests\server-security-surface.contract.test.js'),
   (Join-Path $rootPath 'tests\debug-architecture.contract.test.js'),
   (Join-Path $rootPath 'tests\stage-deactivation.contract.test.js'),

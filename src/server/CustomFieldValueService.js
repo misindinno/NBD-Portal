@@ -60,7 +60,7 @@ function mergeCustomFieldValues_(sheetName, rows) {
   return rows.map(row => ({ ...row, ...(byEntity[String(row[entityKey] || '')] || {}) }));
 }
 
-function upsertCustomFieldValues_(sheetName, entityId, payload, userId, stageId) {
+function upsertCustomFieldValues_(sheetName, entityId, payload, userId, stageId, options) {
   ensureCustomFieldValueSheets_();
   if (!entityId || !payload) return;
   const fields = _customFieldsForWrite_(sheetName, stageId)
@@ -68,7 +68,8 @@ function upsertCustomFieldValues_(sheetName, entityId, payload, userId, stageId)
   fields.forEach(field => {
     const key = _customEffectiveColumnKey_(field, stageId);
     if (!key || !Object.prototype.hasOwnProperty.call(payload, key)) return;
-    _upsertCustomValue_(sheetName, entityId, { ...field, 'Column Key': key }, payload[key], userId);
+    if (options && options.newEntity && (payload[key] === '' || payload[key] === null || payload[key] === undefined)) return;
+    _upsertCustomValue_(sheetName, entityId, { ...field, 'Column Key': key }, payload[key], userId, options);
   });
 }
 
@@ -97,12 +98,12 @@ function pickFollowupMasterFields_(payload) {
   return _pickFields_(payload, FOLLOWUP_MASTER_FIELDS);
 }
 
-function _upsertCustomValue_(sheetName, entityId, field, value, userId) {
+function _upsertCustomValue_(sheetName, entityId, field, value, userId, options) {
   const valueSheet = _customValueSheetName_(sheetName);
   const entityKey = _customEntityKey_(sheetName);
   const fieldId = field['Field ID'];
   const key = field['Column Key'];
-  const existing = queryRows(valueSheet, r =>
+  const existing = options && options.newEntity ? null : queryRows(valueSheet, r =>
     String(r[entityKey]) === String(entityId) &&
     String(r['Field ID']) === String(fieldId) &&
     String(r['Column Key'] || '') === String(key || '')

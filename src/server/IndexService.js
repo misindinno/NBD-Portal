@@ -161,6 +161,23 @@ function getRowsByIndexedColumn_(sheetName, columnName, value) {
   return rows;
 }
 
+// Only for newly generated IDs appended while the caller holds the script lock.
+// Append the index as one range instead of scanning it again for every new row.
+function appendNewIndexRows_(sheetName, rowObjects, startRow) {
+  assertServerContext_();
+  const def = _indexDefinitionForSheet_(sheetName);
+  if (!def || !rowObjects || !rowObjects.length) return;
+  if (startRow < 2) throw new Error('Invalid index source row.');
+  safeInitHeaders(def.indexSheet, def.headers);
+  const indexSheet = getSheet(def.indexSheet);
+  const values = rowObjects.map((row, i) => {
+    if (!row[def.idColumn]) throw new Error('Missing index record ID.');
+    const built = def.build(row, startRow + i);
+    return def.headers.map(header => built[header] !== undefined ? built[header] : '');
+  });
+  indexSheet.getRange(indexSheet.getLastRow() + 1, 1, values.length, def.headers.length).setValues(values);
+}
+
 function syncIndexRow_(sheetName, rowObj, rowNumber) {
   assertServerContext_();
   const def = _indexDefinitionForSheet_(sheetName);

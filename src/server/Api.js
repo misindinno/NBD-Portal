@@ -784,8 +784,13 @@ function apiSaveBulkRows(token, rows, mode) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiSaveBulkRows', () => {
     const user = _requireBulkEntry_();
-    return withTrustedWriteUser_(user.email, () =>
-      respond(saveBulkRows(rows || [], user.email, '', mode || 'create')));
+    try {
+      return withTrustedWriteUser_(user.email, () =>
+        respond(saveBulkRows(rows || [], user.email, '', mode || 'create')));
+    } catch (error) {
+      logServerError_(error, { api: 'apiSaveBulkRows', step: error.bulkSaveStep || 'validating and preparing bulk rows' });
+      return respond(null, error, errorCodeFrom_(error), { step: error.bulkSaveStep || 'validating and preparing bulk rows' });
+    }
   });
 }
 

@@ -343,9 +343,9 @@ test('bulk validation shares save-time rules and always exports request failures
   const bulkView = fs.readFileSync(path.join(ROOT, 'src', 'BulkView.html'), 'utf8');
   const api = fs.readFileSync(path.join(ROOT, 'src', 'server', 'Api.js'), 'utf8');
   assert.match(bulkService, /_bulkAddRequiredInitialStageFields_\(configured, configTypeMap\)/);
-  assert.match(bulkService, /mergeCustomFieldValues_\('Leads', _bulkLeadIndexRows_\(\)\)/);
+  assert.match(bulkService, /_bulkMode_\(mode\) === 'update' \? mergeCustomFieldValues_\('Leads', indexRows\) : indexRows/);
   assert.match(bulkService, /_bulkLeadDomainErrors_\(item, mode, lead\)/);
-  assert.match(bulkService, /_prepareLeadPayload\(payload, stageId, existing, skipped\)/);
+  assert.match(bulkService, /_prepareLeadPayload\(payload, stageId, existing, skipped, \{ allowEmptyGlobalOnCreate: mode === 'create' \}\)/);
   assert.match(bulkService, /_safeLogBulkImport_\(fastCreate\.summary, userEmail\)/);
   assert.match(bulkService, /_safeLogBulkImport_\(summary, userEmail\)/);
   assert.match(bulkView, /const failedRows = _gridRows\(\)\.map/);

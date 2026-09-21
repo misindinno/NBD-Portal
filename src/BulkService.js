@@ -56,14 +56,22 @@ function _bulkAddRequiredInitialStageFields_(configured, configTypeMap) {
     const key = _customEffectiveColumnKey_(field, stageId);
     const label = String(field['Field Name'] || key).trim();
     if (!required || !key || fieldType === 'Formula' || skipVisibility === 'skip_only') return;
-    if (known[label.toLowerCase()] || known[key.toLowerCase()]) return;
+    if (known[label.toLowerCase()] || known[key.toLowerCase()]) {
+      if (!field['Stage ID']) {
+        output.forEach(config => {
+          if (String(config.targetHeader || '').toLowerCase() === key.toLowerCase() ||
+              String(config.fieldName || '').toLowerCase() === label.toLowerCase()) config.required = false;
+        });
+      }
+      return;
+    }
     const dropdownSource = String(field['Dropdown Source'] || '').trim();
     const allowedValues = fieldType === 'Select' && dropdownSource && configTypeMap[dropdownSource]
       ? configTypeMap[dropdownSource].slice()
       : [];
     output.push({
       fieldName: label,
-      required: true,
+      required: !!field['Stage ID'],
       dataType: fieldType === 'Number' ? 'Number' : fieldType === 'Date' ? 'Date' : 'Text',
       targetColumn: key,
       targetHeader: key,
@@ -97,12 +105,13 @@ function validateBulkRows(rows, mode) {
   if ((Array.isArray(rows) ? rows.length : 0) > BULK_MAX_ROWS) {
     throw new Error('Bulk import supports up to ' + BULK_MAX_ROWS + ' rows at a time.');
   }
-  return _validateBulkRowsWithContext_(rows, mode, _bulkValidationContext_());
+  return _validateBulkRowsWithContext_(rows, mode, _bulkValidationContext_(mode));
 }
 
-function _bulkValidationContext_() {
+function _bulkValidationContext_(mode) {
   const config = getBulkConfig();
-  const leads = mergeCustomFieldValues_('Leads', _bulkLeadIndexRows_());
+  const indexRows = _bulkLeadIndexRows_();
+  const leads = _bulkMode_(mode) === 'update' ? mergeCustomFieldValues_('Leads', indexRows) : indexRows;
   return {
     config,
     leads,
@@ -160,7 +169,7 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
   const batchId = String(requestedBatchId || '').trim() || generateUUID();
   const sourceRows = _bulkRows_(rows);
   if (sourceRows.length > BULK_MAX_ROWS) throw new Error('Bulk import supports up to ' + BULK_MAX_ROWS + ' rows at a time.');
-  const validation = _validateBulkRowsWithContext_(sourceRows, mode, _bulkValidationContext_());
+  const validation = _validateBulkRowsWithContext_(sourceRows, mode, _bulkValidationContext_(mode));
   const validByRow = (validation.validItems || []).reduce((m, item) => {
     m[item.rowNumber] = item.payload;
     return m;
@@ -296,7 +305,8 @@ function _trySaveBulkCreateFast_(sourceRows, validByRow, errorByRow, userEmail, 
     );
   } catch (e) {
     _logBulkFastFallback_(batchId, e);
-    return null;
+    // A write may already have reached Sheets. Never silently replay the batch.
+    throw e;
   }
 }
 
@@ -317,7 +327,7 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
   let errors = preResults.length;
 
   const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  _bulkSaveStep_('waiting for another save', () => lock.waitLock(20000));
   try {
     const latestMap = _bulkExistingMap_(_bulkLeadIndexRows_());
     validItems.forEach(item => {
@@ -384,11 +394,15 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
     });
 
     try {
-      _bulkAppendRows_(SHEET_NAMES.LEADS, leadRows);
-      _bulkAppendRows_(SHEET_NAMES.FOLLOWUPS, followupRows);
-      _bulkAppendRows_(SHEET_NAMES.LEAD_FIELD_VALUES, customRows);
+      _bulkSaveStep_('saving leads and their index', () => _bulkAppendRows_(SHEET_NAMES.LEADS, leadRows));
+      _bulkSaveStep_('saving initial follow-ups and their index', () => _bulkAppendRows_(SHEET_NAMES.FOLLOWUPS, followupRows));
+      _bulkSaveStep_('saving additional fields', () => _bulkAppendRows_(SHEET_NAMES.LEAD_FIELD_VALUES, customRows));
     } catch (e) {
-      _bulkRollbackFastCreate_(leadIds, followupIds);
+      try { _bulkRollbackFastCreate_(leadIds, followupIds); }
+      catch (rollbackError) {
+        rollbackError.bulkSaveStep = 'recovering a partially saved batch; check saved leads before retrying';
+        throw rollbackError;
+      }
       throw e;
     }
   } finally {
@@ -423,10 +437,18 @@ function _saveBulkCreateFast_(sourceRows, validItems, preResults, userEmail, ini
   };
 }
 
+function _bulkSaveStep_(step, fn) {
+  try { return fn(); }
+  catch (error) {
+    error.bulkSaveStep = step;
+    throw error;
+  }
+}
+
 function _logBulkFastFallback_(batchId, error) {
   const message = error && error.message ? error.message : String(error || 'Unknown fast bulk fallback');
   try {
-    Logger.log('[BulkService] Fast bulk create fallback for batch ' + (batchId || '-') + ': ' + message);
+    Logger.log('[BulkService] Bulk create failed for batch ' + (batchId || '-') + ': ' + message);
   } catch (_) {}
 }
 
@@ -445,10 +467,9 @@ function _bulkAppendRows_(sheetName, rowObjects) {
   const headers = getHeaders(sheetName);
   const values = rowObjects.map(row => headers.map(h => row[h] !== undefined ? row[h] : ''));
   const startRow = sheet.getLastRow() + 1;
+  _invalidateReadCache_();
   sheet.getRange(startRow, 1, values.length, headers.length).setValues(values);
-  if (typeof syncIndexRow_ === 'function') {
-    rowObjects.forEach((row, i) => syncIndexRow_(sheetName, row, startRow + i));
-  }
+  appendNewIndexRows_(sheetName, rowObjects, startRow);
 }
 
 function _bulkRollbackFastCreate_(leadIds, followupIds) {
@@ -640,7 +661,7 @@ function _bulkLeadDomainErrors_(item, mode, lead) {
   if (mode === 'create' && !payload['Stage ID']) payload['Stage ID'] = stageId;
   const skipped = payload['__stage_skipped'] === 'true' || payload['skipped'] === true;
   try {
-    _prepareLeadPayload(payload, stageId, existing, skipped);
+    _prepareLeadPayload(payload, stageId, existing, skipped, { allowEmptyGlobalOnCreate: mode === 'create' });
     return [];
   } catch (error) {
     const message = error && error.message ? error.message : String(error || 'Lead validation failed');

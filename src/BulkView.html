@@ -564,6 +564,13 @@ const BulkView = (() => {
     }
   }
 
+  function _bulkSaveErrorMessage(error) {
+    const message = error && error.message || String(error || 'Save response was missing. Check the lead list before retrying.');
+    const step = error && error.details && error.details.step;
+    const reference = error && error.requestId;
+    return message + (step ? '\nStep: ' + step : '') + (reference ? '\nReference: ' + reference : '');
+  }
+
   async function saveQueued() {
     const gridRows = _gridRows();
     if (!gridRows.length) {
@@ -633,14 +640,15 @@ const BulkView = (() => {
             }
           });
         } catch (e) {
+          const message = _bulkSaveErrorMessage(e);
           chunk.forEach(item => {
             const original = rowByNumber[item.rowNumber] || {};
-            _setRowMeta(item.rowNumber, { __status__: 'Error', __errors__: e.message || 'Save failed' });
-            errors.push({ rowNumber: item.rowNumber, errors: e.message || 'Save failed', fieldErrors: [], ...(original.data || {}) });
+            _setRowMeta(item.rowNumber, { __status__: 'Error', __errors__: message });
+            errors.push({ rowNumber: item.rowNumber, errors: message, fieldErrors: [], ...(original.data || {}) });
           });
         }
       }
-      await _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
+      _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
 
       const saved = savedCount;
       const failed = gridRows.length - saved;
@@ -648,10 +656,10 @@ const BulkView = (() => {
       _markErrors(errors);
       _setProgress(100, failed ? `Done - ${failed} row(s) failed` : 'All leads saved');
       Swal.fire(failed ? 'Completed with errors' : 'Bulk save complete',
-        `${saved} lead(s) saved. ${failed} failed.`,
+        `${saved} lead(s) saved. ${failed} failed.` + (failed && errors.length ? `\nRow ${errors[0].rowNumber}: ${errors[0].errors}` : ''),
         failed ? 'warning' : 'success');
     } catch (err) {
-      const message = err.message || String(err);
+      const message = _bulkSaveErrorMessage(err);
       const knownRows = new Set((errors || []).map(row => Number(row.rowNumber)));
       gridRows.forEach(item => {
         const row = hot && hot.getSourceDataAtRow(item.rowNumber - 1);
