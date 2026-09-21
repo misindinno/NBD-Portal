@@ -93,26 +93,120 @@ function pushFsrCreatedRow(rowNumber) {
   });
 }
 
+const FSR_SYNC_QUEUE_SHEET_ = 'FSR_SYNC_QUEUE';
+const FSR_SYNC_QUEUE_HEADERS_ = ['Queue ID','Lead IDs','Event Type','Status','Attempts','Created At','Updated At','Last Error'];
+
+// Portal writes save first, then leave outbound delivery to a separate execution.
 function pushFsrLeadById_(leadId, eventType, sheet) {
-  return pushFsrLeadIds_([leadId], eventType, sheet)[0] || { skipped: true, reason: 'lead_row_not_found' };
+  return pushFsrLeadIds_([leadId], eventType, sheet)[0] || { skipped: true, reason: 'lead_id_missing' };
 }
 
 function pushFsrLeadIds_(leadIds, eventType, sheet) {
   try {
-    sheet = sheet || getSheet(SHEET_NAMES.LEADS);
-    if (!_isFsrClientSheet_(sheet)) return [{ skipped: true, reason: 'not_client_sheet' }];
-    const wanted = (leadIds || []).reduce((map, id) => {
-      const value = String(id || '').trim();
-      if (value) map[value] = true;
-      return map;
-    }, {});
-    if (!Object.keys(wanted).length) return [];
-    const rows = _fsrLeadRowNumbersById_(sheet, wanted);
-    return _pushFsrLeadRows_(rows, eventType || 'client.updated', sheet);
+    assertServerContext_();
+    const config = _fsrWebhookConfig_();
+    if (!config.url || !config.secret) return [{ skipped: true, reason: 'missing_webhook_config' }];
+    if (sheet && !_isFsrClientSheet_(sheet)) return [{ skipped: true, reason: 'not_client_sheet' }];
+    const ids = Array.from(new Set((leadIds || []).map(id => String(id || '').trim()).filter(Boolean)));
+    if (!ids.length) return [];
+    const event = _fsrEventType_(eventType);
+    safeInitHeaders(FSR_SYNC_QUEUE_SHEET_, FSR_SYNC_QUEUE_HEADERS_);
+    const queue = getSheet(FSR_SYNC_QUEUE_SHEET_);
+    const createdAt = now();
+    const rows = [];
+    for (let i = 0; i < ids.length; i += 25) {
+      rows.push([Utilities.getUuid(), JSON.stringify(ids.slice(i, i + 25)), event, 'Pending', 0, createdAt, createdAt, '']);
+    }
+    queue.getRange(queue.getLastRow() + 1, 1, rows.length, FSR_SYNC_QUEUE_HEADERS_.length).setValues(rows);
+    SpreadsheetApp.flush();
+    _ensureFsrSyncWorker_();
+    return [{ queued: true, count: ids.length }];
   } catch (error) {
-    _logFsrWebhookFailure_('lead_lookup_failed', error, { eventType });
+    _logFsrWebhookFailure_('queue_failed', error, { eventType });
     return [{ error: diagnosticErrorSummary_(error) }];
   }
+}
+
+function _ensureFsrSyncWorker_() {
+  if (!ScriptApp.getProjectTriggers().some(trigger => trigger.getHandlerFunction() === 'processFsrSyncQueue_')) {
+    ScriptApp.newTrigger('processFsrSyncQueue_').timeBased().everyMinutes(1).create();
+  }
+}
+
+// A worker failure leaves the item in the sheet for the next run or manual retry.
+function processFsrSyncQueue_() {
+  return withServerContext_(() => {
+    const started = Date.now();
+    const attempted = new Set();
+    for (let processed = 0; processed < 5 && Date.now() - started < 180000; processed++) {
+      const lock = LockService.getScriptLock();
+      if (!lock.tryLock(1000)) return;
+      let job;
+      try {
+        const queue = getSpreadsheet(FSR_SYNC_QUEUE_SHEET_).getSheetByName(FSR_SYNC_QUEUE_SHEET_);
+        if (!queue || queue.getLastRow() < 2) return;
+        let values = queue.getRange(2, 1, queue.getLastRow() - 1, FSR_SYNC_QUEUE_HEADERS_.length).getValues();
+        if (!values.some(row => row[3] === 'Processing')) {
+          const done = values.map((row, i) => ({ row: i + 2, status: row[3] })).filter(item => item.status === 'Done');
+          done.slice(0, Math.max(0, done.length - 300)).reverse().forEach(item => queue.deleteRows(item.row, 1));
+          if (done.length > 300) values = queue.getRange(2, 1, queue.getLastRow() - 1, FSR_SYNC_QUEUE_HEADERS_.length).getValues();
+        }
+        const index = values.findIndex(row => !attempted.has(String(row[0])) && (row[3] === 'Pending' || (row[3] === 'Processing' && Date.now() - new Date(row[6]).getTime() > 600000)));
+        if (index < 0) return;
+        const row = values[index];
+        job = { sheet: queue, rowNumber: index + 2, id: row[0], ids: row[1], event: row[2], attempts: Number(row[4] || 0), createdAt: row[5] };
+        attempted.add(String(job.id));
+        queue.getRange(job.rowNumber, 4, 1, 4).setValues([['Processing', job.attempts, row[5], now()]]);
+        SpreadsheetApp.flush();
+      } finally { lock.releaseLock(); }
+
+      let failure = '';
+      try {
+        const ids = JSON.parse(job.ids);
+        if (!Array.isArray(ids) || ids.length > 25) throw new Error('Invalid queued lead IDs.');
+        const wanted = ids.reduce((map, id) => { map[String(id)] = true; return map; }, {});
+        const sheet = getSheet(SHEET_NAMES.LEADS);
+        const found = _fsrLeadRowNumbersById_(sheet, wanted);
+        if (found.length) {
+          const results = _pushFsrLeadRows_(found, job.event, sheet);
+          if (results.some(result => result.error || result.skipped || (result.status && (result.status < 200 || result.status >= 300)))) {
+            throw new Error('FSR delivery failed; inspect webhook diagnostics.');
+          }
+        }
+      } catch (error) {
+        failure = diagnosticErrorSummary_(error);
+        _logFsrWebhookFailure_('queued_delivery_failed', error, { queueId: job.id, attempt: job.attempts + 1 });
+      }
+
+      const finishLock = LockService.getScriptLock(); finishLock.waitLock(10000);
+      try {
+        const attempts = job.attempts + (failure ? 1 : 0);
+        const status = failure ? attempts >= 3 ? 'Failed' : 'Pending' : 'Done';
+        job.sheet.getRange(job.rowNumber, 4, 1, 5).setValues([[status, attempts, job.createdAt, now(), failure]]);
+        SpreadsheetApp.flush();
+      } finally { finishLock.releaseLock(); }
+    }
+  });
+}
+
+function retryFailedFsrSyncQueue_() {
+  return withServerContext_(() => {
+    requireContainerAdmin_(false);
+    const lock = LockService.getScriptLock(); lock.waitLock(10000);
+    try {
+      const queue = getSpreadsheet(FSR_SYNC_QUEUE_SHEET_).getSheetByName(FSR_SYNC_QUEUE_SHEET_);
+      if (!queue || queue.getLastRow() < 2) return 0;
+      const statuses = queue.getRange(2, 4, queue.getLastRow() - 1, 2).getValues();
+      let retried = 0;
+      statuses.forEach((row, i) => {
+        if (row[0] !== 'Failed') return;
+        queue.getRange(i + 2, 4, 1, 2).setValues([['Pending', 0]]);
+        retried++;
+      });
+      if (retried) _ensureFsrSyncWorker_();
+      return retried;
+    } finally { lock.releaseLock(); }
+  });
 }
 
 function fsrSendRange_(range, eventType) {

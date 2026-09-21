@@ -20,6 +20,7 @@ $contractTests = @(
   (Join-Path $rootPath 'tests\stage-deactivation.contract.test.js'),
   (Join-Path $rootPath 'tests\removed-features.contract.test.js'),
   (Join-Path $rootPath 'tests\fsr-webhook.contract.test.js'),
+  (Join-Path $rootPath 'tests\fsr-sync-queue.test.js'),
   (Join-Path $rootPath 'tests\fsr-visit-history.test.js'),
   (Join-Path $rootPath 'tests\call-webhook.test.js')
 )
