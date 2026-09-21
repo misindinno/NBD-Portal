@@ -161,7 +161,7 @@ const Store = (() => {
   async function _readDiagnosticMember(source, names) {
     for (const name of names) {
       try {
-        if (typeof source[name] === 'function') return await _withTimeout(source[name](), 3000);
+        if (typeof source[name] === 'function') return await source[name]();
         if (source[name] !== undefined) return source[name];
       } catch (err) {
         return { diagnosticReadError: `${name}: ${String(err)}` };
@@ -473,18 +473,6 @@ const Store = (() => {
     ];
   }
 
-  async function _withTimeout(promise, timeoutMs) {
-    let timer;
-    try {
-      return await Promise.race([
-        Promise.resolve(promise),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Diagnostics check timed out')), timeoutMs); })
-      ]);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   async function _runChecks() {
     _setStatus('Running checks...');
     const diagnostics = _diagnosticsObject();
@@ -492,7 +480,7 @@ const Store = (() => {
     try {
       const runner = diagnostics && ['runChecks', 'runHealthChecks', 'selfTest', 'check'].find(name => typeof diagnostics[name] === 'function');
       if (runner) {
-        const result = await _withTimeout(diagnostics[runner](), 12000);
+        const result = await diagnostics[runner]();
         externalChecks = Array.isArray(result) ? result : (result ? [result] : []);
       }
       _lastChecks = [...externalChecks, ..._localChecks()];

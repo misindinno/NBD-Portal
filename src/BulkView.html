@@ -14,24 +14,26 @@ const BulkView = (() => {
   // poll for the globals (the GAS sandbox iframe doesn't always fire script
   // onload reliably, so polling the global is the source of truth).
   let _bulkLibsPromise = null;
-  function _injectBulkLib(tag, key, attrs) {
+  function _injectBulkLib(tag, key, attrs, onError) {
     if (document.querySelector(tag + '[data-bulklib="' + key + '"]')) return;
     const node = document.createElement(tag);
     node.setAttribute('data-bulklib', key);
     Object.keys(attrs).forEach(k => node.setAttribute(k, attrs[k]));
+    if (onError) node.addEventListener('error', () => { node.remove(); onError(); }, { once: true });
     document.head.appendChild(node);
   }
   function ensureBulkLibs() {
     if (typeof Handsontable !== 'undefined' && typeof Papa !== 'undefined') return Promise.resolve(true);
     if (_bulkLibsPromise) return _bulkLibsPromise;
     _bulkLibsPromise = new Promise(resolve => {
+      let settled = false;
+      const failed = () => { if (settled) return; settled = true; _bulkLibsPromise = null; resolve(false); };
       _injectBulkLib('link', 'hot-css', { rel: 'stylesheet', href: 'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css' });
-      _injectBulkLib('script', 'hot-js', { src: 'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js' });
-      _injectBulkLib('script', 'papa-js', { src: 'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js' });
-      const deadline = Date.now() + 45000;
+      _injectBulkLib('script', 'hot-js', { src: 'https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js' }, failed);
+      _injectBulkLib('script', 'papa-js', { src: 'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js' }, failed);
       (function poll() {
-        if (typeof Handsontable !== 'undefined' && typeof Papa !== 'undefined') return resolve(true);
-        if (Date.now() > deadline) { _bulkLibsPromise = null; return resolve(false); }
+        if (settled) return;
+        if (typeof Handsontable !== 'undefined' && typeof Papa !== 'undefined') { settled = true; return resolve(true); }
         setTimeout(poll, 120);
       })();
     });

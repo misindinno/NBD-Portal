@@ -89,7 +89,6 @@ async function _continueAppInit(token) {
 
   if (diagnostics) {
     diagnostics.phase('startup.initial-page', 'start', { page: defaultPage });
-    diagnostics.resetStartupWatchdog('startup.initial-page');
   }
   await navigate(defaultPage);
   if (diagnostics) {

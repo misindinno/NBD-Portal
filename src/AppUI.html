@@ -450,21 +450,16 @@ const _PAGE_META = {
 };
 
 async function _runPageLoader(page, loaderName, args = []) {
-  const deadline = Date.now() + 2500;
-  while (Date.now() < deadline) {
-    let fn = window[loaderName];
-    if (typeof fn !== 'function') {
-      try { fn = (0, eval)(loaderName); } catch (e) { fn = null; }
-    }
-    if (typeof fn === 'function') return fn(...args);
-    await new Promise(resolve => setTimeout(resolve, 50));
+  let fn = window[loaderName];
+  if (typeof fn !== 'function') {
+    try { fn = (0, eval)(loaderName); } catch (e) { fn = null; }
   }
+  if (typeof fn === 'function') return fn(...args);
   const scriptCount = document.scripts ? document.scripts.length : 0;
-  throw new Error(`${loaderName} is not available after waiting. Loaded scripts: ${scriptCount}. Please redeploy the latest portal files and hard-refresh.`);
+  throw new Error(loaderName + ' is unavailable. Loaded scripts: ' + scriptCount + '. Please redeploy the latest portal files and hard-refresh.');
 }
 window._runPageLoader = _runPageLoader;
 
-let _navigationTraceSequence = 0;
 function _recordNavigationDiagnostic_(type, details, level) {
   try {
     if (window.PortalDiagnostics && typeof window.PortalDiagnostics.record === 'function') {
@@ -488,30 +483,17 @@ function _setActiveNav(page) {
 window._setActiveNav = _setActiveNav;
 
 async function navigate(page) {
-  const navigationSequence = ++_navigationTraceSequence;
-  const navigationId = 'nav-' + navigationSequence;
+  const navigationId = 'nav-' + Date.now();
   const navigationStartedAt = Date.now();
   _recordNavigationDiagnostic_('navigation.start', { navigationId, page });
-  const navigationStallTimer = setTimeout(() => {
-    if (_navigationTraceSequence !== navigationSequence) return;
-    const durationMs = Date.now() - navigationStartedAt;
-    _recordNavigationDiagnostic_('navigation.stalled', { navigationId, page, durationMs }, 'warn');
-    try {
-      if (window.PortalDiagnostics && typeof window.PortalDiagnostics.showRecoveryPanel === 'function') {
-        window.PortalDiagnostics.showRecoveryPanel('The ' + page + ' page did not finish loading within 60 seconds.');
-      }
-    } catch (e) {}
-  }, 60000);
   const contentEl = el('content');
   const titleEl = el('page-title');
   if (!contentEl) {
-    clearTimeout(navigationStallTimer);
     _recordNavigationDiagnostic_('navigation.failure', { navigationId, page, reason: 'content-missing' }, 'error');
     console.warn('[navigate] #content missing; the app shell is not mounted yet.');
     return;
   }
   if (!canNavigate(page)) {
-    clearTimeout(navigationStallTimer);
     _recordNavigationDiagnostic_('navigation.denied', { navigationId, page }, 'warn');
     if (titleEl) titleEl.textContent = 'Access Denied';
     contentEl.innerHTML = `<div class="card" style="padding:24px;color:#666">You do not have permission to open this module.</div>`;
@@ -559,8 +541,6 @@ async function navigate(page) {
     }, 'error');
     console.error('[navigate] page loader threw for "' + page + '":', err);
     if (contentEl) contentEl.innerHTML = `<p style="color:#D32F2F;padding:20px">Failed to load page: ${escapeHtml(err.message || String(err))}</p>`;
-  } finally {
-    clearTimeout(navigationStallTimer);
   }
 }
 

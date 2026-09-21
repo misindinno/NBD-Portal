@@ -33,5 +33,5 @@ test('Bulk Entry appears in every portal user editor and uses smaller save reque
   }
   assert.match(read('src/BulkView.html'), /BULK_CHUNK_SIZE = 10/);
   assert.ok(read('src/AppUI.html').includes("const canUseBulkEntry = show('BulkEntry');"));
-  assert.match(read('src/Diagnostics.html'), /watchdogMs: 60000/);
+  assert.doesNotMatch(read('src/Diagnostics.html'), /watchdogMs|startWatchdog/);
 });

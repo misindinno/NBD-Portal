@@ -171,7 +171,7 @@ test('client report is bounded and redacts sensitive values at runtime', () => {
   assert.ok(diagnostics && typeof diagnostics === 'object', 'Diagnostics must expose window.PortalDiagnostics');
   for (const method of [
     'record', 'getReport', 'formatReport', 'rpcStart', 'rpcSuccess', 'rpcFailure',
-    'phase', 'resetStartupWatchdog', 'showRecoveryPanel'
+    'phase', 'showRecoveryPanel'
   ]) {
     assert.equal(typeof diagnostics[method], 'function', 'PortalDiagnostics.' + method + ' must be a function');
   }
@@ -241,21 +241,24 @@ test('global script, resource, and unhandled rejection failures are captured', (
     'Resource error capture must run in the capture phase');
 });
 
-test('startup watchdog checkpoints reset phase budget and recovered state', () => {
+test('startup diagnostics wait for completion without imposing a deadline', () => {
   const { diagnostics } = loadClientDiagnostics(files.client);
-  diagnostics.resetStartupWatchdog('startup.initial-page');
-  let report = diagnostics.getReport();
-  assert.equal(report.startupWatchdog.checkpoint, 'startup.initial-page');
-  assert.equal(report.startupWatchdog.active, true);
-  assert.equal(report.startupWatchdog.budgetMs, diagnostics.limits.watchdogMs);
-
-  diagnostics.showRecoveryPanel('Temporary startup timeout');
+  const before = diagnostics.getReport();
+  assert.equal(before.startupWatchdog, undefined);
+  assert.equal(typeof diagnostics.resetStartupWatchdog, 'undefined');
   diagnostics.markReady({ mode: 'app', page: 'today' });
-  report = diagnostics.getReport();
-  assert.equal(report.recoveryReason, '', 'Recovered startup must not retain an active recovery reason');
-  assert.equal(report.startupWatchdog.active, false);
-  assert.ok(report.events.some(event => event.type === 'startup.recovered'),
-    'Recovered startup must retain an audit event for the prior timeout');
+  assert.ok(diagnostics.getReport().events.some(event => event.type === 'startup.phase' && event.details.phase === 'portal.ready'));
+  assert.doesNotMatch(files.client, /function\s+startWatchdog\s*\(/);
+});
+
+test('portal loading and diagnostics impose no browser timeout', () => {
+  const appUi = read('src/AppUI.html');
+  const bulk = read('src/BulkView.html');
+  const store = read('src/Store.html');
+  assert.doesNotMatch(appUi, /navigationStallTimer|page did not finish loading|const deadline/);
+  assert.doesNotMatch(bulk, /const deadline|Date\.now\(\) > deadline/);
+  assert.doesNotMatch(store, /_withTimeout|Diagnostics check timed out/);
+  assert.doesNotMatch(files.client, /withCheckTimeout|watchdogMs|startWatchdog/);
 });
 
 test('RPC diagnostics record client timing and server correlation metadata', () => {
@@ -287,12 +290,6 @@ test('startup failure UI exposes bounded recovery actions', () => {
     'Startup recovery must offer report copy');
   assert.match(files.client, /apiDiagnosticPing|callDiagnosticPing|runChecks/i,
     'Startup recovery must offer or record a guarded health check');
-  assert.match(files.client, /function\s+startWatchdog\s*\(/,
-    'Diagnostics must own the startup watchdog');
-  assert.match(files.client, /watchdogCheckpoint/,
-    'Startup watchdog reports must identify the phase checkpoint');
-  assert.match(read('src/AppAuth.html'), /resetStartupWatchdog\(\s*['"]startup\.initial-page['"]\s*\)/,
-    'The initial page must receive a fresh watchdog budget after bootstrap');
 });
 
 test('public-safe ping and administrator snapshot APIs use the correct guards', () => {

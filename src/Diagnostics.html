@@ -12,8 +12,7 @@
     arrayItems: 12,
     stringLength: 800,
     reportLength: 60000,
-    slowRpcMs: 8000,
-    watchdogMs: 60000
+    slowRpcMs: 8000
   });
   const SENSITIVE_KEY = /(?:token|password|passwd|authorization|credential|secret|cookie|session|id[_-]?token)/i;
   const PII_KEY = /(?:e-?mail|phone|mobile|whatsapp|address|contact.?name|first.?name|last.?name|full.?name)/i;
@@ -23,9 +22,6 @@
   const startedAt = Date.now();
   let sequence = 0;
   let ready = false;
-  let watchdogTimer = null;
-  let watchdogCheckpoint = 'diagnostics.loaded';
-  let watchdogArmedAt = startedAt;
   let recoveryReason = '';
 
   global.__PORTAL_READY = false;
@@ -204,8 +200,6 @@
     if (ready) return;
     ready = true;
     global.__PORTAL_READY = true;
-    if (watchdogTimer) global.clearTimeout(watchdogTimer);
-    watchdogTimer = null;
     if (recoveryReason) {
       record('startup.recovered', { previousReason: recoveryReason });
       recoveryReason = '';
@@ -214,8 +208,6 @@
   }
 
   function failStartup(reason, error) {
-    if (watchdogTimer) global.clearTimeout(watchdogTimer);
-    watchdogTimer = null;
     phase('portal.ready', 'failure', { reason: reason || '', error: error || null });
     showRecoveryPanel(reason || 'Portal startup failed.', error);
   }
@@ -262,18 +254,6 @@
       if (portalApiAvailable() && typeof api.diagnosticPing === 'function') return api.diagnosticPing();
     } catch (e) {}
     return callRawDiagnosticPing();
-  }
-
-  function withCheckTimeout(promise, label) {
-    let timer;
-    return Promise.race([
-      promise,
-      new Promise(function (_, reject) {
-        timer = global.setTimeout(function () { reject(new Error(label + ' timed out after 12 seconds.')); }, 12000);
-      })
-    ]).finally(function () {
-      if (timer) global.clearTimeout(timer);
-    });
   }
 
   function diagnosticPayloadSummary(payload, includeChecks) {
@@ -347,12 +327,6 @@
       generatedAt: nowIso(),
       uptimeMs: elapsedMs(),
       recoveryReason,
-      startupWatchdog: {
-        checkpoint: watchdogCheckpoint,
-        armedAt: new Date(watchdogArmedAt).toISOString(),
-        budgetMs: LIMITS.watchdogMs,
-        active: !ready && Boolean(watchdogTimer)
-      },
       environment: environmentSnapshot(),
       globals: {
         googleScriptRun: gasBridgeAvailable(),
@@ -441,7 +415,7 @@
 
     if (bridgeAvailable) {
       try {
-        const ping = await withCheckTimeout(callDiagnosticPing(), 'Diagnostic ping');
+        const ping = await callDiagnosticPing();
         const summary = diagnosticPayloadSummary(ping, false);
         checks.push({ name: 'Server diagnostic ping', ok: summary.status === 'ok', summary });
       } catch (error) {
@@ -456,7 +430,7 @@
         if (!portalApiAvailable() || typeof api.getDiagnosticSnapshot !== 'function') {
           throw new Error('Admin diagnostic snapshot API is not loaded.');
         }
-        const snapshot = await withCheckTimeout(api.getDiagnosticSnapshot(), 'Admin diagnostic snapshot');
+        const snapshot = await api.getDiagnosticSnapshot();
         const summary = diagnosticPayloadSummary(snapshot, true);
         checks.push({ name: 'Admin diagnostic snapshot', ok: summary.status === 'ok', summary });
       } catch (error) {
@@ -552,33 +526,11 @@
     else global.addEventListener('DOMContentLoaded', render, { once: true });
   }
 
-  function startWatchdog(checkpoint) {
-    if (ready || global.__PORTAL_READY) return;
-    if (watchdogTimer) global.clearTimeout(watchdogTimer);
-    watchdogCheckpoint = redactString(checkpoint || watchdogCheckpoint || 'startup');
-    watchdogArmedAt = Date.now();
-    watchdogTimer = global.setTimeout(function () {
-      if (ready || global.__PORTAL_READY) return;
-      const pending = rpcs.filter(rpc => rpc.state === 'pending').map(rpc => rpc.operation);
-      const reason = pending.length
-        ? 'Startup is waiting for: ' + pending.join(', ')
-        : (global.__PORTAL_BOOT_ERRORS[0] || 'The application did not finish the ' + watchdogCheckpoint + ' phase within ' + Math.round(LIMITS.watchdogMs / 1000) + ' seconds.');
-      watchdogTimer = null;
-      phase('startup.watchdog', 'failure', {
-        checkpoint: watchdogCheckpoint,
-        pendingRpc: pending,
-        elapsedSinceCheckpointMs: Math.max(0, Date.now() - watchdogArmedAt)
-      });
-      showRecoveryPanel(reason);
-    }, LIMITS.watchdogMs);
-  }
-
   global.PortalDiagnostics = Object.freeze({
     version: '1.0.0',
     limits: LIMITS,
     record,
     phase,
-    resetStartupWatchdog: startWatchdog,
     markReady,
     failStartup,
     rpcStart,
@@ -623,6 +575,5 @@
   });
 
   phase('diagnostics.loaded', 'complete', { readyState: global.document.readyState });
-  startWatchdog('diagnostics.loaded');
 })(window);
 </script>
