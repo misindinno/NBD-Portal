@@ -93,7 +93,7 @@ async function openLeadDetail(leadId, seed) {
       </div>
       <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb">
         <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">Priority</div>
-        <div style="font-weight:600;color:#111827">${escapeHtml(lead['Priority'] || '—')}</div>
+        <div style="font-weight:600;color:#111827">${escapeHtml(leadPriorityLabel(lead['Priority']) || '—')}</div>
       </div>
       <div style="padding:10px 16px;border-bottom:1px solid #e5e7eb;border-left:1px solid #e5e7eb">
         <div style="font-size:11px;color:#9ca3af;font-weight:500;margin-bottom:2px">City</div>

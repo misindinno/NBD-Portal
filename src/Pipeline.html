@@ -247,7 +247,7 @@ async function loadPipeline() {
           <div class="pc-title">${title || '—'}</div>
           ${contactPerson ? `<div class="pc-contact">${contactPerson}</div>` : ''}
         </div>
-        ${priority ? `<span class="pc-pri pc-pri-${pcls}">${icon('flame', 10)} ${escapeHtml(priority)}</span>` : ''}
+        ${priority ? `<span class="pc-pri pc-pri-${pcls}">${icon('flame', 10)} ${escapeHtml(leadPriorityLabel(priority))}</span>` : ''}
       </div>
       ${remark ? `<div class="pc-desc">${remark}</div>` : ''}
       ${(phone || cityState) ? `<div class="pc-meta">
@@ -322,7 +322,7 @@ async function loadPipeline() {
   }
 
   const usersOpts = (App.config.users || []).map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('');
-  const prioOpts  = (App.config.priorities || ['Hot','Warm','Cold']).map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  const prioOpts  = leadPriorityOptions().map(p => `<option value="${escapeHtml(p)}">${escapeHtml(leadPriorityLabel(p))}</option>`).join('');
 
   el('content').innerHTML = `
     <div class="pipeline-topbar">

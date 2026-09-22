@@ -137,9 +137,9 @@
     const cards = [
       { key: '',       label: 'Total Leads', value: c.total || 0,  sub: 'matching leads', icon: 'users',          cls: 'neutral' },
       { key: 'open',   label: 'Open',        value: c.open || 0,   sub: 'in progress',    icon: 'circle-dot',     cls: 'blue' },
-      { key: 'hot',    label: 'Hot',         value: c.hot || 0,    sub: 'high priority',  icon: 'flame',          cls: 'danger' },
-      { key: 'warm',   label: 'Warm',        value: c.warm || 0,   sub: 'mid priority',   icon: 'thermometer',    cls: 'warning' },
-      { key: 'cold',   label: 'Cold',        value: c.cold || 0,   sub: 'low priority',   icon: 'snowflake',      cls: 'blue' },
+      { key: 'hot',    label: 'Top',         value: c.hot || 0,    sub: 'high priority',  icon: 'flame',          cls: 'danger' },
+      { key: 'warm',   label: 'Average',        value: c.warm || 0,   sub: 'mid priority',   icon: 'thermometer',    cls: 'warning' },
+      { key: 'cold',   label: 'Low',        value: c.cold || 0,   sub: 'low priority',   icon: 'snowflake',      cls: 'blue' },
       { key: 'closed', label: 'Closed',      value: c.closed || 0, sub: 'final stage',    icon: 'check-circle-2', cls: 'success' },
       { key: 'nbd',    label: 'NBD Pushed',  value: c.nbd || 0,    sub: 'sent to NBD',    icon: 'send',           cls: 'purple' }
     ];
@@ -177,7 +177,7 @@
       .map(l => ({ ...l, _sortKey: _leadSortKey(l, stageMap) }))
       .sort((a, b) => a._sortKey < b._sortKey ? -1 : a._sortKey > b._sortKey ? 1 : 0);
     const statusOpts = App.config.statuses.map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('');
-    const priorityOpts = App.config.priorities.map(function (p) { return '<option>' + escapeHtml(p) + '</option>'; }).join('');
+    const priorityOpts = leadPriorityOptions().map(function (p) { return '<option value="' + escapeHtml(p) + '">' + escapeHtml(leadPriorityLabel(p)) + '</option>'; }).join('');
     const stageOpts = App.config.stages.map(function (s) { return '<option value="' + escapeHtml(s['Stage ID']) + '">' + escapeHtml(s['Stage Name']) + '</option>'; }).join('');
     const stateSet = {}, citySet = {};
     (leads || []).forEach(function (lead) {
@@ -361,7 +361,7 @@
             if (!raw) return '<span class="muted-text">—</span>';
             const cls = priClass[p] || 'lead-pri-other';
             const ic = priIcon[p] || 'circle';
-            return '<span class="lead-pri-pill ' + cls + '">' + iconSvg(ic, 11) + ' ' + escapeHtml(raw) + '</span>';
+            return '<span class="lead-pri-pill ' + cls + '">' + iconSvg(ic, 11) + ' ' + escapeHtml(leadPriorityLabel(raw)) + '</span>';
           }
         },
         {

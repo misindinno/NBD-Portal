@@ -12,7 +12,7 @@ async function loadLeadForm() {
   const statesHTML    = cfg.states.map(function(s){ return '<option>' + escapeHtml(s) + '</option>'; }).join('');
   const categoriesHTML = cfg.categories.map(function(c){ return '<option>' + escapeHtml(c) + '</option>'; }).join('');
   const sourcesHTML   = cfg.sources.map(function(s){ return '<option>' + escapeHtml(s) + '</option>'; }).join('');
-  const prioritiesHTML = cfg.priorities.map(function(p){ return '<option>' + escapeHtml(p) + '</option>'; }).join('');
+  const prioritiesHTML = leadPriorityOptions().map(function(p){ return '<option value="' + escapeHtml(p) + '">' + escapeHtml(leadPriorityLabel(p)) + '</option>'; }).join('');
   const productInterestHTML = productInterests.length
     ? '<div class="form-group"><label>Product Interest</label><select class="form-control" name="Product Interest"><option value="">Select Product Interest</option>'
       + productInterests.map(function(p){ return '<option>' + escapeHtml(p) + '</option>'; }).join('')

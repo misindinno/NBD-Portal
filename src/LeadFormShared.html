@@ -60,7 +60,7 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
     <div class="form-row">
       <div class="form-group"><label>Priority</label>
         <select class="form-control" name="Priority">
-          ${cfg.priorities.map(p => `<option ${d['Priority'] === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+          ${leadPriorityOptions().map(p => `<option value="${escapeHtml(p)}" ${d['Priority'] === p ? 'selected' : ''}>${escapeHtml(leadPriorityLabel(p))}</option>`).join('')}
         </select></div>
         ${canAssign ? `<div class="form-group"><label>Assigned To</label>
           <select class="form-control" name="Assigned To">

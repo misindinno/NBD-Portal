@@ -468,7 +468,7 @@ async function _fuPickLead() {
           <div class="fu-card-meta">
             ${l['Company Name'] ? `<span>${icon('building-2', 12)} ${escapeHtml(l['Company Name'])}</span>` : ''}
             <span>${escapeHtml(l['Source']||'')}</span>
-            <span class="badge badge-${_badgeClass(l['Priority'])}">${escapeHtml(l['Priority']||'')}</span>
+            <span class="badge badge-${_badgeClass(l['Priority'])}">${escapeHtml(leadPriorityLabel(l['Priority']))}</span>
           </div>
         </div>`).join('')}
     </div>`);

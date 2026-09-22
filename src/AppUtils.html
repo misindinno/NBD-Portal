@@ -1,4 +1,10 @@
 <script>
+// Stored priority keys remain compatible with existing leads and reports.
+function leadPriorityOptions() { return ['Hot', 'Warm', 'Cold']; }
+function leadPriorityLabel(value) {
+  const key = String(value || '').trim().toLowerCase();
+  return ({ hot: 'Top', warm: 'Average', cold: 'Low' })[key] || value || '';
+}
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function toast(msg, type = 'success') {
   const text = msg instanceof Error ? msg.message : String(msg || '');
