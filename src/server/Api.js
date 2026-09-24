@@ -707,7 +707,7 @@ function apiMarkFollowupDoneDirect(token, followupId, payload) {
     try {
       return withTrustedWriteUser_(user.email, () => markFollowupDone(followupId || '', payload || {}, user.email));
     } catch (error) {
-      const step = error.followupDoneStep || 'validating follow-up completion';
+      const step = (error.followupDoneStep || 'validating follow-up completion') + (error.sheetUpdateStep ? ' / ' + error.sheetUpdateStep : '');
       logServerError_(error, { api: 'apiMarkFollowupDoneDirect', step });
       return respond(null, error, errorCodeFrom_(error), { step });
     }

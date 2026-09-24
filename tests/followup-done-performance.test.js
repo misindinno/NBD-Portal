@@ -30,7 +30,7 @@ function updateContext(fixture, hint) {
   let held = false, released = 0;
   const synced = [];
   const ctx = vm.createContext({
-    CLIENT_CONFIG: {}, SHEET_NAMES: { FOLLOWUPS: 'followups' },
+    CLIENT_CONFIG: {}, SpreadsheetApp: { flush() {} }, SHEET_NAMES: { FOLLOWUPS: 'followups' },
     LockService: { getScriptLock: () => ({ waitLock() { held = true; }, releaseLock() { held = false; released++; } }) },
     findIndexedRowNumber_() { assert.equal(held, true); return hint; },
     syncIndexRow_: (...args) => synced.push(args),
@@ -135,4 +135,15 @@ test('disabled API writes go directly to a single locked update', () => {
   assert.equal(ctx.updateRow('followups', 'ID', 'target', { Value: 'saved' }), true);
   assert.equal(released(), 1);
   assert.equal(fixture.data[1][1], 'saved');
+});
+
+test('lock timeout is identified before any row write and does not release an unowned lock', () => {
+  const fixture = sheetFixture([['ID', 'Value'], ['target', 'old']]);
+  const { ctx } = updateContext(fixture, 2);
+  ctx.LockService = { getScriptLock: () => ({
+    waitLock(ms) { assert.ok(ms > 45000); throw Error('Lock timeout'); },
+    releaseLock() { throw Error('Cannot release an unowned lock'); }
+  }) };
+  assert.throws(() => ctx._legacyUpdateRow_('followups', 'ID', 'target', { Value: 'saved' }), error => error.sheetUpdateStep === 'waiting for another write to release the script lock');
+  assert.equal(fixture.writes.length, 0);
 });

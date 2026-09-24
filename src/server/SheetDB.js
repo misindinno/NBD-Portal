@@ -242,42 +242,53 @@ function updateRow(sheetName, idColumn, idValue, updates) {
     return _legacyUpdateRow_(sheetName, idColumn, idValue, updates);
   });
 }
+function _sheetUpdateStep_(step, fn) {
+  try {
+    return typeof withDiagnosticSpan_ === 'function' ? withDiagnosticSpan_('sheet.update', { step }, fn) : fn();
+  } catch (error) {
+    error.sheetUpdateStep = step;
+    throw error;
+  }
+}
+
 function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
-  const sheet = getSheet(sheetName);
+  const sheet = _sheetUpdateStep_('opening the sheet', () => getSheet(sheetName));
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  _sheetUpdateStep_('waiting for another write to release the script lock', () => lock.waitLock(60000));
   let syncedRow = null;
   let syncedRowNumber = 0;
   try {
-    const lastRow = sheet.getLastRow();
-    const lastColumn = sheet.getLastColumn();
+    const { lastRow, lastColumn } = _sheetUpdateStep_('reading sheet bounds', () => ({ lastRow: sheet.getLastRow(), lastColumn: sheet.getLastColumn() }));
     if (lastRow < 2 || !lastColumn) return false;
-    const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+    const headers = _sheetUpdateStep_('reading column headers', () => sheet.getRange(1, 1, 1, lastColumn).getValues()[0]);
     const col = headers.indexOf(idColumn);
     if (col === -1) return false;
     let targetRow = typeof findIndexedRowNumber_ === 'function'
-      ? findIndexedRowNumber_(sheetName, idColumn, idValue) : -1;
+      ? _sheetUpdateStep_('finding the record in its index', () => findIndexedRowNumber_(sheetName, idColumn, idValue)) : -1;
     let values = targetRow > 1 && targetRow <= lastRow
-      ? sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0] : null;
+      ? _sheetUpdateStep_('reading the current row', () => sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]) : null;
     // Indexes are hints. Verify identity under the lock before updating a row.
     if (!values || String(values[col]) !== String(idValue)) {
-      const ids = sheet.getRange(2, col + 1, lastRow - 1, 1).getValues();
+      const ids = _sheetUpdateStep_('locating a record with a stale index', () => sheet.getRange(2, col + 1, lastRow - 1, 1).getValues());
       const index = ids.findIndex(row => String(row[0]) === String(idValue));
       if (index < 0) return false;
       targetRow = index + 2;
-      values = sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0];
+      values = _sheetUpdateStep_('reading the located row', () => sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0]);
       if (String(values[col]) !== String(idValue)) return false;
     }
     const updatedRow = headers.map((h, i) => updates[h] !== undefined ? updates[h] : values[i]);
     const safeUpdatedRow = typeof sanitizeSheetRowValues_ === 'function'
       ? sanitizeSheetRowValues_(updatedRow) : updatedRow;
-    sheet.getRange(targetRow, 1, 1, headers.length).setValues([safeUpdatedRow]);
+    _sheetUpdateStep_('writing the target row', () => {
+      sheet.getRange(targetRow, 1, 1, headers.length).setValues([safeUpdatedRow]);
+      SpreadsheetApp.flush();
+    });
     syncedRow = rowObjectFromHeaders_(headers, safeUpdatedRow, true, sheetName);
     syncedRowNumber = targetRow;
   } finally {
     lock.releaseLock();
   }
-  if (syncedRow && typeof syncIndexRow_ === 'function') syncIndexRow_(sheetName, syncedRow, syncedRowNumber);
+  if (syncedRow && typeof syncIndexRow_ === 'function') _sheetUpdateStep_('updating the lookup index', () => syncIndexRow_(sheetName, syncedRow, syncedRowNumber));
   return true;
 }
 

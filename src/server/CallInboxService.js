@@ -71,23 +71,38 @@ function _updateCallDeliveryProcessingLocked_(inbox) {
     result.status = processing.failed ? 'Failed' : processing.processed === jobs.length ? 'Completed' : 'Processing';
     Object.assign(result, processing);
     // Update only the summary, retaining original payload and acknowledgement.
-    logs.sheet.getRange(entry.row, 2, 1, 1).setValues([[JSON.stringify(result)]]);
+    const serialized = JSON.stringify(result);
+    if (serialized !== String(entry.record.Result || '')) logs.sheet.getRange(entry.row, 2, 1, 1).setValues([[serialized]]);
   });
 }
 
 // Private time-trigger entry point. A saved inbox row is marked Done only after upsert.
 function processCallWebhookInbox_() {
   return withServerContext_(() => {
+    const started = Date.now();
+    const attempted = new Set();
+    for (let batch = 0; batch < 5 && Date.now() - started < 180000; batch++) {
+      if (!_processCallWebhookBatch_(attempted)) break;
+      // Give waiting portal saves a chance to acquire the shared lock.
+      if (typeof Utilities.sleep === 'function') Utilities.sleep(100);
+    }
+  });
+}
+
+function _processCallWebhookBatch_(attempted) {
     const lock = LockService.getScriptLock();
     if (!lock.tryLock(1000)) return;
     try {
+      // Another execution may have changed lead/user data while the lock was released.
+      _invalidateReadCache_();
       const table = _callTable_(CALL_INBOX_SHEET_);
       if (!table.sheet) return;
-      const context = _callUpsertContext_();
+      const context = table.rows.some(item => item.record.Status === 'Pending' && !attempted.has(item.record['Item ID'])) ? _callUpsertContext_() : null;
       const started = Date.now(); let count = 0;
       for (const item of table.rows) {
-        if (count >= 25 || Date.now() - started > 45000) break;
-        if (item.record.Status !== 'Pending') continue;
+        if (count >= 5 || Date.now() - started > 5000) break;
+        if (item.record.Status !== 'Pending' || attempted.has(item.record['Item ID'])) continue;
+        attempted.add(item.record['Item ID']);
         count++;
         try {
           const result = _upsertCallsLocked_([JSON.parse(item.record.Payload)], context);
@@ -99,7 +114,7 @@ function processCallWebhookInbox_() {
         }
         _writeCallRow_(table, item.record, item.row);
       }
-      if (context.dirty) { _invalidateReadCache_(); _bumpStamp('followup_history'); _bumpStamp('calls'); }
+      if (context && context.dirty) { _invalidateReadCache_(); _bumpStamp('followup_history'); _bumpStamp('calls'); }
       _updateCallDeliveryProcessingLocked_(table);
       // Evict whole completed deliveries so retained summaries never lose part of a batch.
       const groups = new Map();
@@ -116,10 +131,16 @@ function processCallWebhookInbox_() {
           remove.push(...group); doneCount -= group.length;
         }
       }
-      remove.sort((a,b) => b.row - a.row).forEach(r => table.sheet.deleteRows(r.row, 1));
+      const ranges = [];
+      remove.sort((a,b) => b.row - a.row).forEach(r => {
+        const previous = ranges[ranges.length - 1];
+        if (previous && r.row === previous.start - 1) { previous.start = r.row; previous.count++; }
+        else ranges.push({ start: r.row, count: 1 });
+      });
+      ranges.forEach(range => table.sheet.deleteRows(range.start, range.count));
       SpreadsheetApp.flush();
+      return count;
     } finally { lock.releaseLock(); }
-  });
 }
 
 function _retryCallDelivery_(deliveryId) {

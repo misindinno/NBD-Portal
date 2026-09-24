@@ -451,3 +451,42 @@ test('inbox retention preserves complete delivery totals after completed rows ar
   assert.ok(h.context._callTable_('CALL_WEBHOOK_INBOX').rows.length <= 500);
   assert.equal(h.records().length, 200);
 });
+
+test('worker releases the script lock after at most five calls and skips idle context loading', () => {
+  const h = harness({ queued: true, leads: [] });
+  h.send(Array.from({ length: 25 }, (_, i) => call({ id: 'yield-' + i })));
+  const originalLock = h.context.LockService.getScriptLock;
+  const originalUpsert = h.context._upsertCallsLocked_;
+  let callsInLock = 0, releases = 0, held = false;
+  h.context.LockService.getScriptLock = () => {
+    const lock = originalLock();
+    return {
+      tryLock(ms) { const ok = lock.tryLock(ms); if (ok) { held = true; callsInLock = 0; } return ok; },
+      releaseLock() { held = false; releases++; lock.releaseLock(); }
+    };
+  };
+  h.context.Utilities.sleep = () => assert.equal(held, false);
+  h.context._upsertCallsLocked_ = (...args) => {
+    assert.equal(held, true);
+    assert.ok(++callsInLock <= 5);
+    return originalUpsert(...args);
+  };
+  h.context.processCallWebhookInbox_();
+  assert.equal(h.records().length, 25);
+  assert.equal(releases, 5);
+  h.context._callUpsertContext_ = () => { throw Error('No pending calls: context must not load'); };
+  h.context.processCallWebhookInbox_();
+  assert.equal(h.records().length, 25);
+});
+
+test('failed calls are attempted only once per worker execution despite lock yielding', () => {
+  const h = harness({ queued: true });
+  h.send([call({ id: 'retry-on-next-run' })]);
+  let attempts = 0;
+  h.context._upsertCallsLocked_ = () => { attempts++; throw Error('temporary storage error'); };
+  h.context.processCallWebhookInbox_();
+  assert.equal(attempts, 1);
+  const item = h.context._callTable_('CALL_WEBHOOK_INBOX').rows[0].record;
+  assert.equal(item.Status, 'Pending');
+  assert.equal(Number(item.Attempts), 1);
+});
