@@ -704,7 +704,13 @@ function apiMarkFollowupDoneDirect(token, followupId, payload) {
   return apiGuard_('apiMarkFollowupDoneDirect', () => {
     const user = _apiUser();
     _assertCanEnqueueJob_(user, 'followups', 'markFollowupDone');
-    return withTrustedWriteUser_(user.email, () => markFollowupDone(followupId || '', payload || {}, user.email));
+    try {
+      return withTrustedWriteUser_(user.email, () => markFollowupDone(followupId || '', payload || {}, user.email));
+    } catch (error) {
+      const step = error.followupDoneStep || 'validating follow-up completion';
+      logServerError_(error, { api: 'apiMarkFollowupDoneDirect', step });
+      return respond(null, error, errorCodeFrom_(error), { step });
+    }
   });
 }
 

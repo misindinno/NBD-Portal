@@ -147,14 +147,24 @@ function saveFollowup(data, email) {
   return respond(id);
 }
 
+function _followupDoneStep_(step, fn) {
+  try {
+    return typeof withDiagnosticSpan_ === 'function'
+      ? withDiagnosticSpan_('followup.done', { step }, fn) : fn();
+  } catch (error) {
+    error.followupDoneStep = step;
+    throw error;
+  }
+}
+
 function markFollowupDone(followupId, data, email) {
-  ensureFollowupSheets_();
-  const user = requireRoleForEmail_(['ADMIN', 'MANAGER', 'SALES', 'USER'], email);
-  const row = getRowByIndexedId_(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId);
+  _followupDoneStep_('checking follow-up sheets', () => ensureFollowupSheets_());
+  const user = _followupDoneStep_('checking access', () => requireRoleForEmail_(['ADMIN', 'MANAGER', 'SALES', 'USER'], email));
+  const row = _followupDoneStep_('loading the follow-up', () => getRowByIndexedId_(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId));
   if (!row) return respond(null, 'Follow-up not found.');
 
   const lead = row['Lead ID']
-    ? getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', row['Lead ID'])
+    ? _followupDoneStep_('loading the lead', () => getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', row['Lead ID']))
     : null;
   if (row['Lead ID'] && !lead) return respond(null, 'Linked lead not found.');
   if (!_canWriteFollowupRow(row, lead, user)) return respond(null, 'Permission denied.');
@@ -230,15 +240,15 @@ function markFollowupDone(followupId, data, email) {
     followupPatch['Done By'] = user.id;
   }
   if (data['Updated Stage ID']) followupPatch['Updated Stage ID'] = data['Updated Stage ID'];
-  const updated = updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId, followupPatch);
+  const updated = _followupDoneStep_('saving the follow-up', () => updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId, followupPatch));
   if (!updated) return respond(null, 'Follow-up record not found — it may have been deleted. Please refresh and try again.');
 
   // Write history only after the followup row update succeeds. If this fails,
   // restore the follow-up row so "done" and history do not drift apart.
   try {
-    insertRow(SHEET_NAMES.FOLLOWUP_HISTORY, history);
+    _followupDoneStep_('saving follow-up history', () => insertRow(SHEET_NAMES.FOLLOWUP_HISTORY, history));
   } catch (e) {
-    updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId, pickFollowupMasterFields_(row));
+    _followupDoneStep_('restoring the follow-up after a failed history write', () => updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followupId, pickFollowupMasterFields_(row)));
     throw e;
   }
 
@@ -251,7 +261,7 @@ function markFollowupDone(followupId, data, email) {
       'Updated At': now()
     };
     if (stage) {
-      upsertCustomFieldValues_('Leads', lead['Lead ID'], preparedLeadForStage, user.id, data['Updated Stage ID']);
+      _followupDoneStep_('saving stage fields', () => upsertCustomFieldValues_('Leads', lead['Lead ID'], preparedLeadForStage, user.id, data['Updated Stage ID']));
       leadPatch['Stage ID'] = data['Updated Stage ID'];
       leadPatch['Stage Updated At'] = now();
       const nextStatus = _leadStatusForStage(stage);
@@ -266,7 +276,7 @@ function markFollowupDone(followupId, data, email) {
         remark
       };
     }
-    const leadUpdated = updateRow(SHEET_NAMES.LEADS, 'Lead ID', lead['Lead ID'], leadPatch);
+    const leadUpdated = _followupDoneStep_('updating the lead', () => updateRow(SHEET_NAMES.LEADS, 'Lead ID', lead['Lead ID'], leadPatch));
     if (!leadUpdated) {
       Logger.log('markFollowupDone: follow-up saved but lead row not found for Lead ID ' + lead['Lead ID']);
       activityLog = null;
@@ -285,7 +295,7 @@ function markFollowupDone(followupId, data, email) {
 
   _bumpStamp('followups');
   _bumpStamp('followup_history');
-  if (lead) pushFsrLeadById_(lead['Lead ID'], 'client.updated');
+  if (lead) _followupDoneStep_('queueing client sync', () => pushFsrLeadById_(lead['Lead ID'], 'client.updated'));
   return respond({
     followup: { ...row, ...followupPatch },
     history,

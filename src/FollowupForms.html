@@ -386,7 +386,11 @@ async function openMarkFollowupDoneForm(followupId) {
       if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
       toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
     } catch (err) {
-      toast(err.message || String(err), 'error');
+      const step = err.details && err.details.step;
+      const reference = err.requestId;
+      const message = (err.message || String(err)) + (step ? '\nStep: ' + step : '') + (reference ? '\nReference: ' + reference : '');
+      toast(message, 'error');
+      Swal.fire({ title: 'Follow-up could not be completed', text: message + '\nCheck follow-up history before submitting again.', icon: 'error' });
       resetButtonLoading(btn);
       form.dataset.submitting = '';
     }

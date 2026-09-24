@@ -236,20 +236,20 @@ function _findIndexRecord_(def, columnName, value) {
   try {
     const sheet = getSheet(def.indexSheet);
     safeInitHeaders(def.indexSheet, def.headers);
-    const data = sheet.getDataRange().getValues();
-    if (data.length < 2 || !data[0] || !data[0].length) return null;
-    const headers = data[0].map(String);
+    const lastRow = sheet.getLastRow();
+    const lastColumn = sheet.getLastColumn();
+    if (lastRow < 2 || !lastColumn) return null;
+    const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(String);
     const col = headers.indexOf(String(columnName));
     if (col === -1) return null;
-    const target = String(value);
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][col]) !== target) continue;
-      return {
-        rowNumber: i + 1,
-        row: _rowObjectFromValues_(headers, data[i], i + 1)
-      };
-    }
-    return null;
+    const hit = sheet.getRange(2, col + 1, lastRow - 1, 1)
+      .createTextFinder(String(value)).matchEntireCell(true).matchCase(true)
+      .useRegularExpression(false).findNext();
+    if (!hit) return null;
+    const rowNumber = hit.getRow();
+    const values = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
+    if (String(values[col]) !== String(value)) return null;
+    return { rowNumber, row: _rowObjectFromValues_(headers, values, rowNumber) };
   } catch (e) {
     Logger.log('[IndexService] _findIndexRecord_ failed for ' + (def && def.indexSheet) + ' column=' + columnName + ': ' + (e && e.message || e));
     return null;

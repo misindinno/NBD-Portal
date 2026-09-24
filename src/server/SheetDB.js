@@ -212,6 +212,8 @@ function insertRow(sheetName, rowObj) {
 function updateRow(sheetName, idColumn, idValue, updates) {
   return withSheetDbTiming_('write_update', sheetName, 'write', () => {
     _invalidateReadCache_();
+    // Skip the disabled API writer before acquiring a lock for a no-op attempt.
+    if (!_rawWriteSafe_(Object.values(updates || {}))) return _legacyUpdateRow_(sheetName, idColumn, idValue, updates);
     const headers = getHeaders(sheetName);
     if (headers && headers.length) {
       const lock = LockService.getScriptLock();
@@ -242,62 +244,36 @@ function updateRow(sheetName, idColumn, idValue, updates) {
 }
 function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
   const sheet = getSheet(sheetName);
-  // Fix #10: acquire lock BEFORE reading row index to prevent race condition
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   let syncedRow = null;
   let syncedRowNumber = 0;
   try {
-    const data = sheet.getDataRange().getValues();
-    if (!data.length || !data[0] || !data[0].length) return false;
-    const headers = data[0];
+    const lastRow = sheet.getLastRow();
+    const lastColumn = sheet.getLastColumn();
+    if (lastRow < 2 || !lastColumn) return false;
+    const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
     const col = headers.indexOf(idColumn);
     if (col === -1) return false;
-    let rowIndex = -1;
-    const indexedRow = typeof findIndexedRowNumber_ === 'function'
-      ? findIndexedRowNumber_(sheetName, idColumn, idValue)
-      : -1;
-    if (indexedRow > 1 && indexedRow <= data.length && String(data[indexedRow - 1][col]) === String(idValue)) {
-      rowIndex = indexedRow - 1;
-    } else {
-      for (let i = 1; i < data.length; i++) {
-        if (String(data[i][col]) === String(idValue)) { rowIndex = i; break; }
-      }
+    let targetRow = typeof findIndexedRowNumber_ === 'function'
+      ? findIndexedRowNumber_(sheetName, idColumn, idValue) : -1;
+    let values = targetRow > 1 && targetRow <= lastRow
+      ? sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0] : null;
+    // Indexes are hints. Verify identity under the lock before updating a row.
+    if (!values || String(values[col]) !== String(idValue)) {
+      const ids = sheet.getRange(2, col + 1, lastRow - 1, 1).getValues();
+      const index = ids.findIndex(row => String(row[0]) === String(idValue));
+      if (index < 0) return false;
+      targetRow = index + 2;
+      values = sheet.getRange(targetRow, 1, 1, headers.length).getValues()[0];
+      if (String(values[col]) !== String(idValue)) return false;
     }
-    if (rowIndex === -1) return false;
-    if (rowIndex < 1) {
-      if (typeof diagnosticLog_ === 'function') {
-        diagnosticLog_('ERROR', 'DATA.INVALID_ROW_TARGET', 'sheet_update_invalid_row', {
-          sheet: diagnosticSheetLabel_(sheetName),
-          idColumn: String(idColumn || '').slice(0, 80),
-          rowIndex
-        });
-      }
-      if (typeof rebuildIndexForSheet_ === 'function') rebuildIndexForSheet_(sheetName);
-      return false;
-    }
-    // Fix #9: build full updated row and write in a single setValues call
-    const updatedRow = headers.map((h, i) =>
-      updates[h] !== undefined ? updates[h] : data[rowIndex][i]
-    );
+    const updatedRow = headers.map((h, i) => updates[h] !== undefined ? updates[h] : values[i]);
     const safeUpdatedRow = typeof sanitizeSheetRowValues_ === 'function'
-      ? sanitizeSheetRowValues_(updatedRow)
-      : updatedRow;
-    const targetRowNumber = rowIndex + 1;
-    if (targetRowNumber < 2) {
-      if (typeof diagnosticLog_ === 'function') {
-        diagnosticLog_('ERROR', 'DATA.INVALID_ROW_TARGET', 'sheet_update_invalid_target', {
-          sheet: diagnosticSheetLabel_(sheetName),
-          idColumn: String(idColumn || '').slice(0, 80),
-          rowNumber: targetRowNumber
-        });
-      }
-      if (typeof rebuildIndexForSheet_ === 'function') rebuildIndexForSheet_(sheetName);
-      return false;
-    }
-    sheet.getRange(targetRowNumber, 1, 1, headers.length).setValues([safeUpdatedRow]);
+      ? sanitizeSheetRowValues_(updatedRow) : updatedRow;
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([safeUpdatedRow]);
     syncedRow = rowObjectFromHeaders_(headers, safeUpdatedRow, true, sheetName);
-    syncedRowNumber = targetRowNumber;
+    syncedRowNumber = targetRow;
   } finally {
     lock.releaseLock();
   }
