@@ -32,7 +32,7 @@ function setup() {
       return {
         getLastRow: () => data[sheet].length + 1,
         getLastColumn: () => (headers[sheet] || []).length,
-        getRange: (row, col, count, width) => ({ clearContent() { data[sheet] = []; }, setValues(values) {
+        getRange: (row, col, count, width) => ({ getValues() { return data[sheet].slice(row - 2, row - 2 + count).map(values => values.slice(col - 1, col - 1 + width)); }, clearContent() { data[sheet] = []; }, setValues(values) {
           if (ctx.failSheet === sheet) { ctx.failSheet = ''; throw Error('Service timed out'); }
           assert.equal(locked, true, 'bulk data and index writes stay under the lock');
           assert.equal(values.length, count); assert.equal(values[0].length, width);
@@ -54,7 +54,6 @@ function setup() {
   ctx._applyLeadStatusFromStage = payload => { payload['Lead Status'] = 'Open'; };
   ctx._bulkInitialStageId_ = () => 'initial';
   ctx._safeLogBulkImport_ = () => {};
-  ctx._bulkLeadIndexRows_ = () => ctx.getAllRows('leadIndex');
   ctx.ensureCustomFieldValueSheets_ = () => {};
   ctx.getBulkConfig = () => ctx._bulkAddRequiredInitialStageFields_(['Company Name','Phone'].map(fieldName => ({ fieldName, targetHeader: fieldName, required: true, dataType: 'Text', validationRule: 'optional', allowedValues: [] })), {});
   return { ctx, data, headers, writes, scans, fields, errors };
@@ -154,4 +153,32 @@ test('bulk API exposes a safe failing step and client includes its request refer
   const message = ctx._bulkSaveErrorMessage({ message: result.error, details: result.details, requestId: result.meta.requestId });
   assert.match(message, /saving additional fields/);
   assert.match(message, /request-123/);
+});
+
+
+test('bulk creation ignores a deleted master lead still present in the index', () => {
+  const { ctx, data } = setup();
+  assert.equal(ctx.saveBulkRows([row(1)], 'admin@example.test', 'batch1', 'create').summary.saved, 1);
+  data.leads = [];
+  assert.equal(data.leadIndex.length, 1, 'stale index still contains the deleted lead');
+  const result = ctx.saveBulkRows([row(1)], 'admin@example.test', 'batch2', 'create');
+  assert.equal(result.summary.saved, 1);
+  assert.equal(result.summary.errors, 0);
+});
+
+test('bulk locked recheck sees a master-only lead inserted after validation', () => {
+  const { ctx, data, headers } = setup();
+  const getLock = ctx.LockService.getScriptLock;
+  ctx.LockService.getScriptLock = () => {
+    const lock = getLock();
+    return { ...lock, waitLock() {
+      lock.waitLock();
+      const existing = { ...row(1), 'Lead ID': 'concurrent', 'Stage ID': 'initial' };
+      data.leads = [headers.leads.map(key => existing[key] || '')];
+    } };
+  };
+  const result = ctx.saveBulkRows([row(1)], 'admin@example.test', 'batch', 'create');
+  assert.equal(result.summary.saved, 0);
+  assert.match(result.rowResults[0].errors, /Duplicate/);
+  assert.equal(data.leads.length, 1);
 });

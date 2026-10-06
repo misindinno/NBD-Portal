@@ -201,17 +201,12 @@ function checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
   const normEmail = email ? String(email).trim().toLowerCase() : '';
   const normCompany = _leadNormText_(companyName);
   if (!normPhone && !normEmail && !normCompany) return [];
-  let indexRows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  if (!indexRows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
-    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
-    indexRows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  }
-  return indexRows
+  return _leadMasterLookupRows_()
     .filter(lead => {
-      if (excludeLeadId && lead['Lead ID'] === excludeLeadId) return false;
+      if (excludeLeadId && String(lead['Lead ID']).trim() === String(excludeLeadId).trim()) return false;
       if (normPhone) {
-        const lPhone = String(lead['Phone'] || '');
-        const lAlt   = String(lead['Alternate No'] || '');
+        const lPhone = _leadNormPhone_(lead['Phone']);
+        const lAlt   = _leadNormPhone_(lead['Alternate No']);
         if (lPhone && lPhone === normPhone) return true;
         if (lAlt   && lAlt   === normPhone) return true;
       }
@@ -236,7 +231,7 @@ function checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
 }
 
 function _leadDuplicateMessage_(data, excludeLeadId) {
-  const existingMap = _leadExistingDuplicateMap_();
+  const existingMap = _leadExistingDuplicateMap_(excludeLeadId);
   const phone = _leadNormPhone_(data['Phone']);
   const altPhone = _leadNormPhone_(data['Alternate No']);
   const email = _leadNormEmail_(data['Email']);
@@ -253,12 +248,34 @@ function _leadDuplicateMessage_(data, excludeLeadId) {
   return '';
 }
 
-function _leadExistingDuplicateMap_() {
-  let rows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  if (!rows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
-    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
-    rows = getAllRows(SHEET_NAMES.IDX_LEADS);
+// Duplicate decisions must use fresh master values: IDX_LEADS can retain rows
+// after a manual sheet deletion/edit. Read only the lookup column span, excluding
+// large visit-history fields, once per check (or once per locked bulk batch).
+// Deliberately bypass request caches so the check after acquiring a lock is fresh.
+function _leadMasterLookupRows_(fields) {
+  const sheet = getSheet(SHEET_NAMES.LEADS);
+  const headers = getHeaders(SHEET_NAMES.LEADS);
+  const selected = fields || ['Lead ID', 'Company Name', 'Contact Person', 'Phone', 'Alternate No', 'Email', 'Lead Status'];
+  const positions = selected.map(key => headers.indexOf(key)).filter(index => index >= 0);
+  if (headers.indexOf('Lead ID') < 0 || headers.indexOf('Phone') < 0 || headers.indexOf('Company Name') < 0) {
+    throw new Error('Lead master lookup headers are missing. Please contact an administrator.');
   }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const first = Math.min.apply(null, positions);
+  const last = Math.max.apply(null, positions);
+  return sheet.getRange(2, first + 1, lastRow - 1, last - first + 1).getValues()
+    .map(values => {
+      const row = {};
+      positions.forEach(index => { row[headers[index]] = normalizeSheetValue(values[index - first]); });
+      return row;
+    })
+    .filter(row => String(row['Lead ID'] || '').trim());
+}
+
+function _leadExistingDuplicateMap_(excludeLeadId) {
+  const exclude = String(excludeLeadId || '').trim();
+  const rows = _leadMasterLookupRows_().filter(row => !exclude || String(row['Lead ID']).trim() !== exclude);
   return rows.reduce((m, row) => {
     const leadId = String(row['Lead ID'] || '').trim();
     const phone = _leadNormPhone_(row['Phone']);

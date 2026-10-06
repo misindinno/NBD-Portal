@@ -875,12 +875,13 @@ function _bulkExistingMap_(leads) {
 }
 
 function _bulkLeadIndexRows_() {
-  let rows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  if (!rows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
-    rebuildIndexForSheet_(SHEET_NAMES.LEADS);
-    rows = getAllRows(SHEET_NAMES.IDX_LEADS);
-  }
-  return rows;
+  // Keep the lightweight lookup shape, but read live master values for both
+  // validation and the duplicate recheck inside the bulk save lock.
+  return _leadMasterLookupRows_([
+    'Lead ID', 'Phone', 'Alternate No', 'Email', 'Assigned To', 'Stage ID', 'Lead Status',
+    'Next Follow-up Date', 'Company Name', 'Contact Person', 'City', 'State',
+    'Source Portal', 'Source Lead ID', 'Updated At'
+  ]);
 }
 
 function _bulkFindLeadForRow_(row, leads) {
