@@ -36,10 +36,8 @@ function getSpreadsheet(sheetName) {
   if (isUserDatabaseSheet(sheetName)) {
     return SpreadsheetApp.openById(USER_DATABASE_SPREADSHEET_ID);
   }
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (ss) return ss;
-  } catch (e) {}
+  // Web-app executions must use the configured client workbook, independent
+  // of an active editor/container. Opening the active container can stall.
   return SpreadsheetApp.openById(SPREADSHEET_ID);
 }
 

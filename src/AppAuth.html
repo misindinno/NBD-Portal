@@ -47,6 +47,32 @@ async function init() {
 }
 
 async function _continueAppInit(token) {
+  // Inform the user about a stalled read without cancelling requests or timing
+  // out saves. The pending startup may still recover and finish normally.
+  const waitNotice = setTimeout(() => {
+    const content = document.getElementById('content');
+    if (!content || document.getElementById('startup-wait-notice')) return;
+    const notice = document.createElement('section');
+    notice.id = 'startup-wait-notice';
+    notice.setAttribute('role', 'status');
+    notice.style.cssText = 'margin:20px;padding:20px;background:#fff;border:1px solid #dbe2ea;border-radius:12px;color:#334155';
+    notice.innerHTML = '<h2 style="margin:0 0 8px;font-size:18px">Loading is taking longer than usual</h2>' +
+      '<p style="margin:0 0 12px">We are still waiting for the server to return your portal data. You can keep waiting or reload the page.</p>' +
+      '<button type="button" class="btn btn-outline">Reload portal</button>';
+    notice.querySelector('button').onclick = () => window.location.reload();
+    content.prepend(notice);
+  }, 30000);
+  try {
+    return await _loadAppSession_(token);
+  } finally {
+    clearTimeout(waitNotice);
+    const notice = document.getElementById('startup-wait-notice');
+    if (notice) notice.remove();
+    Store.dispatch('SET_LOADING', { key: 'auth', value: false });
+  }
+}
+
+async function _loadAppSession_(token) {
   const diagnostics = window.PortalDiagnostics;
   if (diagnostics) diagnostics.phase('startup.bootstrap', 'start');
   Store.dispatch('SET_LOADING', { key: 'auth', value: true });
@@ -98,6 +124,8 @@ async function _continueAppInit(token) {
     window.__PORTAL_READY = true;
   }
 
+  // Optional counts must not prevent the menu and first page from appearing.
+  void _refreshNavigationSummary_();
   startCacheRevalidation();
   try { if (typeof _shortcutsFirstRunPreview === 'function') _shortcutsFirstRunPreview(); } catch (e) {}
 }

@@ -446,11 +446,13 @@ function _stageOrderSort_(a, b) {
 }
 
 function getAppConfigFast_() {
+  Logger.log('[Startup] config tables started');
   const rows = sheetApiBatchGetRows_([
     { sheetName: SHEET_NAMES.CONFIG, range: 'A:D' },
     { sheetName: SHEET_NAMES.STAGES, range: 'A:K' },
     { sheetName: SHEET_NAMES.FIELD_CONFIG, range: 'A:U' }
   ]);
+  Logger.log('[Startup] config tables finished');
   const configRows = rows[SHEET_NAMES.CONFIG] || [];
   const stageRows = rows[SHEET_NAMES.STAGES] || [];
   const fieldRows = rows[SHEET_NAMES.FIELD_CONFIG] || [];

@@ -118,11 +118,19 @@ function mergeUserPortalAccess_(user, access) {
 function getUsersWithPortalAccess_(portalKey, includeInactive) {
   const key = String(portalKey || currentPortalKey_()).trim().toUpperCase();
   ensureUserPortalAccessSheet_();
+  // Read access rows once. The per-user helper initializes headers and clears
+  // the request cache, multiplying sheet round-trips by the number of staff.
+  const accessRows = getAllRows(SHEET_NAMES.USER_PORTAL_ACCESS)
+    .filter(row => String(row['Portal Key'] || '').trim().toUpperCase() === key);
   return getAllRows(SHEET_NAMES.USERS)
     .filter(u => includeInactive || isActiveUserValue(u['Is Active']))
     .map(u => {
       const email = String(u['Email Address'] || '').trim().toLowerCase();
-      const access = getPortalAccessForUser_(u, email, key);
+      const userId = getStaffUserId(u, email);
+      const access = accessRows.find(row =>
+        (userId && String(row['User ID'] || '') === String(userId)) ||
+        (email && String(row['Email Address'] || '').trim().toLowerCase() === email)
+      ) || null;
       return mergeUserPortalAccess_(u, access);
     })
     .filter(u => includeInactive || isActiveUserValue(u['Is Active']));

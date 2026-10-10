@@ -75,25 +75,24 @@ function apiLogout(token) {
   });
 }
 
-// Compact bootstrap: returns identity, configuration, navigation counts, and data stamps.
-// Worklists are fetched page-by-page after first paint, keeping startup payload bounded.
+// Compact bootstrap: returns identity, configuration, and data stamps.
+// Worklists and optional navigation counts load separately after bootstrap.
 function apiBootstrapData(token) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiBootstrapData', () => {
-    const session = readAuthSession_(token);
+    const session = _bootstrapStep_('session', () => readAuthSession_(token));
     if (!session) return respond(null, 'SESSION_EXPIRED');
-    const userResult = getCurrentUserByEmail_(session.email);
+    const userResult = _bootstrapStep_('identity', () => getCurrentUserByEmail_(session.email));
     if (!userResult.success) return respond(null, userResult.error || 'ACCESS_DENIED');
     refreshAuthSession_(token);
     const user = userResult.data;
 
-    // Initial load is the one place reads use the Sheets API (fast batch); the flag is
-    // reset in finally so nothing else in or after this execution touches the API.
+    // Scope fast configuration reads to bootstrap and always restore the flag.
     _bootstrapReadMode_ = true;
     try {
       let config;
       try {
-        config = getAppConfigFast_();
+        config = _bootstrapStep_('configuration', () => getAppConfigFast_());
       } catch (e) {
         diagnosticLog_('WARN', 'DATA.READ_FALLBACK', 'bootstrap_config_fallback', {
           errorCategory: diagnosticErrorCategory_(e)
@@ -103,12 +102,20 @@ function apiBootstrapData(token) {
         config = c.data;
       }
 
-      const navigationSummary = getNavigationSummary_(user);
-      return respond({ user, config, navigationSummary, stamps: _bootstrapStamps_() });
+      // Counts are optional UI data; never scan lead/follow-up tables before
+      // returning identity and configuration. The client fetches counts later.
+      return respond({ user, config, stamps: _bootstrapStamps_() });
     } finally {
       _bootstrapReadMode_ = false;
     }
   });
+}
+
+function _bootstrapStep_(step, fn) {
+  const started = Date.now();
+  Logger.log('[Startup] ' + step + ' started');
+  try { return fn(); }
+  finally { Logger.log('[Startup] ' + step + ' finished in ' + (Date.now() - started) + 'ms'); }
 }
 
 function _bootstrapStamps_() {
