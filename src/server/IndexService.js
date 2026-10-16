@@ -87,9 +87,13 @@ function ensureIndexSheets_() {
 function rebuildAllIndexes() {
   return withServerContext_(() => {
     requireContainerAdmin_(false);
-    ensureIndexSheets_();
-    _indexDefinitions_().forEach(def => rebuildIndexForSheet_(def.sourceSheet));
-    return 'Indexes rebuilt successfully.';
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      ensureIndexSheets_();
+      _indexDefinitions_().forEach(def => rebuildIndexForSheet_(def.sourceSheet));
+      return 'Indexes rebuilt successfully.';
+    } finally { lock.releaseLock(); }
   });
 }
 
@@ -102,19 +106,23 @@ function rebuildIndexForSheet_(sheetName) {
   const sourceSheet = getSheet(sheetName);
   const sourceData = sourceSheet.getDataRange().getValues();
   const indexSheet = getSheet(def.indexSheet);
-  _clearIndexBody_(indexSheet);
-  if (sourceData.length < 2 || !sourceData[0] || !sourceData[0].length) return 0;
+  if (!sourceData[0] || !sourceData[0].length) throw new Error('Missing source headers.');
 
   const sourceHeaders = sourceData[0].map(String);
   const rows = sourceData.slice(1)
     .map((values, i) => _rowObjectFromValues_(sourceHeaders, values, i + 2))
     .filter(row => String(row[def.idColumn] || '').trim())
-    .map(row => def.headers.map(h => {
+    .map(row => {
       const built = def.build(row, row._rowNumber);
-      return built[h] !== undefined ? built[h] : '';
-    }));
-  if (rows.length) indexSheet.getRange(2, 1, rows.length, def.headers.length).setValues(rows);
-  return rows.length;
+      return def.headers.map(h => built[h] !== undefined ? built[h] : '');
+    });
+  const count = rows.length;
+  // Replace in one write, including the stale tail; never clear first.
+  const height = Math.max(count, indexSheet.getLastRow() - 1);
+  while (rows.length < height) rows.push(def.headers.map(() => ''));
+  if (height + 1 > indexSheet.getMaxRows()) indexSheet.insertRowsAfter(indexSheet.getMaxRows(), height + 1 - indexSheet.getMaxRows());
+  if (height) indexSheet.getRange(2, 1, height, def.headers.length).setValues(rows);
+  return count;
 }
 
 function findIndexedRowNumber_(sheetName, idColumn, idValue) {
@@ -132,33 +140,18 @@ function getRowByIndexedId_(sheetName, idColumn, idValue) {
     const row = _getRowObjectAt_(sheetName, rowNumber);
     if (row && String(row[idColumn]) === String(idValue)) return row;
   }
-  const rows = getAllRows(sheetName);
-  const found = rows.find(r => String(r[idColumn]) === String(idValue)) || null;
-  if (found) syncIndexRow_(sheetName, found, findRowIndexWithoutIndex_(sheetName, idColumn, idValue));
-  return found;
+  // Manual sorts/deletes can invalidate a pointer. Search only the ID column.
+  const actualRow = findRowIndexWithoutIndex_(sheetName, idColumn, idValue);
+  return actualRow > 1 ? _getRowObjectAt_(sheetName, actualRow) : null;
 }
 
 function getRowsByIndexedColumn_(sheetName, columnName, value) {
   assertServerContext_();
   const def = _indexDefinitionForSheet_(sheetName);
   if (!def || !columnName) return getAllRows(sheetName).filter(r => String(r[columnName]) === String(value));
-  safeInitHeaders(def.indexSheet, def.headers);
-  const indexSheet = getSheet(def.indexSheet);
-  const data = indexSheet.getDataRange().getValues();
-  if (data.length < 2) return [];
-  const headers = data[0].map(String);
-  const col = headers.indexOf(String(columnName));
-  const rowNumberCol = headers.indexOf('Row Number');
-  if (col === -1 || rowNumberCol === -1) return getAllRows(sheetName).filter(r => String(r[columnName]) === String(value));
-  const target = String(value);
-  const rows = [];
-  data.slice(1).forEach(indexRow => {
-    if (String(indexRow[col]) !== target) return;
-    const rowNumber = Number(indexRow[rowNumberCol] || 0);
-    const row = _getRowObjectAt_(sheetName, rowNumber);
-    if (row && String(row[columnName]) === target) rows.push(row);
-  });
-  return rows;
+  // One authoritative read avoids missing records after manual sorts/deletes
+  // and eliminates a remote row read for every matching follow-up.
+  return getAllRows(sheetName).filter(row => String(row[columnName]) === String(value));
 }
 
 // Only for newly generated IDs appended while the caller holds the script lock.
@@ -212,13 +205,14 @@ function rebuildIndexAfterDelete_(sheetName) {
 
 function findRowIndexWithoutIndex_(sheetName, idColumn, idValue) {
   const sheet = getSheet(sheetName);
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) return -1;
-  const col = data[0].map(String).indexOf(String(idColumn));
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+  const col = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String).indexOf(String(idColumn));
   if (col === -1) return -1;
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][col]) === String(idValue)) return i + 1;
-  }
+  const hit = sheet.getRange(2, col + 1, lastRow - 1, 1)
+    .createTextFinder(String(idValue)).matchEntireCell(true).matchCase(true)
+    .useRegularExpression(false).findNext();
+  if (hit) return hit.getRow();
   return -1;
 }
 

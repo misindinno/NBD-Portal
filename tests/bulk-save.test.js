@@ -31,6 +31,7 @@ function setup() {
       if (!data[sheet]) data[sheet] = [];
       return {
         getLastRow: () => data[sheet].length + 1,
+        getMaxRows: () => 1000,
         getLastColumn: () => (headers[sheet] || []).length,
         getRange: (row, col, count, width) => ({ getValues() { return data[sheet].slice(row - 2, row - 2 + count).map(values => values.slice(col - 1, col - 1 + width)); }, clearContent() { data[sheet] = []; }, setValues(values) {
           if (ctx.failSheet === sheet) { ctx.failSheet = ''; throw Error('Service timed out'); }
@@ -98,7 +99,7 @@ test('a failed batch is rolled back and never silently replayed as individual sa
   assert.throws(() => ctx.saveBulkRows([row(1, { note: 'Filled' })], 'admin@example.test', 'batch', 'create'), error => error.bulkSaveStep === 'saving initial follow-ups and their index');
   assert.equal(fallbackSaves, 0);
   assert.equal(data.leads.length, 0);
-  assert.equal(data.leadIndex.length, 0, 'rollback removes index records too');
+  assert.ok(data.leadIndex.every(row => row.every(value => value === '')), 'rollback removes all index cell values too');
 });
 
 test('duplicate checks remain inside the write lock and reject existing leads', () => {

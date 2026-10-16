@@ -4,6 +4,8 @@ const SPREADSHEET_ID               = CLIENT_CONFIG.SPREADSHEET_ID;
 const USER_DATABASE_SPREADSHEET_ID = CLIENT_CONFIG.USER_DATABASE_SPREADSHEET_ID;
 const USER_DATABASE_SHEET_NAME     = CLIENT_CONFIG.USER_DATABASE_SHEET_NAME;
 let SERVER_CONTEXT_DEPTH = 0;
+// Handles only, scoped to this Apps Script execution; never caches sheet data.
+const SPREADSHEET_HANDLE_CACHE_ = {};
 
 function withServerContext_(fn) {
   SERVER_CONTEXT_DEPTH++;
@@ -33,12 +35,11 @@ function withSheetDbTiming_(operation, sheetName, mode, fn) {
 
 function getSpreadsheet(sheetName) {
   assertServerContext_();
-  if (isUserDatabaseSheet(sheetName)) {
-    return SpreadsheetApp.openById(USER_DATABASE_SPREADSHEET_ID);
+  const id = isUserDatabaseSheet(sheetName) ? USER_DATABASE_SPREADSHEET_ID : SPREADSHEET_ID;
+  if (!SPREADSHEET_HANDLE_CACHE_[id]) {
+    SPREADSHEET_HANDLE_CACHE_[id] = SpreadsheetApp.openById(id);
   }
-  // Web-app executions must use the configured client workbook, independent
-  // of an active editor/container. Opening the active container can stall.
-  return SpreadsheetApp.openById(SPREADSHEET_ID);
+  return SPREADSHEET_HANDLE_CACHE_[id];
 }
 
 function getSheet(name, createIfMissing) {

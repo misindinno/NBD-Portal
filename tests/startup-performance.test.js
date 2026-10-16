@@ -54,7 +54,7 @@ test('web requests use the configured client workbook and keep staff reads separ
   assert.equal(ctx.withServerContext_(()=>ctx.getSpreadsheet('CONFIG')).id,'client');
   assert.equal(ctx.withServerContext_(()=>ctx.getSpreadsheet('USERS')).id,'staff');
   assert.equal(ctx.withServerContext_(()=>ctx.getSpreadsheet('access')).id,'staff');
-  assert.deepEqual(opened,['client','staff','staff']);
+  assert.deepEqual(opened,['client','staff']);
 });
 
 test('slow startup offers a reload without cancelling the request and clears on recovery', async () => {
