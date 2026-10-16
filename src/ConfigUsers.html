@@ -1,7 +1,7 @@
 <script>
 function _ensureConfigUserHelpers() {
   if (!window.USER_MODULES) {
-    window.USER_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry'];
+    window.USER_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry','VisitManagement'];
   }
   if (!window.USER_ROLE_MODULES) {
     window.USER_ROLE_MODULES = {
@@ -46,6 +46,7 @@ function _ensureConfigUserHelpers() {
     if (moduleName === 'Followups') return 'Follow-ups';
     if (moduleName === 'LeadForm') return 'Lead Form';
     if (moduleName === 'BulkEntry') return 'Bulk Entry';
+    if (moduleName === 'VisitManagement') return 'Visit Management';
     if (moduleName === 'Archive') return 'Archive';
     return moduleName;
   };

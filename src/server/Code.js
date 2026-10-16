@@ -38,6 +38,11 @@ function doPost(e) {
 function doGet(e) {
   return withServerContext_(() => {
     try {
+      if (e && e.parameter && e.parameter.page === 'visit-form') {
+        return HtmlService.createHtmlOutputFromFile('PublicVisitForm')
+          .setTitle(CLIENT_CONFIG.APP_TITLE + ' — Visit form')
+          .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+      }
       const googleToken = e && e.parameter && e.parameter.google_token ? e.parameter.google_token : null;
       if (googleToken) return _handleGoogleAuthRedirect_(googleToken);
       const template = HtmlService.createTemplateFromFile('Index');

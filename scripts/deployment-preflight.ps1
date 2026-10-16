@@ -23,6 +23,8 @@ $contractTests = @(
   (Join-Path $rootPath 'tests\lead-creation-fields.test.js'),
   (Join-Path $rootPath 'tests\lead-duplicates.test.js'),
   (Join-Path $rootPath 'tests\startup-performance.test.js'),
+  (Join-Path $rootPath 'tests\index-recovery.test.js'),
+  (Join-Path $rootPath 'tests\public-visits.test.js'),
   (Join-Path $rootPath 'tests\removed-features.contract.test.js'),
   (Join-Path $rootPath 'tests\fsr-webhook.contract.test.js'),
   (Join-Path $rootPath 'tests\fsr-sync-queue.test.js'),

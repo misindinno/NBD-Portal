@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><base target="_top"><style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6fb;color:#172033;font:16px system-ui,sans-serif}main{max-width:580px;margin:40px auto;padding:28px;background:white;border-radius:18px;box-shadow:0 12px 40px #22335512}h1{margin:4px 0 8px}p{color:#64748b;line-height:1.5}label{display:block;font-weight:600;margin-top:20px}input,select,textarea,button{font:inherit;width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;margin-top:8px}button{background:#4f46e5;color:white;border:0;cursor:pointer}button:disabled{opacity:.6;cursor:wait}#message{white-space:pre-wrap;margin-top:18px}#trap{position:absolute;left:-10000px}small{color:#64748b}@media(max-width:620px){main{margin:16px;padding:22px}}
+</style></head><body><main><small>VISIT REQUEST</small><h1>Plan a visit</h1><p>Select your client and share the visit details. No sign-in required.</p>
+<div id="loading" role="status">Loading clients…</div>
+<form id="form" hidden>
+<label for="client">Client *</label><select id="client" required><option value="">Select a client</option></select>
+<label for="date">Visit date *</label><input id="date" type="date" required>
+<label for="remarks">Remarks</label><textarea id="remarks" rows="4" maxlength="2000" placeholder="Anything the team should know"></textarea>
+<div id="trap" aria-hidden="true"><label>Website<input id="website" tabindex="-1" autocomplete="off"></label></div>
+<button id="submit" type="submit">Submit visit</button></form>
+<div id="message" role="status" aria-live="polite"></div><button id="retry" type="button" hidden>Reload clients</button>
+<script>
+let requestId='';
+const $=id=>document.getElementById(id);
+function newReference(){return crypto.randomUUID().replace(/-/g,'');}
+function rpc(name,arg){return new Promise((resolve,reject)=>{const runner=google.script.run.withSuccessHandler(r=>r&&r.success?resolve(r.data):reject(Error(r&&r.error||'Unable to complete the request.'))).withFailureHandler(()=>reject(Error('Connection interrupted. Please retry.')));if(arg===undefined)runner[name]();else runner[name](arg);});}
+async function load(){ $('retry').hidden=true;$('loading').hidden=false;$('message').textContent='';try{const data=await rpc('apiPublicVisitOptions');$('loading').hidden=true;if(!data.enabled){$('message').textContent='Visit submissions are currently paused.';return;}$('client').replaceChildren(new Option('Select a client',''));data.clients.forEach(c=>$('client').add(new Option(c.name,c.id)));if(!data.clients.length){$('message').textContent='No clients are available yet.';return;}requestId=newReference();$('form').hidden=false;}catch(e){$('loading').hidden=true;$('message').textContent=e.message;$('retry').hidden=false;}}
+$('retry').onclick=load;
+$('form').onsubmit=async e=>{e.preventDefault();if(!$('form').reportValidity())return;const button=$('submit');button.disabled=true;button.textContent='Submitting…';$('message').textContent='';try{const result=await rpc('apiSubmitPublicVisit',{requestId,clientId:$('client').value,visitDate:$('date').value,remarks:$('remarks').value,website:$('website').value});$('form').hidden=true;$('message').textContent='Visit received. Reference: '+result.reference;}catch(error){$('message').textContent=error.message+' Your entries are preserved. Retry to submit safely.';}finally{button.disabled=false;button.textContent='Submit visit';}};
+load();
+</script></main></body></html>
