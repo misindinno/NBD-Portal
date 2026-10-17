@@ -152,7 +152,7 @@ async function _confirmFollowupCreateReview(payload, lead) {
       ${rows.map(([label, value]) => `
         <div style="display:grid;grid-template-columns:120px 1fr;border-bottom:1px solid #f1f5f9;min-height:34px">
           <div style="background:#f8fafc;color:#64748b;font-size:11px;font-weight:800;text-transform:uppercase;padding:9px 10px">${escapeHtml(label)}</div>
-          <div style="color:#111827;font-size:12.5px;font-weight:600;padding:9px 10px;white-space:pre-wrap">${escapeHtml(value)}</div>
+          <div style="color:#111827;font-size:12.5px;font-weight:600;padding:9px 10px;white-space:pre-wrap">${label === 'Remarks' ? remarkHtml(value) : escapeHtml(value)}</div>
         </div>`).join('')}
     </div>`;
   const result = await Swal.fire({
@@ -210,7 +210,7 @@ async function openMarkFollowupDoneForm(followupId) {
       ${leadDetailHTML}
       <div style="border-top:1px solid #e5e7eb;padding-top:8px">
         <div style="font-size:11px;color:#9ca3af;margin-bottom:3px">Planned: ${formatDate(_fuPlannedDate(row))}</div>
-        <div style="font-size:13px;color:#374151;font-weight:500">${escapeHtml(row['Discussion'] || '—')}</div>
+        <div style="font-size:13px;color:#374151;font-weight:500">${remarkHtml(row['Discussion'])}</div>
       </div>
     </div>
     <form id="fu-done-form" data-current-final-stage="${leadIsFinalStage ? 'true' : 'false'}">

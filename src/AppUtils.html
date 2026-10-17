@@ -37,6 +37,36 @@ function localDateInputValue(date = new Date()) {
 }
 function el(id)  { return document.getElementById(id); }
 function qs(sel) { return document.querySelector(sel); }
+function remarkCopyButton(value) {
+  if (value == null || !String(value).trim()) return '';
+  return `<button type="button" class="remark-copy" aria-label="Copy remark" title="Copy remark" data-remark="${escapeHtml(String(value))}" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();copyRemark(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="3"/><path d="M15 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></svg></button>`;
+}
+
+function remarkHtml(value, content) {
+  return `<div class="remark-content">${remarkCopyButton(value)}${content === undefined ? escapeHtml(value || '—') : content}</div>`;
+}
+
+async function copyRemark(button) {
+  const text = button.dataset.remark;
+  let copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try { await navigator.clipboard.writeText(text); copied = true; } catch (_) {}
+    }
+    if (!copied) {
+      const previous = document.activeElement;
+      const input = document.createElement('textarea');
+      input.value = text;
+      input.setAttribute('readonly', '');
+      input.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(input);
+      try { input.select(); copied = document.execCommand('copy'); }
+      finally { input.remove(); if (previous && previous.focus) previous.focus({preventScroll:true}); }
+    }
+    toast(copied ? 'Remark copied' : 'Could not copy remark. Please select and copy the text.', copied ? 'success' : 'error');
+  } catch (_) { toast('Could not copy remark. Please select and copy the text.', 'error'); }
+}
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'

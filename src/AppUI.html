@@ -828,7 +828,7 @@ async function _runGlobalSearch(q) {
       <div class="tb-sd-icon tb-sd-icon-followup">${icon('phone-call', 15)}</div>
       <div style="flex:1;min-width:0">
         <div class="tb-sd-name">${company}</div>
-        <div class="tb-sd-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${disc}">${disc}</div>
+        <div class="tb-sd-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${disc}">${remarkHtml(f['Discussion'] || f['Remark'])}</div>
       </div>
       ${date ? `<span style="font-size:11px;color:#9ca3af;white-space:nowrap;flex-shrink:0">${formatDate(date)}</span>` : ''}
     </div>`;

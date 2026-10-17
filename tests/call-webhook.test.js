@@ -1,6 +1,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+function loadRemarkHelpers(context) {
+  const source = fs.readFileSync(require('node:path').join(__dirname, '../src/AppUtils.html'), 'utf8');
+  vm.runInContext(source.slice(source.indexOf('function remarkCopyButton'), source.indexOf('async function copyRemark')), context);
+}
+
 const path = require('node:path');
 const { test } = require('node:test');
 const root = path.resolve(__dirname, '..');
@@ -184,6 +189,7 @@ test('management persists enable/pause and returns only bounded delivery history
 test('call remark rendering escapes HTML, preserves normal remarks, and links only HTTPS recordings', () => {
   const escapeHtml = value => String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
   const ctx = vm.createContext({ URL, escapeHtml });
+  loadRemarkHelpers(ctx);
   vm.runInContext(read('src/Webhooks.html').replace(/^<script>/, '').replace(/<\/script>\s*$/, ''), ctx);
   const normal = ctx._callRemarkHtml({ Remark: 'Normal remark' }); assert.match(normal, /Normal remark/); assert.doesNotMatch(normal, /Call recording/);
   const html = ctx._callRemarkHtml({ 'Call ID': 'call1', Remark: '<img onerror=alert(1)>', 'Call Duration Seconds': 87, 'Call Recording URL': 'https://example.com/call.mp3' });

@@ -474,7 +474,7 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, sect
         .map(v => `<span style="display:inline-block;background:#E3F2FD;color:#1565C0;border-radius:3px;padding:1px 7px;font-size:11px;font-weight:500;margin:1px 2px">${escapeHtml(v)}</span>`)
         .join('');
     }
-    return escapeHtml(value);
+    return /remark|discussion|note|comment/i.test(field['Field Name'] || field['Column Key'] || '') ? remarkHtml(value) : escapeHtml(value);
   }
 
   function _customFieldOptions(field, configOptions = {}) {

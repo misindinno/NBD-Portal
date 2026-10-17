@@ -73,7 +73,7 @@ function _callsTableHtml(rows) {
       <td>${escapeHtml(row.clientName || row['Customer Name'] || 'Unmatched client')}<div style="color:#64748b;font-size:12px">${escapeHtml(row['Customer Number'] || 'Number unavailable')}</div></td>
       <td>${escapeHtml(row.Type || '')}<div style="font-size:11px;color:#64748b">${escapeHtml([row.Method,row.Mode].filter(Boolean).join(' / '))}</div></td>
       <td style="white-space:nowrap">${Math.floor(seconds / 60)}m ${seconds % 60}s</td>
-      <td style="min-width:180px;max-width:300px;white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(row.Note || row['Legacy Remark'] || '—')}${row.Outcome ? `<div style="font-weight:600;margin-top:5px">${escapeHtml(row.Outcome)}</div>` : ''}</td>
+      <td style="min-width:180px;max-width:300px;white-space:pre-wrap;overflow-wrap:anywhere">${remarkHtml(row.Note || row['Legacy Remark'])}${row.Outcome ? `<div style="font-weight:600;margin-top:5px">${escapeHtml(row.Outcome)}</div>` : ''}</td>
       <td>${recording}</td>
       <td><span class="badge">${escapeHtml(row['Match Status'])}</span>${row.Conflict ? `<div style="font-size:11px;color:#b45309;max-width:220px">${escapeHtml(row.Conflict)}</div>` : ''}${row.canMap ? `<button class="btn btn-outlined btn-sm" style="margin-top:8px" data-map-call="${escapeHtml(row['Call ID'])}">Map to client</button>` : ''}</td>
     </tr>`;

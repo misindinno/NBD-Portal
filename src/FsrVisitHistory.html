@@ -49,7 +49,7 @@ function _fsrHistoryCard(visit, origin) {
       <div class="fsr-history-meta">${escapeHtml(visit.salespersonName || visit.submittedBy || 'Salesperson not recorded')}</div>
       <div class="fsr-history-meta">${escapeHtml(visit.submissionId || visit.id)}</div>
     </div><span class="badge">${escapeHtml(visit.reviewStatus || 'Submitted')}</span></div>
-    ${fields.length ? `<dl class="fsr-history-fields">${fields.map(pair => `<div><dt>${escapeHtml(pair[0])}</dt><dd>${escapeHtml(String(pair[1]))}</dd></div>`).join('')}</dl>` : '<p class="fsr-history-note">No additional visit details recorded.</p>'}
+    ${fields.length ? `<dl class="fsr-history-fields">${fields.map(pair => `<div><dt>${escapeHtml(pair[0])}</dt><dd>${pair[0] === 'Remarks' ? remarkHtml(pair[1]) : escapeHtml(String(pair[1]))}</dd></div>`).join('')}</dl>` : '<p class="fsr-history-note">No additional visit details recorded.</p>'}
     ${links.length ? `<div class="fsr-history-evidence">${links.join('')}</div><p class="fsr-history-note" style="margin-top:8px">Evidence opens in FSR and requires an authorized FSR login.</p>` : ''}
   </article>`;
 }

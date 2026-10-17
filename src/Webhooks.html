@@ -92,7 +92,7 @@ async function _retryCallDeliveryUi(button) {
 }
 
 function _callRemarkHtml(row) {
-  const remark = `<div class="fu-discussion" title="${escapeHtml(row['Remark'] || '')}"${row['Call ID'] ? ' style="white-space:pre-wrap;max-height:none"' : ''}>${escapeHtml(row['Remark'] || '-')}</div>`;
+  const remark = `<div class="fu-discussion" title="${escapeHtml(row['Remark'] || '')}"${row['Call ID'] ? ' style="white-space:pre-wrap;max-height:none"' : ''}>${remarkHtml(row['Remark'])}</div>`;
   if (!row['Call ID']) return remark;
   const seconds = Math.max(0, Number(row['Call Duration Seconds']) || 0);
   const duration = Math.floor(seconds / 60) + 'm ' + seconds % 60 + 's';

@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+function loadRemarkHelpers(context) {
+  const source = fs.readFileSync(require('node:path').join(__dirname, '../src/AppUtils.html'), 'utf8');
+  vm.runInContext(source.slice(source.indexOf('function remarkCopyButton'), source.indexOf('async function copyRemark')), context);
+}
+
 const root = path.resolve(__dirname, '..');
 const key = 'fsr_api_' + 'a'.repeat(32) + '.' + 'b'.repeat(43);
 function harness() {
@@ -92,6 +97,7 @@ test('history API enforces lead visibility and scoped follow-up access', () => {
 test('history UI escapes API content and rejects unsafe evidence URLs', () => {
   const html = fs.readFileSync(path.join(root, 'src/FsrVisitHistory.html'), 'utf8');
   const context = vm.createContext({ URL, escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;') });
+  loadRemarkHelpers(context);
   vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
   assert.equal(context._fsrHistoryEvidenceUrl('javascript:alert(1)', 'https://fsr.example.com'), '');
   assert.equal(context._fsrHistoryEvidenceUrl('https://evil.example/api/files/id', 'https://fsr.example.com'), '');
@@ -107,6 +113,7 @@ function uiHarness() {
   const panel={html:'',buttons:{},attributes:{},setAttribute(k,v){this.attributes[k]=v;},get innerHTML(){return this.html;},set innerHTML(value){this.html=value;this.buttons={'[data-fsr-refresh]':button(),...(value.includes('data-fsr-more')?{'[data-fsr-more]':button()}: {})};},querySelector(selector){return this.buttons[selector];}};
   const overlay={isConnected:true,querySelector(selector){return {'[data-fsr-history-tab]':tab,'[data-fsr-history-panel]':panel,'[data-fsr-history-count]':count}[selector];}};
   const context=vm.createContext({URL,escapeHtml:value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),api:{getFsrVisitHistory:(id,offset)=>new Promise((resolve,reject)=>requests.push({id,offset,resolve,reject}))}});
+  loadRemarkHelpers(context);
   vm.runInContext(fs.readFileSync(path.join(root,'src/FsrVisitHistory.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1],context);
   context._mountFsrVisitHistory(overlay,'000123');
   return {requests,tab,panel,count,overlay,context};
@@ -205,6 +212,7 @@ test('real API guard preserves safe FSR failures through both sanitization passe
 
 test('history UI displays safe actionable configuration and upstream failure messages', () => {
   const context = vm.createContext({});
+  loadRemarkHelpers(context);
   vm.runInContext(fs.readFileSync(path.join(root, 'src/FsrVisitHistory.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1], context);
   for (const message of [
     'Configure the FSR source key in ClientConfig.',

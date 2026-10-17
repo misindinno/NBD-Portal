@@ -630,7 +630,7 @@ function _todayApply() {
         </td>
         <td><div class="fu-date-sub">${plannedFmt}</div></td>
         <td><div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">${contactBadge}${productiveBadge}</div></td>
-        <td><div class="fu-discussion" title="${escapeHtml(remarkRaw)}">${remark}</div></td>
+        <td><div class="fu-discussion" title="${escapeHtml(remarkRaw)}">${remarkHtml(remarkRaw)}</div></td>
         <td><div class="fu-date-sub">${next}</div></td>
       </tr>`;
     }).join('');
