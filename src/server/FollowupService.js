@@ -147,6 +147,22 @@ function saveFollowup(data, email) {
   return respond(id);
 }
 
+// Validate before changing an existing lead; historical/closed tasks do not count.
+function _assertNonFinalLeadHasOpenFollowup_(lead, stage) {
+  if (!lead || _isArchivedLead_(lead)) return;
+  const targetStage = stage || queryRows(SHEET_NAMES.STAGES,
+    r => String(r['Stage ID']) === String(lead['Stage ID']))[0];
+  if (_leadStageIsFinal_(targetStage)) return;
+  const rows = getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', lead['Lead ID']);
+  const hasOpenTask = rows.some(row => row['Follow-up ID'] &&
+    _isFollowupTaskRow(row) &&
+    String(_normalizeFollowupRow(row)['Status']).trim().toLowerCase() === 'open' &&
+    formatDate(_plannedDate(row)));
+  if (!hasOpenTask) {
+    throw new Error('This lead is not in a final stage. Add an open follow-up with a planned date before saving the lead or changing its stage.');
+  }
+}
+
 function _followupDoneStep_(step, fn) {
   try {
     return typeof withDiagnosticSpan_ === 'function'

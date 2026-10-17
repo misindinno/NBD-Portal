@@ -92,6 +92,7 @@ function saveLead(data, email, bulkOperation) {
       _leadSaveStep_('validate assigned user department', () => _assertLeadAssignedUserAllowed_(finalAssignedTo));
       _leadSaveStep_('apply update status', () => _applyLeadStatusFromStage(prepared, prepared['Stage ID'] || existing.lead['Stage ID']));
       const updatePayload = { ...prepared, 'Updated At': now() };
+      _assertNonFinalLeadHasOpenFollowup_({ ...existing.lead, ...updatePayload });
       const updated = _leadSaveStep_('update lead row', () => updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_(updatePayload)));
       if (!updated) return respond(null, 'Lead update failed. Lead ID was not found in the lead sheet.');
       if (!coreOnly) {
@@ -478,6 +479,7 @@ function updateLeadStage(leadId, newStageId, note, email, fromStageId) {
     .map(f => f['Field Name']);
   if (missing.length) return respond(null, `Required fields missing for ${stageName}: ${missing.join(', ')}`);
   const leadPatch = { 'Stage ID': newStageId, 'Stage Updated At': now(), 'Updated At': now() };
+  _assertNonFinalLeadHasOpenFollowup_(lead, stage);
   const nextStatus = _leadStatusForStage(stage);
   if (nextStatus) {
     leadPatch['Lead Status'] = nextStatus;
@@ -533,6 +535,7 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email, fromSt
     skipped
   );
   const leadPatch = { ...prepared, 'Stage ID': newStageId, 'Stage Updated At': now(), 'Updated At': now() };
+  _assertNonFinalLeadHasOpenFollowup_(lead, stage);
   const nextStatus = _leadStatusForStage(stage);
   if (nextStatus) {
     leadPatch['Lead Status'] = nextStatus;

@@ -8,6 +8,7 @@ function setup(stages, leads = [], options = {}) {
   const events = [];
   const context = {
     SHEET_NAMES: { STAGES: 'stages', LEADS: 'leads' },
+    _assertNonFinalLeadHasOpenFollowup_() {},
     requireConfigEditor() {
       if (options.denied) throw new Error('Permission denied.');
       return { id: 'admin' };

@@ -101,6 +101,8 @@ function saveStage(stage, email) {
 // Configuration reassignment preserves lead status, follow-ups, custom fields,
 // archive metadata, and ownership; it does not complete a sales pipeline step.
 function _moveLeadsFromInactiveStage_(leads, sourceStage, targetStage, userId) {
+  // Validate the whole group before moving any lead.
+  leads.forEach(lead => _assertNonFinalLeadHasOpenFollowup_(lead, targetStage));
   const movedIds = [];
   const timestamp = now();
   try {

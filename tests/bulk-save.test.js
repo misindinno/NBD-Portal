@@ -24,6 +24,7 @@ function setup() {
     _invalidateReadCache_() {}, _bumpStamp() {}, pushFsrLeadIds_() {}, pushFsrLeadById_() {},
     LockService: { getScriptLock: () => ({ waitLock() { assert.equal(locked, false); locked = true; }, releaseLock() { locked = false; } }) },
     getConfigByType: () => ['Call'], ensureFollowupSheets_() {},
+    _assertNonFinalLeadHasOpenFollowup_() {},
     getHeaders: sheet => headers[sheet],
     safeInitHeaders(sheet, required) { if (!headers[sheet]) headers[sheet] = Array.from(required); if (!data[sheet]) data[sheet] = []; },
     getAllRows(sheet) { scans.push(sheet); return (data[sheet] || []).map(row => Object.fromEntries(headers[sheet].map((h, i) => [h, row[i]]))); },
