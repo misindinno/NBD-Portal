@@ -6,6 +6,9 @@
 
 // Public, unsigned Callyzer endpoint. The bare deployment URL also accepts calls.
 function doPost(e) {
+  if (e && e.parameter && e.parameter.webhook === 'ecs-query') {
+    return _ecsQueryWebhook_(e.postData && e.postData.contents || '');
+  }
   return withRequestContext_('callyzerWebhook', () => withServerContext_(() => {
     const startedAt = Date.now();
     const raw = e && e.postData && e.postData.contents || '';
