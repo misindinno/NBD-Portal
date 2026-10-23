@@ -81,13 +81,19 @@ function _ecsCheckQueryLead_(request) {
   assertServerContext_();
   if (typeof request.companyName !== 'string' || request.companyName.length > 300 || typeof request.phone !== 'string' || request.phone.length > 40 || typeof request.email !== 'string' || request.email.length > 254) throw _ecsQueryError_('INVALID_REQUEST');
   const company = _leadNormText_(request.companyName), phone = _leadNormPhone_(request.phone), email = _leadNormEmail_(request.email);
+  const verifyLeadIds = request.verifyLeadIds || [];
+  if (!Array.isArray(verifyLeadIds) || verifyLeadIds.length > 52 || verifyLeadIds.some(id => typeof id !== 'string' || !id || id.length > 160)) throw _ecsQueryError_('INVALID_REQUEST');
   const rows = _leadMasterLookupRows_(['Lead ID', 'Company Name', 'Phone', 'Alternate No', 'Email', 'City', 'State', 'Source Lead ID']);
   const matches = rows.filter(row => !(request.excludeQueryLead === true && String(row['Source Lead ID'] || '') === request.queryId) && (
     (company && _leadNormText_(row['Company Name']) === company) ||
     (phone && (_leadNormPhone_(row.Phone) === phone || _leadNormPhone_(row['Alternate No']) === phone)) ||
     (email && _leadNormEmail_(row.Email) === email)
   ));
-  return { matches: matches.slice(0, 50).map(_ecsLeadSummary_), total: matches.length };
+  // Verify exact IDs against the master, including renamed leads and manual deletions.
+  // An empty name-match result alone cannot prove that a selected lead was deleted.
+  const verifiedLeads = rows.filter(row => verifyLeadIds.includes(String(row['Lead ID']))).map(_ecsLeadSummary_);
+  return { matches: matches.slice(0, 50).map(_ecsLeadSummary_), total: matches.length,
+    verifiedLeads, missingLeadIds: verifyLeadIds.filter(id => !verifiedLeads.some(lead => lead.leadId === id)) };
 }
 function _ecsRows_(target) {
   const count = target.sheet.getLastRow();
