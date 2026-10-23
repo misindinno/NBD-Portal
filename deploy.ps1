@@ -49,7 +49,7 @@ function Invoke-DeploymentPreflight([string[]]$ClientNames) {
   }
 }
 
-function Deploy-Client([string]$ClientName) {
+function Invoke-ClientDeployment([string]$ClientName) {
   $dir = Join-Path $clients $ClientName
   if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
     throw "Client folder not found: $dir"
@@ -99,12 +99,12 @@ if ($All) {
   $selectedClients = @(Get-DeployableClientNames)
   Invoke-DeploymentPreflight $selectedClients
   foreach ($clientName in $selectedClients) {
-    Deploy-Client $clientName
+    Invoke-ClientDeployment $clientName
   }
 } elseif (-not [string]::IsNullOrWhiteSpace($Client)) {
   $selectedClients = @($Client)
   Invoke-DeploymentPreflight $selectedClients
-  Deploy-Client $Client
+  Invoke-ClientDeployment $Client
 } else {
   Write-Host 'Usage:' -ForegroundColor Yellow
   Write-Host '  .\deploy.ps1 -Client <client-name>   Deploy a single client'

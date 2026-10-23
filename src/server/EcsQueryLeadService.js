@@ -6,6 +6,8 @@ function _ecsQueryWebhook_(raw) {
     try {
       const request = _ecsVerifyQueryRequest_(raw);
       if (request.action === 'options') result = { users: _ecsAssignableUsers_() };
+      else if (request.action === 'check') result = _ecsCheckQueryLead_(request);
+      else if (request.action === 'continue') result = _ecsContinueQueryLead_(request);
       else if (request.action === 'push') result = _ecsCreateQueryLead_(request);
       else throw _ecsQueryError_('INVALID_REQUEST');
       return ContentService.createTextOutput(JSON.stringify({ success: true, data: result })).setMimeType(ContentService.MimeType.JSON);
@@ -46,12 +48,14 @@ function _ecsAssignableUsers_() {
     }).filter(user => user.id);
 }
 
-function _ecsValidateLeadRequest_(request) {
+function _ecsValidateLeadRequest_(request, existing) {
   const bounds = { queryId: 36, reference: 100, companyName: 300, contact: 200, phone: 40, email: 254, city: 120, state: 120, address: 800, subject: 200, message: 5000, kind: 40, actor: 254, assignedTo: 254, followupDate: 10, remark: 2000 };
   Object.keys(bounds).forEach(key => {
     if (typeof request[key] !== 'string' || request[key].length > bounds[key]) throw _ecsQueryError_('INVALID_REQUEST');
   });
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(request.queryId) || !request.companyName.trim() || !request.assignedTo.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(request.followupDate)) throw _ecsQueryError_('INVALID_REQUEST');
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(request.queryId) || !request.companyName.trim() || (!existing && !request.assignedTo.trim())) throw _ecsQueryError_('INVALID_REQUEST');
+  if (existing && !request.followupDate) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(request.followupDate)) throw _ecsQueryError_('INVALID_REQUEST');
   const date = new Date(request.followupDate);
   if (!Number.isFinite(+date) || date.toISOString().slice(0, 10) !== request.followupDate) throw _ecsQueryError_('INVALID_REQUEST');
 }
@@ -68,6 +72,87 @@ function _ecsAppendCells_(target, row) {
     // Explicit strings preserve phone numbers and prevent formula interpretation.
     values: target.headers.map(header => ({ userEnteredValue: { stringValue: String(row[header] == null ? '' : row[header]) } }))
   }] } };
+}
+
+function _ecsLeadSummary_(row) {
+  return { leadId: String(row['Lead ID']), name: String(row['Company Name'] || ''), city: String(row.City || ''), state: String(row.State || '') };
+}
+function _ecsCheckQueryLead_(request) {
+  assertServerContext_();
+  if (typeof request.companyName !== 'string' || request.companyName.length > 300 || typeof request.phone !== 'string' || request.phone.length > 40 || typeof request.email !== 'string' || request.email.length > 254) throw _ecsQueryError_('INVALID_REQUEST');
+  const company = _leadNormText_(request.companyName), phone = _leadNormPhone_(request.phone), email = _leadNormEmail_(request.email);
+  const rows = _leadMasterLookupRows_(['Lead ID', 'Company Name', 'Phone', 'Alternate No', 'Email', 'City', 'State', 'Source Lead ID']);
+  const matches = rows.filter(row => !(request.excludeQueryLead === true && String(row['Source Lead ID'] || '') === request.queryId) && (
+    (company && _leadNormText_(row['Company Name']) === company) ||
+    (phone && (_leadNormPhone_(row.Phone) === phone || _leadNormPhone_(row['Alternate No']) === phone)) ||
+    (email && _leadNormEmail_(row.Email) === email)
+  ));
+  return { matches: matches.slice(0, 50).map(_ecsLeadSummary_), total: matches.length };
+}
+function _ecsRows_(target) {
+  const count = target.sheet.getLastRow();
+  if (count < 2) return [];
+  return target.sheet.getRange(2, 1, count - 1, target.headers.length).getValues().map((values, index) => ({
+    rowNumber: index + 2, data: target.headers.reduce((row, key, i) => { row[key] = normalizeSheetValue(values[i]); return row; }, {})
+  }));
+}
+function _ecsUpdateCell_(target, rowNumber, field, value) {
+  const column = target.headers.indexOf(field);
+  if (column < 0) throw _ecsQueryError_('SCHEMA_INVALID');
+  return { updateCells: { range: { sheetId: target.sheet.getSheetId(), startRowIndex: rowNumber - 1, endRowIndex: rowNumber, startColumnIndex: column, endColumnIndex: column + 1 }, fields: 'userEnteredValue', rows: [{ values: [{ userEnteredValue: { stringValue: String(value) } }] }] } };
+}
+function _ecsContinueQueryLead_(request) {
+  assertServerContext_(); _ecsValidateLeadRequest_(request, true);
+  if (typeof request.leadId !== 'string' || !request.leadId.trim() || request.leadId.length > 160) throw _ecsQueryError_('INVALID_REQUEST');
+  const leads = _ecsQuerySheet_(SHEET_NAMES.LEADS, ['Lead ID', 'Company Name']);
+  const followups = _ecsQuerySheet_(SHEET_NAMES.FOLLOWUPS, ['Follow-up ID', 'Lead ID', 'Planned Date', 'Follow-up Date', 'Follow-up Type', 'Next Follow-up Date', 'Created By', 'Discussion', 'Status', 'Stage ID', 'Created At', 'Updated At']);
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  let lead, followup, reused = false;
+  try {
+    _invalidateReadCache_();
+    lead = _findExternalLeadInSheet_(leads.sheet, leads.headers, 'Lead ID', request.leadId);
+    if (!lead) throw _ecsQueryError_('LEAD_NOT_FOUND');
+    const marker = '[ECS query ' + request.queryId.toLowerCase() + ']';
+    const rows = _ecsRows_(followups);
+    const previous = rows.find(row => String(row.data.Discussion || '').includes(marker) || row.data['Follow-up ID'] === 'ECS-FU-' + request.queryId.toLowerCase());
+    if (previous && String(previous.data['Lead ID']) !== request.leadId) throw _ecsQueryError_('INCOMPLETE_PUSH');
+    const candidates = rows.filter(row => String(row.data['Lead ID']) === request.leadId && row.data['Follow-up ID']).reverse();
+    const selected = previous || candidates.find(row => !/^(closed|completed|done|cancelled|canceled)$/i.test(String(row.data.Status || '').trim())) || candidates[0];
+    const note = [marker, 'Pushed from ECS query', 'Reference: ' + request.reference, 'Subject: ' + request.subject, request.message, request.remark ? 'Remark: ' + request.remark : '', 'Linked by: ' + request.actor].filter(Boolean).join('\n\n');
+    const timestamp = now();
+    if (selected) {
+      reused = true; followup = selected.data;
+      const discussion = String(followup.Discussion || '');
+      if (!discussion.includes(marker)) {
+        followup.Discussion = discussion ? discussion + '\n\n' + note : note;
+        followup['Updated At'] = timestamp;
+        Sheets.Spreadsheets.batchUpdate({ requests: [_ecsUpdateCell_(followups, selected.rowNumber, 'Discussion', followup.Discussion), _ecsUpdateCell_(followups, selected.rowNumber, 'Updated At', timestamp)] }, CLIENT_CONFIG.SPREADSHEET_ID);
+      }
+    } else {
+      if (!request.assignedTo || !request.followupDate) throw _ecsQueryError_('FOLLOWUP_DETAILS_REQUIRED');
+      const user = _ecsAssignableUsers_().find(user => user.id === request.assignedTo);
+      if (!user) throw _ecsQueryError_('INVALID_ASSIGNEE');
+      followup = { 'Follow-up ID': 'ECS-FU-' + request.queryId.toLowerCase(), 'Lead ID': request.leadId,
+        'Planned Date': request.followupDate, 'Follow-up Date': request.followupDate,
+        'Follow-up Type': getConfigByType('Follow-up Type')[0] || 'Call', 'Discussion': note,
+        'Next Follow-up Date': request.followupDate, 'Status': 'Open', 'Stage ID': String(lead['Stage ID'] || ''),
+        'Created By': user.id, 'Created At': timestamp, 'Updated At': timestamp };
+      // Guard deterministic IDs even if another lead was selected on a retry.
+      if (_findExternalLeadInSheet_(followups.sheet, followups.headers, 'Follow-up ID', followup['Follow-up ID'])) throw _ecsQueryError_('INCOMPLETE_PUSH');
+      const leadRow = findRowIndexWithoutIndex_(SHEET_NAMES.LEADS, 'Lead ID', request.leadId);
+      if (leadRow < 2) throw _ecsQueryError_('LEAD_NOT_FOUND');
+      lead['Next Follow-up Date'] = request.followupDate; lead['Updated At'] = timestamp;
+      Sheets.Spreadsheets.batchUpdate({ requests: [_ecsAppendCells_(followups, followup), _ecsUpdateCell_(leads, leadRow, 'Next Follow-up Date', request.followupDate), _ecsUpdateCell_(leads, leadRow, 'Updated At', timestamp)] }, CLIENT_CONFIG.SPREADSHEET_ID);
+    }
+  } finally { lock.releaseLock(); }
+  _invalidateReadCache_();
+  const rowNumber = findRowIndexWithoutIndex_(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID']);
+  if (rowNumber < 2) throw _ecsQueryError_('INCOMPLETE_PUSH');
+  const safe = Object.keys(followup).reduce((row, key) => { row[key] = neutralizeSheetFormula_(followup[key]); return row; }, {});
+  syncIndexRow_(SHEET_NAMES.FOLLOWUPS, safe, rowNumber); _bumpStamp('followups');
+  const leadRow = findRowIndexWithoutIndex_(SHEET_NAMES.LEADS, 'Lead ID', request.leadId);
+  syncIndexRow_(SHEET_NAMES.LEADS, Object.keys(lead).reduce((row, key) => { row[key] = neutralizeSheetFormula_(lead[key]); return row; }, {}), leadRow); _bumpStamp('leads');
+  return { queryId: request.queryId, portalKey: request.portalKey, leadId: request.leadId, followupId: String(followup['Follow-up ID']), alreadyPushed: reused, reusedFollowup: reused, lead: _ecsLeadSummary_(lead) };
 }
 
 function _ecsCreateQueryLead_(request) {
