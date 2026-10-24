@@ -231,6 +231,23 @@ function showLoginOverlay(errorMsg, errorType) {
 
   const isSession = /session|expired/i.test(errorMsg || '');
   const msgClass  = (errorType === 'info' || isSession) ? 'lo-info-msg' : 'lo-err-msg';
+  // Startup and a private-cache lock can both request sign-in. Reuse the
+  // mounted form so a second request cannot leave another overlay after login
+  // or discard credentials the user has already started entering.
+  const existingOverlay = document.getElementById('nbd-login-overlay');
+  if (existingOverlay) {
+    if (errorMsg) {
+      const existingForm = existingOverlay.querySelector('#lo-form');
+      let message = existingForm.querySelector('.lo-err-msg, .lo-info-msg');
+      if (!message) {
+        message = document.createElement('div');
+        existingForm.prepend(message);
+      }
+      message.className = msgClass;
+      message.textContent = errorMsg;
+    }
+    return existingOverlay;
+  }
   const errHTML   = errorMsg ? `
     <div class="${msgClass}">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
