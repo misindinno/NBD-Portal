@@ -77,8 +77,9 @@ function portalReadCachePage_(user, input) {
   PORTAL_CACHE_READ_ONLY_ = true;
   try { source = portalCacheSource_(kind, query); } finally { PORTAL_CACHE_READ_ONLY_ = prior; }
   const packed = portalCachePack_(kind, query, source), rows = packed.records;
-  const revision = leadCacheDigest_({ scope: identity.scope, rows });
+  const revision = leadCacheContentDigest_(identity.scope, rows, q.canonicalHashes === true);
   const meta = { identity, revision, total: rows.length, verifiedAt: new Date().toISOString(), volatile: packed.volatile };
+  if (q.canonicalHashes === true) meta.hashFormat = 'canonical-v1';
   if (q.cursor == null && q.revision === revision) return { ...meta, unchanged: true };
   const delta = typeof syncDeltaPage_ === 'function' ? syncDeltaPage_(q, rows, meta) : null;
   if (delta) return delta;

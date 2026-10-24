@@ -96,6 +96,12 @@ final hash/revision and replaces IndexedDB in one transaction. Reassignment/remo
 is a tombstone in that user's view; a foreign manifest cannot grant record access.
 Module array positions preserve legitimate duplicate business/history rows.
 
+New clients negotiate `canonical-v1` content hashes. Object keys are recursively
+sorted before hashing on both sides, because the Apps Script RPC bridge may change
+property order. Array order and values remain significant. This changes only read
+snapshot/delta hashes, not authorization scope or write receipts. Legacy hash
+responses remain readable during rollout; old clients keep the legacy protocol.
+
 Already verified in-memory reads can be reused for 15 seconds. Visible worklists
 revalidate at the existing 15-second polling tick; focus/explicit refresh forces
 verification. Refresh waits while a form/input is being edited. Hidden/offline

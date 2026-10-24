@@ -35,6 +35,16 @@ function leadCacheDigest_(value) {
     .map(byte => ('0' + ((byte + 256) % 256).toString(16)).slice(-2)).join('');
 }
 
+function leadCacheCanonicalValue_(value) {
+  if (Array.isArray(value)) return value.map(leadCacheCanonicalValue_);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, leadCacheCanonicalValue_(value[key])]));
+}
+function leadCacheContentDigest_(scope, rows, canonical) {
+  const value = { scope, rows };
+  return leadCacheDigest_(canonical ? leadCacheCanonicalValue_(value) : value);
+}
+
 function leadCacheIdentity_(user) {
   const scope = { id: user.id, role: user.role, modules: user.modules || [], department: user.department || '', departments: _portalDepartmentScopeSet_() };
   return {
@@ -75,8 +85,9 @@ function leadCachePage_(user, input) {
     throw new Error('CACHE_SCOPE_CHANGED: Reload the portal to verify current access.');
   }
   const rows = leadCacheRows_(user);
-  const revision = leadCacheDigest_({ scope: identity.scope, rows });
+  const revision = leadCacheContentDigest_(identity.scope, rows, query.canonicalHashes === true);
   const meta = { identity, revision, total: rows.length, verifiedAt: new Date().toISOString() };
+  if (query.canonicalHashes === true) meta.hashFormat = 'canonical-v1';
   if (query.cursor == null && query.revision === revision) return Object.assign(meta, { unchanged: true });
   const delta = typeof syncDeltaPage_ === 'function' ? syncDeltaPage_(query, rows, meta) : null;
   if (delta) return delta;

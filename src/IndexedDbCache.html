@@ -92,9 +92,15 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
     epoch++; inFlight = null; status = { state: 'unavailable' };
     if (storage.cancel) storage.cancel();
   }
-  async function digestRows(scope, rows) {
+  function canonicalValue(value) {
+    if (Array.isArray(value)) return value.map(canonicalValue);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalValue(value[key])]));
+  }
+  async function digestRows(scope, rows, canonical = true) {
     try {
-      const bytes = new TextEncoder().encode(JSON.stringify({ scope, rows }));
+      const value = { scope, rows };
+      const bytes = new TextEncoder().encode(JSON.stringify(canonical ? canonicalValue(value) : value));
       return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
     } catch (_) { return ''; }
   }
@@ -116,9 +122,10 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
       check();
       if (!page || !same(context, page.identity)) throw new Error('CACHE_SCOPE_CHANGED');
       if (!/^[a-f0-9]{64}$/.test(page.revision) || !Number.isSafeInteger(page.total) || page.total < 0 || !page.verifiedAt) throw new Error('Invalid cache response');
+      if (page.hashFormat !== undefined && page.hashFormat !== 'canonical-v1') throw new Error('Unsupported cache hash format');
       return page;
     };
-    const fetch = async query => validate(await request({ portal: context.portal, user: context.user, scope: context.scope, snapshotBatch: true, ...query }));
+    const fetch = async query => validate(await request({ portal: context.portal, user: context.user, scope: context.scope, snapshotBatch: true, canonicalHashes: true, ...query }));
     status = { state: 'verifying' };
     const promise = (async () => {
       const cached = await safeStorage('get', key);
@@ -127,7 +134,7 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
       // Validate local integrity as well as the server revision. A corrupted row must
       // not be accepted merely because its stored revision still matches Sheets.
       if (candidate) {
-        if (await digestRows(context.scope, candidate.rows) !== candidate.revision) candidate = null;
+        if (await digestRows(context.scope, candidate.rows, candidate.hashFormat === 'canonical-v1') !== candidate.revision) candidate = null;
       }
       check();
       if (!candidate && cached) await safeStorage('remove', key);
@@ -139,6 +146,7 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
           if (manifest && manifest.some(pair => !pair[1])) manifest = null;
           const deltaQuery = manifest ? { delta: true, manifest } : {};
           let page = await fetch({ revision: candidate ? candidate.revision : '', ...deltaQuery });
+          const hashFormat = page.hashFormat, canonical = hashFormat === 'canonical-v1';
           if (page.unchanged) {
             if (!candidate || page.revision !== candidate.revision || page.total !== candidate.total) throw new Error('Invalid unchanged response');
             status = { ...status, state: 'verified-cache', verifiedAt: page.verifiedAt, durationMs: now() - started, total: page.total };
@@ -151,7 +159,7 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
             const revision = page.revision, total = page.total, changeTotal = page.changeTotal;
             let received = 0;
             while (true) {
-              if (!page.delta || page.revision !== revision || page.total !== total || page.changeTotal !== changeTotal ||
+              if (!page.delta || page.hashFormat !== hashFormat || page.revision !== revision || page.total !== total || page.changeTotal !== changeTotal ||
                   page.offset !== received || !Array.isArray(page.changes) || page.changes.length > 100) throw new Error('Invalid delta page');
               for (const change of page.changes) {
                 if (typeof change.key !== 'string' || seen.has(change.key)) throw new Error('Duplicate delta entry');
@@ -167,11 +175,11 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
             const rows = [...next.values()].sort((a,b) => validateRows
               ? (a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : a.index - b.index)
               : (a['Lead ID'] < b['Lead ID'] ? -1 : a['Lead ID'] > b['Lead ID'] ? 1 : 0));
-            if (received !== changeTotal || !validRows(rows, total) || await digestRows(context.scope, rows) !== revision) throw new Error('CACHE_REVISION_CHANGED');
+            if (received !== changeTotal || !validRows(rows, total) || await digestRows(context.scope, rows, canonical) !== revision) throw new Error('CACHE_REVISION_CHANGED');
             const confirmed = await fetch({ revision });
-            if (!confirmed.unchanged || confirmed.revision !== revision || confirmed.total !== total) throw new Error('CACHE_REVISION_CHANGED');
+            if (!confirmed.unchanged || confirmed.hashFormat !== hashFormat || confirmed.revision !== revision || confirmed.total !== total) throw new Error('CACHE_REVISION_CHANGED');
             check();
-            await safeStorage('put', { key, identity: context, revision, rows, total, complete: true, cursor: null, verifiedAt: confirmed.verifiedAt });
+            await safeStorage('put', { key, identity: context, hashFormat, revision, rows, total, complete: true, cursor: null, verifiedAt: confirmed.verifiedAt });
             check(); verifiedRows = structuredClone(rows); verifiedUntil = now() + 15000;
             status = { ...status, state: 'verified-delta', verifiedAt: confirmed.verifiedAt, total, changed: received };
             return structuredClone(rows);
@@ -181,7 +189,7 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
           await safeStorage('remove', key); check(); candidate = null;
           const revision = page.revision, total = page.total, rows = [];
           while (true) {
-            if (page.revision !== revision || page.total !== total || page.offset !== rows.length || !Array.isArray(page.items) || page.items.length > 2000) throw new Error('Invalid snapshot page');
+            if (page.hashFormat !== hashFormat || page.revision !== revision || page.total !== total || page.offset !== rows.length || !Array.isArray(page.items) || page.items.length > 2000) throw new Error('Invalid snapshot page');
             rows.push(...page.items);
             if (page.nextCursor === null) break;
             if (!page.items.length || page.nextCursor !== String(rows.length) || rows.length >= total) throw new Error('Invalid snapshot cursor');
@@ -190,11 +198,11 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
           if (!validRows(rows, total)) throw new Error('Incomplete or duplicate snapshot');
           // Recheck after the last page to avoid accepting mixed-time snapshots.
           const confirmed = await fetch({ revision });
-          if (!confirmed.unchanged || confirmed.revision !== revision || confirmed.total !== total) throw new Error('CACHE_REVISION_CHANGED');
-          const digest = await digestRows(context.scope, rows);
+          if (!confirmed.unchanged || confirmed.hashFormat !== hashFormat || confirmed.revision !== revision || confirmed.total !== total) throw new Error('CACHE_REVISION_CHANGED');
+          const digest = await digestRows(context.scope, rows, canonical);
           if (digest && digest !== revision) throw new Error('Invalid snapshot integrity');
           check();
-          if (digest) await safeStorage('put', { key, identity: context, revision, rows, total, complete: true, cursor: null, verifiedAt: confirmed.verifiedAt });
+          if (digest) await safeStorage('put', { key, identity: context, hashFormat, revision, rows, total, complete: true, cursor: null, verifiedAt: confirmed.verifiedAt });
           check();
           status = { ...status, state: 'verified-network', verifiedAt: confirmed.verifiedAt, durationMs: now() - started, total };
           verifiedRows = structuredClone(rows); verifiedUntil = now() + 15000;

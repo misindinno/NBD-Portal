@@ -19,7 +19,7 @@ function syncDeltaPage_(query, rows, meta) {
     const key = syncRecordKey_(row);
     if (current.has(key)) throw new Error('Duplicate sync record key.');
     current.add(key);
-    if (known.get(key) !== leadCacheDigest_({ scope: '', rows: [row] })) changes.push({ key, value: row });
+    if (known.get(key) !== leadCacheContentDigest_('', [row], query.canonicalHashes === true)) changes.push({ key, value: row });
   });
   known.forEach((_, key) => { if (!current.has(key)) changes.push({ key, removed: true }); });
   let offset = 0;
