@@ -3,6 +3,33 @@
 const LEAD_CACHE_SCHEMA_ = 1;
 const LEAD_CACHE_PAGE_SIZE_ = 100;
 
+// New clients opt in to fewer RPC round-trips for complete cold snapshots.
+// Keep the legacy 100-row protocol for already-open/older portal versions.
+function leadCacheSnapshotPage_(rows, query, meta) {
+  const batched = query.snapshotBatch === true;
+  let offset = 0;
+  if (query.cursor != null) {
+    if (typeof query.cursor !== 'string' || !/^\d+$/.test(query.cursor) || query.revision !== meta.revision) {
+      throw new Error('CACHE_REVISION_CHANGED: Restart the snapshot.');
+    }
+    offset = Number(query.cursor);
+    if (!Number.isSafeInteger(offset) || offset <= 0 || offset >= rows.length || !batched && offset % LEAD_CACHE_PAGE_SIZE_ !== 0) throw new Error('Invalid cache cursor.');
+  }
+  const limit = batched ? 2000 : LEAD_CACHE_PAGE_SIZE_;
+  let end = Math.min(offset + limit, rows.length);
+  if (batched) {
+    let size = 2;
+    for (let i = offset; i < end; i++) {
+      const length = JSON.stringify(rows[i]).length + 1;
+      // Always allow one whole row so a long remark cannot cause an empty-page
+      // loop. Normal batches target at most one million serialized characters.
+      if (i > offset && size + length > 1000000) { end = i; break; }
+      size += length;
+    }
+  }
+  return { ...meta, offset, items: rows.slice(offset, end), nextCursor: end < rows.length ? String(end) : null };
+}
+
 function leadCacheDigest_(value) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(value), Utilities.Charset.UTF_8)
     .map(byte => ('0' + ((byte + 256) % 256).toString(16)).slice(-2)).join('');
@@ -53,17 +80,7 @@ function leadCachePage_(user, input) {
   if (query.cursor == null && query.revision === revision) return Object.assign(meta, { unchanged: true });
   const delta = typeof syncDeltaPage_ === 'function' ? syncDeltaPage_(query, rows, meta) : null;
   if (delta) return delta;
-  if (query.cursor != null) {
-    if (typeof query.cursor !== 'string' || !/^\d+$/.test(query.cursor) || query.revision !== revision) {
-      throw new Error('CACHE_REVISION_CHANGED: Restart the snapshot.');
-    }
-    const offset = Number(query.cursor);
-    if (!Number.isSafeInteger(offset) || offset <= 0 || offset >= rows.length || offset % LEAD_CACHE_PAGE_SIZE_ !== 0) throw new Error('Invalid cache cursor.');
-    const next = offset + LEAD_CACHE_PAGE_SIZE_;
-    return Object.assign(meta, { offset, items: rows.slice(offset, next), nextCursor: next < rows.length ? String(next) : null });
-  }
-  if (query.revision === revision) return Object.assign(meta, { unchanged: true });
-  return Object.assign(meta, { offset: 0, items: rows.slice(0, LEAD_CACHE_PAGE_SIZE_), nextCursor: rows.length > LEAD_CACHE_PAGE_SIZE_ ? String(LEAD_CACHE_PAGE_SIZE_) : null });
+  return leadCacheSnapshotPage_(rows, query, meta);
 }
 
 function apiGetLeadCachePage(token, query) {

@@ -84,7 +84,12 @@ not instantaneous revocation.
 
 ## Pull protocol and timing
 
-Cold reads use complete, revision-bound pages. Warm clients submit record IDs and
+Cold reads use complete, revision-bound pages. Current clients opt in to batches
+of up to 2,000 records, targeting at most one million serialized characters per
+batch (one oversized row is sent alone). This avoids a separate Sheet scan/RPC
+for every 100 history records. Older clients retain 100-record pages. Every batch
+still rechecks authorization/revision, and only a complete, verified snapshot is
+committed locally. Warm clients submit record IDs and
 SHA-256 hashes, and the server computes authorized changed records plus removal
 tombstones. A client applies every delta page to a temporary snapshot, checks the
 final hash/revision and replaces IndexedDB in one transaction. Reassignment/removal

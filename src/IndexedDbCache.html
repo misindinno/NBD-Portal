@@ -118,7 +118,7 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
       if (!/^[a-f0-9]{64}$/.test(page.revision) || !Number.isSafeInteger(page.total) || page.total < 0 || !page.verifiedAt) throw new Error('Invalid cache response');
       return page;
     };
-    const fetch = async query => validate(await request({ portal: context.portal, user: context.user, scope: context.scope, ...query }));
+    const fetch = async query => validate(await request({ portal: context.portal, user: context.user, scope: context.scope, snapshotBatch: true, ...query }));
     status = { state: 'verifying' };
     const promise = (async () => {
       const cached = await safeStorage('get', key);
@@ -181,7 +181,7 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
           await safeStorage('remove', key); check(); candidate = null;
           const revision = page.revision, total = page.total, rows = [];
           while (true) {
-            if (page.revision !== revision || page.total !== total || page.offset !== rows.length || !Array.isArray(page.items) || page.items.length > 100) throw new Error('Invalid snapshot page');
+            if (page.revision !== revision || page.total !== total || page.offset !== rows.length || !Array.isArray(page.items) || page.items.length > 2000) throw new Error('Invalid snapshot page');
             rows.push(...page.items);
             if (page.nextCursor === null) break;
             if (!page.items.length || page.nextCursor !== String(rows.length) || rows.length >= total) throw new Error('Invalid snapshot cursor');

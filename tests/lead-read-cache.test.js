@@ -9,14 +9,14 @@ function fixture(count) {
   return { server, storage, state, client };
 }
 test('cold snapshots use bounded pages and one atomic complete commit; warm reads validate online', async () => {
-  const f = fixture(205);
-  assert.equal((await f.client.load()).length, 205);
+  const f = fixture(4005);
+  assert.equal((await f.client.load()).length, 4005);
   assert.equal(f.state.requests.length, 4); // 3 pages + final revision verification
   assert.equal(f.storage.puts, 1);
   const saved = [...f.storage.data.values()][0];
-  assert.equal(saved.complete, true); assert.equal(saved.cursor, null); assert.equal(saved.total, 205);
+  assert.equal(saved.complete, true); assert.equal(saved.cursor, null); assert.equal(saved.total, 4005);
   f.state.requests.length = 0;
-  assert.equal((await f.client.load()).length, 205); assert.equal(f.state.requests.length, 1);
+  assert.equal((await f.client.load()).length, 4005); assert.equal(f.state.requests.length, 1);
   assert.equal(f.client.status().state, 'verified-cache'); assert.equal(f.server.state.writes, 0);
 });
 test('zero results commit a complete empty snapshot, with no invented rows or totals', async () => {
@@ -86,19 +86,19 @@ test('duplicate IDs fail closed; invalid/replayed cursors and stale revisions ar
   f.state.rows.push({ ...f.state.rows[0] }); assert.equal(f.call(query).success, false);
 });
 test('interrupted replacement never publishes partial data or advances the stored cursor', async () => {
-  const f = serverFixture(205), storage = memoryStorage();
+  const f = serverFixture(2005), storage = memoryStorage();
   const client = browserFactory().createLeadReadCache({ storage, request: query => { if (query.cursor) throw Error('Network lost'); return f.request(query); } });
   client.bind(f.identity()); await assert.rejects(client.load(), /Network lost/);
   assert.equal(storage.data.size, 0); assert.equal(storage.puts, 0);
 });
 test('a changing snapshot restarts with a bounded retry and never combines revisions', async () => {
-  const f = serverFixture(105), storage = memoryStorage(); let changes = 0;
+  const f = serverFixture(2005), storage = memoryStorage(); let changes = 0;
   const client = browserFactory().createLeadReadCache({ storage, request: query => {
     if (query.cursor && !changes++) f.state.rows[0]['Company Name'] = 'New revision';
     return f.request(query);
   } });
   client.bind(f.identity()); const rows = await client.load();
-  assert.equal(rows[0]['Company Name'], 'New revision'); assert.equal(rows.length, 105); assert.equal(storage.puts, 1);
+  assert.equal(rows[0]['Company Name'], 'New revision'); assert.equal(rows.length, 2005); assert.equal(storage.puts, 1);
 });
 test('storage denial/quota keeps authorized network reads working', async () => {
   const f = fixture(105); f.storage.fail = true;
@@ -140,7 +140,7 @@ test('duplicate cross-tab logout signals share cleanup and preserve the final pr
 });
 test('duplicate/replayed network pages cannot be committed under a server revision', async () => {
   for (const corrupt of [page => { page.items[0] = page.items[1]; }, page => { page.offset = 0; }, page => { page.nextCursor = '100'; }]) {
-    const f = serverFixture(205), storage = memoryStorage();
+    const f = serverFixture(2005), storage = memoryStorage();
     const client = browserFactory().createLeadReadCache({ storage, request: query => {
       const page = f.request(query); if (query.cursor) corrupt(page); return page;
     } });
@@ -148,7 +148,7 @@ test('duplicate/replayed network pages cannot be committed under a server revisi
   }
 });
 test('continuous edits exhaust a bounded retry instead of accepting an inconsistent snapshot', async () => {
-  const f = serverFixture(105), storage = memoryStorage(); let changes = 0;
+  const f = serverFixture(2005), storage = memoryStorage(); let changes = 0;
   const client = browserFactory().createLeadReadCache({ storage, request: query => {
     if (query.cursor) f.state.rows[0]['Company Name'] = 'Change ' + ++changes;
     return f.request(query);

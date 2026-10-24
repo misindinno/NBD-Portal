@@ -82,14 +82,7 @@ function portalReadCachePage_(user, input) {
   if (q.cursor == null && q.revision === revision) return { ...meta, unchanged: true };
   const delta = typeof syncDeltaPage_ === 'function' ? syncDeltaPage_(q, rows, meta) : null;
   if (delta) return delta;
-  if (q.cursor != null) {
-    if (typeof q.cursor !== 'string' || !/^\d+$/.test(q.cursor) || q.revision !== revision) throw new Error('CACHE_REVISION_CHANGED');
-    const offset = Number(q.cursor);
-    if (!Number.isSafeInteger(offset) || offset <= 0 || offset >= rows.length || offset % 100 !== 0) throw new Error('Invalid cache cursor.');
-    return { ...meta, offset, items: rows.slice(offset, offset + 100), nextCursor: offset + 100 < rows.length ? String(offset + 100) : null };
-  }
-  if (q.revision === revision) return { ...meta, unchanged: true };
-  return { ...meta, offset: 0, items: rows.slice(0, 100), nextCursor: rows.length > 100 ? '100' : null };
+  return leadCacheSnapshotPage_(rows, q, meta);
 }
 
 function apiGetPortalReadCachePage(token, input) {
