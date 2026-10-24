@@ -208,3 +208,7 @@ In NBD, NBD Lamination, LQ and LQ Lamination, the **FSR Visit History** tab read
 Use **System → Webhooks** to enable call remarks and copy the receiving URL. Use **Calls** to review matched and unmatched calls, map calls to clients and update contact numbers. Each client has a Call Logs tab. Callyzer employee tags identify the portal user; missing tags show Anonymous user. No webhook secret is required. See [setup and payload details](docs/CALLYZER_WEBHOOK.md).
 
 Portal saves queue outbound FSR client updates for background delivery, so slow FSR responses do not hold up lead and follow-up saves. Failed deliveries remain in `FSR_SYNC_QUEUE` for retry.
+
+## Client call totals
+
+The **Client Call Totals** report uses completed follow-up history to show Call Connected and Not Picked totals per Lead ID, with WhatsApp Chat separate. It supports completion-date, user, category, status and archive filters plus a scoped CSV export. See [counting rules and local tests](docs/CLIENT_CALL_REPORT.md).

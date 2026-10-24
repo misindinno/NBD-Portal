@@ -288,6 +288,25 @@ function apiGetLeadsPage(token, query) {
   });
 }
 
+function apiGetClientCallReport(token, query) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetClientCallReport', () => {
+    const report = _clientCallReport_(_requireModule('Reports'), query);
+    const total = report.items.length;
+    const page = Math.min(report.filters.page, Math.max(1, Math.ceil(total / 50)));
+    return respond({ ...report, items: report.items.slice((page - 1) * 50, page * 50), total, page, pageSize: 50 });
+  });
+}
+
+function apiExportClientCallReport(token, query) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiExportClientCallReport', () => {
+    const report = _clientCallReport_(_requireModule('Reports'), query);
+    if (report.items.length > 10000) throw new Error('Export maximum is 10,000 clients. Narrow the report filters.');
+    return respond({ csv: _clientCallReportCsv_(report), filename: 'client-call-totals.csv' });
+  });
+}
+
 function apiGetNavigationSummary(token) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiGetNavigationSummary', () => respond(getNavigationSummary_(_apiUser())));
