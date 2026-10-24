@@ -1,20 +1,21 @@
 # Client & Factory Visits rollout — 2026-10-24
 
-Runtime source: `43d1ae72e7bc9fc903f53581d56c64ed9803c67c`.
+Latest runtime source: `1675f124419741ceaa04d8e9cf71474f477dc63f`.
 All six existing web-app deployment IDs were updated; workbook IDs were retained.
 
 | Portal | Version | HTTP/application smoke | Visit initialization and live check |
 | --- | --- | --- | --- |
-| NBD | 160 | Passed | Initialized; create, validation, cancel, history and reload passed |
-| NBD Lamination | 31 | Passed | Awaiting Administrator login |
-| LQ | 94 | Passed | Initialized; create, cancel, history and reload passed |
-| LQ Lamination | 34 | Passed | Awaiting Administrator login |
-| CS | 7 | Passed | Awaiting Administrator login |
-| Dead | 8 | Passed | Awaiting Administrator login |
+| NBD | 165 | Passed | Initialized; create, validation, cancel, history and reload passed |
+| NBD Lamination | 35 | Passed | Login screen only; initialization not verified |
+| LQ | 98 | Passed | Initialized; create, cancel, history and reload passed |
+| LQ Lamination | 38 | Passed | Login screen only; initialization not verified |
+| CS | 11 | Passed | Login screen only; initialization not verified |
+| Dead | 12 | Passed | Login screen only; initialization not verified |
 
 The four pending portals display one usable sign-in form on the latest version.
 No claim is made that their visit tables or save operations have been verified.
-They are open in Chrome's **🧪 Visit rollout** group for login and continuation.
+The user limited live testing to the already accessible portals. No further
+login or initialization was attempted in these four portals.
 
 ## Verification performed
 
@@ -46,10 +47,44 @@ assignment or customer contact was changed by these tests.
 
 ## Remaining work
 
-After Administrator login in each pending portal, initialize the module through
-its page, run the same clearly labelled synthetic create/cancel/history/reload
-check, and update this record with the actual outcomes. Preserve existing data.
+If testing in the other four portals is resumed with authenticated access,
+initialize the module through its page, run the same clearly labelled synthetic
+create/cancel/history/reload check, and update this record with actual outcomes.
+Preserve existing data.
 
 Sheets/IndexedDB sync activation was not part of this initialization. Its feature
 flags were left unchanged. The separate Scot architecture review is in
 `SCOT_INDEXEDDB_REVIEW.md`; a full collection mirror is not implemented by this rollout.
+
+## Follow-up loading fixes and Call Totals verification
+
+- Removed the Lead ID column from the Call Totals screen; seven columns remain.
+  CSV export still includes the stable Lead ID. Empty-result and footer column
+  spans were adjusted.
+- Cold cache reads now negotiate batches of up to 2,000 records with a serialized
+  size bound. A 9,000-history-record regression fixture completes in six requests,
+  including final revision confirmation. Legacy 100-record clients still work.
+- Actual Apps Script RPC reordered object keys, causing valid snapshots to fail
+  their checksum. The new negotiated canonical content hash ignores key order
+  while still detecting changed values and array order. Authorization and
+  command-receipt hashing were not changed.
+- Background Call Totals refreshes preserve the rendered report while waiting
+  and do not supersede a pending foreground load. Failed validation still clears
+  the report; filter edits and navigation are protected from late responses.
+- Report reads batch Leads, Follow-up History and Stages through the existing
+  Sheets API reader and quota-aware fallback. Staff data remains separate.
+- Latest suite: **215 tests passed**, plus syntax checks. GitHub Actions run
+  `40092559127` passed. All six deployment smoke checks passed.
+- Live NBD Follow-ups recovered with **290 open** and **5,000 closed** entries
+  visible. The observed cold navigation took 34,694 ms, without the former
+  snapshot-integrity error. Large initial loads can still take time.
+- Live NBD Call Totals displayed **656 clients**, **4,703 calls** and **169
+  WhatsApp chats**. The observed warm report request took **5,117 ms**, compared
+  with the prior 35–36-second reads. Background refresh kept the table visible.
+  A no-match filter correctly showed zero clients/totals and the seven-column
+  empty state.
+- Live LQ Call Totals displayed **1,375 clients** and **3,912 calls**, with all
+  seven expected columns and no Lead ID column.
+
+These observations establish recovery of the tested pages, not the elimination
+of Google service quotas/timeouts or completion of a full-sheet IndexedDB mirror.
