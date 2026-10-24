@@ -1,0 +1,108 @@
+<style>
+.cfv-toolbar,.cfv-actions,.cfv-summary{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.cfv-summary>div{flex:1;min-width:130px;background:#f1f5f9;border-radius:10px;padding:14px}.cfv-summary strong{display:block;font-size:24px}.cfv-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.cfv-fields label{display:flex;flex-direction:column;gap:6px}.cfv-fields input,.cfv-fields select,.cfv-fields textarea{box-sizing:border-box;width:100%;min-width:0}.cfv-wide{grid-column:1/-1}.cfv-panel{padding:22px;margin-bottom:18px}.cfv-register{overflow-x:auto}.cfv-register table{width:100%;border-collapse:collapse}.cfv-register th,.cfv-register td{text-align:left;padding:12px;border-bottom:1px solid #e2e8f0}.cfv-status{font-weight:600;white-space:nowrap}.cfv-error{color:#b91c1c;white-space:pre-wrap}.cfv-hint{color:#64748b;font-size:13px}.cfv-fields fieldset{min-width:0}.cfv-actions{margin-top:16px}@media(max-width:640px){.cfv-fields{grid-template-columns:1fr}.cfv-panel{padding:14px}.cfv-toolbar>label{width:100%}.cfv-summary>div{min-width:110px}.cfv-actions button{flex:1}}
+</style>
+<script>
+let cfvQuery = { page: 1 }, cfvLoadId = 0, cfvOptions = null;
+const cfvStatuses = ['New','Scheduled','Completed','Cancelled','No-show'];
+function cfvOption(value, label, selected) { return `<option value="${escapeHtml(String(value))}" ${value === selected ? 'selected' : ''}>${escapeHtml(String(label))}</option>`; }
+async function loadClientFactoryVisits() {
+  const request = ++cfvLoadId, box = el('content');
+  box.innerHTML = skeletonPage('table');
+  try {
+    const [options, data] = await Promise.all([api._authedRead('apiClientFactoryVisitOptions'), api._authedRead('apiClientFactoryVisitList', { ...cfvQuery })]);
+    if (request !== cfvLoadId || App.currentPage !== 'clientfactoryvisits') return;
+    cfvOptions = options;
+    box.innerHTML = `<div class="card cfv-panel"><div class="cfv-toolbar"><h2>Client &amp; Factory Visits</h2>${options.canCreate && data.initialized ? '<button id="cfv-new" class="btn btn-primary">New booking</button>' : ''}<button id="cfv-refresh" class="btn btn-outlined">Refresh</button></div>
+      <p>Customers visiting our office or factory. Appointment and actual times use Asia/Kolkata.</p>
+      ${!data.initialized ? `<p>New module tables have not been initialized.</p>${options.canInitialize ? '<button id="cfv-initialize" class="btn btn-outlined">Initialize module tables</button>' : '<p>Ask an administrator to initialize this module.</p>'}<p id="cfv-setup-error" class="cfv-error" role="alert"></p>` : ''}
+      <div class="cfv-summary">${[['total','Visits'],['today','Today'],['upcoming','Upcoming'],['pendingOutcome','Past appointments awaiting outcome'],['completed','Completed']].map(([key,label]) => `<div>${label}<strong>${Number(data.summary[key]) || 0}</strong></div>`).join('')}</div></div>
+      <div id="cfv-form-panel" hidden></div>
+      <div class="card cfv-panel"><form id="cfv-filter" class="cfv-toolbar">
+        <label>Search<input class="form-control" name="search" value="${escapeHtml(cfvQuery.search || '')}" placeholder="Company, visitor, site or purpose"></label>
+        <label>Status<select class="form-control" name="status">${cfvOption('','All statuses',cfvQuery.status)}${cfvStatuses.map(s=>cfvOption(s,s,cfvQuery.status)).join('')}</select></label>
+        <label>Host<select class="form-control" name="host">${cfvOption('','All permitted hosts',cfvQuery.host)}${options.hosts.map(h=>cfvOption(h.id,h.name || h.id,cfvQuery.host)).join('')}</select></label>
+        <label>From<input class="form-control" type="date" name="from" value="${escapeHtml(cfvQuery.from || '')}"></label><label>To<input class="form-control" type="date" name="to" value="${escapeHtml(cfvQuery.to || '')}"></label>
+        <button class="btn btn-primary">Apply filters</button><button type="button" id="cfv-reset" class="btn btn-outlined">Reset</button></form>
+        <p>${data.total} visits · Page ${data.page}. Dashboard totals follow these filters.</p>
+        <div class="cfv-register"><table><thead><tr><th>Company / visitor</th><th>Destination</th><th>Appointment</th><th>Host</th><th>Status</th><th>Actions</th></tr></thead><tbody>${data.rows.map((row,i)=>`<tr><td>${escapeHtml(row.Company)}<br><small>${escapeHtml(row['Visitor Name'])}</small></td><td>${escapeHtml(row.Destination)}<br>${escapeHtml(row.Site)}</td><td>${escapeHtml(String(row['Planned Start']).replace('T',' '))}</td><td>${escapeHtml((options.hosts.find(h=>h.id===row['Host ID']) || {}).name || row['Host ID'])}</td><td class="cfv-status">${escapeHtml(row.Status)}</td><td><button class="btn btn-outlined" data-cfv-view="${i}">View${row.canEdit ? ' / edit' : ''}</button></td></tr>`).join('') || '<tr><td colspan="6">No visits match these filters.</td></tr>'}</tbody></table></div>
+        <div class="cfv-actions"><button id="cfv-prev" class="btn btn-outlined" ${data.page<=1?'disabled':''}>Previous</button><button id="cfv-next" class="btn btn-outlined" ${data.page*50>=data.total?'disabled':''}>Next</button></div></div>`;
+    el('cfv-refresh').onclick = () => void loadClientFactoryVisits();
+    if (el('cfv-new')) el('cfv-new').onclick = () => cfvOpenForm(null, true);
+    if (el('cfv-initialize')) el('cfv-initialize').onclick = async event => {
+      event.currentTarget.disabled = true;
+      try { await api._authedRead('apiClientFactoryVisitInitialize'); await loadClientFactoryVisits(); }
+      catch(error) { el('cfv-setup-error').textContent = error.message; event.target.disabled = false; }
+    };
+    el('cfv-filter').onsubmit = event => { event.preventDefault(); cfvQuery = { ...Object.fromEntries(new FormData(event.currentTarget)), page: 1 }; void loadClientFactoryVisits(); };
+    el('cfv-reset').onclick = () => { cfvQuery = { page: 1 }; void loadClientFactoryVisits(); };
+    el('cfv-prev').onclick = () => { cfvQuery.page = data.page - 1; void loadClientFactoryVisits(); };
+    el('cfv-next').onclick = () => { cfvQuery.page = data.page + 1; void loadClientFactoryVisits(); };
+    box.querySelectorAll('[data-cfv-view]').forEach(button => button.onclick = () => cfvOpenForm(data.rows[Number(button.dataset.cfvView)], false));
+  } catch (error) {
+    if (request !== cfvLoadId || App.currentPage !== 'clientfactoryvisits') return;
+    box.innerHTML = `<div class="card cfv-panel"><p class="cfv-error" role="alert">${escapeHtml(error.message)}</p><button id="cfv-retry" class="btn btn-outlined">Retry</button> <button id="cfv-clear" class="btn btn-outlined">Reset filters</button></div>`;
+    el('cfv-retry').onclick = () => void loadClientFactoryVisits();
+    el('cfv-clear').onclick = () => { cfvQuery={page:1}; void loadClientFactoryVisits(); };
+  }
+}
+function cfvOpenForm(record, booking) {
+  const row = record || { Status:'New', Destination:'Office', 'Visitor Count':1 }, editable = !record || record.canEdit;
+  const panel = el('cfv-form-panel'); panel.hidden = false;
+  const input = (name,type='text',required=false,max=200) => `<label>${escapeHtml(name)}${required?' *':''}<input class="form-control" name="${name}" type="${type}" maxlength="${max}" ${required?'required':''} value="${escapeHtml(String(row[name] || ''))}"></label>`;
+  const text = (name,max=2000,required=false) => `<label class="cfv-wide">${name}${required?' *':''}<textarea class="form-control" rows="3" maxlength="${max}" name="${name}" ${required?'required':''}>${escapeHtml(row[name] || '')}</textarea></label>`;
+  const statuses = record ? { New:['New','Scheduled','Cancelled'],Scheduled:['Scheduled','Completed','Cancelled','No-show'],Completed:['Completed'],Cancelled:['Cancelled'],'No-show':['No-show'] }[row.Status] : ['New','Scheduled'];
+  panel.className = 'card cfv-panel';
+  panel.innerHTML = `<div class="cfv-toolbar"><h3>${record ? 'Visit details' : 'New inbound visit booking'}</h3><button id="cfv-close" class="btn btn-outlined">Close</button></div>
+    ${record ? `<p class="cfv-hint">Visit ${escapeHtml(row['Visit ID'])} · Version ${Number(row.Version)} · ${escapeHtml(row.Status)}</p>` : ''}
+    <p class="cfv-hint">Use the actual office/factory name in Site. Hosts are existing active portal users. Optional lead linking does not change the lead.</p>
+    <form id="cfv-entry"><fieldset ${editable?'':'disabled'} style="border:0;padding:0;min-width:0">
+      <h4>Booking</h4><div class="cfv-fields">
+      <label class="cfv-wide">Existing lead (optional)<select class="form-control" id="cfv-lead" ${record?'disabled':''}>${cfvOption('','Unlinked visitor',row['Lead Key'])}${cfvOptions.leads.map(l=>cfvOption(l.key,l.name+' · '+l.id,row['Lead Key'])).join('')}${record && row['Lead Key'] && !cfvOptions.leads.some(l=>l.key===row['Lead Key']) ? cfvOption(row['Lead Key'],row.Company+' · '+row['Lead ID'],row['Lead Key']) : ''}</select></label>
+      ${input('Company','text',true)}${input('Visitor Name','text',true,150)}${input('Phone','tel',true,40)}${input('Email','email')}${input('Visitor Count','number',true)}
+      <label>Destination *<select name="Destination" class="form-control">${['Office','Factory'].map(s=>cfvOption(s,s,row.Destination)).join('')}</select></label>
+      ${input('Site','text',true)}<label>Host *<select name="Host ID" class="form-control" required>${cfvOption('','Select existing host',row['Host ID'])}${cfvOptions.hosts.map(h=>cfvOption(h.id,h.name || h.id,row['Host ID'])).join('')}</select></label>
+      ${input('Planned Start','datetime-local',true)}${input('Planned End','datetime-local')}${text('Purpose',1000,true)}${text('Requirements')}
+      </div><h4>${record ? 'Outcome / status update' : 'Initial status'}</h4><div class="cfv-fields">
+      <label>Status *<select name="Status" id="cfv-status-entry" class="form-control">${statuses.map(s=>cfvOption(s,s,row.Status)).join('')}</select></label>
+      ${record ? input('Actual Start','datetime-local')+input('Actual End','datetime-local')+text('Outcome')+text('Next Action',1000)+text('Cancel Reason',1000) : ''}
+      </div></fieldset><p id="cfv-save-error" class="cfv-error" role="alert"></p><div class="cfv-actions">${editable ? `<button id="cfv-save" class="btn btn-primary">${record?'Save visit update':'Save booking'}</button>` : '<p>Read-only visit.</p>'}${record?'<button type="button" id="cfv-history" class="btn btn-outlined">Show change history</button>':''}</div></form><div id="cfv-history-list"></div>`;
+  const form = el('cfv-entry');
+  form.elements.namedItem('Visitor Count').min = '1'; form.elements.namedItem('Visitor Count').max = '100';
+  const setLeadCompany = () => {
+    const linked = cfvOptions.leads.find(l=>l.key===el('cfv-lead').value);
+    if (linked) form.elements.namedItem('Company').value = linked.name;
+    form.elements.namedItem('Company').readOnly = !!el('cfv-lead').value;
+  };
+  setLeadCompany(); el('cfv-lead').onchange = setLeadCompany;
+  el('cfv-close').onclick = () => { panel.hidden=true; panel.replaceChildren(); };
+  if (el('cfv-history')) el('cfv-history').onclick = async () => {
+    try {
+      const events=await api._authedRead('apiClientFactoryVisitHistory',row['Visit ID']);
+      if (!panel.isConnected || !el('cfv-history-list')) return;
+      el('cfv-history-list').innerHTML='<ul>'+events.map(e=>`<li>${escapeHtml(e.at)} · ${escapeHtml(e.actor)} · ${escapeHtml(e.from || 'Created')} → ${escapeHtml(e.to)} · v${Number(e.version)}</li>`).join('')+'</ul>';
+    } catch(error) { if(el('cfv-history-list')) el('cfv-history-list').textContent=error.message; }
+  };
+  let pending = null;
+  form.onsubmit = async event => {
+    event.preventDefault(); if (!editable || !form.reportValidity()) return;
+    const button = el('cfv-save'), fieldset=form.querySelector('fieldset');
+    if (!pending) {
+      const values=Object.fromEntries(new FormData(form));
+      const lead=cfvOptions.leads.find(l=>l.key===el('cfv-lead').value);
+      pending={...values,id:record?row['Visit ID']:'',version:record?Number(row.Version):0,requestId:crypto.randomUUID().replace(/-/g,''),'Lead ID':record?row['Lead ID']:lead?lead.id:'','Lead Key':record?row['Lead Key']:lead?lead.key:''};
+    }
+    button.disabled=true; fieldset.disabled=true; el('cfv-save-error').textContent='';
+    try {
+      await api._authedRead('apiClientFactoryVisitSave',pending);
+      toast(record?'Visit updated':'Visit booked'); await loadClientFactoryVisits();
+    } catch(error) {
+      if (!el('cfv-save-error')) return;
+      const knownRejection=['VALIDATION_ERROR','FORBIDDEN','SESSION_EXPIRED'].includes(error.code);
+      if(knownRejection){pending=null;fieldset.disabled=false;}
+      el('cfv-save-error').textContent=error.message+(knownRejection?'':' Retry sends the same request safely; fields are locked until its result is confirmed.');
+      button.disabled=false; button.textContent=knownRejection?'Save visit':'Retry same request';
+    }
+  };
+  panel.scrollIntoView({behavior:'smooth',block:'start'});
+}
+</script>

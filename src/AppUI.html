@@ -445,6 +445,7 @@ const _PAGE_META = {
   leadform:  { title: 'Lead Form',        crumb: 'Lead Form' },
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
   calls:     { title: 'Calls', crumb: 'Calls' },
+  clientfactoryvisits: { title: 'Client & Factory Visits', crumb: 'Client & Factory Visits' },
   visitmanagement: { title: 'Visits', crumb: 'Visits' },
   webhooks:  { title: 'Webhooks',         crumb: 'Webhooks' },
   config:    { title: 'Config',           crumb: 'Config' },
@@ -522,6 +523,7 @@ async function navigate(page) {
       else toast('Only admins can add follow-ups.', 'error');
     }
     else if (page === 'calls')             await _runPageLoader(page, 'loadCalls');
+    else if (page === 'clientfactoryvisits') await _runPageLoader(page, 'loadClientFactoryVisits');
     else if (page === 'visitmanagement')   await _runPageLoader(page, 'loadVisitManagement');
     else if (page === 'webhooks')          await _runPageLoader(page, 'loadWebhooks');
     else if (page === 'config')            await _runPageLoader(page, 'loadConfig');
@@ -599,6 +601,7 @@ function renderSidebar() {
     navItem('today',     'activity',         "Today's Activity"),
     show('Followups') ? navItem('followups', 'phone-call',       'Follow Up', badge(fuCount, 'Overdue + Today + New leads without follow-up'))   : '',
     (show('Leads') || show('Followups')) ? navItem('calls', 'phone', 'Calls') : '',
+    show('ClientFactoryVisits') ? navItem('clientfactoryvisits', 'building-2', 'Client & Factory Visits') : '',
     (u.role === 'ADMIN' || show('VisitManagement')) ? navItem('visitmanagement', 'map-pin', 'Visits') : '',
     show('Pipeline')  ? navItem('pipeline',  'kanban',           'Pipeline',  badge(pipeCount)) : '',
   ].filter(Boolean).join('');
@@ -668,6 +671,7 @@ function canNavigate(page) {
     'followups-overdue': 'Followups', 'followups-custom': 'Followups', 'followups-new': 'Followups'
   };
   if (page === 'calls')     return App.user.role === 'ADMIN' || hasModule('Leads') || hasModule('Followups');
+  if (page === 'clientfactoryvisits') return App.user.role === 'ADMIN' || hasModule('ClientFactoryVisits');
   if (page === 'visitmanagement') return App.user.role === 'ADMIN' || hasModule('VisitManagement');
   if (page === 'webhooks')  return !!App.user.canEditConfig;
   if (page === 'config')    return !!(App.user.canEditConfig || App.user.canManageUsers);
