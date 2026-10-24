@@ -30,8 +30,14 @@ function _nowStr() {
 // App version seen at startup — compared against server on every poll.
 // null = not yet initialized (first poll sets it without triggering a reload).
 let _knownAppVersion = null;
+let _leadCacheCheckedAt = 0;
+let _portalCacheCheckedAt = 0;
+let _portalCacheStampKey = '';
+let _checkingCacheStamps = false;
 
 async function _checkCacheStamps() {
+  if (_checkingCacheStamps || !AuthToken.get()) return;
+  _checkingCacheStamps = true;
   try {
     // Stamp-based invalidation (server-side write detection)
     const stamps = await api.getDataStamps();
@@ -48,7 +54,26 @@ async function _checkCacheStamps() {
 
     const _stamp = key => { const n = Number(stamps[key]); return n > 0 ? n : null; };
     const _stale = (key, col) => { const s = _stamp(key); return s !== null && s > AppCache.getServerSyncedAt(col); };
-    if (_stale('leads',          'leads'))          await _refreshLeadsCache();
+    if (typeof portalCachedScreenActive === 'function' && portalCachedScreenActive() && !document.hidden) {
+      const stampKey = [App.currentPage, ...['leads','followups','followupHistory','activityLogs','stages','fields','config'].map(key => String(stamps[key] || '0'))].join('|');
+      const changed = stampKey !== _portalCacheStampKey;
+      if (changed || Date.now() - _portalCacheCheckedAt >= 60000) {
+        _portalCacheCheckedAt = Date.now();
+        await refreshPortalCachedScreen();
+        _portalCacheStampKey = stampKey;
+      }
+      // These screens must not mix a verified multi-collection snapshot with
+      // independently refreshed legacy collections from different read times.
+      const configStamp = Math.max(_stamp('stages') || 0, _stamp('fields') || 0, _stamp('config') || 0);
+      if (configStamp > 0 && configStamp > AppCache.getLoadedAt('config')) await _refreshAppConfig();
+      return;
+    }
+    // A content revision also detects manual Sheet edits that do not bump stamps.
+    // Bound this scan to once per minute while the Leads screen is visible.
+    if (App.currentPage === 'leads' && LeadReadCache.enabled() && !document.hidden && Date.now() - _leadCacheCheckedAt >= 60000) {
+      _leadCacheCheckedAt = Date.now();
+      await loadLeads(true);
+    } else if (_stale('leads', 'leads')) await _refreshLeadsCache();
     if (_stale('followups', 'followups')) await _refreshFollowupsCache();
     if (_stale('followupHistory','followupHistory') && !String(App.currentPage || '').startsWith('followups')) {
       await _refreshFollowupHistoryCache();
@@ -58,6 +83,8 @@ async function _checkCacheStamps() {
     if (configStamp > 0 && configStamp > AppCache.getLoadedAt('config')) await _refreshAppConfig();
   } catch(e) {
     console.warn('[AppData] Cache revalidation failed', e);
+  } finally {
+    _checkingCacheStamps = false;
   }
 }
 
@@ -147,6 +174,7 @@ async function _refreshNavigationSummary_() {
 }
 
 async function _refreshFollowupsCache() {
+  if (typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled() && App.currentPage === 'today') return loadToday();
   const pg = App.currentPage;
   // On the Follow-ups page, refresh from a fresh snapshot IN PLACE: keep the table
   // scroll position and show no skeleton, so a background update isn't disruptive.
@@ -165,6 +193,7 @@ async function _refreshFollowupsCache() {
 }
 
 async function _refreshFollowupHistoryCache() {
+  if (typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled() && App.currentPage === 'today') return loadToday();
   const rows = await api.getFollowupHistory({});
   AppCache.setRows('followupHistory', rows);
   const pg = App.currentPage;
@@ -173,6 +202,7 @@ async function _refreshFollowupHistoryCache() {
 }
 
 async function _refreshActivityLogsCache() {
+  if (typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled() && App.currentPage === 'today') return loadToday();
   const rows = await api.getLeadActivityLogs({});
   AppCache.setRows('activityLogs', rows);
   _rerenderTodayIfActive();
@@ -217,12 +247,11 @@ async function _ackOwnArchive(leadIds, reason, action = 'Archive Lead') {
 window._ackOwnArchive = _ackOwnArchive;
 
 function startCacheRevalidation() {
-  // No cross-navigation cache, but a lightweight on-change poll keeps the current
-  // page live: it detects server changes via data stamps (PropertiesService) — no
-  // Sheets API, no quota — and refreshes the visible data IN PLACE, never reloading
-  // or interrupting the view.
-  window.addEventListener('focus', _checkCacheStamps);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkCacheStamps(); });
+  // Existing modules use collection stamps. The opt-in Leads pilot also verifies
+  // current content on return and once per minute; those checks do read Sheets.
+  const returned = () => { _leadCacheCheckedAt = 0; _portalCacheCheckedAt = 0; void _checkCacheStamps(); };
+  window.addEventListener('focus', returned);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) returned(); });
   setInterval(_checkCacheStamps, 15_000);
 }
 </script>

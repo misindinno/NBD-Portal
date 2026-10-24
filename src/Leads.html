@@ -25,8 +25,8 @@
     const seq = ++_leadLoadSeq;
     try {
       let rows = AppCache.getRows('leads') || [];
-      if (force || !AppCache.isLoaded('leads')) {
-        rows = (await api.getLeads()) || [];
+      if (LeadReadCache.enabled() || force || !AppCache.isLoaded('leads')) {
+        rows = LeadReadCache.enabled() ? await LeadReadCache.load() : (await api.getLeads()) || [];
         if (seq !== _leadLoadSeq || App.currentPage !== 'leads') return;
         AppCache.setRows('leads', rows);
       }
@@ -34,8 +34,18 @@
       _renderLeadsTable(rows);
       if (previousFilters) filterIds.forEach(id => { const node = el(id); if (node) node.value = previousFilters[id] || ''; });
       applyLeadFilters();
+      if (LeadReadCache.enabled()) {
+        const state = LeadReadCache.status();
+        const notice = document.createElement('p');
+        notice.id = 'lead-cache-status'; notice.setAttribute('role', 'status');
+        notice.style.cssText = 'padding:8px 16px;color:var(--text-muted);font-size:12px';
+        notice.textContent = 'Verified online ' + new Date(state.verifiedAt).toLocaleTimeString() + (state.storage === 'unavailable' ? ' · Browser storage unavailable; using server reads.' : '');
+        el('leads-page').prepend(notice);
+      }
     } catch (err) {
       if (seq !== _leadLoadSeq || App.currentPage !== 'leads') return;
+      if (/CACHE_CANCELLED/.test(err.message || '')) return;
+      AppCache.clear();
       const message = escapeHtml(err && err.message || String(err));
       el('content').innerHTML = '<div class="card" style="padding:24px;color:#991b1b">Could not load leads: ' + message + '</div>';
     } finally {
@@ -586,6 +596,14 @@
   }
   window.applyLeadFilters = applyLeadFilters;
   async function openLeadForm(data = {}) {
+    // Cached list rows are never used as authoritative edit values.
+    if (LeadReadCache.enabled() && _leadRowId(data)) {
+      try {
+        const fresh = await api.getLead(_leadRowId(data));
+        if (!fresh || !fresh.lead) throw new Error('Lead is no longer available.');
+        data = fresh.lead;
+      } catch (error) { toast(error.message || String(error), 'error'); return; }
+    }
     if (_isLeadPushedToNbd(data)) {
       toast('Lead is already moved to NBD and cannot be edited in LQ.', 'info');
       return;

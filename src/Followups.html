@@ -371,7 +371,7 @@ async function _renderFUTab(tab, force = false) {
   const body = el('fu-body');
   if (!body) return;
   const seq = ++_fuLoadSeq;
-  const needsFetch = force || !_fuPageSnapshot || !_fuPageSnapshot.includeHistory;
+  const needsFetch = (typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled()) || force || !_fuPageSnapshot || !_fuPageSnapshot.includeHistory;
   const finishLoading = needsFetch ? beginTableLoading(body, { rows: 9, columns: 7 }) : () => {};
 
   try {
@@ -435,6 +435,7 @@ async function _renderFUTab(tab, force = false) {
 }
 async function _getFollowupPageSnapshot(force = false, options = {}) {
   const includeHistory = !!options.includeHistory;
+  if (typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled()) force = true;
   if (!force && _fuPageSnapshot && (!includeHistory || _fuPageSnapshot.includeHistory)) return _fuPageSnapshot;
   if (!force && _fuSnapshotRequest && (!includeHistory || _fuSnapshotRequest.includeHistory)) {
     return _fuSnapshotRequest.promise;

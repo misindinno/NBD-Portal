@@ -5,6 +5,7 @@ let _todayCharts = {};
 let _todayFiltersOpen = false;
 let _todayCardFilter = '';
 let _todayDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_todayDensity')) || 'compact';
+let _todaySnapshotRequest = 0;
 
 function _todayCardClick(key) {
   _todayCardFilter = (_todayCardFilter === key) ? '' : key;
@@ -18,12 +19,13 @@ function _todayCardClick(key) {
 window._todayCardClick = _todayCardClick;
 
 async function loadToday() {
+  const request = ++_todaySnapshotRequest;
   el('content').innerHTML = `<div id="today-wrap">${skeletonPage('today')}</div>`;
 
   // First load right after bootstrap: leads + follow-ups are already cached. Paint
   // immediately from them, then fetch only history + activity logs in the background
   // — avoids a redundant second full snapshot of leads/follow-ups on initial load.
-  if (window._todayBootstrapReuse && AppCache.isLoaded('leads') && AppCache.isLoaded('followups')) {
+  if (!(typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled()) && window._todayBootstrapReuse && AppCache.isLoaded('leads') && AppCache.isLoaded('followups')) {
     window._todayBootstrapReuse = false;
     if (App.currentPage === 'today') _renderToday();
     const need = [];
@@ -39,6 +41,7 @@ async function loadToday() {
   // Normal open / manual refresh: always fetch a fresh snapshot.
   try {
     const snapshot = await api.getTodayActivitySnapshot();
+    if (request !== _todaySnapshotRequest || App.currentPage !== 'today') return;
     AppCache.setRows('leads', snapshot.leads || []);
     AppCache.setRows('followups', snapshot.followups || []);
     AppCache.setRows('followupHistory', snapshot.followupHistory || []);
@@ -47,6 +50,13 @@ async function loadToday() {
     _renderToday();
     return;
   } catch (e) {
+    if (request !== _todaySnapshotRequest || App.currentPage !== 'today') return;
+    if (!AuthToken.get()) return;
+    if (typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled()) {
+      AppCache.clear();
+      el('content').innerHTML = '<p role="alert">Could not verify Today: ' + escapeHtml(e.message || String(e)) + '</p>';
+      return;
+    }
     console.warn('[Today] Sheets API snapshot failed; falling back to standard cache loads.', e);
   }
 

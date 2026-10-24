@@ -104,7 +104,7 @@ function apiBootstrapData(token) {
 
       // Counts are optional UI data; never scan lead/follow-up tables before
       // returning identity and configuration. The client fetches counts later.
-      return respond({ user, config, stamps: _bootstrapStamps_() });
+      return respond({ user, config, stamps: _bootstrapStamps_(), cacheIdentity: leadCacheIdentity_(user) });
     } finally {
       _bootstrapReadMode_ = false;
     }
@@ -1031,6 +1031,8 @@ function _leadRows() {
 }
 
 function _leadIndexRowsForScope_() {
+  // Cache verification must use current ownership, never repair indexes on a read.
+  if (typeof PORTAL_CACHE_READ_ONLY_ !== 'undefined' && PORTAL_CACHE_READ_ONLY_) return getAllRows(SHEET_NAMES.LEADS);
   let rows = getAllRows(SHEET_NAMES.IDX_LEADS);
   if (!rows.length && getSheet(SHEET_NAMES.LEADS).getLastRow() > 1) {
     rebuildIndexForSheet_(SHEET_NAMES.LEADS);

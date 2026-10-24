@@ -77,6 +77,7 @@ const AppCache = (() => {
     e.serverSyncedAt = Math.max(e.serverSyncedAt || 0, Number(ts) || Date.now());
   }
 
-  return { setRows, getRows, getLoadedAt, getServerSyncedAt, isLoaded, touch, patchRow, addRow, removeRow, invalidate, invalidateAll, ackSyncedAt };
+  function clear() { Object.keys(_c).forEach(col => delete _c[col]); }
+  return { setRows, getRows, getLoadedAt, getServerSyncedAt, isLoaded, touch, patchRow, addRow, removeRow, invalidate, invalidateAll, ackSyncedAt, clear };
 })();
 </script>

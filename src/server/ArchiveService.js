@@ -1,5 +1,5 @@
-function getArchiveData(user) {
-  ensureArchiveSchema_();
+function getArchiveData(user, readOnly) {
+  if (!readOnly) ensureArchiveSchema_();
   // One batched read (Sheets API when available, SpreadsheetApp fallback inside) instead
   // of three sequential full scans. The archived table renders master fields only, so the
   // custom-field join is skipped, and the old `alerts` list is gone — the client never
@@ -60,8 +60,8 @@ function _archiveHistTime_(h) {
 // Reads leads + follow-up history via the Advanced Sheets service (batchGet) and returns
 // the leads with >= MIN total "Not Picked" contacts (final-stage, archived and NBD-pushed
 // leads excluded). SpreadsheetApp fallback is handled in sheetApiBatchGetRows_.
-function getArchiveSuggestionsFast_(user) {
-  ensureArchiveSchema_();
+function getArchiveSuggestionsFast_(user, readOnly) {
+  if (!readOnly) ensureArchiveSchema_();
   _bootstrapReadMode_ = true;
   let rows;
   try {
@@ -133,8 +133,8 @@ function getArchiveSuggestionsFast_(user) {
   );
 }
 
-function getLostArchiveLeads_(user) {
-  ensureArchiveSchema_();
+function getLostArchiveLeads_(user, readOnly) {
+  if (!readOnly) ensureArchiveSchema_();
   _bootstrapReadMode_ = true;
   let rows;
   try {

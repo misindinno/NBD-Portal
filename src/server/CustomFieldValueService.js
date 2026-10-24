@@ -38,8 +38,16 @@ function getRowsWithCustomFieldValues_(sheetName, rows) {
   return applyCalculatedFields(sheetName, merged);
 }
 
-function mergeCustomFieldValues_(sheetName, rows) {
-  ensureCustomFieldValueSheets_();
+// Cache reads must never create tables or rewrite headers. Missing optional values
+// means no custom values yet; malformed existing tables still fail visibly.
+function getRowsWithCustomFieldValuesReadOnly_(sheetName, rows) {
+  const valueSheet = _customValueSheetName_(sheetName);
+  if (!getSpreadsheet(valueSheet).getSheetByName(normalizeSheetName(valueSheet))) return applyCalculatedFields(sheetName, rows);
+  return applyCalculatedFields(sheetName, mergeCustomFieldValues_(sheetName, rows, true));
+}
+
+function mergeCustomFieldValues_(sheetName, rows, readOnly) {
+  if (!readOnly) ensureCustomFieldValueSheets_();
   if (!rows || !rows.length) return rows || [];
   const entityKey = _customEntityKey_(sheetName);
   const ids = rows.map(r => String(r[entityKey] || '')).filter(Boolean);

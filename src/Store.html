@@ -33,6 +33,7 @@ const Store = (() => {
 
   function _reduce(state, action, payload) {
     switch (action) {
+      case 'RESET_PRIVATE': return JSON.parse(JSON.stringify(INITIAL_STATE));
       case 'SET_USER':        return { ...state, user: payload };
       case 'SET_CONFIG':      return { ...state, config: payload };
       case 'SET_PAGE':        return { ...state, currentPage: payload };

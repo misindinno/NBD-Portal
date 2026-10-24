@@ -32,6 +32,7 @@ test('startup returns identity/config even if optional worklist counts are unava
     Logger: {log() {}}, withRequestContext_: (_op,fn)=>fn(), withServerContext_: fn=>fn(),
     readAuthSession_:()=>({email:'user@example.test'}), getCurrentUserByEmail_:()=>({success:true,data:{id:'user',role:'SALES'}}),
     refreshAuthSession_(){}, getAppConfigFast_:()=>({stages:[]}),
+    leadCacheIdentity_:()=>({schema:1,portal:'synthetic',user:'user',scope:'synthetic-scope',enabled:true}),
     getNavigationSummary_(){throw Error('must not scan worklists at bootstrap');},
     PropertiesService:{getScriptProperties:()=>({getProperty:()=>null})}, respond:data=>({success:true,data})
   });
@@ -40,6 +41,7 @@ test('startup returns identity/config even if optional worklist counts are unava
   assert.equal(result.success,true);
   assert.equal(result.data.user.id,'user');
   assert.ok(result.data.config);
+  assert.equal(result.data.cacheIdentity.user,'user');
   assert.equal(ctx._bootstrapReadMode_,false);
 });
 

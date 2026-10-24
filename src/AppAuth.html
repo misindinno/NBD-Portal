@@ -12,6 +12,7 @@ async function init() {
     const token = AuthToken.get();
     if (diagnostics) diagnostics.phase('startup.session', token ? 'complete' : 'missing', { tokenPresent: Boolean(token) });
     if (!token) {
+      void LeadReadCache.lock();
       showLoginOverlay();
       if (diagnostics) diagnostics.markReady({ mode: 'login' });
       else window.__PORTAL_READY = true;
@@ -29,6 +30,7 @@ async function init() {
       });
     }
     AuthToken.clear();
+    void LeadReadCache.lock();
     if (/SESSION_EXPIRED|expired|invalid.*session/i.test(msg)) {
       showLoginOverlay('Your session expired. Please sign in again.');
       if (diagnostics) diagnostics.markReady({ mode: 'login', reason: 'session-expired' });
@@ -93,9 +95,13 @@ async function _loadAppSession_(token) {
     boot = await api.bootstrapWithToken(token);
   }
   if (diagnostics) diagnostics.phase('startup.bootstrap', 'complete', { endpoint: bootstrapEndpoint });
+  if (AuthToken.get() !== token) return; // logout/new login won while bootstrap was in flight
 
   if (diagnostics) diagnostics.phase('startup.state', 'start');
+  AppCache.clear();
   Store.dispatch('SET_USER', boot.user);
+  LeadReadCache.bind(boot.cacheIdentity);
+  PortalReadCache.bind(boot.cacheIdentity);
   Store.dispatch('SET_CONFIG', boot.config);
   AppCache.touch('config');
   AppLookup.rebuild();
@@ -140,7 +146,7 @@ function logout() {
   const token = AuthToken.get();
   if (token) api.logout(token).catch(() => {});
   AuthToken.clear();
-  window.location.reload();
+  void lockPrivateReadCache();
 }
 
 // Loads the Vela login typefaces (Manrope + Space Grotesk) once, on demand.

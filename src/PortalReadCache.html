@@ -1,0 +1,99 @@
+<script>
+// Response-scoped adapter. No domain aggregation/deduplication occurs here.
+function portalCacheValidRecords(records, total) {
+  if (!Array.isArray(records) || records.length !== total || !records.length) return false;
+  const meta = records[0];
+  if (meta.bucket !== '_meta' || meta.index !== 0 || !meta.value || !meta.value.arrays || !meta.value.fields) return false;
+  const seen = {};
+  function safe(value) {
+    if (value === null || ['string','boolean'].includes(typeof value)) return true;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (Array.isArray(value)) return value.every(safe);
+    return value && typeof value === 'object' && Object.keys(value).every(key => !/password|passwd|secret|token|credential|authorization|cookie|session|api[ _-]?key|__proto__|constructor|prototype|^(users|hosts|userNameMap|userDirectory|config)$/i.test(key) && safe(value[key]));
+  }
+  if (!safe(meta.value)) return false;
+  for (const record of records.slice(1)) {
+    if (!Object.prototype.hasOwnProperty.call(meta.value.arrays, record.bucket) || record.index !== (seen[record.bucket] || 0) || !safe(record.value)) return false;
+    seen[record.bucket] = record.index + 1;
+  }
+  return Object.keys(meta.value.arrays).every(key => Number.isSafeInteger(meta.value.arrays[key]) && meta.value.arrays[key] >= 0 && (seen[key] || 0) === meta.value.arrays[key]);
+}
+
+function portalCacheUnpack(records, volatile) {
+  const meta = records[0].value, data = { ...meta.fields };
+  Object.keys(meta.arrays).forEach(key => data[key] = []);
+  records.slice(1).forEach(record => data[record.bucket].push(record.value));
+  return meta.array ? data.items : { ...data, ...volatile };
+}
+
+function createPortalReadCache({ request, storageFactory, onLock }) {
+  let identity = null;
+  const clients = new Map();
+  const routes = {
+    apiGetFollowupPageSnapshot: 'followups', apiGetTodayActivitySnapshot: 'today',
+    apiGetArchiveData: 'archive', apiGetArchiveSuggestions: 'archiveSuggestions', apiGetLostArchiveLeads: 'archiveLost',
+    apiClientFactoryVisitList: 'visits', apiGetClientCallReport: 'callReport'
+  };
+  function reset() { clients.forEach(entry => entry.client.suspend()); clients.clear(); identity = null; }
+  function bind(value) { reset(); identity = value && value.modulesEnabled ? { ...value, enabled: true } : null; }
+  async function get(endpoint, query = {}) {
+    if (!identity || !routes[endpoint]) throw new Error('CACHE_NOT_BOUND');
+    const kind = routes[endpoint];
+    const normalized = {}; Object.keys(query || {}).sort().forEach(key => { if (query[key] !== undefined) normalized[key] = query[key]; });
+    const key = JSON.stringify([kind, normalized]);
+    let entry = clients.get(key);
+    if (!entry) {
+      // At most one durable response per module/user. Query changes are part of the
+      // hashed payload; a different query can never accept an old response blindly.
+      entry = { volatile: {} };
+      entry.client = createLeadReadCache({
+        namespace: 'module:' + kind, storage: storageFactory(), validateRows: portalCacheValidRecords,
+        request: async page => { const result = await request({ ...page, kind, query: normalized }); entry.volatile = result.volatile || {}; return result; },
+        onLock
+      });
+      entry.client.bind(identity); clients.set(key, entry);
+      if (clients.size > 12) { const oldest = clients.keys().next().value; clients.get(oldest).client.suspend(); clients.delete(oldest); }
+    }
+    const records = await entry.client.load();
+    if (records[0].value.kind !== kind) throw new Error('Invalid cached module');
+    return portalCacheUnpack(records, entry.volatile);
+  }
+  return {
+    bind, reset, get,
+    handles: endpoint => !!identity && !!routes[endpoint], enabled: () => !!identity,
+    async invalidate() { await Promise.all([...clients.values()].map(entry => entry.client.invalidate())); },
+    suspend() { clients.forEach(entry => entry.client.suspend()); }
+  };
+}
+
+const PortalReadCache = createPortalReadCache({
+  request: query => api._read('apiGetPortalReadCachePage', AuthToken.get(), query),
+  storageFactory: () => createLeadSnapshotStorage(leadIndexedDb_()),
+  onLock: () => { void lockPrivateReadCache(); }
+});
+
+function portalCachedScreenActive() {
+  const page = App.currentPage || '';
+  if (page.startsWith('followups') && (page === 'followups-custom' || window.currentFollowupTab === 'custom')) return false;
+  return PortalReadCache.enabled() && /^(today|followups.*|archive|clientfactoryvisits|callreport)$/.test(page);
+}
+async function refreshPortalCachedScreen() {
+  const page = App.currentPage || '';
+  if (!portalCachedScreenActive()) return;
+  // Do not replace a form with an automatic background refresh.
+  if (document.querySelector('.modal-overlay') || document.querySelector('#cfv-form-panel:not([hidden])') || document.activeElement && document.activeElement.matches('input,select,textarea')) return;
+  if (page.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all', true);
+  else if (page === 'today') await loadToday();
+  else if (page === 'archive') await loadArchive(_archiveTab, true);
+  else if (page === 'clientfactoryvisits') await loadClientFactoryVisits();
+  else if (page === 'callreport') await loadClientCallReport();
+}
+window.addEventListener('offline', () => {
+  if (!portalCachedScreenActive()) return;
+  PortalReadCache.suspend(); AppCache.clear();
+  document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
+  const content = document.getElementById('content');
+  if (content) content.textContent = 'Connection unavailable. Reconnect to verify access and reload this screen.';
+});
+window.addEventListener('online', () => { if (portalCachedScreenActive()) void navigate(App.currentPage); });
+</script>

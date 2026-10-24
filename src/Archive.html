@@ -152,7 +152,8 @@ async function _archActivateTab(tab, force = false) {
   _archRenderTools();
   const t = _archTabs[tab];
   if (force) t.selected.clear();
-  const shouldFetch = force || !t.rows;
+  const cachedRead = typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled();
+  const shouldFetch = cachedRead || force || !t.rows;
   const finishLoading = shouldFetch && t.rows && el('arch-live')
     ? beginTableLoading(el('arch-live'), { rows: 9, columns: 7 })
     : () => {};
@@ -181,6 +182,7 @@ async function _archActivateTab(tab, force = false) {
     }
   } catch (e) {
     if (seq !== _archLoadSeq || !el('archive-body')) return;
+    if (cachedRead) t.rows = null;
     if (!t.rows || !el('arch-live')) {
       el('archive-body').innerHTML = '<div class="arch-card" style="padding:24px;color:#991b1b">Could not load: ' + escapeHtml(e && e.message || e) + '</div>';
       const k = el('archive-kpis');

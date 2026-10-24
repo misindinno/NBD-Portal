@@ -1,0 +1,214 @@
+<script>
+// Only complete, server-confirmed Leads snapshots enter this store. Never persist
+// Store/AppCache wholesale: they contain configuration and optimistic mutations.
+function createLeadSnapshotStorage(indexedDB) {
+  let connection, opening, disabled = !indexedDB, generation = 0;
+  const transactions = new Set();
+  function open() {
+    if (disabled) return Promise.reject(new Error('Browser storage unavailable'));
+    if (connection) return Promise.resolve(connection);
+    if (opening) return opening;
+    opening = new Promise((resolve, reject) => {
+      let settled = false;
+      const request = indexedDB.open('nbd-authorized-reads', 1);
+      const timer = setTimeout(() => fail(), 1500);
+      function fail() { if (!settled) { settled = true; disabled = true; clearTimeout(timer); reject(new Error('Browser storage unavailable')); } }
+      request.onupgradeneeded = () => request.result.createObjectStore('snapshots', { keyPath: 'key' });
+      request.onerror = request.onblocked = fail;
+      request.onsuccess = () => {
+        if (settled) { request.result.close(); return; }
+        settled = true; clearTimeout(timer); connection = request.result;
+        connection.onversionchange = () => { connection.close(); connection = null; opening = null; };
+        resolve(connection);
+      };
+    });
+    return opening;
+  }
+  async function operation(mode, work) {
+    const started = generation;
+    const db = await open();
+    if (started !== generation) throw new Error('Browser cache operation cancelled');
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('snapshots', mode);
+      transactions.add(tx);
+      let result;
+      const timer = setTimeout(() => { try { tx.abort(); } catch (_) {} transactions.delete(tx); reject(new Error('Browser cache transaction timed out')); }, 2500);
+      tx.oncomplete = () => { clearTimeout(timer); transactions.delete(tx); resolve(result); };
+      tx.onerror = tx.onabort = () => { clearTimeout(timer); transactions.delete(tx); reject(new Error('Browser cache transaction failed')); };
+      try { const req = work(tx.objectStore('snapshots')); req.onsuccess = () => { result = req.result; }; }
+      catch (error) { tx.abort(); reject(error); }
+    });
+  }
+  return {
+    cancel() { generation++; for (const tx of transactions) { try { tx.abort(); } catch (_) {} } },
+    get: key => operation('readonly', store => store.get(key)),
+    put: snapshot => operation('readwrite', store => store.put(snapshot)),
+    remove: key => operation('readwrite', store => store.delete(key)),
+    async clear() {
+      generation++;
+      for (const tx of transactions) { try { tx.abort(); } catch (_) {} }
+      await operation('readwrite', store => store.clear());
+    }
+  };
+}
+
+function createLeadReadCache({ request, storage, namespace = '', validateRows = null, onLock = () => {}, afterLock = () => {}, now = () => Date.now() }) {
+  let identity = null, epoch = 0, inFlight = null, lockTask = null;
+  let status = { state: 'locked' };
+  const keyFor = value => JSON.stringify(namespace ? [value.schema, value.portal, value.user, namespace] : [value.schema, value.portal, value.user]);
+  const validIdentity = value => value && value.schema === 1 && typeof value.portal === 'string' && value.portal && typeof value.user === 'string' && value.user && /^[a-f0-9]{64}$/.test(value.scope);
+  const same = (a, b) => validIdentity(a) && validIdentity(b) && keyFor(a) === keyFor(b) && a.scope === b.scope;
+  const safeStorage = async (method, value) => { try { return await storage[method](value); } catch (_) { status.storage = 'unavailable'; return undefined; } };
+  function validRows(rows, total) {
+    if (validateRows) return validateRows(rows, total);
+    if (!Array.isArray(rows) || rows.length !== total) return false;
+    const ids = new Set();
+    return rows.every(row => {
+      if (!row || typeof row['Lead ID'] !== 'string' || !row['Lead ID'] || ids.has(row['Lead ID'])) return false;
+      ids.add(row['Lead ID']);
+      return Object.keys(row).every(key => !/password|passwd|secret|token|credential|authorization|cookie|session|api[ _-]?key|__proto__|constructor|prototype/i.test(key) && (row[key] === null || ['string','number','boolean'].includes(typeof row[key])));
+    });
+  }
+  async function lock() {
+    if (lockTask) return lockTask;
+    epoch++; identity = null; inFlight = null; status = { state: 'locked' };
+    const lockedEpoch = epoch, lockState = onLock();
+    const task = (async () => {
+      await safeStorage('clear');
+      if (epoch === lockedEpoch) afterLock(lockState);
+    })();
+    lockTask = task;
+    try { await task; } finally { if (lockTask === task) lockTask = null; }
+  }
+  async function invalidate() {
+    epoch++; inFlight = null;
+    if (storage.cancel) storage.cancel();
+    if (identity) await safeStorage('remove', keyFor(identity));
+  }
+  function suspend() {
+    epoch++; inFlight = null; status = { state: 'unavailable' };
+    if (storage.cancel) storage.cancel();
+  }
+  async function digestRows(scope, rows) {
+    try {
+      const bytes = new TextEncoder().encode(JSON.stringify({ scope, rows }));
+      return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+    } catch (_) { return ''; }
+  }
+  function bind(value) {
+    epoch++; inFlight = null; lockTask = null;
+    if (storage.cancel) storage.cancel();
+    identity = validIdentity(value) && value.enabled ? { ...value } : null;
+    status = { state: identity ? 'unverified' : 'disabled' };
+    if (!identity && !(value && value.modulesEnabled)) void safeStorage('clear');
+  }
+  async function load() {
+    if (!identity) throw new Error('CACHE_NOT_BOUND');
+    if (inFlight) return inFlight;
+    const session = epoch, context = { ...identity }, key = keyFor(context), started = now();
+    const check = () => { if (session !== epoch || !same(context, identity)) throw new Error('CACHE_CANCELLED'); };
+    const validate = page => {
+      check();
+      if (!page || !same(context, page.identity)) throw new Error('CACHE_SCOPE_CHANGED');
+      if (!/^[a-f0-9]{64}$/.test(page.revision) || !Number.isSafeInteger(page.total) || page.total < 0 || !page.verifiedAt) throw new Error('Invalid cache response');
+      return page;
+    };
+    const fetch = async query => validate(await request({ portal: context.portal, user: context.user, scope: context.scope, ...query }));
+    status = { state: 'verifying' };
+    const promise = (async () => {
+      const cached = await safeStorage('get', key);
+      check();
+      let candidate = cached && cached.complete === true && cached.cursor === null && same(context, cached.identity) && validRows(cached.rows, cached.total) ? cached : null;
+      // Validate local integrity as well as the server revision. A corrupted row must
+      // not be accepted merely because its stored revision still matches Sheets.
+      if (candidate) {
+        if (await digestRows(context.scope, candidate.rows) !== candidate.revision) candidate = null;
+      }
+      check();
+      if (!candidate && cached) await safeStorage('remove', key);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          let page = await fetch({ revision: candidate ? candidate.revision : '' });
+          if (page.unchanged) {
+            if (!candidate || page.revision !== candidate.revision || page.total !== candidate.total) throw new Error('Invalid unchanged response');
+            status = { ...status, state: 'verified-cache', verifiedAt: page.verifiedAt, durationMs: now() - started, total: page.total };
+            return structuredClone(candidate.rows);
+          }
+          // Replacement handles deletion, archive and lost row access. Discard the
+          // old snapshot immediately; interrupted replacements are never published.
+          await safeStorage('remove', key); check(); candidate = null;
+          const revision = page.revision, total = page.total, rows = [];
+          while (true) {
+            if (page.revision !== revision || page.total !== total || page.offset !== rows.length || !Array.isArray(page.items) || page.items.length > 100) throw new Error('Invalid snapshot page');
+            rows.push(...page.items);
+            if (page.nextCursor === null) break;
+            if (!page.items.length || page.nextCursor !== String(rows.length) || rows.length >= total) throw new Error('Invalid snapshot cursor');
+            page = await fetch({ revision, cursor: page.nextCursor });
+          }
+          if (!validRows(rows, total)) throw new Error('Incomplete or duplicate snapshot');
+          // Recheck after the last page to avoid accepting mixed-time snapshots.
+          const confirmed = await fetch({ revision });
+          if (!confirmed.unchanged || confirmed.revision !== revision || confirmed.total !== total) throw new Error('CACHE_REVISION_CHANGED');
+          const digest = await digestRows(context.scope, rows);
+          if (digest && digest !== revision) throw new Error('Invalid snapshot integrity');
+          check();
+          if (digest) await safeStorage('put', { key, identity: context, revision, rows, total, complete: true, cursor: null, verifiedAt: confirmed.verifiedAt });
+          check();
+          status = { ...status, state: 'verified-network', verifiedAt: confirmed.verifiedAt, durationMs: now() - started, total };
+          return structuredClone(rows);
+        } catch (error) {
+          if (/CACHE_REVISION_CHANGED/.test(error.message) && attempt < 2) { candidate = null; continue; }
+          throw error;
+        }
+      }
+    })().catch(async error => {
+      if (session === epoch) {
+        status = { ...status, state: 'unavailable' };
+        if (/CACHE_SCOPE_CHANGED|CACHE_DISABLED|SESSION_EXPIRED|ACCESS[_ ]DENIED|FORBIDDEN|Permission denied|not authorized|not authorised/i.test(error.message + ' ' + (error.code || ''))) await lock();
+      }
+      throw error;
+    }).finally(() => { if (inFlight === promise) inFlight = null; });
+    inFlight = promise;
+    return promise;
+  }
+  return { bind, load, lock, invalidate, suspend, enabled: () => !!identity, status: () => ({ ...status }) };
+}
+
+function leadIndexedDb_() { try { return window.indexedDB; } catch (_) { return null; } }
+const LeadReadCache = createLeadReadCache({
+  request: query => api._authedRead('apiGetLeadCachePage', query),
+  storage: createLeadSnapshotStorage(leadIndexedDb_()),
+  onLock: () => {
+    const hadSession = !!(AuthToken.get() || App.user);
+    if (typeof PortalReadCache !== 'undefined') PortalReadCache.reset();
+    AuthToken.clear(); AppCache.clear(); Store.dispatch('RESET_PRIVATE');
+    document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
+    const content = document.getElementById('content'); if (content) content.replaceChildren();
+    showLoginOverlay('Please sign in again to verify your access.');
+    return hadSession;
+  },
+  // Existing modules also hold private data in closure-local snapshots. Reload
+  // after clearing durable storage to discard those, not just the central Store.
+  afterLock: hadSession => { if (hadSession) window.location.reload(); }
+});
+
+// Same-origin tabs may have separate sessionStorage tokens; invalidate every tab
+// on logout. The fallback marker contains no identity, token or customer data.
+let leadCacheChannel;
+try { leadCacheChannel = new BroadcastChannel('nbd-private-cache'); leadCacheChannel.onmessage = event => { if (event.data === 'lock') void LeadReadCache.lock(); }; } catch (_) {}
+window.addEventListener('storage', event => { if (event.key === 'nbd-cache-lock') void LeadReadCache.lock(); });
+window.addEventListener('pageshow', event => { if (event.persisted) void lockPrivateReadCache(); });
+window.addEventListener('offline', () => {
+  if (App.currentPage !== 'leads' || !LeadReadCache.enabled()) return;
+  LeadReadCache.suspend(); AppCache.clear();
+  document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
+  const content = document.getElementById('content');
+  if (content) content.textContent = 'Connection unavailable. Reconnect to verify your access and reload Leads.';
+});
+window.addEventListener('online', () => { if (App.currentPage === 'leads' && LeadReadCache.enabled()) void loadLeads(true); });
+function lockPrivateReadCache() {
+  try { if (leadCacheChannel) leadCacheChannel.postMessage('lock'); } catch (_) {}
+  try { localStorage.setItem('nbd-cache-lock', String(Date.now()) + Math.random()); } catch (_) {}
+  return LeadReadCache.lock();
+}
+</script>

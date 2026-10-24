@@ -143,7 +143,22 @@ const api = {
     });
   },
   _token()              { return AuthToken.get(); },
-  _authedRead(fn, ...args) { return api._read(fn, api._token(), ...args); },
+  async _authedRead(fn, ...args) {
+    const token = api._token();
+    try {
+      const result = typeof PortalReadCache !== 'undefined' && PortalReadCache.handles(fn)
+        ? await PortalReadCache.get(fn, args[0] || {}) : await api._read(fn, token, ...args);
+      if (token !== api._token()) throw new Error('SESSION_EXPIRED: Session changed during request.');
+      if (/^api(?:Save|Delete|Archive|Restore|Update|Move|Push|Mark|Create|Map)/.test(fn) && typeof LeadReadCache !== 'undefined') await LeadReadCache.invalidate();
+      if (/^api(?:Save|Delete|Archive|Restore|Update|Move|Push|Mark|Create|Map)|^apiClientFactoryVisit(?:Save|Initialize)$/.test(fn) && typeof PortalReadCache !== 'undefined') await PortalReadCache.invalidate();
+      return result;
+    } catch (error) {
+      const sessionLost = /SESSION_EXPIRED|ACCESS_DENIED/i.test(error.message);
+      const privateReadDenied = ['apiGetLeadCachePage','apiGetDataStamps'].includes(fn) && /ACCESS[_ ]DENIED|FORBIDDEN/i.test(error.message + ' ' + (error.code || ''));
+      if (token === api._token() && (sessionLost || privateReadDenied) && typeof LeadReadCache !== 'undefined') void lockPrivateReadCache();
+      throw error;
+    }
+  },
 
   // ── Session auth ──────────────────────────────────────────────────────────
   diagnosticPing:      ()      => api._read('apiDiagnosticPing'),
