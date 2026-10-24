@@ -38,11 +38,19 @@ function _clientCallReport_(user, input) {
   const q = _clientCallReportQuery_(input);
   const canArchive = user.role === 'ADMIN' || userHasModule(user, 'Archive');
   if (q.archive !== 'active' && !canArchive) throw new Error('Permission denied. Archive permission is required.');
-  const master = getAllRows(SHEET_NAMES.LEADS);
-  const history = getAllRows(SHEET_NAMES.FOLLOWUP_HISTORY);
+  // Read the three report tables together. Keep the full schema and the existing
+  // quota-aware fallback; staff/permission data still uses its separate workbook.
+  const previousReadMode = _bootstrapReadMode_;
+  let tables;
+  _bootstrapReadMode_ = true;
+  try {
+    tables = sheetApiBatchGetRows_([SHEET_NAMES.LEADS, SHEET_NAMES.FOLLOWUP_HISTORY, SHEET_NAMES.STAGES]);
+  } finally { _bootstrapReadMode_ = previousReadMode; }
+  const master = tables[SHEET_NAMES.LEADS];
+  const history = tables[SHEET_NAMES.FOLLOWUP_HISTORY];
   const users = _buildUserMapById_();
   const departments = _portalDepartmentScopeSet_();
-  const stages = new Map(getAllRows(SHEET_NAMES.STAGES).map(row => [String(row['Stage ID']), row]));
+  const stages = new Map(tables[SHEET_NAMES.STAGES].map(row => [String(row['Stage ID']), row]));
   const id = value => String(value == null ? '' : value).trim();
   const leads = new Map(), ambiguous = new Set();
   // A duplicate expansion of the same master row is harmless. Conflicting IDs

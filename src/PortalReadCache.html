@@ -87,7 +87,7 @@ async function refreshPortalCachedScreen() {
   else if (page === 'today') await loadToday();
   else if (page === 'archive') await loadArchive(_archiveTab, true);
   else if (page === 'clientfactoryvisits') await loadClientFactoryVisits();
-  else if (page === 'callreport') await loadClientCallReport();
+  else if (page === 'callreport') await loadClientCallReport({ background: true });
   else if (page === 'calls') await loadCalls();
 }
 window.addEventListener('offline', () => {

@@ -1,14 +1,20 @@
 <script>
 let clientCallReportQuery = { page: 1 };
 let clientCallReportRequest = 0;
+let clientCallReportPending = 0;
 
-async function loadClientCallReport() {
+async function loadClientCallReport(options = {}) {
+  // A poll must neither erase a loaded report nor supersede a foreground load.
+  if (options.background && clientCallReportPending) return;
   const request = ++clientCallReportRequest;
+  clientCallReportPending = request;
   const box = el('content');
-  box.innerHTML = skeletonPage('table');
+  if (!options.background || !box.querySelector('#ccr-filters')) box.innerHTML = skeletonPage('table');
   try {
     const data = await api._authedRead('apiGetClientCallReport', { ...clientCallReportQuery });
     if (request !== clientCallReportRequest || App.currentPage !== 'callreport') return;
+    // The user may start editing filters while a background read is pending.
+    if (options.background && typeof document !== 'undefined' && document.activeElement && document.activeElement.matches('input,select,textarea')) return;
     const q = data.filters;
     const option = (value, label, selected) => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
     const count = (value, color) => `<span style="color:${color};font-weight:700">● ${Number(value) || 0}</span>`;
@@ -69,6 +75,8 @@ async function loadClientCallReport() {
     box.innerHTML = `<div class="card" style="padding:24px"><p role="alert">${escapeHtml(error.message)}</p><button id="ccr-retry" class="btn btn-outlined">Retry</button> <button id="ccr-clear-error" class="btn btn-outlined">Reset filters</button></div>`;
     el('ccr-retry').onclick = () => void loadClientCallReport();
     el('ccr-clear-error').onclick = () => { clientCallReportQuery = { page: 1 }; void loadClientCallReport(); };
+  } finally {
+    if (clientCallReportPending === request) clientCallReportPending = 0;
   }
 }
 </script>

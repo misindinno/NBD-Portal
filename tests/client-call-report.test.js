@@ -21,7 +21,7 @@ function setup(options = {}) {
   const reads = [];
   let serverDepth = 0;
   const context = vm.createContext({
-    Date, console, TEST_USER: options.user || admin,
+    Date, console, TEST_USER: options.user || admin, _bootstrapReadMode_: false,
     SHEET_NAMES: { LEADS: 'LEADS', FOLLOWUP_HISTORY: 'HISTORY', USERS: 'USERS', STAGES: 'STAGES' },
     Utilities: { getUuid: () => 'request-id', formatDate(date, zone) {
       assert.equal(zone, 'Asia/Kolkata');
@@ -30,6 +30,7 @@ function setup(options = {}) {
     withServerContext_(fn) { serverDepth++; try { return fn(); } finally { serverDepth--; } },
     assertServerContext_() { assert.ok(serverDepth > 0, 'Server context required'); },
     getAllRows(name) { assert.ok(serverDepth > 0); assert.ok(rows[name], 'Unexpected storage access: ' + name); reads.push(name); return rows[name]; },
+    sheetApiBatchGetRows_(names) { assert.equal(context._bootstrapReadMode_, true); return Object.fromEntries(names.map(name => [name, context.getAllRows(name)])); },
     getPortalSettings_: () => ({ visibleDepartments: options.departments || [] }),
     getStaffUserId: row => row.ID,
     userHasModule: (user, name) => (user.modules || []).includes(name),
@@ -224,4 +225,51 @@ test('late report responses cannot overwrite a newer request or another route', 
   ui.App.currentPage = 'leads'; box.innerHTML = 'Lead screen';
   pending[2]({}); await third;
   assert.equal(box.innerHTML, 'Lead screen');
+});
+
+test('background report refresh keeps the loaded table and does not interrupt a pending load', async () => {
+  const pending = [], elements = new Map();
+  const box = { innerHTML: '', querySelector: () => box.innerHTML.includes('id="ccr-filters"') };
+  const { report } = setup();
+  const ui = vm.createContext({ App: { currentPage: 'callreport' }, el: id => {
+    if (id === 'content') return box;
+    if (!elements.has(id)) elements.set(id, {});
+    return elements.get(id);
+  }, skeletonPage: () => 'loading', escapeHtml: String, api: { _authedRead: () => new Promise((resolve, reject) => pending.push({ resolve, reject })) } });
+  vm.runInContext(read('src/ClientCallReport.html').replace(/^<script>\s*/, '').replace(/<\/script>\s*$/, ''), ui);
+  const first = ui.loadClientCallReport();
+  await ui.loadClientCallReport({ background: true });
+  assert.equal(pending.length, 1, 'poll must not supersede the initial load');
+  pending[0].resolve(report()); await first;
+  const rendered = box.innerHTML;
+  assert.doesNotMatch(rendered, /<th>Lead ID<\/th>/);
+  assert.equal((rendered.split('<thead>')[1].split('</thead>')[0].match(/<th>/g) || []).length, 7);
+  const refresh = ui.loadClientCallReport({ background: true });
+  assert.equal(box.innerHTML, rendered, 'table stays visible while revalidating');
+  await ui.loadClientCallReport({ background: true });
+  assert.equal(pending.length, 2, 'overlapping polls coalesce');
+  pending[1].resolve({ ...report(), total: 42 }); await refresh;
+  assert.match(box.innerHTML, /42 clients/);
+  const rejected = ui.loadClientCallReport({ background: true });
+  pending[2].reject(new Error('Permission denied')); await rejected;
+  assert.match(box.innerHTML, /Permission denied/);
+  assert.doesNotMatch(box.innerHTML, /<table>/, 'failed access validation must not retain private report rows');
+});
+
+test('call report batches complete tables, restores read mode, and keeps staff separate', () => {
+  const { context, rows, reads, report } = setup();
+  let batches = 0;
+  context.sheetApiBatchGetRows_ = names => {
+    batches++;
+    assert.equal(context._bootstrapReadMode_, true);
+    assert.deepEqual(plain(names), ['LEADS', 'HISTORY', 'STAGES']);
+    return Object.fromEntries(names.map(name => [name, rows[name]]));
+  };
+  assert.equal(report().totals.connected, 1);
+  assert.equal(batches, 1);
+  assert.deepEqual(reads, ['USERS']);
+  assert.equal(context._bootstrapReadMode_, false);
+  context.sheetApiBatchGetRows_ = () => { throw new Error('Read failed'); };
+  assert.equal(context.apiGetClientCallReport('valid', {}).success, false);
+  assert.equal(context._bootstrapReadMode_, false);
 });

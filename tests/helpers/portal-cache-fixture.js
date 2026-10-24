@@ -32,7 +32,7 @@ function moduleFixture() {
   for(const file of ['ArchitectureCore','SheetReadApiService','FollowupService','ArchiveService','ClientCallReportService','PortalReadCacheService']) vm.runInContext(read('src/server/'+file+'.js'),c);
   c.logServerError_ = () => {};
   c.safeClientErrorMessage_ = error => error.message;
-  c.sheetApiBatchGetRows_ = specs => Object.fromEntries(specs.map(spec => [spec.sheetName,c.getAllRows(spec.sheetName)]));
+  c.sheetApiBatchGetRows_ = specs => Object.fromEntries(specs.map(spec => { const name = typeof spec === 'string' ? spec : spec.sheetName; return [name,c.getAllRows(name)]; }));
   c.ensureArchiveSchema_ = () => {throw Error('No schema writes allowed in cache reads');};
   c.rebuildIndexForSheet_ = () => {throw Error('No index writes allowed in cache reads');};
   c.getSheet = () => {throw Error('No index repair lookup permitted');};
