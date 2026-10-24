@@ -185,7 +185,17 @@ function _cfvSave_(user, payload) {
     const visitWrite = old
       ? { updateCells: { start: { sheetId: tables.visits.sheet.getSheetId(), rowIndex: old._row - 1, columnIndex: 0 }, rows: [cells(tables.visits.headers, record)], fields: 'userEnteredValue' } }
       : { appendCells: { sheetId: tables.visits.sheet.getSheetId(), rows: [cells(tables.visits.headers, record)], fields: 'userEnteredValue' } };
-    Sheets.Spreadsheets.batchUpdate({ requests: [visitWrite, { appendCells: { sheetId: tables.events.sheet.getSheetId(), rows: [cells(tables.events.headers, event)], fields: 'userEnteredValue' } }] }, getSpreadsheet(CFV_TABLE_).getId());
+    // A unique event revision fences a batch still in flight after a timeout.
+    // Keep event rows and fences intact so an old revision cannot be reused.
+    const revision = tables.events.rows.length + 1;
+    const fence = { addNamedRange: { namedRange: { namedRangeId: 'nbd_cfv_rev_' + revision, name: 'nbd_cfv_save_' + revision,
+      range: { sheetId: tables.events.sheet.getSheetId(), startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 1 } } } };
+    try {
+      Sheets.Spreadsheets.batchUpdate({ requests: [visitWrite, { appendCells: { sheetId: tables.events.sheet.getSheetId(), rows: [cells(tables.events.headers, event)], fields: 'userEnteredValue' } }, fence] }, getSpreadsheet(CFV_TABLE_).getId());
+    } catch (error) {
+      logServerError_(error, { api: 'apiClientFactoryVisitSave', operationId: request, step: 'atomic visit commit' });
+      throw new Error('VISIT_COMMIT_UNCONFIRMED: Google Sheets has not confirmed this save. Retry the same request reference.');
+    }
     return { id, version: record.Version, repeated: false };
   } finally { lock.releaseLock(); }
 }

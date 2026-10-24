@@ -102,6 +102,7 @@ async function _loadAppSession_(token) {
   Store.dispatch('SET_USER', boot.user);
   LeadReadCache.bind(boot.cacheIdentity);
   PortalReadCache.bind(boot.cacheIdentity);
+  if (typeof PortalSync !== 'undefined') { PortalSync.bind(boot.cacheIdentity); void renderPortalSyncStatus(); void PortalSync.drain().catch(() => {}); }
   Store.dispatch('SET_CONFIG', boot.config);
   AppCache.touch('config');
   AppLookup.rebuild();

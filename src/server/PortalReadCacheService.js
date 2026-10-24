@@ -1,11 +1,11 @@
-// Validated response snapshots, not a change log/delta feed. Existing domain
+// Validated response snapshots with opt-in manifest deltas. Existing domain
 // services remain responsible for scoping, categorization and all totals.
 let PORTAL_CACHE_READ_ONLY_ = false;
 
 function portalCacheQuery_(kind, input) {
   const fields = {
     followups: ['includeHistory'], today: [], archive: [], archiveSuggestions: [], archiveLost: [],
-    visits: ['page','from','to','status','host','search'],
+    visits: ['page','from','to','status','host','search'], calls: ['page','leadId','status','from','to','caller','type','search'],
     callReport: ['page','from','to','search','category','status','archive','doneBy']
   };
   if (!Object.prototype.hasOwnProperty.call(fields, kind)) throw new Error('Invalid cache module.');
@@ -21,6 +21,7 @@ function portalCacheQuery_(kind, input) {
 
 function portalCacheSource_(kind, query) {
   switch (kind) {
+    case 'calls': return _getCallLogs_(_requireAnyModule(['Leads','Followups','Archive']), query);
     case 'followups': return getFollowupPageSnapshotFast_(_requireModule('Followups'), query);
     case 'today': return getTodayActivitySnapshotFast_(_requireAnyModule(['Followups','Leads']));
     case 'archive': return getArchiveData(_requireModule('Archive'), true);
@@ -78,6 +79,9 @@ function portalReadCachePage_(user, input) {
   const packed = portalCachePack_(kind, query, source), rows = packed.records;
   const revision = leadCacheDigest_({ scope: identity.scope, rows });
   const meta = { identity, revision, total: rows.length, verifiedAt: new Date().toISOString(), volatile: packed.volatile };
+  if (q.cursor == null && q.revision === revision) return { ...meta, unchanged: true };
+  const delta = typeof syncDeltaPage_ === 'function' ? syncDeltaPage_(q, rows, meta) : null;
+  if (delta) return delta;
   if (q.cursor != null) {
     if (typeof q.cursor !== 'string' || !/^\d+$/.test(q.cursor) || q.revision !== revision) throw new Error('CACHE_REVISION_CHANGED');
     const offset = Number(q.cursor);

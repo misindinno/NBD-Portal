@@ -1,0 +1,268 @@
+<script>
+// Pending commands are separate from server-confirmed read snapshots. Tokens are
+// supplied at send time and are never written to either database.
+function createPortalOutbox(indexedDB) {
+  let opening;
+  function db() {
+    if (!indexedDB) return Promise.reject(new Error('Browser storage unavailable. This save was not queued.'));
+    if (!opening) opening = new Promise((resolve, reject) => {
+      const request = indexedDB.open('nbd-sync-outbox', 1);
+      let settled = false;
+      const fail = message => { if (settled) return; settled = true; clearTimeout(timer); reject(new Error(message)); };
+      const timer = setTimeout(() => fail('Browser storage unavailable. This save was not queued.'), 2500);
+      request.onupgradeneeded = () => {
+        if (settled) { request.transaction.abort(); return; }
+        request.result.createObjectStore('commands', { keyPath: 'key' });
+      };
+      request.onerror = request.onblocked = () => fail('Cannot open pending changes.');
+      request.onsuccess = () => {
+        if (settled) { request.result.close(); return; }
+        settled = true; clearTimeout(timer);
+        request.result.onversionchange = () => { request.result.close(); opening = null; }; resolve(request.result);
+      };
+    }).catch(error => { opening = null; throw error; });
+    return opening;
+  }
+  async function transaction(mode, work) {
+    const connection = await db();
+    return new Promise((resolve, reject) => {
+      const tx = connection.transaction('commands', mode), store = tx.objectStore('commands');
+      let result;
+      const timer = setTimeout(() => { try { tx.abort(); } catch (_) {} reject(new Error('Pending change storage stalled.')); }, 4000);
+      tx.oncomplete = () => { clearTimeout(timer); resolve(result); };
+      tx.onerror = tx.onabort = () => { clearTimeout(timer); reject(new Error('Could not persist pending changes. Check browser storage.')); };
+      work(store, value => { result = value; });
+    });
+  }
+  const belongs = (item, identity) => item.portal === identity.portal && item.user === identity.user;
+  return {
+    async list(identity) {
+      return transaction('readonly', (store, done) => { store.getAll().onsuccess = event => done(event.target.result.filter(item => belongs(item, identity))); });
+    },
+    async enqueue(item) {
+      return transaction('readwrite', (store, done) => { store.getAll().onsuccess = event => {
+        const old = event.target.result.find(row => belongs(row, item) && row.fingerprint === item.fingerprint && row.state !== 'dismissed');
+        if (old) return done(old);
+        store.add(item); done(item);
+      }; });
+    },
+    async patch(key, patch, attempt) {
+      return transaction('readwrite', (store, done) => { store.get(key).onsuccess = event => {
+        if (!event.target.result) return done(null);
+        if (attempt !== undefined && event.target.result.attempts !== attempt) return done(event.target.result);
+        const item = { ...event.target.result, ...patch }; store.put(item); done(item);
+      }; });
+    },
+    async claim(key, time) {
+      return transaction('readwrite', (store, done) => { store.get(key).onsuccess = event => {
+        const item = event.target.result;
+        if (!item || !['queued','retry','sending'].includes(item.state) || item.nextAttempt > time || item.leaseUntil > time) return done(null);
+        const claimed = { ...item, state: 'sending', attempts: (item.attempts || 0) + 1, leaseUntil: time + 120000 };
+        store.put(claimed); done(claimed);
+      }; });
+    }
+  };
+}
+function createPortalSync({ storage, send, online = () => navigator.onLine, now = () => Date.now(), changed = () => {}, committed = async () => {}, confirmationWaitMs = 120000 }) {
+  const actions = new Set(['apiSaveLead','apiSaveFollowupDirect','apiMarkFollowupDoneDirect','apiUpdateLeadStage',
+    'apiMoveLeadStageWithFields','apiArchiveLead','apiArchiveLeads','apiRestoreArchivedLead','apiSaveBulkRows','apiClientFactoryVisitSave','apiMapCallToClient']);
+  let identity = null, epoch = 0, running = null;
+  const records = new Map();
+  function bind(value) { epoch++; running = null; identity = value && value.syncEnabled ? { ...value } : null; records.clear(); }
+  function observe(value, replace = false) {
+    if (!identity || !value) return;
+    if (Array.isArray(value)) { value.forEach(row => observe(row, replace)); return; }
+    if (typeof value !== 'object') return;
+    if (value['Lead ID'] && !value['History ID'] && !value['Log ID'] && !value['Call ID']) {
+      const type = value['Follow-up ID'] ? 'followup' : 'lead', id = String(value[type === 'lead' ? 'Lead ID' : 'Follow-up ID']);
+      if (Object.prototype.hasOwnProperty.call(value, 'Updated At')) {
+        const values = {};
+        Object.keys(value).filter(key => !key.startsWith('_') && !/password|secret|token|credential/i.test(key)).forEach(key => {
+          if (value[key] == null || ['string','number','boolean'].includes(typeof value[key])) values[key] = value[key];
+        });
+        const editing = typeof document !== 'undefined' && document.querySelector('.modal-overlay, #lf-form, #cfv-form-panel:not([hidden])');
+        if (replace || !editing || !records.has(type + ':' + id)) records.set(type + ':' + id, { type, id, values });
+      }
+    }
+    ['lead','leads','followup','followups','archived'].forEach(key => { if (value[key]) observe(value[key], replace); });
+  }
+  function basesFor(action, args) {
+    const p = args[0] || {}, targets = [];
+    const lead = id => { if (id) targets.push('lead:' + String(id)); };
+    if (action === 'apiClientFactoryVisitSave') return []; // native requestId/version contract
+    if (action === 'apiMapCallToClient') return []; // mapping has explicit expected phone fields
+    if (action === 'apiMarkFollowupDoneDirect') {
+      const key = 'followup:' + String(args[0]); targets.push(key);
+      const base = records.get(key); if (base) lead(base.values['Lead ID']);
+    } else if (action === 'apiRestoreArchivedLead') lead(args[0]);
+    else if (action === 'apiArchiveLeads') (p.leadIds || []).forEach(lead);
+    else if (action === 'apiSaveBulkRows') {
+      if ((args[1] || 'create') !== 'create') (args[0] || []).forEach(row => lead(row['Lead ID'] || row.leadId));
+    } else lead(p['Lead ID'] || p.leadId || p.LeadID || p['Lead Id'] || p.ID);
+    return [...new Set(targets)].map(key => {
+      if (!records.has(key)) throw new Error('Open or refresh the latest record before saving, so changes can be checked safely.');
+      return structuredClone(records.get(key));
+    });
+  }
+  async function list() { return identity ? storage.list(identity) : []; }
+  async function drain() {
+    if (!identity || !online()) return;
+    if (running) return running;
+    const generation = epoch, context = { ...identity };
+    const valid = () => generation === epoch && identity && online();
+    const task = (async () => {
+      const items = (await storage.list(context)).sort((a,b) => a.createdAt - b.createdAt);
+      for (const row of items) {
+        if (!valid()) break;
+        if (['committed','dismissed'].includes(row.state)) continue;
+        // Preserve order: unresolved changes must not be overtaken by dependent saves.
+        if (['conflict','invalid','blocked','paused'].includes(row.state)) break;
+        const item = await storage.claim(row.key, now());
+        if (!item) break;
+        if (!valid()) { await storage.patch(item.key, { state: 'queued', leaseUntil: 0 }); break; }
+        changed();
+        try {
+          // A missing RPC callback must not stall the queue forever. This only
+          // bounds waiting for confirmation; the server operation is not cancelled.
+          // Retry the same ID, never report the uncertain write as a failed save.
+          let confirmationTimer;
+          const response = await Promise.race([
+            Promise.resolve().then(() => send(item, context)),
+            new Promise((_, reject) => { confirmationTimer = setTimeout(() => reject(new Error('Save confirmation is pending. The same reference will be retried.')), confirmationWaitMs); })
+          ]).finally(() => clearTimeout(confirmationTimer));
+          if (!response || !['committed','retry','conflict','invalid','blocked','paused'].includes(response.state)) throw new Error('Unconfirmed sync response');
+          // A response for the previous login cannot update this login's UI/cache.
+          await storage.patch(item.key, { state: response.state, result: response.result, message: response.message || '',
+            leaseUntil: 0, nextAttempt: response.state === 'retry' ? now() + 5000 : 0 }, item.attempts);
+          if (valid() && response.state === 'committed') await committed(item, response.result);
+          if (response.state !== 'committed') break;
+        } catch (error) {
+          const denied = /SESSION_EXPIRED|ACCESS_DENIED|FORBIDDEN|Permission denied/i.test(error.code + ' ' + error.message);
+          const invalid = /VALIDATION_ERROR|DATA_SCHEMA_INVALID/.test(error.code || '');
+          await storage.patch(item.key, { state: denied ? 'blocked' : invalid ? 'invalid' : 'retry', leaseUntil: 0,
+            message: denied ? 'Sign in and verify your access before retrying.' : error.message,
+            nextAttempt: now() + Math.min(60000, 2000 * Math.pow(2, Math.min(item.attempts, 5))) }, item.attempts);
+          break;
+        } finally { if (generation === epoch) changed(); }
+      }
+    })().finally(() => { if (running === task) running = null; });
+    running = task; return task;
+  }
+  async function submit(action, args) {
+    if (!identity || !actions.has(action)) throw new Error('Sync unavailable.');
+    const context = { ...identity }, generation = epoch;
+    const id = crypto.randomUUID(), bases = basesFor(action, args);
+    const cleanArgs = structuredClone(args);
+    if (action === 'apiClientFactoryVisitSave' && !cleanArgs[0].requestId) cleanArgs[0].requestId = id.replace(/-/g, '');
+    const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+    const text = JSON.stringify(canonical([action, cleanArgs, bases]));
+    function unsafe(value) {
+      if (value && typeof value === 'object' && typeof value.data === 'string' && ('mimeType' in value || 'name' in value)) return true;
+      return value && typeof value === 'object' && Object.keys(value).some(key =>
+        /password|passwd|secret|token|credential|authorization|cookie|api[ _-]?key|^(session|__proto__|constructor|prototype|base64)$/i.test(key) || unsafe(value[key]));
+    }
+    if (text.length > 200000 || unsafe(cleanArgs) || unsafe(bases)) throw new Error('This payload cannot enter the sync queue. Upload files separately.');
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    const fingerprint = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2,'0')).join('');
+    if (epoch !== generation) throw new Error('Session changed before save.');
+    const item = await storage.enqueue({ key: JSON.stringify([context.portal, context.user, id]), id, action, args: cleanArgs, bases,
+      portal: context.portal, user: context.user, scope: context.scope, state: 'queued', fingerprint, createdAt: now(), attempts: 0, nextAttempt: 0, leaseUntil: 0 });
+    if (epoch !== generation) throw new Error('Session changed. The pending change is retained for its original account.');
+    changed(); await drain();
+    if (epoch !== generation) throw new Error('Session changed. Check Pending changes after signing in.');
+    const current = (await storage.list(context)).find(row => row.key === item.key);
+    if (current && current.state === 'committed') return current.result;
+    const message = current && ['invalid','conflict','blocked','paused'].includes(current.state)
+      ? current.message : 'Saved on this device; waiting to sync with Google Sheets. Do not create another entry. Open Pending changes for status.';
+    const error = new Error(message); error.code = 'SYNC_PENDING'; error.syncState = current && current.state; error.operationId = item.id; throw error;
+  }
+  return { bind, observe, submit, drain, list, enabled: () => !!identity, handles: action => !!identity && actions.has(action),
+    async retry(key) {
+      const row = (await list()).find(row => row.key === key);
+      if (!row || !['retry','blocked','paused'].includes(row.state)) return;
+      if (row.scope !== identity.scope) throw new Error('Permissions changed. This pending change is retained; an administrator must review its original reference.');
+      await storage.patch(key, { state: 'queued', leaseUntil: 0, nextAttempt: 0 }); await drain(); changed();
+    },
+    async dismiss(key) {
+      const row = (await list()).find(row => row.key === key);
+      if (!row || !['invalid','conflict','committed'].includes(row.state)) throw new Error('An unconfirmed save cannot be discarded. Retry it with the same reference first.');
+      await storage.patch(key, { state: 'dismissed', args: [], bases: [], result: null, message: '' }); changed(); void drain();
+    }
+  };
+}
+
+const PortalSync = createPortalSync({
+  storage: createPortalOutbox(leadIndexedDb_()),
+  send: async item => {
+    if (item.action === 'apiClientFactoryVisitSave') {
+      const result = await api._read(item.action, AuthToken.get(), ...item.args);
+      return { state: 'committed', result };
+    }
+    const { id, action, args, bases, portal, user, scope } = item;
+    return api._read('apiSyncPush', AuthToken.get(), { id, action, args, bases, portal, user, scope });
+  },
+  changed: () => { void renderPortalSyncStatus(); },
+  committed: async () => {
+    await LeadReadCache.invalidate(); await PortalReadCache.invalidate();
+    try { portalSyncChannel.postMessage('changed'); } catch (_) {}
+    _leadCacheCheckedAt = 0; _portalCacheCheckedAt = 0;
+  }
+});
+let portalSyncChannel;
+try { portalSyncChannel = new BroadcastChannel('nbd-sync-changes'); portalSyncChannel.onmessage = () => {
+  LeadReadCache.verifyNext(); PortalReadCache.verifyNext(); void renderPortalSyncStatus();
+}; } catch (_) {}
+window.addEventListener('online', () => { void PortalSync.drain(); });
+window.addEventListener('focus', () => { void PortalSync.drain(); });
+setInterval(() => { if (!document.hidden) void PortalSync.drain().catch(() => {}); }, 5000);
+
+let portalSyncStatusGeneration = 0;
+async function renderPortalSyncStatus() {
+  const generation = ++portalSyncStatusGeneration;
+  let button = document.getElementById('portal-sync-status');
+  const admin = App.user && App.user.role === 'ADMIN';
+  if (!PortalSync.enabled() && !admin) { if (button) button.remove(); return; }
+  if (!button) {
+    button = document.createElement('button'); button.id = 'portal-sync-status'; button.className = 'btn btn-outlined';
+    button.style.cssText = 'position:fixed;bottom:14px;right:100px;max-width:calc(100vw - 120px);z-index:1100;background:white';
+    document.body.appendChild(button);
+  }
+  button.onclick = PortalSync.enabled() ? showPortalSyncQueue : setupPortalSync;
+  if (!PortalSync.enabled()) { button.textContent = 'Set up Sheets sync'; return; }
+  try {
+    const rows = await PortalSync.list();
+    if (generation !== portalSyncStatusGeneration) return;
+    button.textContent = 'Pending changes: ' + rows.filter(row => !['committed','dismissed'].includes(row.state)).length;
+  } catch (_) { if (generation === portalSyncStatusGeneration) button.textContent = 'Sync storage unavailable'; }
+}
+async function setupPortalSync() {
+  const result = await Swal.fire({ title: 'Enable Sheets sync',
+    text: 'Enable background sync and pending changes for this portal. Google Sheets remains the main data source. Pending changes stay on their original browser until synced. This adds an operation log to the workbook.',
+    showCancelButton: true, confirmButtonText: 'Enable sync' });
+  if (!result.isConfirmed) return;
+  try { await api._read('apiSyncInitialize', AuthToken.get()); window.location.reload(); }
+  catch (error) { toast(error.message, 'error'); }
+}
+async function showPortalSyncQueue() {
+  const rows = (await PortalSync.list()).filter(row => row.state !== 'dismissed').sort((a,b) => b.createdAt - a.createdAt).slice(0,100);
+  const wrap = document.createElement('div');
+  const intro = document.createElement('p'); intro.textContent = 'Pending changes are stored on this device. Only Synced means the change is saved in Google Sheets. Keep this portal open to sync.'; wrap.appendChild(intro);
+  rows.forEach(row => {
+    const card = document.createElement('div'); card.style.cssText = 'text-align:left;padding:12px;border-bottom:1px solid #ddd';
+    const title = document.createElement('strong'); title.textContent = row.action.replace(/^api/,'') + ' — ' + (row.state === 'committed' ? 'Synced' : row.state); card.appendChild(title);
+    const detail = document.createElement('p'); detail.textContent = (row.message || '') + ' Reference: ' + row.id; card.appendChild(detail);
+    if (['conflict','invalid'].includes(row.state)) {
+      const payload = document.createElement('pre'); payload.textContent = JSON.stringify(row.args, null, 2); payload.style.cssText = 'max-height:180px;overflow:auto;white-space:pre-wrap'; card.appendChild(payload);
+    }
+    if (['retry','blocked','paused','conflict','invalid','committed'].includes(row.state)) {
+      const button = document.createElement('button'); button.className = 'btn btn-outlined';
+      const dismiss = ['conflict','invalid','committed'].includes(row.state);
+      button.textContent = dismiss ? 'Dismiss' : 'Retry';
+      button.onclick = async () => { try { await PortalSync[dismiss ? 'dismiss' : 'retry'](row.key); Swal.close(); await showPortalSyncQueue(); } catch (error) { toast(error.message, 'error'); } }; card.appendChild(button);
+    }
+    wrap.appendChild(card);
+  });
+  await Swal.fire({ title: 'Pending changes', html: wrap, width: 760, showConfirmButton: true, confirmButtonText: 'Close' });
+}
+</script>

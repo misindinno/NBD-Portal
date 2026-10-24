@@ -4,6 +4,13 @@ const CALL_LOG_HEADERS_ = ['Call ID','Lead ID','User ID','User Name','Employee N
 
 function _callTable_(name) {
   assertServerContext_();
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(name)) {
+    const table = syncTxTable_(name);
+    return { syncName: name, headers: table.headers, sheet: {
+      getLastRow: () => table.rows.length + 1,
+      deleteRows: (row, count) => table.rows.splice(row - 2, count)
+    }, rows: syncTxRows_(name).map((record, i) => ({ row: i + 2, record })) };
+  }
   const sheet = getSpreadsheet(name).getSheetByName(name);
   if (!sheet) return { sheet: null, headers: [], rows: [] };
   const data = sheet.getDataRange().getValues();
@@ -12,6 +19,15 @@ function _callTable_(name) {
 }
 
 function _writeCallRow_(table, record, row) {
+  if (table.syncName) {
+    const staged = syncTxTable_(table.syncName), index = row ? row - 2 : staged.rows.length;
+    if (index === staged.rows.length) syncTxInsert_(table.syncName, record);
+    else {
+      if (!staged.rows[index]) throw new Error('Invalid call row.');
+      staged.rows[index].values = staged.headers.map(key => record[key] === undefined ? '' : record[key]);
+    }
+    return index + 2;
+  }
   const target = row || table.sheet.getLastRow() + 1;
   table.sheet.getRange(target, 1, 1, table.headers.length).setNumberFormat('@').setValues([sanitizeSheetRowValues_(table.headers.map(h => record[h] === undefined ? '' : record[h]))]);
   return target;
@@ -157,7 +173,7 @@ function _callVisible_(call, user, visibleLeadIds) {
 }
 
 function _getCallLogs_(user, options) {
-  _prepareCallStorage_();
+  if (!(typeof PORTAL_CACHE_READ_ONLY_ !== 'undefined' && PORTAL_CACHE_READ_ONLY_)) _prepareCallStorage_();
   const q = options || {};
   const leads = getAllRows(SHEET_NAMES.LEADS);
   const visible = _scopeAssignedRows(leads, user);
@@ -195,7 +211,8 @@ function _callMappingContext_(user, callId, query) {
 function _mapCallToClient_(user, payload) {
   requireRole(['ADMIN','MANAGER','SALES']);
   if (!_canMapCalls_(user) || !_canManageUnmatchedCalls_(user)) throw new Error('Permission denied.');
-  const p = payload || {}, lock = LockService.getScriptLock(); lock.waitLock(10000);
+  const p = payload || {}, lock = typeof SYNC_TX_ !== 'undefined' && SYNC_TX_
+    ? { waitLock() {}, releaseLock() {} } : LockService.getScriptLock(); lock.waitLock(10000);
   let savedLead;
   try {
     _invalidateReadCache_();
@@ -228,7 +245,7 @@ function _mapCallToClient_(user, payload) {
       affected.forEach(r => _writeCallRow_(calls, { ...r.record, 'Lead ID': p.leadId, 'Stage ID': lead['Stage ID'] || '', 'Match Status': 'Matched', 'Match Source': 'Manual', Conflict: '', 'Mapped By': user.id, 'Mapped At': now(), 'Updated At': now() }, r.row));
       _writeCallRow_(audit, { 'Log ID': generateUUID(), 'Lead ID': p.leadId, 'Action Type': 'Call mapped', 'Old Value': already ? '' : String(lead[field] || ''), 'New Value': phone, Remark: affected.length + ' call(s) mapped; ' + (already ? 'existing contact number retained.' : field + ' updated.'), 'Created By': user.id, 'Created At': now() }, auditRow);
       syncIndexRow_(SHEET_NAMES.LEADS, nextLead, entry.row);
-      SpreadsheetApp.flush();
+      if (!(typeof SYNC_TX_ !== 'undefined' && SYNC_TX_)) SpreadsheetApp.flush();
       savedLead = p.leadId;
     } catch (error) {
       if (attempted) {
@@ -236,7 +253,7 @@ function _mapCallToClient_(user, payload) {
         affected.forEach(r => _writeCallRow_(calls, r.record, r.row));
         if (audit.sheet.getLastRow() >= auditRow) audit.sheet.deleteRows(auditRow, 1);
         syncIndexRow_(SHEET_NAMES.LEADS, lead, entry.row);
-        SpreadsheetApp.flush();
+        if (!(typeof SYNC_TX_ !== 'undefined' && SYNC_TX_)) SpreadsheetApp.flush();
       }
       throw error;
     }

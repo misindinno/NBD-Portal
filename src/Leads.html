@@ -26,7 +26,8 @@
     try {
       let rows = AppCache.getRows('leads') || [];
       if (LeadReadCache.enabled() || force || !AppCache.isLoaded('leads')) {
-        rows = LeadReadCache.enabled() ? await LeadReadCache.load() : (await api.getLeads()) || [];
+        rows = LeadReadCache.enabled() ? await LeadReadCache.load({ force }) : (await api.getLeads()) || [];
+        if (typeof PortalSync !== 'undefined') PortalSync.observe(rows);
         if (seq !== _leadLoadSeq || App.currentPage !== 'leads') return;
         AppCache.setRows('leads', rows);
       }

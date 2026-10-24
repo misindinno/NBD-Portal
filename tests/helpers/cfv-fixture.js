@@ -4,7 +4,7 @@ const root = path.resolve(__dirname, '../..');
 const modules = ['ClientFactoryVisits','ClientFactoryVisitsCreate','ClientFactoryVisitsManage'];
 const staff = (id, department='Sales') => ({ ID:id, Name:'Test '+id, Department:department, 'Email Address':id+'@example.test', 'Is Active':true, Permission:'SALES', 'Allowed Modules':modules.join(',') });
 function fixture(options={}) {
-  const tables = new Map(), writes=[], users=[staff('host1'),staff('host2'),staff('outside','Other')];
+  const tables = new Map(), named = new Set(), writes=[], users=[staff('host1'),staff('host2'),staff('outside','Other')];
   let sequence=0, locked=false;
   const state={ user:options.user || { id:'host1',email:'host1@example.test',role:'ADMIN',modules:[] }, failBefore:false,failAfter:false };
   const lead={ 'Lead ID':'001','Company Name':'Synthetic Client','Assigned To':'host1','Lead Status':'Open' };
@@ -21,13 +21,16 @@ function fixture(options={}) {
     _userMatchesDepartmentSettings_:(row,settings)=>settings.visibleDepartments.includes(row.Department),
     safeInitHeaders(name,headers){assert.ok(['CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS'].includes(name));writes.push({init:name});if(!tables.has(name))tables.set(name,[headers.slice()]);else {const h=tables.get(name)[0];headers.forEach(key=>{if(!h.includes(key))h.push(key);});}},
     Sheets:{Spreadsheets:{batchUpdate(batch,id){
-      assert.equal(id,'synthetic-workbook');assert.equal(locked,true);assert.equal(batch.requests.length,2);
+      assert.equal(id,'synthetic-workbook');assert.equal(locked,true);assert.equal(batch.requests.length,3);
       if(state.failBefore){state.failBefore=false;throw Error('Temporary network failure');}
       const staged=new Map([...tables].map(([key,value])=>[key,value.map(row=>row.slice())]));
-      for(const request of batch.requests){const op=request.appendCells||request.updateCells;const name=[...tables.keys()][(op.sheetId || op.start.sheetId)-1];assert.ok(['CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS'].includes(name));
+      const ranges = new Set(named);
+      for(const request of batch.requests){
+        if(request.addNamedRange){const id=request.addNamedRange.namedRange.namedRangeId;assert.ok(id);if(ranges.has(id))throw Error('Range ID already exists');ranges.add(id);continue;}
+        const op=request.appendCells||request.updateCells;const name=[...tables.keys()][(op.sheetId || op.start.sheetId)-1];assert.ok(['CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS'].includes(name));
         assert.equal(op.fields,'userEnteredValue');const values=op.rows[0].values.map(cell=>{assert.equal(typeof cell.userEnteredValue.stringValue,'string');return cell.userEnteredValue.stringValue;});
         if(request.appendCells)staged.get(name).push(values);else staged.get(name)[op.start.rowIndex]=values;}
-      staged.forEach((value,key)=>tables.set(key,value));writes.push({batch:JSON.parse(JSON.stringify(batch))});
+      staged.forEach((value,key)=>tables.set(key,value));ranges.forEach(id=>named.add(id));writes.push({batch:JSON.parse(JSON.stringify(batch))});
       if(state.failAfter){state.failAfter=false;throw Error('Connection lost after commit');}
       return {};
     }}},respond:(data,error,code)=>({success:!error,data,error,code}),safeClientErrorMessage_:error=>error.message

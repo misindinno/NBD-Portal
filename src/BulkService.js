@@ -192,6 +192,7 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
   sourceRows.forEach((row, i) => {
     const rowNumber = Number(row.__rowNumber) || i + 1;
     const preError = errorByRow[rowNumber];
+    const syncPoint = typeof SYNC_TX_ !== 'undefined' && SYNC_TX_ ? syncTxSavepoint_() : null;
     const result = preError
       ? {
           rowNumber,
@@ -201,6 +202,7 @@ function saveBulkRows(rows, userEmail, requestedBatchId, mode) {
           fieldErrors: preError.fieldErrors || []
         }
       : _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode, validByRow[rowNumber], initialStageId);
+    if (syncPoint && !result.saved) syncTxRestore_(syncPoint);
     rowResults.push(result);
     if (result.saved) saved++;
     else errors++;
@@ -277,6 +279,7 @@ function _saveBulkRowUnlocked_(row, rowNumber, userEmail, mode) {
 }
 
 function _trySaveBulkCreateFast_(sourceRows, validByRow, errorByRow, userEmail, initialStageId, batchId) {
+  if (typeof SYNC_TX_ !== 'undefined' && SYNC_TX_) return null;
   const validItems = [];
   const rowResults = [];
   sourceRows.forEach((row, i) => {
@@ -715,7 +718,6 @@ function logBulkImport(summary, userEmail) {
   safeInitHeaders(SHEET_NAMES.BULK_AUDIT_LOG, [
     'Batch ID','Timestamp','Total Rows','Valid Rows','Saved Rows','Error Rows','Imported By'
   ]);
-  const sheet = getSheet(SHEET_NAMES.BULK_AUDIT_LOG);
   const headers = getHeaders(SHEET_NAMES.BULK_AUDIT_LOG);
   const row = {
     'Batch ID': summary.batchId || '',
@@ -726,11 +728,17 @@ function logBulkImport(summary, userEmail) {
     'Error Rows': summary.errors || 0,
     'Imported By': userEmail || TRUSTED_WRITE_EMAIL || ''
   };
+  if (typeof SYNC_TX_ !== 'undefined' && SYNC_TX_) return insertRow(SHEET_NAMES.BULK_AUDIT_LOG, row);
+  const sheet = getSheet(SHEET_NAMES.BULK_AUDIT_LOG);
   sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length)
     .setValues([headers.map(h => row[h] !== undefined ? row[h] : '')]);
 }
 
 function _ensureBulkSheets_() {
+  if (typeof SYNC_TX_ !== 'undefined' && SYNC_TX_) {
+    if (!getAllRows(SHEET_NAMES.BULK_CONFIG).length) throw new Error('Bulk configuration is required. Initialize sync first.');
+    return;
+  }
   safeInitHeaders(SHEET_NAMES.BULK_CONFIG, [
     'Field Name','Required','Data Type','Target Column','Validation Rule','Allowed Values'
   ]);

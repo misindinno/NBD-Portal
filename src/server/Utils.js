@@ -67,6 +67,7 @@ function respond(data, error, code, details) {
 }
 
 function _bumpStamp(collection) {
+  if (typeof SYNC_TX_ !== 'undefined' && SYNC_TX_) { SYNC_TX_.stamps[collection] = true; return; }
   try {
     PropertiesService.getScriptProperties()
       .setProperty('STAMP_' + String(collection).toUpperCase(), String(Date.now()));

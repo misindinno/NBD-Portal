@@ -97,7 +97,7 @@ function cfvOpenForm(record, booking) {
       toast(record?'Visit updated':'Visit booked'); await loadClientFactoryVisits();
     } catch(error) {
       if (!el('cfv-save-error')) return;
-      const knownRejection=['VALIDATION_ERROR','FORBIDDEN','SESSION_EXPIRED'].includes(error.code);
+      const knownRejection=['VALIDATION_ERROR','FORBIDDEN','SESSION_EXPIRED'].includes(error.code) || ['invalid','conflict'].includes(error.syncState);
       if(knownRejection){pending=null;fieldset.disabled=false;}
       el('cfv-save-error').textContent=error.message+(knownRejection?'':' Retry sends the same request safely; fields are locked until its result is confirmed.');
       button.disabled=false; button.textContent=knownRejection?'Save visit':'Retry same request';

@@ -65,6 +65,7 @@ function isUserDatabaseSheet(sheetName) {
 }
 
 function getHeaders(sheetName) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxTable_(sheetName).headers.slice();
   return withSheetDbTiming_('read_headers', sheetName, 'read', () => {
     const sheet = getSheet(sheetName);
     const lastCol = sheet.getLastColumn();
@@ -78,6 +79,7 @@ function getHeaders(sheetName) {
 
 // Sheets-API-first read with SpreadsheetApp fallback (see readAllRowsWithFallback_).
 function getAllRows(sheetName) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxRows_(sheetName);
   return withSheetDbTiming_('read_all', sheetName, 'read', () => readAllRowsWithFallback_(sheetName));
 }
 
@@ -185,6 +187,7 @@ function findRowIndex(sheetName, idColumn, idValue) {
 // Inserts a row. The append goes through the Sheets API (SpreadsheetApp fallback) via
 // _appendRowWithFallback_; LockService + index sync are unchanged.
 function insertRow(sheetName, rowObj) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxInsert_(sheetName, rowObj);
   return withSheetDbTiming_('write_insert', sheetName, 'write', () => {
     _invalidateReadCache_();
     const headers = getHeaders(sheetName);
@@ -209,6 +212,7 @@ function insertRow(sheetName, rowObj) {
 // script lock); any miss/uncertainty/error falls through to the authoritative
 // SpreadsheetApp path so behaviour and return values match the legacy implementation.
 function updateRow(sheetName, idColumn, idValue, updates) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxUpdate_(sheetName, idColumn, idValue, updates);
   return withSheetDbTiming_('write_update', sheetName, 'write', () => {
     _invalidateReadCache_();
     // Skip the disabled API writer before acquiring a lock for a no-op attempt.
@@ -293,6 +297,7 @@ function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
 
 // Deletes a row by id. Sheets API (deleteDimension) first, SpreadsheetApp fallback.
 function deleteRow(sheetName, idColumn, idValue) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxDelete_(sheetName, row => String(row[idColumn]) === String(idValue)) > 0;
   return withSheetDbTiming_('write_delete', sheetName, 'write', () => {
     _invalidateReadCache_();
     const lock = LockService.getScriptLock();
@@ -345,6 +350,7 @@ function _legacyDeleteRow_(sheetName, idColumn, idValue) {
 // Deletes every row matching filterFn. Sheets API (batched deleteDimension) first,
 // SpreadsheetApp fallback. Index rebuild runs once after the deletions.
 function deleteAllRowsWhere(sheetName, filterFn) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxDelete_(sheetName, filterFn);
   return withSheetDbTiming_('write_delete_many', sheetName, 'write', () => {
     _invalidateReadCache_();
     const lock = LockService.getScriptLock();
@@ -398,6 +404,7 @@ function queryRows(sheetName, filterFn) {
 // Safe: creates sheet if missing, writes header row if empty,
 // or appends only NEW columns to the right — never touches existing data.
 function safeInitHeaders(sheetName, requiredHeaders) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxInit_(sheetName, requiredHeaders);
   return withSheetDbTiming_('write_init_headers', sheetName, 'write', () => {
     _invalidateReadCache_();
     requiredHeaders = Array.isArray(requiredHeaders) ? requiredHeaders.filter(Boolean) : [];

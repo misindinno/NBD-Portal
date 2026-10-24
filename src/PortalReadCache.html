@@ -32,7 +32,7 @@ function createPortalReadCache({ request, storageFactory, onLock }) {
   const routes = {
     apiGetFollowupPageSnapshot: 'followups', apiGetTodayActivitySnapshot: 'today',
     apiGetArchiveData: 'archive', apiGetArchiveSuggestions: 'archiveSuggestions', apiGetLostArchiveLeads: 'archiveLost',
-    apiClientFactoryVisitList: 'visits', apiGetClientCallReport: 'callReport'
+    apiClientFactoryVisitList: 'visits', apiGetClientCallReport: 'callReport', apiGetCallLogs: 'calls'
   };
   function reset() { clients.forEach(entry => entry.client.suspend()); clients.clear(); identity = null; }
   function bind(value) { reset(); identity = value && value.modulesEnabled ? { ...value, enabled: true } : null; }
@@ -62,7 +62,8 @@ function createPortalReadCache({ request, storageFactory, onLock }) {
     bind, reset, get,
     handles: endpoint => !!identity && !!routes[endpoint], enabled: () => !!identity,
     async invalidate() { await Promise.all([...clients.values()].map(entry => entry.client.invalidate())); },
-    suspend() { clients.forEach(entry => entry.client.suspend()); }
+    suspend() { clients.forEach(entry => entry.client.suspend()); },
+    verifyNext() { clients.forEach(entry => entry.client.verifyNext()); }
   };
 }
 
@@ -75,7 +76,7 @@ const PortalReadCache = createPortalReadCache({
 function portalCachedScreenActive() {
   const page = App.currentPage || '';
   if (page.startsWith('followups') && (page === 'followups-custom' || window.currentFollowupTab === 'custom')) return false;
-  return PortalReadCache.enabled() && /^(today|followups.*|archive|clientfactoryvisits|callreport)$/.test(page);
+  return PortalReadCache.enabled() && /^(today|followups.*|archive|clientfactoryvisits|callreport|calls)$/.test(page);
 }
 async function refreshPortalCachedScreen() {
   const page = App.currentPage || '';
@@ -87,11 +88,12 @@ async function refreshPortalCachedScreen() {
   else if (page === 'archive') await loadArchive(_archiveTab, true);
   else if (page === 'clientfactoryvisits') await loadClientFactoryVisits();
   else if (page === 'callreport') await loadClientCallReport();
+  else if (page === 'calls') await loadCalls();
 }
 window.addEventListener('offline', () => {
   if (!portalCachedScreenActive()) return;
   PortalReadCache.suspend(); AppCache.clear();
-  document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
+  if (!(typeof PortalSync !== 'undefined' && PortalSync.enabled())) document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
   const content = document.getElementById('content');
   if (content) content.textContent = 'Connection unavailable. Reconnect to verify access and reload this screen.';
 });

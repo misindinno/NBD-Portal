@@ -172,6 +172,12 @@ function _leadSaveStep_(label, fn) {
 }
 
 function _insertLeadMasterRowBlockingDuplicates_(leadRow) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(SHEET_NAMES.LEADS)) {
+    const duplicate = _leadDuplicateMessage_(leadRow, '');
+    if (duplicate) return { success: false, error: duplicate };
+    insertRow(SHEET_NAMES.LEADS, pickLeadMasterFields_(leadRow));
+    return { success: true };
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
@@ -254,6 +260,7 @@ function _leadDuplicateMessage_(data, excludeLeadId) {
 // large visit-history fields, once per check (or once per locked bulk batch).
 // Deliberately bypass request caches so the check after acquiring a lock is fresh.
 function _leadMasterLookupRows_(fields) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(SHEET_NAMES.LEADS)) return syncTxRows_(SHEET_NAMES.LEADS);
   const sheet = getSheet(SHEET_NAMES.LEADS);
   const headers = getHeaders(SHEET_NAMES.LEADS);
   const selected = fields || ['Lead ID', 'Company Name', 'Contact Person', 'Phone', 'Alternate No', 'Email', 'Lead Status'];
@@ -402,6 +409,7 @@ function _validateCustomFieldValue(field, value) {
 }
 
 function _uploadCustomFieldFile(file, field) {
+  if (typeof SYNC_TX_ !== 'undefined' && SYNC_TX_) throw new Error('File uploads cannot enter the sync queue. Upload files online before queuing a save.');
   assertServerContext_();
   if (!file || !file.data) return '';
   const name = String(file.name || field['Field Name'] || 'Upload').replace(/[\\/:*?"<>|]/g, '_');

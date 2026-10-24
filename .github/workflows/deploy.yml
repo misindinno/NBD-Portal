@@ -31,6 +31,11 @@ jobs:
       - name: Install clasp
         run: npm install -g @google/clasp
 
+      - name: Validate syntax and regression tests
+        run: |
+          node scripts/check-syntax.js
+          node --test tests/*.test.js
+
       - name: Authenticate clasp
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}

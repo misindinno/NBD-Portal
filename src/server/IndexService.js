@@ -134,6 +134,7 @@ function findIndexedRowNumber_(sheetName, idColumn, idValue) {
 }
 
 function getRowByIndexedId_(sheetName, idColumn, idValue) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxRows_(sheetName).find(row => String(row[idColumn]) === String(idValue)) || null;
   assertServerContext_();
   const rowNumber = findIndexedRowNumber_(sheetName, idColumn, idValue);
   if (rowNumber > 1) {
@@ -172,6 +173,7 @@ function appendNewIndexRows_(sheetName, rowObjects, startRow) {
 }
 
 function syncIndexRow_(sheetName, rowObj, rowNumber) {
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return; // Rebuilt in the atomic batch.
   assertServerContext_();
   const def = _indexDefinitionForSheet_(sheetName);
   if (!def || _isIndexSheet_(sheetName)) return;

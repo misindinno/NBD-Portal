@@ -37,6 +37,7 @@ let _checkingCacheStamps = false;
 
 async function _checkCacheStamps() {
   if (_checkingCacheStamps || !AuthToken.get()) return;
+  if (typeof PortalSync !== 'undefined' && PortalSync.enabled() && (document.hidden || !navigator.onLine)) return;
   _checkingCacheStamps = true;
   try {
     // Stamp-based invalidation (server-side write detection)
@@ -57,8 +58,9 @@ async function _checkCacheStamps() {
     if (typeof portalCachedScreenActive === 'function' && portalCachedScreenActive() && !document.hidden) {
       const stampKey = [App.currentPage, ...['leads','followups','followupHistory','activityLogs','stages','fields','config'].map(key => String(stamps[key] || '0'))].join('|');
       const changed = stampKey !== _portalCacheStampKey;
-      if (changed || Date.now() - _portalCacheCheckedAt >= 60000) {
+      if (changed || Date.now() - _portalCacheCheckedAt >= (typeof PortalSync !== 'undefined' && PortalSync.enabled() ? 15000 : 60000)) {
         _portalCacheCheckedAt = Date.now();
+        PortalReadCache.verifyNext();
         await refreshPortalCachedScreen();
         _portalCacheStampKey = stampKey;
       }
@@ -69,8 +71,8 @@ async function _checkCacheStamps() {
       return;
     }
     // A content revision also detects manual Sheet edits that do not bump stamps.
-    // Bound this scan to once per minute while the Leads screen is visible.
-    if (App.currentPage === 'leads' && LeadReadCache.enabled() && !document.hidden && Date.now() - _leadCacheCheckedAt >= 60000) {
+    // The read pilot checks once per minute; two-way sync checks every 15 seconds.
+    if (App.currentPage === 'leads' && LeadReadCache.enabled() && !document.hidden && Date.now() - _leadCacheCheckedAt >= (typeof PortalSync !== 'undefined' && PortalSync.enabled() ? 15000 : 60000)) {
       _leadCacheCheckedAt = Date.now();
       await loadLeads(true);
     } else if (_stale('leads', 'leads')) await _refreshLeadsCache();

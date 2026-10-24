@@ -54,6 +54,7 @@ function createLeadSnapshotStorage(indexedDB) {
 
 function createLeadReadCache({ request, storage, namespace = '', validateRows = null, onLock = () => {}, afterLock = () => {}, now = () => Date.now() }) {
   let identity = null, epoch = 0, inFlight = null, lockTask = null;
+  let verifiedRows = null, verifiedUntil = 0;
   let status = { state: 'locked' };
   const keyFor = value => JSON.stringify(namespace ? [value.schema, value.portal, value.user, namespace] : [value.schema, value.portal, value.user]);
   const validIdentity = value => value && value.schema === 1 && typeof value.portal === 'string' && value.portal && typeof value.user === 'string' && value.user && /^[a-f0-9]{64}$/.test(value.scope);
@@ -81,11 +82,13 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
     try { await task; } finally { if (lockTask === task) lockTask = null; }
   }
   async function invalidate() {
+    verifiedRows = null; verifiedUntil = 0;
     epoch++; inFlight = null;
     if (storage.cancel) storage.cancel();
     if (identity) await safeStorage('remove', keyFor(identity));
   }
   function suspend() {
+    verifiedRows = null; verifiedUntil = 0;
     epoch++; inFlight = null; status = { state: 'unavailable' };
     if (storage.cancel) storage.cancel();
   }
@@ -96,14 +99,16 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
     } catch (_) { return ''; }
   }
   function bind(value) {
+    verifiedRows = null; verifiedUntil = 0;
     epoch++; inFlight = null; lockTask = null;
     if (storage.cancel) storage.cancel();
     identity = validIdentity(value) && value.enabled ? { ...value } : null;
     status = { state: identity ? 'unverified' : 'disabled' };
     if (!identity && !(value && value.modulesEnabled)) void safeStorage('clear');
   }
-  async function load() {
+  async function load(options = {}) {
     if (!identity) throw new Error('CACHE_NOT_BOUND');
+    if (!options.force && identity.syncEnabled && verifiedRows && now() < verifiedUntil) return structuredClone(verifiedRows);
     if (inFlight) return inFlight;
     const session = epoch, context = { ...identity }, key = keyFor(context), started = now();
     const check = () => { if (session !== epoch || !same(context, identity)) throw new Error('CACHE_CANCELLED'); };
@@ -128,11 +133,48 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
       if (!candidate && cached) await safeStorage('remove', key);
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          let page = await fetch({ revision: candidate ? candidate.revision : '' });
+          const recordKey = row => validateRows ? JSON.stringify([row.bucket, row.index]) : String(row['Lead ID']);
+          let manifest = candidate && context.syncEnabled && candidate.rows.length <= 10000
+            ? await Promise.all(candidate.rows.map(async row => [recordKey(row), await digestRows('', [row])])) : null;
+          if (manifest && manifest.some(pair => !pair[1])) manifest = null;
+          const deltaQuery = manifest ? { delta: true, manifest } : {};
+          let page = await fetch({ revision: candidate ? candidate.revision : '', ...deltaQuery });
           if (page.unchanged) {
             if (!candidate || page.revision !== candidate.revision || page.total !== candidate.total) throw new Error('Invalid unchanged response');
             status = { ...status, state: 'verified-cache', verifiedAt: page.verifiedAt, durationMs: now() - started, total: page.total };
+            verifiedRows = structuredClone(candidate.rows); verifiedUntil = now() + 15000;
             return structuredClone(candidate.rows);
+          }
+          if (page.delta) {
+            if (!candidate || !manifest) throw new Error('Invalid delta base');
+            const next = new Map(candidate.rows.map(row => [recordKey(row), row])), seen = new Set();
+            const revision = page.revision, total = page.total, changeTotal = page.changeTotal;
+            let received = 0;
+            while (true) {
+              if (!page.delta || page.revision !== revision || page.total !== total || page.changeTotal !== changeTotal ||
+                  page.offset !== received || !Array.isArray(page.changes) || page.changes.length > 100) throw new Error('Invalid delta page');
+              for (const change of page.changes) {
+                if (typeof change.key !== 'string' || seen.has(change.key)) throw new Error('Duplicate delta entry');
+                seen.add(change.key);
+                if (change.removed === true) next.delete(change.key);
+                else { if (!change.value || recordKey(change.value) !== change.key) throw new Error('Invalid delta record'); next.set(change.key, change.value); }
+              }
+              received += page.changes.length;
+              if (page.nextCursor === null) break;
+              if (!page.changes.length || received >= changeTotal) throw new Error('Invalid delta cursor');
+              page = await fetch({ revision, cursor: page.nextCursor, ...deltaQuery });
+            }
+            const rows = [...next.values()].sort((a,b) => validateRows
+              ? (a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : a.index - b.index)
+              : (a['Lead ID'] < b['Lead ID'] ? -1 : a['Lead ID'] > b['Lead ID'] ? 1 : 0));
+            if (received !== changeTotal || !validRows(rows, total) || await digestRows(context.scope, rows) !== revision) throw new Error('CACHE_REVISION_CHANGED');
+            const confirmed = await fetch({ revision });
+            if (!confirmed.unchanged || confirmed.revision !== revision || confirmed.total !== total) throw new Error('CACHE_REVISION_CHANGED');
+            check();
+            await safeStorage('put', { key, identity: context, revision, rows, total, complete: true, cursor: null, verifiedAt: confirmed.verifiedAt });
+            check(); verifiedRows = structuredClone(rows); verifiedUntil = now() + 15000;
+            status = { ...status, state: 'verified-delta', verifiedAt: confirmed.verifiedAt, total, changed: received };
+            return structuredClone(rows);
           }
           // Replacement handles deletion, archive and lost row access. Discard the
           // old snapshot immediately; interrupted replacements are never published.
@@ -155,6 +197,7 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
           if (digest) await safeStorage('put', { key, identity: context, revision, rows, total, complete: true, cursor: null, verifiedAt: confirmed.verifiedAt });
           check();
           status = { ...status, state: 'verified-network', verifiedAt: confirmed.verifiedAt, durationMs: now() - started, total };
+          verifiedRows = structuredClone(rows); verifiedUntil = now() + 15000;
           return structuredClone(rows);
         } catch (error) {
           if (/CACHE_REVISION_CHANGED/.test(error.message) && attempt < 2) { candidate = null; continue; }
@@ -171,7 +214,7 @@ function createLeadReadCache({ request, storage, namespace = '', validateRows = 
     inFlight = promise;
     return promise;
   }
-  return { bind, load, lock, invalidate, suspend, enabled: () => !!identity, status: () => ({ ...status }) };
+  return { bind, load, lock, invalidate, suspend, verifyNext: () => { verifiedUntil = 0; }, enabled: () => !!identity, status: () => ({ ...status }) };
 }
 
 function leadIndexedDb_() { try { return window.indexedDB; } catch (_) { return null; } }
@@ -181,7 +224,9 @@ const LeadReadCache = createLeadReadCache({
   onLock: () => {
     const hadSession = !!(AuthToken.get() || App.user);
     if (typeof PortalReadCache !== 'undefined') PortalReadCache.reset();
+    if (typeof PortalSync !== 'undefined') PortalSync.bind(null);
     AuthToken.clear(); AppCache.clear(); Store.dispatch('RESET_PRIVATE');
+    if (typeof PortalSync !== 'undefined') void renderPortalSyncStatus();
     document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
     const content = document.getElementById('content'); if (content) content.replaceChildren();
     showLoginOverlay('Please sign in again to verify your access.');
@@ -201,7 +246,7 @@ window.addEventListener('pageshow', event => { if (event.persisted) void lockPri
 window.addEventListener('offline', () => {
   if (App.currentPage !== 'leads' || !LeadReadCache.enabled()) return;
   LeadReadCache.suspend(); AppCache.clear();
-  document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
+  if (!(typeof PortalSync !== 'undefined' && PortalSync.enabled())) document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
   const content = document.getElementById('content');
   if (content) content.textContent = 'Connection unavailable. Reconnect to verify your access and reload Leads.';
 });

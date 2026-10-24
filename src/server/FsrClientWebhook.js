@@ -102,6 +102,14 @@ function pushFsrLeadById_(leadId, eventType, sheet) {
 }
 
 function pushFsrLeadIds_(leadIds, eventType, sheet) {
+  if (typeof SYNC_TX_ !== 'undefined' && SYNC_TX_) {
+    const config = _fsrWebhookConfig_();
+    if (!config.url || !config.secret) return [{ skipped: true, reason: 'missing_webhook_config' }];
+    syncTxInit_(FSR_SYNC_QUEUE_SHEET_, FSR_SYNC_QUEUE_HEADERS_);
+    syncTxInsert_(FSR_SYNC_QUEUE_SHEET_, { 'Queue ID': Utilities.getUuid(), 'Lead IDs': JSON.stringify(leadIds),
+      'Event Type': _fsrEventType_(eventType), Status: 'Pending', Attempts: 0, 'Created At': now(), 'Updated At': now(), 'Last Error': '' });
+    return [{ queued: true, count: leadIds.length }];
+  }
   try {
     assertServerContext_();
     const config = _fsrWebhookConfig_();

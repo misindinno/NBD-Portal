@@ -14,7 +14,8 @@ function leadCacheIdentity_(user) {
     schema: LEAD_CACHE_SCHEMA_, portal: ScriptApp.getScriptId(), user: String(user.id),
     scope: leadCacheDigest_(scope),
     enabled: PropertiesService.getScriptProperties().getProperty('LEAD_READ_CACHE_ENABLED') === 'true',
-    modulesEnabled: PropertiesService.getScriptProperties().getProperty('PORTAL_READ_CACHE_ENABLED') === 'true'
+    modulesEnabled: PropertiesService.getScriptProperties().getProperty('PORTAL_READ_CACHE_ENABLED') === 'true',
+    syncEnabled: typeof syncEnabled_ === 'function' && syncEnabled_()
   };
 }
 
@@ -49,6 +50,9 @@ function leadCachePage_(user, input) {
   const rows = leadCacheRows_(user);
   const revision = leadCacheDigest_({ scope: identity.scope, rows });
   const meta = { identity, revision, total: rows.length, verifiedAt: new Date().toISOString() };
+  if (query.cursor == null && query.revision === revision) return Object.assign(meta, { unchanged: true });
+  const delta = typeof syncDeltaPage_ === 'function' ? syncDeltaPage_(query, rows, meta) : null;
+  if (delta) return delta;
   if (query.cursor != null) {
     if (typeof query.cursor !== 'string' || !/^\d+$/.test(query.cursor) || query.revision !== revision) {
       throw new Error('CACHE_REVISION_CHANGED: Restart the snapshot.');
