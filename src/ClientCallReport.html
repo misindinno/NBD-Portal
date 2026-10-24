@@ -36,9 +36,9 @@ async function loadClientCallReport() {
     </div>
     <div class="card" style="padding:20px">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><p>${data.total} clients / leads · Page ${data.page}</p><button id="ccr-export" class="btn btn-outlined">Export filtered CSV</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Client / lead</th><th>Lead ID</th><th>Category</th><th>Current status</th><th>Call Connected</th><th>Not Picked</th><th>Total calls</th><th>WhatsApp Chat</th></tr></thead>
-      <tbody>${data.items.map(row => `<tr><td>${escapeHtml(row.company || '(Unnamed)')}</td><td>${escapeHtml(row.leadId)}</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.status)}${row.archived ? ' · Archived' : ''}</td><td>${count(row.connected, '#15803d')}</td><td>${count(row.notPicked, '#b91c1c')}</td><td><strong>${row.totalCalls}</strong></td><td>${row.whatsapp}</td></tr>`).join('') || '<tr><td colspan="8">No clients match these filters. Totals are zero.</td></tr>'}</tbody>
-      <tfoot><tr><th colspan="4">All filtered clients</th><th>${totals.connected}</th><th>${totals.notPicked}</th><th>${totals.totalCalls}</th><th>${totals.whatsapp}</th></tr></tfoot></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Client / lead</th><th>Category</th><th>Current status</th><th>Call Connected</th><th>Not Picked</th><th>Total calls</th><th>WhatsApp Chat</th></tr></thead>
+      <tbody>${data.items.map(row => `<tr><td>${escapeHtml(row.company || '(Unnamed)')}</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.status)}${row.archived ? ' · Archived' : ''}</td><td>${count(row.connected, '#15803d')}</td><td>${count(row.notPicked, '#b91c1c')}</td><td><strong>${row.totalCalls}</strong></td><td>${row.whatsapp}</td></tr>`).join('') || '<tr><td colspan="7">No clients match these filters. Totals are zero.</td></tr>'}</tbody>
+      <tfoot><tr><th colspan="3">All filtered clients</th><th>${totals.connected}</th><th>${totals.notPicked}</th><th>${totals.totalCalls}</th><th>${totals.whatsapp}</th></tr></tfoot></table></div>
       <div style="display:flex;gap:12px;margin-top:16px"><button id="ccr-prev" class="btn btn-outlined" ${data.page <= 1 ? 'disabled' : ''}>Previous</button><button id="ccr-next" class="btn btn-outlined" ${data.page * data.pageSize >= data.total ? 'disabled' : ''}>Next</button></div>
     </div>`;
     el('ccr-filters').onsubmit = event => {
