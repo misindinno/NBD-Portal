@@ -13,6 +13,7 @@ $srcPath = Join-Path $rootPath 'src'
 $clientsPath = Join-Path $rootPath 'clients'
 $syntaxScript = Join-Path $rootPath 'scripts\check-syntax.js'
 $contractTests = @(
+  (Join-Path $rootPath 'tests\client-factory-visits.test.js'),
   (Join-Path $rootPath 'tests\client-call-report.test.js'),
   (Join-Path $rootPath 'tests\architecture-pagination.contract.test.js'),
   (Join-Path $rootPath 'tests\bulk-permission.test.js'),

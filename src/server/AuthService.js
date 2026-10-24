@@ -7,7 +7,7 @@ const ROLE_PERMISSIONS = {
   USER:    ['Followups'],
   VIEWER:  ['Leads','Pipeline','Followups','Reports']
 };
-const ALL_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry','VisitManagement'];
+const ALL_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry','VisitManagement','ClientFactoryVisits','ClientFactoryVisitsCreate','ClientFactoryVisitsManage'];
 let TRUSTED_WRITE_EMAIL = '';
 
 function withTrustedWriteUser_(email, fn) {
