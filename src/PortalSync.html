@@ -221,13 +221,15 @@ const PortalSync = createPortalSync({
     if (typeof SheetMirror !== 'undefined') { SheetMirror.invalidate(); refreshSheetMirror(); }
     try { portalSyncChannel.postMessage('changed'); } catch (_) {}
     _leadCacheCheckedAt = 0; _portalCacheCheckedAt = 0;
+    if (typeof refreshActivePagePreviews === 'function') void refreshActivePagePreviews();
   }
 });
 let portalSyncChannel;
-try { portalSyncChannel = new BroadcastChannel('nbd-sync-changes'); portalSyncChannel.onmessage = () => {
-  if (typeof PagePreview !== 'undefined') void PagePreview.invalidate();
+try { portalSyncChannel = new BroadcastChannel('nbd-sync-changes'); portalSyncChannel.onmessage = async () => {
+  if (typeof PagePreview !== 'undefined') await PagePreview.invalidate();
   LeadReadCache.verifyNext(); PortalReadCache.verifyNext(); void renderPortalSyncStatus();
   if (typeof SheetMirror !== 'undefined') { SheetMirror.invalidate(); refreshSheetMirror(); }
+  if (typeof refreshActivePagePreviews === 'function') void refreshActivePagePreviews();
 }; } catch (_) {}
 window.addEventListener('online', () => { void PortalSync.drain(); });
 window.addEventListener('focus', () => { void PortalSync.drain(); });

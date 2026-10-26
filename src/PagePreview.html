@@ -118,10 +118,12 @@ const PagePreview = createPagePreviewCache({ storage: createLeadSnapshotStorage(
     return null;
   }
 });
-let pagePreviewNavigation = 0, pagePreviewEdits = 0, pagePreviewPending = 0;
+let pagePreviewNavigation = 0, pagePreviewPending = 0;
 const pagePreviewRequests = new Map();
 const pagePreviewNetwork = new Map();
-let pagePreviewWarmup = [], pagePreviewBackgroundRunning = false, pagePreviewStatusText = '', pagePreviewRefreshAction = null, pagePreviewWarmupGeneration = 0;
+const pagePreviewSubscriptions = new Map(), pagePreviewDeferred = new Map();
+let pagePreviewUpdateTimer = null, pagePreviewLastInput = 0;
+let pagePreviewWarmup = [], pagePreviewBackgroundRunning = false, pagePreviewStatusText = '', pagePreviewWarmupGeneration = 0;
 function fetchPagePreview(endpoint, args) {
   const key = JSON.stringify([PagePreview.generation(), endpoint, pagePreviewCanonical(args)]);
   if (!pagePreviewNetwork.has(key)) {
@@ -131,16 +133,48 @@ function fetchPagePreview(endpoint, args) {
   return pagePreviewNetwork.get(key);
 }
 function beginPagePreview() {
-  pagePreviewNavigation++; pagePreviewEdits++; pagePreviewRequests.clear();
-  pagePreviewStatusText = ''; pagePreviewRefreshAction = null;
+  pagePreviewNavigation++; pagePreviewRequests.clear();
+  pagePreviewSubscriptions.clear(); pagePreviewDeferred.clear();
+  pagePreviewStatusText = '';
   const notice = document.getElementById('page-preview-status'); if (notice) notice.remove();
 }
-document.addEventListener('input', () => { pagePreviewEdits++; }, true);
-document.addEventListener('change', () => { pagePreviewEdits++; }, true);
-document.addEventListener('click', event => { if (event.target.closest && event.target.closest('#content')) pagePreviewEdits++; }, true);
-function pagePreviewNotice(text, refresh) {
-  pagePreviewStatusText = text; pagePreviewRefreshAction = refresh || null;
+function pagePreviewInput(event) {
+  pagePreviewLastInput = Date.now();
+  const form = event && event.target && event.target.closest && event.target.closest('form');
+  if (form && !form.matches('[id*="filter"], [id*="search"]')) form.dataset.previewDirty = 'true';
+}
+document.addEventListener('input', pagePreviewInput, true);
+document.addEventListener('change', pagePreviewInput, true);
+function pagePreviewNotice(text) {
+  pagePreviewStatusText = text;
   renderPageSyncCard();
+}
+function flushPagePreviewUpdates() {
+  pagePreviewUpdateTimer = null;
+  const editing = Date.now() - pagePreviewLastInput < 800 ||
+    document.querySelector('.modal-overlay, .swal2-container, #lf-form, #cfv-form-panel:not([hidden]), details[open] form, [data-preview-dirty="true"], .tabulator-editing');
+  for (const [slot, update] of pagePreviewDeferred) {
+    if (!update.current()) { pagePreviewDeferred.delete(slot); continue; }
+    if (editing) continue;
+    pagePreviewDeferred.delete(slot); update.apply();
+  }
+  if (pagePreviewDeferred.size) pagePreviewUpdateTimer = setTimeout(flushPagePreviewUpdates, 250);
+}
+function queuePagePreviewUpdate(slot, apply, current) {
+  pagePreviewDeferred.set(slot, {apply, current});
+  if (pagePreviewUpdateTimer === null) pagePreviewUpdateTimer = setTimeout(flushPagePreviewUpdates, 0);
+}
+async function refreshActivePagePreviews() {
+  const generation = PagePreview.generation();
+  await Promise.all([...pagePreviewSubscriptions.values()].filter(item => item.current()).map(async item => {
+    try {
+      const values = await Promise.all(item.reads.map(([fn, args]) => fetchPagePreview(fn, args)));
+      if (generation === PagePreview.generation() && item.current()) item.update(values, generation);
+    } catch (error) {
+      if (item.current() && /SESSION_EXPIRED|ACCESS[_ ]DENIED|FORBIDDEN/i.test(error.message + ' ' + error.code)) void lockPrivateReadCache();
+      else if (item.current()) pagePreviewNotice('Saved changes confirmed. Background view refresh will retry on the next refresh.');
+    }
+  }));
 }
 function renderPageSyncCard() {
   const footer = document.querySelector('#sidebar .sb-footer'); if (!footer || !App.user) return;
@@ -152,9 +186,6 @@ function renderPageSyncCard() {
   card.innerHTML = '<button type="button" class="sb-sync-open" aria-label="Data sync details"><strong>Data sync</strong><span>' + done + ' / ' + pagePreviewWarmup.length + ' ready' + (failed ? ' · ' + failed + ' need retry' : '') + '</span><progress max="' + Math.max(1,pagePreviewWarmup.length) + '" value="' + done + '"></progress></button><p role="status"></p>';
   card.querySelector('p').textContent = active ? 'Syncing ' + active.label + ' in background' : pagePreviewStatusText || 'Saved data is available for page changes.';
   card.querySelector('button').onclick = showPageSyncDetails;
-  if (pagePreviewRefreshAction) {
-    const action = document.createElement('button'); action.type = 'button'; action.className = 'sb-sync-update'; action.textContent = 'Show updated view'; action.onclick = pagePreviewRefreshAction; card.append(action);
-  }
   const details = document.getElementById('page-sync-details');
   if (details) details.innerHTML = pageSyncDetailsHtml();
 }
@@ -169,15 +200,36 @@ function showPageSyncDetails() {
 // receives the fresh data directly, so refreshing cannot start a request loop.
 async function pagePreviewRead(endpoint, args = [], refresh, options = {}) {
   const reads = Array.isArray(endpoint) ? endpoint : [[endpoint, args]];
-  const navigation = pagePreviewNavigation, edits = pagePreviewEdits, page = App.currentPage;
+  const navigation = pagePreviewNavigation, page = App.currentPage;
   const requestId = {}, slot = options.slot || reads.map(read => read[0]).join('|');
   pagePreviewRequests.set(slot, requestId);
-  const current = () => navigation === pagePreviewNavigation && page === App.currentPage && pagePreviewRequests.get(slot) === requestId && (!options.current || options.current());
+  let applied = false;
+  const current = () => navigation === pagePreviewNavigation && page === App.currentPage && pagePreviewRequests.get(slot) === requestId && (applied || !options.current || options.current());
   const generation = PagePreview.generation();
   const cached = await Promise.all(reads.map(([fn, params]) => PagePreview.get(fn, params).catch(() => null)));
   if (!current()) throw new Error('CACHE_CANCELLED');
   const hasPreview = cached.every(Boolean);
   const unpack = values => Array.isArray(endpoint) ? values : values[0];
+  const update = (values, expectedGeneration) => {
+    if (!refresh) return;
+    queuePagePreviewUpdate(slot, () => {
+      const active = document.activeElement;
+      const focus = active && active.id ? {id: active.id, start: active.selectionStart, end: active.selectionEnd} : null;
+      applied = true;
+      void Promise.resolve(refresh(unpack(values))).then(() => {
+        if (current()) {
+          const target = focus && document.getElementById(focus.id);
+          if (target && (!document.activeElement || document.activeElement === active || document.activeElement === document.body)) {
+            target.focus({preventScroll:true});
+            if (typeof focus.start === 'number' && target.setSelectionRange) target.setSelectionRange(focus.start, focus.end);
+          }
+          pagePreviewNotice('Up to date · ' + new Date().toLocaleTimeString());
+        }
+      }).catch(() => { if (current()) pagePreviewNotice('Updated data saved. Refresh this page to retry displaying it.'); });
+    }, () => current() && expectedGeneration === PagePreview.generation());
+    pagePreviewNotice('Data synced · View updates automatically when you finish editing.');
+  };
+  if (refresh) pagePreviewSubscriptions.set(slot, {reads, current, update});
   pagePreviewPending++;
   const fresh = Promise.all(reads.map(async ([fn, params]) => {
     const data = await fetchPagePreview(fn, params);
@@ -186,19 +238,8 @@ async function pagePreviewRead(endpoint, args = [], refresh, options = {}) {
   if (!hasPreview) return unpack(await fresh);
   if (current()) pagePreviewNotice('Saved preview · Last synced ' + new Date(Math.min(...cached.map(value => Date.parse(value.verifiedAt)))).toLocaleString() + ' · Updating in background…');
   void fresh.then(values => {
-    // Let the awaiting page finish its first render before applying the update.
-    setTimeout(() => {
-      if (!current() || generation !== PagePreview.generation()) return;
-      const apply = refresh && (() => {
-        if (!current()) return;
-        void Promise.resolve(refresh(unpack(values))).catch(error => pagePreviewNotice('Updated data is saved. Reopen this page to view it.'));
-        pagePreviewNotice('Up to date · ' + new Date().toLocaleTimeString());
-      });
-      const editing = pagePreviewEdits !== edits || document.querySelector('.modal-overlay, #cfv-form-panel:not([hidden]), details[open] form') ||
-        document.activeElement && document.activeElement.matches('input,select,textarea,[contenteditable="true"]');
-      if (apply && !editing) apply();
-      else pagePreviewNotice('Updated data saved. ' + (apply ? 'Your current view has been kept.' : 'Reopen this page to use the latest data.'), apply);
-    }, 0);
+    // The update queue lets the initial render finish, and waits for open forms.
+    if (current() && generation === PagePreview.generation()) update(values, generation);
   }).catch(error => {
     if (!current()) return;
     if (/SESSION_EXPIRED|ACCESS[_ ]DENIED|FORBIDDEN|CACHE_SCOPE_CHANGED|CACHE_DISABLED|Permission denied/i.test(error.message + ' ' + (error.code || ''))) {

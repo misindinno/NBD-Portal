@@ -115,6 +115,61 @@ test('offline background failure retains preview; access denial locks it', async
     assert.equal(f.cache.enabled(),message==='Network offline');
   }
 });
+
+test('synced views update automatically after typing or a dialog finishes', async () => {
+  for (const block of ['typing', 'dialog']) {
+    const f=runtime();await f.cache.capture('apiGetTodayActivitySnapshot',[],{leads:['old']});let updated;
+    await f.c.pagePreviewRead('apiGetTodayActivitySnapshot',[],data=>updated=data);
+    if(block==='typing') f.events.input();
+    else f.c.document.querySelector=selector=>selector.includes('.modal-overlay') ? {} : null;
+    f.requests[0].resolve({leads:['new']});await new Promise(setImmediate);
+    f.timers.splice(0).forEach(fn=>fn());assert.equal(updated,undefined);
+    vm.runInContext('pagePreviewLastInput = 0',f.c);f.c.document.querySelector=()=>null;
+    f.timers.splice(0).forEach(fn=>fn());assert.equal(updated.leads[0],'new');
+  }
+});
+
+test('post-commit refresh keeps the active query and updates through IndexedDB without another button', async () => {
+  const f=runtime(), args=[{page:2,search:'current client'}], calls=[], reads=[];let updated;
+  await f.cache.capture('apiGetCallLogs',args,{rows:['old']});
+  f.c.api._authedRead=(fn,...params)=>{calls.push([fn,params]);const read=f.cache.capture(fn,params,{rows:[calls.length]});reads.push(read);return read;};
+  await f.c.pagePreviewRead('apiGetCallLogs',args,data=>updated=data);
+  await reads[0];await new Promise(setImmediate);f.timers.splice(0).forEach(fn=>fn());assert.equal(updated.rows[0],1);
+  await f.cache.invalidate();await f.c.refreshActivePagePreviews();f.timers.splice(0).forEach(fn=>fn());
+  assert.equal(updated.rows[0],2);assert.equal((await f.cache.get('apiGetCallLogs',args)).data.rows[0],2);
+  assert.deepEqual(calls[1],['apiGetCallLogs',args]);
+});
+
+test('a closed dialog cannot apply an old route or superseded filter refresh', async () => {
+  const f=runtime();let seen=[];f.c.document.querySelector=()=>({});
+  await f.cache.capture('apiGetCallLogs',[{page:1}],{rows:['one']});
+  await f.cache.capture('apiGetCallLogs',[{page:2}],{rows:['two']});
+  await f.c.pagePreviewRead('apiGetCallLogs',[{page:1}],data=>seen.push(data));
+  f.requests[0].resolve({rows:['stale']});await new Promise(setImmediate);f.timers.splice(0).forEach(fn=>fn());
+  await f.c.pagePreviewRead('apiGetCallLogs',[{page:2}],data=>seen.push(data));
+  f.requests[1].resolve({rows:['current']});await new Promise(setImmediate);
+  f.c.document.querySelector=()=>null;f.timers.splice(0).forEach(fn=>fn());
+  assert.deepEqual(seen.map(data=>data.rows[0]),['current']);
+  await f.cache.invalidate();const pending=f.c.refreshActivePagePreviews();f.c.beginPagePreview();
+  f.requests[2].resolve({rows:['old route']});await pending;f.timers.splice(0).forEach(fn=>fn());
+  assert.equal(seen.length,1);
+});
+
+test('API sync writes do not invalidate the commit refresh a second time; direct writes refresh once', async () => {
+  const core=read('src/AppCore.html');
+  const method=core.slice(core.indexOf('  async _authedRead('),core.indexOf('  // ── Session auth'));
+  for(const syncWrite of [true,false]) {
+    let invalidations=0,refreshes=0;
+    const context=vm.createContext({
+      PagePreview:{handles:()=>false,invalidate:async()=>{invalidations++;}},
+      PortalSync:{handles:()=>syncWrite,submit:async()=>{invalidations++;refreshes++;return {ok:true};}},
+      refreshActivePagePreviews:()=>{refreshes++;}
+    });
+    vm.runInContext('var api = {_token:()=>"token",_read:async()=>({ok:true}),'+method+'};',context);
+    assert.equal((await context.api._authedRead('apiSaveLead',{})).ok,true);
+    assert.equal(invalidations,1);assert.equal(refreshes,1);
+  }
+});
 test('public page loaders use cached reads and runtime loading overlays are disabled', () => {
   for(const file of ['Today','Leads','Followups','Calls','ClientCallReport','ClientFactoryVisits','VisitManagement','Archive','Pipeline','BulkView','Webhooks','ConfigStages','ConfigDropdowns','ConfigFields','ConfigUsers']) assert.match(read('src/'+file+'.html'),/pagePreviewRead/);
   assert.match(read('src/AppUtils.html'),/function beginTableLoading[^]*?if \(window\.__PAGE_PREVIEW_READY\) return \(\) => \{\}/);

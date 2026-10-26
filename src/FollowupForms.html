@@ -169,11 +169,21 @@ async function _confirmFollowupCreateReview(payload, lead) {
 }
 
 async function openMarkFollowupDoneForm(followupId) {
-  const snapshot = await _getFollowupPageSnapshot();
+  const generation = typeof PagePreview !== 'undefined' ? PagePreview.generation() : null;
+  const shell = showModal('<div class="modal-header"><h2>Mark Follow-up Done</h2><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div><p>Opening saved follow-up…</p>');
+  let snapshot;
+  try { snapshot = await _getFollowupDialogSnapshot(followupId); }
+  catch (error) { if (shell.isConnected) toast(error, 'error'); shell.remove(); return; }
+  const closed = !shell.isConnected;
+  shell.remove();
+  if (closed || (generation !== null && generation !== PagePreview.generation())) return;
   const row = (snapshot.followups || []).find(f => f['Follow-up ID'] === followupId);
   if (!row) return toast('Follow-up not found in the current view.', 'error');
   const lead = row['Lead ID'] ? (snapshot.leads || []).find(l => l['Lead ID'] === row['Lead ID']) : null;
-  const ctx = _buildFollowupContext(snapshot.leads || [], snapshot);
+  if (typeof PortalSync !== 'undefined') PortalSync.observe({lead, followup:row}, true);
+  const ctx = _buildFollowupContext(lead ? [lead] : [], {
+    followups: [row], followupHistory: (snapshot.followupHistory || []).filter(item => item['Lead ID'] === row['Lead ID'])
+  });
   const decorated = _decorateFollowup(row, ctx);
   const issueOptions = (App.config._allConfigs || [])
     .filter(c => c['Config Type'] === 'Issues' && c['Status'] === 'Active')

@@ -37,3 +37,21 @@ their extra columns are preserved. The atomic receipt and batch limits remain.
 Legacy batch-limit errors are retryable with their original operation IDs.
 Regression tests cover 3,001 leads plus 3,001 follow-ups with reversed indexes,
 deletion/append row pointers, and recovery of a retained batch-limit request.
+
+Live verification: the original pending Sunil Bag House command
+`c71b9b1c-c2e0-4c83-9c7e-8966eb9f06a0` committed successfully with the same
+operation ID. The browser showed Pending changes: 0, the submitted remark,
+and next follow-up 2 November 2026. The workbook receipt confirmed commit;
+the matching history count increased by exactly one, from 11 to 12.
+
+Remark dialogs now reuse the displayed follow-up snapshot or scoped IndexedDB
+data before requesting fresh data. History renders independently of activity
+logs; missing history reads only the selected lead and logs load on tab open.
+Closed dialogs and changed cache/session generations reject late updates.
+
+Completed sync refreshes the active query automatically through the existing
+server → IndexedDB commit/readback → screen path. Updates wait while a modal,
+entry form, or dirty settings form is open; recent typing is protected. They
+apply automatically after editing ends. Navigation, filters, and cache
+generation guards discard obsolete responses. Sync writes invalidate once at
+commit so the API wrapper cannot cancel their newly started refresh.

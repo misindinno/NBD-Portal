@@ -7,13 +7,16 @@ async function openLeadDetail(leadId, seed) {
     // `seed` = a lead row the caller already holds in state (e.g. an Archive page row).
     // When the lead isn't in the cache the seed opens the dialog instantly with zero
     // fetch; only its custom-field values are filled in quietly in the background.
-    let lead = AppCache.getRows('leads').find(l => l['Lead ID'] === leadId) || seed || null;
-    const seedOnly = !!(lead && lead === seed);
-    const histLoaded = AppCache.isLoaded('followupHistory');
+    const snapshot = typeof _fuPageSnapshot !== 'undefined' && _fuPageSnapshot || {};
+    const generation = typeof PagePreview !== 'undefined' ? PagePreview.generation() : null;
+    const current = () => generation === null || generation === PagePreview.generation();
+    let lead = (snapshot.leads || []).find(l => l['Lead ID'] === leadId) || AppCache.getRows('leads').find(l => l['Lead ID'] === leadId) || seed || null;
+    let seedOnly = !!lead;
+    const histLoaded = snapshot.includeHistory || AppCache.isLoaded('followupHistory');
     const logLoaded  = AppCache.isLoaded('activityLogs');
-    let followupHistory = histLoaded ? AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId) : [];
+    let followupHistory = (snapshot.includeHistory ? snapshot.followupHistory || [] : AppCache.getRows('followupHistory')).filter(f => f['Lead ID'] === leadId);
     let activityLogs    = logLoaded  ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId) : [];
-    let detailPending = !histLoaded || !logLoaded;
+    let historyPending = !histLoaded, logsPending = !logLoaded;
 
     // Lead not in the cache (archived or out-of-scope — cached leads open with zero
     // wait): never block silently. Show a skeleton shell instantly, then fetch only the
@@ -32,28 +35,26 @@ async function openLeadDetail(leadId, seed) {
           <div class="skeleton-block" style="height:90px;border-radius:10px"></div>
         </div>`);
       let data = null;
-      try { data = await api.getLeadFieldValues(leadId); } catch (e) {}
+      try {
+        const saved = typeof PagePreview !== 'undefined' && await PagePreview.get('apiGetLead', [leadId]);
+        data = saved ? saved.data : await api.getLead(leadId);
+      } catch (e) {}
       if (data && data.lead) {
         lead = data.lead;
-      } else {
-        // Scoped users may only see this lead via its follow-ups — the light endpoint
-        // rejects those, so fall back to the fuller per-lead read.
-        try { data = await api.getLead(leadId); } catch (e) {}
-        if (data && data.lead) {
-          lead = data.lead;
-          followupHistory = data.followupHistory || [];
-          activityLogs    = data.activityLogs || [];
-          detailPending = false;
-        }
+        followupHistory = data.followupHistory || [];
+        activityLogs = data.activityLogs || [];
+        historyPending = logsPending = false;
+        seedOnly = false;
       }
       const shellClosed = !shell.isConnected;
       shell.remove();
       if (!lead) { showToast('Lead not found or no longer available.', 'error'); return; }
-      if (shellClosed) return; // user closed the loading shell — don't reopen on them
+      if (shellClosed || !current()) return; // Never reopen a dismissed dialog or an old user's data.
     }
+    if (typeof PortalSync !== 'undefined') PortalSync.observe(lead, true);
     const leadFields = App.config.leadFields || [];
     const configOptions = _configOptionsMap(App.config._allConfigs || []);
-    const fuContext = _buildFollowupContext([lead]);
+    const fuContext = _buildFollowupContext([lead], {followupHistory, followups:(snapshot.followups || []).filter(row => row['Lead ID'] === leadId)});
     const stageMap = App.config.stages.reduce((m, s) => { m[s['Stage ID']] = s; return m; }, {});
     const stage = stageMap[lead['Stage ID']];
     const showNbdPush = _canPushLeadToNbd(lead);
@@ -133,12 +134,12 @@ async function openLeadDetail(leadId, seed) {
       </div>
     </div>
     <div id="tab-history" class="tab-pane">
-      ${detailPending ? _leadDetailTabLoading() : _followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
+      ${historyPending ? _leadDetailTabLoading() : _followupHistoryTable(followupHistory, 'No follow-up history yet.', fuContext)}
     </div>
     <div id="tab-calls" class="tab-pane" style="display:none" data-call-lead="${escapeHtml(String(lead['Lead ID']))}"></div>
     <div id="tab-fsr-visits" class="tab-pane" style="display:none" data-fsr-history-panel></div>
     <div id="tab-log" class="tab-pane" style="display:none">
-      ${detailPending ? _leadDetailTabLoading() : _activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
+      ${logsPending ? _leadDetailTabLoading() : _activityLogTable(activityLogs, 'No activity logs yet.', fuContext)}
     </div>
     ${isNbdLocked ? `<div class="locked-panel">
       ${icon('lock', 18)}
@@ -187,7 +188,7 @@ async function openLeadDetail(leadId, seed) {
     // already started editing.
     if (seedOnly) {
       api.getLeadFieldValues(leadId).then(data => {
-        if (!data || !data.lead || !overlay.isConnected) return;
+        if (!data || !data.lead || !overlay.isConnected || !current()) return;
         lead = Object.assign({}, lead, data.lead);
         const sum = overlay.querySelector('#lead-cf-summary');
         if (sum) { sum.innerHTML = buildLeadCustomFieldSummary(lead, leadFields, configOptions); renderIcons(sum); }
@@ -200,40 +201,34 @@ async function openLeadDetail(leadId, seed) {
       }).catch(() => {});
     }
 
-    // History + activity logs weren't cached yet — join the in-flight boot prefetch
-    // (or start the collection fetches) instead of firing the heavy per-lead getLead
-    // read, which re-reads the lead + custom fields + follow-ups server-side and threw
-    // the result away. This also warms the cache, so every later lead open is instant.
-    if (detailPending) {
-      const _fillTabs = (hist, logs) => {
-        if (!overlay || !overlay.isConnected) return;
-        const hEl = overlay.querySelector('#tab-history');
-        const lEl = overlay.querySelector('#tab-log');
-        if (hEl) hEl.innerHTML = _followupHistoryTable(hist || [], 'No follow-up history yet.', fuContext);
-        if (lEl) lEl.innerHTML = _activityLogTable(logs || [], 'No activity logs yet.', fuContext);
-        renderIcons(overlay);
+    // Each tab reads only this lead. History never waits for the hidden logs tab.
+    const loadSection = async (tabId, endpoint, args, read, select, render) => {
+      const host = overlay.querySelector('#' + tabId);
+      const valid = () => host && overlay.isConnected && current();
+      let displayed = false;
+      const paint = data => {
+        if (!valid()) return;
+        host.innerHTML = render(select(data) || [], tabId === 'tab-history' ? 'No follow-up history yet.' : 'No activity logs yet.', fuContext);
+        renderIcons(host); displayed = true;
       };
-      const _showTabError = () => {
-        const hEl = overlay && overlay.querySelector('#tab-history');
-        const lEl = overlay && overlay.querySelector('#tab-log');
-        const msg = '<div style="padding:24px;color:#b45309;font-size:13px">Could not load this section. Close and reopen to retry.</div>';
-        if (hEl) hEl.innerHTML = msg;
-        if (lEl) lEl.innerHTML = msg;
-      };
-      Promise.all([
-        AppCache.isLoaded('followupHistory') ? null : _ensureCached('followupHistory', () => api.getFollowupHistory({})),
-        AppCache.isLoaded('activityLogs')    ? null : _ensureCached('activityLogs',    () => api.getLeadActivityLogs({}))
-      ]).then(() => _fillTabs(
-        AppCache.getRows('followupHistory').filter(f => f['Lead ID'] === leadId),
-        AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId)
-      )).catch(() => {
-        // e.g. a Leads-only user can't read the full history collection — fall back to
-        // the per-lead read the lead-detail endpoint allows.
-        api.getLead(leadId)
-          .then(data => { if (data) _fillTabs(data.followupHistory, data.activityLogs); })
-          .catch(_showTabError);
-      });
+      try {
+        const saved = typeof PagePreview !== 'undefined' && await PagePreview.get(endpoint, args);
+        if (!valid()) return;
+        if (saved) paint(saved.data);
+        paint(await read());
+      } catch (error) {
+        if (valid() && !displayed) host.innerHTML = '<p style="padding:24px;color:#b45309">Could not load this section. Close and reopen to retry.</p>';
+      }
+    };
+    if (historyPending) {
+      if (hasModule('Followups')) void loadSection('tab-history', 'apiGetFollowupHistory', [{leadId}], () => api.getFollowupHistory({leadId}), data => data, _followupHistoryTable);
+      else void loadSection('tab-history', 'apiGetLead', [leadId], () => api.getLead(leadId), data => data.followupHistory, _followupHistoryTable);
     }
+    overlay._loadActivityLogs = () => {
+      if (!logsPending) return;
+      logsPending = false;
+      void loadSection('tab-log', 'apiGetLeadActivityLogs', [{leadId}], () => api.getLeadActivityLogs({leadId}), data => data, _activityLogTable);
+    };
   }
 
   function _leadDetailTabLoading() {
@@ -244,6 +239,7 @@ async function openLeadDetail(leadId, seed) {
   function switchTab(btn, tabId) {
     btn.closest('.modal').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+    if (tabId === 'tab-log') btn.closest('.modal-overlay')._loadActivityLogs?.();
     if (tabId === 'tab-calls') {
       const host = btn.closest('.modal').querySelector('#tab-calls');
       _mountCallsView(host, host.dataset.callLead);

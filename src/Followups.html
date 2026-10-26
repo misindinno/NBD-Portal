@@ -433,6 +433,21 @@ async function _renderFUTab(tab, force = false, prefetched) {
     finishLoading();
   }
 }
+async function _getFollowupDialogSnapshot(followupId) {
+  const contains = data => {
+    const row = data && (data.followups || []).find(item => item['Follow-up ID'] === followupId);
+    return row && (!row['Lead ID'] || (data.leads || []).some(lead => lead['Lead ID'] === row['Lead ID']));
+  };
+  if (contains(_fuPageSnapshot)) return _fuPageSnapshot;
+  if (typeof PagePreview !== 'undefined' && PagePreview.enabled()) {
+    for (const includeHistory of [true, false]) {
+      const saved = await PagePreview.get('apiGetFollowupPageSnapshot', [{includeHistory}]);
+      if (saved && contains(saved.data)) return {...saved.data, includeHistory};
+    }
+  }
+  return _getFollowupPageSnapshot();
+}
+
 async function _getFollowupPageSnapshot(force = false, options = {}) {
   const includeHistory = !!options.includeHistory;
   if (options.prefetched || options.previewRefresh) force = true;
