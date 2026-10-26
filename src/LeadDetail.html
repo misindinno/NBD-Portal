@@ -10,11 +10,13 @@ async function openLeadDetail(leadId, seed) {
     const snapshot = typeof _fuPageSnapshot !== 'undefined' && _fuPageSnapshot || {};
     const generation = typeof PagePreview !== 'undefined' ? PagePreview.generation() : null;
     const current = () => generation === null || generation === PagePreview.generation();
-    let lead = (snapshot.leads || []).find(l => l['Lead ID'] === leadId) || AppCache.getRows('leads').find(l => l['Lead ID'] === leadId) || seed || null;
+    const snapshotLead = (snapshot.leads || []).find(l => l['Lead ID'] === leadId);
+    const snapshotHistoryLoaded = !!snapshotLead && !!snapshot.includeHistory;
+    let lead = snapshotLead || AppCache.getRows('leads').find(l => l['Lead ID'] === leadId) || seed || null;
     let seedOnly = !!lead;
-    const histLoaded = snapshot.includeHistory || AppCache.isLoaded('followupHistory');
+    const histLoaded = snapshotHistoryLoaded || AppCache.isLoaded('followupHistory');
     const logLoaded  = AppCache.isLoaded('activityLogs');
-    let followupHistory = (snapshot.includeHistory ? snapshot.followupHistory || [] : AppCache.getRows('followupHistory')).filter(f => f['Lead ID'] === leadId);
+    let followupHistory = (snapshotHistoryLoaded ? snapshot.followupHistory || [] : AppCache.getRows('followupHistory')).filter(f => f['Lead ID'] === leadId);
     let activityLogs    = logLoaded  ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId) : [];
     let historyPending = !histLoaded, logsPending = !logLoaded;
 

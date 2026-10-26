@@ -51,6 +51,14 @@ test('uncached history loads only this client and does not wait for a hidden tab
   assert.match(f.nodes['#tab-history'].innerHTML,/Fresh remark/);
 });
 
+test('a snapshot of active leads does not hide an archived client history',async()=>{
+  const f=dialogFixture(true);
+  await f.c.openLeadDetail('archived',{'Lead ID':'archived','Company Name':'Archived client'});
+  await new Promise(setImmediate);
+  assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'history');assert.equal(f.calls[0][1].leadId,'archived');
+  assert.match(f.nodes['#tab-history'].innerHTML,/Fresh remark/);
+});
+
 test('late history cannot update a dismissed dialog or changed session',async()=>{
   for(const reason of ['closed','session']) {
     const f=dialogFixture(false);let release;
