@@ -111,3 +111,15 @@ customer records were created/edited by these checks.
 Regression tests additionally cover interrupted replacement retaining its previous
 complete generation, quota failure, workbook isolation, permission revocation,
 reassignment, malformed schemas and client/factory visit/event scopes.
+
+Final verification: **229 tests passed**, syntax checks passed, GitHub Actions
+run `40282805935` passed for runtime commit `64abfb16ad9703042d63b5ce4e9021ea70a9ac2a`.
+The actual Sheet Data viewer was also exercised in Chrome: 2,105 saved rows,
+43 local pages, page navigation, and a search for the final row all worked.
+The published NBD page rendered its sign-in screen; no NBD session was available
+in that browser. Authenticated production row-count/parity checks were therefore
+not performed, and synthetic tests must not be presented as live workbook checks.
+
+Published versions on 2026-10-26: NBD **167**, LQ **100**, NBD Lamination **37**,
+LQ Lamination **40**, CS **13**, Dead **14**. All deployment HTTP smoke checks
+passed. Workbook IDs and existing sync activation flags were retained.
