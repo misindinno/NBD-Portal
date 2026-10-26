@@ -65,12 +65,34 @@ function syncTxSavepoint_() {
 function syncTxRestore_(point) { SYNC_TX_.tables = point.tables; SYNC_TX_.stamps = point.stamps; }
 function syncTxIndexes_() {
   _indexDefinitions_().filter(def => SYNC_TX_.tables[def.sourceSheet] && !isUserDatabaseSheet(def.sourceSheet)).forEach(def => {
+    const source = SYNC_TX_.tables[def.sourceSheet];
+    const retained = new Set(source.rows.map(row => row.source));
+    const idColumn = source.headers.indexOf(def.idColumn);
+    const removedIds = new Set(source.originals.filter((row, i) => !retained.has(i + 1)).map(row => String(row[idColumn] || '')));
+    const changed = source.rows.map((row, i) => ({ row, rowNumber: i + 2 }))
+      .filter(({row, rowNumber}) => row.source === null || row.source + 1 !== rowNumber ||
+        JSON.stringify(row.values) !== JSON.stringify(source.originals[row.source - 1]));
+    if (!changed.length && !removedIds.size) return;
     syncTxInit_(def.indexSheet, def.headers);
     const table = syncTxTable_(def.indexSheet);
-    const desired = syncTxRows_(def.sourceSheet).map((row, i) => def.build(row, i + 2)).filter(row => row[def.idColumn]);
-    // Keep physical row identities so only differing cells are written.
-    table.rows = desired.map((row, i) => ({ source: i < table.originals.length ? i + 1 : null,
-      values: table.headers.map(key => row[key] === undefined ? '' : row[key]) }));
+    // A normal save updates only affected IDs. Rebuilding every existing index
+    // row converted dates/reordered records and could exceed the batch limit.
+    const targets = table.originals.length ? changed : source.rows.map((row, i) => ({row, rowNumber:i + 2}));
+    const desired = new Map(targets.map(({row, rowNumber}) => {
+      const built = def.build(rowObjectFromHeaders_(source.headers, row.values, true, source.name), rowNumber);
+      return [String(built[def.idColumn] || ''), built];
+    }).filter(([id]) => id));
+    const indexId = table.headers.indexOf(def.idColumn), found = new Set();
+    table.rows = table.rows.filter(row => !removedIds.has(String(row.values[indexId] || '')));
+    table.rows.forEach(row => {
+      const id = String(row.values[indexId] || ''), built = desired.get(id);
+      if (!built) return;
+      found.add(id);
+      table.headers.forEach((header, i) => { if (Object.prototype.hasOwnProperty.call(built, header)) row.values[i] = built[header]; });
+    });
+    desired.forEach((built, id) => {
+      if (!found.has(id)) table.rows.push({ source: null, values: table.headers.map(key => built[key] === undefined ? '' : built[key]) });
+    });
   });
 }
 function syncCell_(value) {

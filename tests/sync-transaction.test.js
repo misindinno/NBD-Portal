@@ -128,3 +128,38 @@ test('outbound FSR delivery is durably queued in the same business commit',()=>{
   const result=f.call(completion(f));assert.equal(result.data?.state,'committed',JSON.stringify(result));
   assert.equal(f.rows('FSR_SYNC_QUEUE').length,1);assert.equal(f.rows('FSR_SYNC_QUEUE')[0].Status,'Pending');
 });
+
+test('one remark in a large workbook updates only its two index entries even when indexes have a different order',()=>{
+  const f=syncFixture(),vm=require('node:vm');
+  const lead=f.rows('LEAD_MASTER')[0],followup=f.rows('FOLLOWUPS')[0];
+  f.add('LEAD_MASTER',f.tables.get('LEAD_MASTER').data[0],[lead,...Array.from({length:3000},(_,i)=>({...lead,'Lead ID':'L'+(i+2),'Company Name':'Client '+i}))]);
+  f.add('FOLLOWUPS',f.tables.get('FOLLOWUPS').data[0],[followup,...Array.from({length:3000},(_,i)=>({...followup,'Follow-up ID':'F'+(i+2),'Lead ID':'L'+(i+2)}))]);
+  const defs=vm.runInContext('_indexDefinitions_()',f.c).slice(0,2);
+  defs.forEach(def=>f.add(def.indexSheet,Array.from(def.headers),f.rows(def.sourceSheet).map((row,i)=>def.build(row,i+2)).reverse()));
+  const snapshots=defs.map(def=>structuredClone(f.tables.get(def.indexSheet).data));
+  const result=f.call(completion(f));
+  assert.equal(result.data?.state,'committed',JSON.stringify(result));
+  assert.ok(f.requests[0].requests.length<30,'small save must not emit thousands of index writes');
+  defs.forEach((def,i)=>{
+    const after=f.tables.get(def.indexSheet).data;
+    assert.deepEqual(after.slice(0,-1),snapshots[i].slice(0,-1),'all unrelated index rows retained');
+    assert.equal(f.rows(def.indexSheet).at(-1)['Next Follow-up Date'],'2026-10-27');
+  });
+  assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);
+});
+
+test('index planning fixes row pointers after deletion and appends new source IDs',()=>{
+  const f=syncFixture(),vm=require('node:vm'),lead=f.rows('LEAD_MASTER')[0];
+  f.add('LEAD_MASTER',f.tables.get('LEAD_MASTER').data[0],[lead,{...lead,'Lead ID':'L2'},{...lead,'Lead ID':'L3'}]);
+  const def=vm.runInContext('_indexDefinitions_()[0]',f.c);
+  f.add(def.indexSheet,Array.from(def.headers),f.rows('LEAD_MASTER').map((r,i)=>def.build(r,i+2)).reverse());
+  f.c.withServerContext_(()=>{
+    vm.runInContext('SYNC_TX_ = {tables:{},stamps:{}}',f.c);
+    try {
+      f.c.syncTxDelete_('LEAD_MASTER',r=>r['Lead ID']==='L2');
+      f.c.syncTxInsert_('LEAD_MASTER',{...lead,'Lead ID':'L4'});
+      f.c.syncTxIndexes_();f.apply({requests:f.c.syncTxRequests_()});
+    } finally {vm.runInContext('SYNC_TX_ = null',f.c);}
+  });
+  assert.deepEqual(f.rows('IDX_LEADS').map(r=>[r['Lead ID'],r['Row Number']]),[['L3',3],['L1',2],['L4',4]]);
+});

@@ -24,4 +24,16 @@ checks are preserved; retry never falls back to a separate legacy write.
 Regression coverage includes production header validation, the duplicate-ID
 failure and repair, padded headers, initialization with a blank first header,
 legacy outbox recovery, and idempotent retry after commit. All 250 tests and
-the JavaScript/HTML syntax check passed before deployment.
+the JavaScript/HTML syntax check passed before the initial deployment.
+
+Live retry then exposed a second pre-commit blocker: `Invalid sync batch size`.
+The old planner regenerated every lead/follow-up index by source row order.
+On an existing workbook with a different index order or date representations,
+one remark could produce thousands of unrelated cell writes.
+
+The planner now updates affected index IDs, adds new IDs, and adjusts row
+pointers only when source rows move or are removed. Unrelated index rows and
+their extra columns are preserved. The atomic receipt and batch limits remain.
+Legacy batch-limit errors are retryable with their original operation IDs.
+Regression tests cover 3,001 leads plus 3,001 follow-ups with reversed indexes,
+deletion/append row pointers, and recovery of a retained batch-limit request.

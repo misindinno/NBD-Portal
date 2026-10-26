@@ -96,3 +96,13 @@ test('legacy schema-invalid commands become retryable without replaying ordinary
   store.data.set('validation',{...old,key:'validation',message:'Remark is required.'});
   await c.retry('validation');assert.equal(sends,1);assert.equal(store.data.get('validation').state,'invalid');
 });
+
+test('a legacy batch-limit failure can retry the same stored command after the index fix',async()=>{
+  const store=storage();let sent;
+  const c=client(store,async row=>{sent=row;return {state:'committed'};},{online:()=>true});
+  store.data.set('batch',{key:'batch',id:'same-reference',portal:'p1',user:'u1',scope:'a'.repeat(64),state:'invalid',attempts:1,args:[{Remark:'Keep it'}],
+    message:'apiSyncPush: Invalid sync batch size. Use a smaller batch.'});
+  await c.drain();assert.equal(store.data.get('batch').state,'paused');
+  await c.retry('batch');assert.equal(sent.id,'same-reference');assert.equal(sent.args[0].Remark,'Keep it');
+  assert.equal(store.data.get('batch').state,'committed');
+});

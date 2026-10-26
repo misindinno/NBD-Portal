@@ -2,8 +2,8 @@
 // Pending commands are separate from server-confirmed read snapshots. Tokens are
 // supplied at send time and are never written to either database.
 function portalSyncSchemaIssue_(item) {
-  return !!item && (item.errorCode === 'DATA_SCHEMA_INVALID' ||
-    /The portal data configuration is invalid\./i.test(String(item.message || '')));
+  return !!item && (['DATA_SCHEMA_INVALID','SYNC_BATCH_TOO_LARGE'].includes(item.errorCode) ||
+    /The portal data configuration is invalid\.|Invalid sync batch size\. Use a smaller batch\./i.test(String(item.message || '')));
 }
 function createPortalOutbox(indexedDB) {
   let opening;

@@ -109,6 +109,7 @@ function apiSyncPush(token, command) {
     catch (error) {
       if (/SYNC_CONFLICT/.test(error.message)) return respond({ state: 'conflict', message: error.message });
       if (/SYNC_SETUP_REQUIRED/.test(error.message)) return respond({ state: 'paused', message: 'An administrator must initialize two-way sync.' });
+      if (/^Invalid sync batch size\./.test(error.message)) return respond({ state: 'paused', message: 'This save exceeds the sync batch limit. Your change is retained; retry after the portal is updated or use a smaller bulk batch.' });
       // Unknown commit outcomes MUST be retried with the same ID, never replayed
       // through the legacy endpoint. The atomic receipt/fence resolves ambiguity.
       throw error;
