@@ -205,6 +205,7 @@ const PortalSync = createPortalSync({
   changed: () => { void renderPortalSyncStatus(); },
   committed: async () => {
     await LeadReadCache.invalidate(); await PortalReadCache.invalidate();
+    if (typeof SheetMirror !== 'undefined') { SheetMirror.invalidate(); refreshSheetMirror(); }
     try { portalSyncChannel.postMessage('changed'); } catch (_) {}
     _leadCacheCheckedAt = 0; _portalCacheCheckedAt = 0;
   }
@@ -212,6 +213,7 @@ const PortalSync = createPortalSync({
 let portalSyncChannel;
 try { portalSyncChannel = new BroadcastChannel('nbd-sync-changes'); portalSyncChannel.onmessage = () => {
   LeadReadCache.verifyNext(); PortalReadCache.verifyNext(); void renderPortalSyncStatus();
+  if (typeof SheetMirror !== 'undefined') { SheetMirror.invalidate(); refreshSheetMirror(); }
 }; } catch (_) {}
 window.addEventListener('online', () => { void PortalSync.drain(); });
 window.addEventListener('focus', () => { void PortalSync.drain(); });

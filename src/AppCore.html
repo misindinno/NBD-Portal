@@ -155,6 +155,7 @@ const api = {
       if (typeof PortalSync !== 'undefined' && /^apiGet|^apiClientFactoryVisitList/.test(fn)) PortalSync.observe(result, fn === 'apiGetLead');
       if (/^api(?:Save|Delete|Archive|Restore|Update|Move|Push|Mark|Create|Map)/.test(fn) && typeof LeadReadCache !== 'undefined') await LeadReadCache.invalidate();
       if (/^api(?:Save|Delete|Archive|Restore|Update|Move|Push|Mark|Create|Map)|^apiClientFactoryVisit(?:Save|Initialize)$/.test(fn) && typeof PortalReadCache !== 'undefined') await PortalReadCache.invalidate();
+      if (/^api(?:Save|Delete|Archive|Restore|Update|Move|Push|Mark|Create|Map)|^apiClientFactoryVisit(?:Save|Initialize)$/.test(fn) && typeof SheetMirror !== 'undefined') { SheetMirror.invalidate(); refreshSheetMirror(); }
       return result;
     } catch (error) {
       const sessionLost = /SESSION_EXPIRED|ACCESS_DENIED/i.test(error.message);

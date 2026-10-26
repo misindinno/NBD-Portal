@@ -4,6 +4,10 @@ Google Sheets remains the shared source of truth. IndexedDB stores verified read
 and durable pending commands in each browser. No PostgreSQL, extra shared database,
 workbook migration or credentials in IndexedDB are introduced.
 
+The complete, schema-preserving business-table mirror added on 2026-10-26 is
+documented in [WHOLE_SHEET_INDEXEDDB.md](WHOLE_SHEET_INDEXEDDB.md). It adds named
+sheet stores and a local Sheet Data viewer alongside the existing worklist caches.
+
 ## Supported flows
 
 | Flow | Behavior |

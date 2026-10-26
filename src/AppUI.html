@@ -446,6 +446,7 @@ const _PAGE_META = {
   bulkview:  { title: 'Bulk Entry',       crumb: 'Bulk Entry' },
   calls:     { title: 'Calls', crumb: 'Calls' },
   callreport: { title: 'Client Call Totals', crumb: 'Client Call Totals' },
+  sheetdata: { title: 'Sheet Data', crumb: 'Sheet Data' },
   clientfactoryvisits: { title: 'Client & Factory Visits', crumb: 'Client & Factory Visits' },
   visitmanagement: { title: 'Visits', crumb: 'Visits' },
   webhooks:  { title: 'Webhooks',         crumb: 'Webhooks' },
@@ -525,6 +526,7 @@ async function navigate(page) {
     }
     else if (page === 'calls')             await _runPageLoader(page, 'loadCalls');
     else if (page === 'callreport')        await _runPageLoader(page, 'loadClientCallReport');
+    else if (page === 'sheetdata')         await _runPageLoader(page, 'loadSheetMirror');
     else if (page === 'clientfactoryvisits') await _runPageLoader(page, 'loadClientFactoryVisits');
     else if (page === 'visitmanagement')   await _runPageLoader(page, 'loadVisitManagement');
     else if (page === 'webhooks')          await _runPageLoader(page, 'loadWebhooks');
@@ -623,6 +625,7 @@ function renderSidebar() {
     html += navItem('config', 'settings-2', 'Config');
     if (u.canEditConfig) html += navItem('webhooks', 'webhook', 'Webhooks');
   }
+  if (typeof SheetMirror !== 'undefined' && SheetMirror.enabled()) html += navItem('sheetdata', 'database', 'Sheet Data');
 
   nav.innerHTML = html;
   // Rebuilding nav innerHTML drops the active class — restore it for the current
@@ -667,6 +670,7 @@ function hasModule(name) {
 
 function canNavigate(page) {
   if (!App.user) return false;
+  if (page === 'sheetdata') return typeof SheetMirror !== 'undefined' && SheetMirror.enabled();
   const moduleMap = {
     leads: 'Leads', pipeline: 'Pipeline',
     archive: 'Archive',

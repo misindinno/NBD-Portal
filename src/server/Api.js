@@ -104,7 +104,8 @@ function apiBootstrapData(token) {
 
       // Counts are optional UI data; never scan lead/follow-up tables before
       // returning identity and configuration. The client fetches counts later.
-      return respond({ user, config, stamps: _bootstrapStamps_(), cacheIdentity: leadCacheIdentity_(user) });
+      return respond({ user, config, stamps: _bootstrapStamps_(), cacheIdentity: leadCacheIdentity_(user),
+        sheetMirrorIdentity: typeof sheetMirrorIdentity_ === 'function' ? sheetMirrorIdentity_(user) : null });
     } finally {
       _bootstrapReadMode_ = false;
     }

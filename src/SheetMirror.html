@@ -1,0 +1,226 @@
+<script>
+const SHEET_MIRROR_STORES = ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY','LEAD_ACTIVITY_LOGS','LEAD_FIELD_VALUES','FOLLOWUP_FIELD_VALUES','PIPELINE_STAGES','FIELD_CONFIG','CONFIG','Bulk_Config','CALL_LOGS','VISIT_SUBMISSIONS','CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS'];
+
+function sheetMirrorValidRecords(records, total) {
+  if (!Array.isArray(records) || records.length !== total || !records.length) return false;
+  const first = records[0], meta = first.value;
+  if (first.bucket !== '_meta' || first.index !== 0 || !meta || meta.schemaVersion !== 1 || !SHEET_MIRROR_STORES.includes(meta.name) ||
+      !Array.isArray(meta.headers) || !meta.headers.every(h => typeof h === 'string') || !Array.isArray(meta.redactedColumns) || meta.rowCount !== total - 1) return false;
+  let last = 1;
+  return records.slice(1).every(row => {
+    if (row.bucket !== 'rows' || !Number.isSafeInteger(row.index) || row.index <= last || !row.value || !Array.isArray(row.value.cells) ||
+        row.value.cells.length !== meta.headers.length || !Array.isArray(row.value.dates)) return false;
+    last = row.index;
+    return row.value.cells.every(v => v === null || ['string','boolean'].includes(typeof v) || typeof v === 'number' && Number.isFinite(v)) &&
+      row.value.dates.every(i => Number.isInteger(i) && i >= 0 && i < meta.headers.length && typeof row.value.cells[i] === 'string' && Number.isFinite(Date.parse(row.value.cells[i]))) &&
+      meta.redactedColumns.every(i => Number.isInteger(i) && i >= 0 && i < meta.headers.length && row.value.cells[i] === null);
+  });
+}
+
+function createSheetMirrorStorage(indexedDB) {
+  let db, opening, generation = 0;
+  const versions = new Map();
+  const active = new Set();
+  function open() {
+    if (db) return Promise.resolve(db);
+    if (opening) return opening;
+    if (!indexedDB) return Promise.reject(new Error('IndexedDB is unavailable in this browser.'));
+    opening = new Promise((resolve, reject) => {
+      const req = indexedDB.open('nbd-sheet-mirror', 1);
+      let failed = false;
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore('_meta', { keyPath: 'key' });
+        SHEET_MIRROR_STORES.forEach(name => {
+          const store = req.result.createObjectStore(name, { keyPath: ['snapshotKey','rowNumber'] });
+          store.createIndex('snapshotKey', 'snapshotKey');
+        });
+      };
+      req.onerror = req.onblocked = () => { failed = true; opening = null; reject(new Error('Cannot open sheet storage. Close older portal tabs and retry.')); };
+      req.onsuccess = () => {
+        if (failed) { req.result.close(); return; }
+        db = req.result;
+        db.onversionchange = () => { db.close(); db = null; opening = null; };
+        resolve(db);
+      };
+    });
+    return opening;
+  }
+  async function transaction(names, mode, work) {
+    const epoch = generation, tableVersions = names.map(name => versions.get(name) || 0), connection = await open();
+    if (epoch !== generation || names.some((name, i) => tableVersions[i] !== (versions.get(name) || 0))) throw new Error('CACHE_CANCELLED');
+    return new Promise((resolve, reject) => {
+      const tx = connection.transaction(names, mode); active.add(tx);
+      let result;
+      tx.oncomplete = () => { active.delete(tx); resolve(result); };
+      tx.onabort = tx.onerror = () => { active.delete(tx); reject(new Error('Sheet storage transaction failed; the previous complete data was retained.')); };
+      try { work(tx, value => { result = value; }); } catch (error) { tx.abort(); reject(error); }
+    });
+  }
+  function cancel(name) {
+    if (name) versions.set(name, (versions.get(name) || 0) + 1); else generation++;
+    for (const tx of active) if (!name || tx.objectStoreNames.contains(name)) { try { tx.abort(); } catch (_) {} }
+  }
+  function deleteRows(store, key, then) {
+    const cursor = store.index('snapshotKey').openCursor(key);
+    cursor.onsuccess = () => {
+      if (cursor.result) { cursor.result.delete(); cursor.result.continue(); }
+      else then();
+    };
+  }
+  const clear = async () => {
+    cancel();
+    return transaction(['_meta', ...SHEET_MIRROR_STORES], 'readwrite', tx => {
+      ['_meta', ...SHEET_MIRROR_STORES].forEach(name => tx.objectStore(name).clear());
+    });
+  };
+  return { clear, cancel,
+    bind(identity) {
+      cancel();
+      const scope = JSON.stringify([identity.portal, identity.workbook, identity.user, identity.scope]);
+      return transaction(['_meta', ...SHEET_MIRROR_STORES], 'readwrite', tx => {
+        const meta = tx.objectStore('_meta'), req = meta.get('__identity');
+        req.onsuccess = () => {
+          if (req.result && req.result.scope === scope) return;
+          ['_meta', ...SHEET_MIRROR_STORES].forEach(name => tx.objectStore(name).clear());
+          meta.put({ key: '__identity', scope });
+        };
+      });
+    },
+    table(name) {
+      if (!SHEET_MIRROR_STORES.includes(name)) throw new Error('Unknown mirror store');
+      return {
+        cancel: () => cancel(name),
+        clear,
+        get: key => transaction(['_meta', name], 'readonly', (tx, done) => {
+          let meta, rows;
+          const finish = () => { if (meta !== undefined && rows !== undefined) done(meta ? { ...meta.snapshot, rows: [meta.schema, ...rows.map(row => ({ bucket: 'rows', index: row.rowNumber, value: { cells: row.cells, dates: row.dates } }))] } : null); };
+          const m = tx.objectStore('_meta').get(key); m.onsuccess = () => { meta = m.result || null; finish(); };
+          const r = tx.objectStore(name).index('snapshotKey').getAll(key); r.onsuccess = () => { rows = r.result; finish(); };
+        }),
+        put: snapshot => transaction(['_meta', name], 'readwrite', tx => {
+          if (!sheetMirrorValidRecords(snapshot.rows, snapshot.total) || snapshot.rows[0].value.name !== name) throw new Error('Invalid mirror snapshot');
+          const store = tx.objectStore(name), { rows, ...metadata } = snapshot;
+          deleteRows(store, snapshot.key, () => {
+            rows.slice(1).forEach(row => store.put({ snapshotKey: snapshot.key, rowNumber: row.index, cells: row.value.cells, dates: row.value.dates }));
+            tx.objectStore('_meta').put({ key: snapshot.key, schema: rows[0], snapshot: metadata });
+          });
+        }),
+        remove: key => transaction(['_meta', name], 'readwrite', tx => {
+          deleteRows(tx.objectStore(name), key, () => tx.objectStore('_meta').delete(key));
+        })
+      };
+    }
+  };
+}
+
+function createSheetMirror({ request, storage, onLock = () => {}, changed = () => {}, now = () => Date.now() }) {
+  let identity, epoch = 0, clients = new Map(), catalog = [], excluded = [], running, lastSync = 0, dirty = 0, error = '', bound = Promise.resolve();
+  const key = name => JSON.stringify([1, identity.portal, identity.user, 'sheet:' + identity.workbook + ':' + name]);
+  const same = value => value && identity && value.portal === identity.portal && value.workbook === identity.workbook && value.user === identity.user && value.scope === identity.scope;
+  const locked = e => /CACHE_SCOPE_CHANGED|CACHE_DISABLED|SESSION_EXPIRED|ACCESS[_ ]DENIED|FORBIDDEN|Permission denied/i.test(String(e.message || '') + ' ' + (e.code || ''));
+  function reset() { epoch++; clients.forEach(entry => entry.client.suspend()); clients.clear(); catalog = []; excluded = []; identity = null; running = null; lastSync = 0; }
+  async function clear() { reset(); bound = storage.clear(); await bound; changed(); }
+  function bind(value) {
+    const previous = identity;
+    reset(); error = '';
+    identity = value && value.enabled && value.workbook ? { ...value } : null;
+    // A session/scope switch must not retain another account's private mirror.
+    if (identity && storage.bind) bound = storage.bind(identity);
+    else if (!identity || previous && !same(previous)) bound = storage.clear();
+    bound.catch(e => { error = e.message; changed(); });
+    changed();
+  }
+  async function fail(e) {
+    error = String(e.message || e);
+    if (locked(e)) { await clear().catch(() => {}); onLock(); }
+    changed(); throw e;
+  }
+  async function manifest() {
+    if (!identity) throw new Error('Sheet sync is not enabled.');
+    const session = epoch;
+    await bound;
+    const result = await request('apiGetSheetMirrorManifest', { ...identity });
+    if (session !== epoch) throw new Error('CACHE_CANCELLED');
+    if (!same(result.identity)) throw new Error('CACHE_SCOPE_CHANGED');
+    if (!Array.isArray(result.sheets) || result.sheets.some(sheet => !SHEET_MIRROR_STORES.includes(sheet.name)) || new Set(result.sheets.map(sheet => sheet.name)).size !== result.sheets.length) throw new Error('Invalid sheet catalog');
+    catalog = result.sheets; excluded = result.excluded || [];
+    // Removal from an unchanged permission scope must still purge that table.
+    for (const [name, entry] of clients) if (!catalog.some(sheet => sheet.name === name)) { entry.client.suspend(); await entry.storage.remove(key(name)); clients.delete(name); }
+    changed(); return catalog;
+  }
+  function entryFor(name) {
+    if (!catalog.some(sheet => sheet.name === name)) throw new Error('Permission denied. Sheet is outside this account’s catalog.');
+    if (!clients.has(name)) {
+      const local = storage.table(name), context = { ...identity };
+      const client = createLeadReadCache({ namespace: 'sheet:' + identity.workbook + ':' + name, storage: local, validateRows: sheetMirrorValidRecords, retainSnapshotOnReplace: true,
+        request: query => request('apiGetSheetMirrorPage', { ...query, workbook: context.workbook, sheet: name }),
+        onLock: () => { void clear().catch(() => {}).finally(onLock); } });
+      // Deltas and short verified reuse work for the read mirror independently of the write queue.
+      client.bind({ ...identity, syncEnabled: true });
+      clients.set(name, { client, storage: local, verified: false });
+    }
+    return clients.get(name);
+  }
+  async function syncSheet(name) {
+    const session = epoch, entry = entryFor(name); entry.verified = false; changed();
+    try {
+      const rows = await entry.client.load({ force: true });
+      if (session !== epoch) throw new Error('CACHE_CANCELLED');
+      if (entry.client.status().storage === 'unavailable') throw new Error('IndexedDB could not save ' + name + '. Free browser storage and retry.');
+      if (rows[0].value.name !== name) throw new Error('Invalid sheet snapshot');
+      entry.verified = true; entry.rows = rows.length - 1; entry.schema = rows[0].value;
+      entry.error = ''; changed({ name, records: rows }); return rows;
+    } catch (e) { entry.error = e.message; changed(); throw e; }
+  }
+  function syncAll(force = false) {
+    if (!identity) return Promise.resolve();
+    if (running) return running;
+    if (!force && now() - lastSync < 300000) return Promise.resolve();
+    const session = epoch, startDirty = dirty;
+    const task = (async () => {
+      error = '';
+      const sheets = await manifest();
+      // A single worker limits Apps Script/Sheet load and never blocks first-page rendering.
+      for (const sheet of sheets) {
+        if (session !== epoch) return;
+        try { await syncSheet(sheet.name); }
+        catch (e) { if (locked(e) || /CACHE_CANCELLED/.test(e.message)) throw e; error = 'Some sheets could not sync. Retry the sheets marked with an error.'; }
+      }
+      lastSync = dirty === startDirty ? now() : 0; changed();
+    })().catch(e => { if (session === epoch) return fail(e); }).finally(() => { if (running === task) running = null; changed(); });
+    running = task; changed(); return task;
+  }
+  async function readSheet(name) {
+    if (!identity) throw new Error('Sheet sync is not enabled.');
+    const session = epoch;
+    try {
+      // Fresh server verification on every view-open; pagination/search below are local.
+      await manifest(); await syncSheet(name);
+      const result = await entryFor(name).storage.get(key(name));
+      if (session !== epoch || !entryFor(name).verified) throw new Error('CACHE_CANCELLED');
+      if (!result || !sheetMirrorValidRecords(result.rows, result.total)) throw new Error('Complete sheet data is not available in IndexedDB.');
+      return { ...result.rows[0].value, verifiedAt: entryFor(name).client.status().verifiedAt,
+        rows: result.rows.slice(1).map(row => ({ rowNumber: row.index, cells: row.value.cells, dates: row.value.dates })) };
+    } catch (e) { if (session === epoch) return fail(e); throw e; }
+  }
+  return { bind, clear, readSheet, syncAll, enabled: () => !!identity,
+    invalidate() { dirty++; lastSync = 0; clients.forEach(entry => { entry.verified = false; entry.client.verifyNext(); }); },
+    status: () => ({ enabled: !!identity, running: !!running, lastSync, error, excluded: [...excluded],
+      sheets: catalog.map(sheet => { const entry = clients.get(sheet.name); return { ...sheet, rows: entry && entry.rows,
+        state: entry && entry.error ? 'error' : entry && entry.verified ? 'synced' : entry ? entry.client.status().state : 'waiting',
+        error: entry && entry.error || '', verifiedAt: entry && entry.client.status().verifiedAt || '' }; }) }) };
+}
+
+const SheetMirror = createSheetMirror({
+  request: (fn, query) => api._read(fn, AuthToken.get(), query), storage: createSheetMirrorStorage(leadIndexedDb_()),
+  onLock: () => { void lockPrivateReadCache(); },
+  changed: event => { if (typeof renderSheetMirrorStatus === 'function') renderSheetMirrorStatus(event); }
+});
+function refreshSheetMirror(force = false) {
+  if (!SheetMirror.enabled() || document.hidden || !navigator.onLine) return;
+  void SheetMirror.syncAll(force).catch(() => {});
+}
+window.addEventListener('focus', () => refreshSheetMirror());
+window.addEventListener('online', () => { SheetMirror.invalidate(); refreshSheetMirror(); });
+setInterval(() => refreshSheetMirror(), 60000);
+</script>

@@ -102,6 +102,7 @@ async function _loadAppSession_(token) {
   Store.dispatch('SET_USER', boot.user);
   LeadReadCache.bind(boot.cacheIdentity);
   PortalReadCache.bind(boot.cacheIdentity);
+  if (typeof SheetMirror !== 'undefined') SheetMirror.bind(boot.sheetMirrorIdentity);
   if (typeof PortalSync !== 'undefined') { PortalSync.bind(boot.cacheIdentity); void renderPortalSyncStatus(); void PortalSync.drain().catch(() => {}); }
   Store.dispatch('SET_CONFIG', boot.config);
   AppCache.touch('config');
@@ -134,6 +135,7 @@ async function _loadAppSession_(token) {
   // Optional counts must not prevent the menu and first page from appearing.
   void _refreshNavigationSummary_();
   startCacheRevalidation();
+  if (typeof refreshSheetMirror === 'function') refreshSheetMirror();
   try { if (typeof _shortcutsFirstRunPreview === 'function') _shortcutsFirstRunPreview(); } catch (e) {}
 }
 

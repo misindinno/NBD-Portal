@@ -1,0 +1,59 @@
+<script>
+let sheetMirrorView = { name: '', data: null, page: 1, search: '', request: 0 };
+function loadSheetMirror() {
+  sheetMirrorView = { name: '', data: null, page: 1, search: '', request: sheetMirrorView.request + 1 };
+  el('content').innerHTML = `<section class="card" style="padding:24px;margin-bottom:16px">
+    <h2>Sheet Data</h2><p>Complete sheets available to your account, stored in this browser. Column names, order and cell values follow Google Sheets. Dates retain their type; duplicate and blank rows retain their sheet row numbers.</p>
+    <button id="mirror-sync" class="btn btn-primary">Sync now</button><span id="mirror-summary" role="status" style="margin-left:12px"></span>
+    <div id="mirror-sheets" class="table-wrap" style="margin-top:16px"></div>
+    <p id="mirror-excluded" style="font-size:12px;color:#64748b"></p>
+  </section><section id="mirror-preview" class="card" style="padding:24px">Choose a sheet to view its saved rows.</section>`;
+  el('mirror-sync').onclick = () => { void SheetMirror.syncAll(true).catch(() => {}); };
+  el('mirror-sheets').onclick = event => { const button = event.target.closest('button[data-sheet]'); if (button) void openMirrorSheet(button.dataset.sheet); };
+  renderSheetMirrorStatus(); refreshSheetMirror();
+}
+function renderSheetMirrorStatus(event) {
+  if (typeof App === 'undefined' || App.currentPage !== 'sheetdata' || !el('mirror-sheets')) return;
+  const status = SheetMirror.status();
+  if (event && event.name === sheetMirrorView.name && sheetMirrorView.data && event.records) {
+    sheetMirrorView.data = { ...event.records[0].value, rows: event.records.slice(1).map(row => ({ rowNumber: row.index, ...row.value })) };
+    if (el('mirror-rows')) renderMirrorRows();
+  }
+  el('mirror-sync').disabled = status.running || !status.enabled;
+  el('mirror-summary').textContent = !status.enabled ? 'Enable Sheets sync first.' : status.error || (status.running ? 'Syncing in the background…' : status.lastSync ? 'Sync finished · ' + new Date(status.lastSync).toLocaleString() : 'Waiting to sync');
+  el('mirror-sheets').innerHTML = `<table><thead><tr><th>Sheet</th><th>Saved rows</th><th>Status</th><th>Last verified</th><th></th></tr></thead><tbody>${status.sheets.map(sheet => `<tr>
+    <td>${escapeHtml(sheet.name)}</td><td>${sheet.rows == null ? '—' : sheet.rows}</td><td>${escapeHtml(sheet.error || (!sheet.exists ? 'Not initialized' : sheet.state))}</td>
+    <td>${sheet.verifiedAt ? escapeHtml(new Date(sheet.verifiedAt).toLocaleString()) : '—'}</td><td><button class="btn btn-outlined btn-sm" data-sheet="${escapeHtml(sheet.name)}">View rows</button></td></tr>`).join('')}</tbody></table>`;
+  el('mirror-excluded').textContent = 'Staff credentials, internal queues, receipts and logs are not mirrored. Sensitive columns are marked as redacted.' + (status.excluded.length ? ' Other tabs excluded: ' + status.excluded.join(', ') : '');
+  if (sheetMirrorView.data && status.sheets.some(sheet => sheet.name === sheetMirrorView.name && sheet.state === 'error')) {
+    sheetMirrorView.data = null; el('mirror-preview').textContent = 'This sheet could not be revalidated. Select it again to retry.';
+  }
+}
+async function openMirrorSheet(name) {
+  const request = ++sheetMirrorView.request;
+  sheetMirrorView.name = name; sheetMirrorView.data = null;
+  el('mirror-preview').textContent = 'Verifying access and reading the complete sheet from IndexedDB…';
+  try {
+    const data = await SheetMirror.readSheet(name);
+    if (request !== sheetMirrorView.request || App.currentPage !== 'sheetdata') return;
+    sheetMirrorView.data = data; sheetMirrorView.page = 1; sheetMirrorView.search = '';
+    el('mirror-preview').innerHTML = `<h3>${escapeHtml(name)}</h3><p id="mirror-schema-note"></p><label>Search saved rows <input id="mirror-search" class="form-control" style="max-width:360px"></label><div id="mirror-rows" class="table-wrap" style="margin-top:16px;max-height:65vh;overflow:auto"></div><div style="display:flex;gap:12px;margin-top:12px"><button id="mirror-prev" class="btn btn-outlined">Previous</button><span id="mirror-page"></span><button id="mirror-next" class="btn btn-outlined">Next</button></div>`;
+    el('mirror-schema-note').textContent = data.headers.length + ' columns · ' + data.rowCount + ' authorized rows · ' + (data.redactedColumns.length ? data.redactedColumns.length + ' sensitive columns redacted' : 'Original column order') + ' · Values only; formulas use their calculated results.';
+    el('mirror-search').oninput = event => { sheetMirrorView.search = event.target.value; sheetMirrorView.page = 1; renderMirrorRows(); };
+    el('mirror-prev').onclick = () => { sheetMirrorView.page--; renderMirrorRows(); };
+    el('mirror-next').onclick = () => { sheetMirrorView.page++; renderMirrorRows(); };
+    renderMirrorRows();
+  } catch (e) { if (request === sheetMirrorView.request && App.currentPage === 'sheetdata') el('mirror-preview').textContent = e.message; }
+}
+function renderMirrorRows() {
+  const { data, search } = sheetMirrorView;
+  if (!data) return;
+  const filtered = data.rows.filter(row => !search || row.cells.some(value => String(value == null ? '' : value).toLowerCase().includes(search.toLowerCase())));
+  const pages = Math.max(1, Math.ceil(filtered.length / 50));
+  sheetMirrorView.page = Math.max(1, Math.min(sheetMirrorView.page, pages));
+  const rows = filtered.slice((sheetMirrorView.page - 1) * 50, sheetMirrorView.page * 50);
+  el('mirror-rows').innerHTML = `<table><thead><tr><th>Sheet row</th>${data.headers.map((header, index) => `<th>${escapeHtml(header || '(Blank column ' + (index + 1) + ')')}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr><td>${row.rowNumber}</td>${row.cells.map((value, index) => `<td style="white-space:pre-wrap;min-width:100px;max-width:400px;overflow-wrap:anywhere">${data.redactedColumns.includes(index) ? '[Redacted]' : escapeHtml(String(value == null ? '' : value))}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${data.headers.length + 1}">No rows match.</td></tr>`}</tbody></table>`;
+  el('mirror-page').textContent = `${filtered.length} rows · Page ${sheetMirrorView.page} of ${pages}`;
+  el('mirror-prev').disabled = sheetMirrorView.page <= 1; el('mirror-next').disabled = sheetMirrorView.page >= pages;
+}
+</script>

@@ -82,5 +82,6 @@ and the original workbook IDs. No PostgreSQL is required.
    replay, partial downloads, storage eviction and multi-tab saves. Record latency
    and server-call counts. Rollback must retain unresolved outbox commands.
 
-This is the reviewed migration design. The full-collection adaptation is not yet
-implemented or enabled by the visit deployment work.
+The 2026-10-26 implementation now adds the authorized 14-table raw mirror and a
+local Sheet Data viewer; see `WHOLE_SHEET_INDEXEDDB.md`. Rewriting every existing
+domain screen around these raw tables remains a separate migration.
