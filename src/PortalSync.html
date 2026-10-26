@@ -1,6 +1,10 @@
 <script>
 // Pending commands are separate from server-confirmed read snapshots. Tokens are
 // supplied at send time and are never written to either database.
+function portalSyncSchemaIssue_(item) {
+  return !!item && (item.errorCode === 'DATA_SCHEMA_INVALID' ||
+    /The portal data configuration is invalid\./i.test(String(item.message || '')));
+}
 function createPortalOutbox(indexedDB) {
   let opening;
   function db() {
@@ -115,6 +119,12 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
       for (const row of items) {
         if (!valid()) break;
         if (['committed','dismissed'].includes(row.state)) continue;
+        // Older clients marked a repairable workbook problem as invalid input.
+        // Retain the exact command and expose Retry after an administrator repairs it.
+        if (row.state === 'invalid' && portalSyncSchemaIssue_(row)) {
+          await storage.patch(row.key, { state: 'paused', errorCode: 'DATA_SCHEMA_INVALID', leaseUntil: 0 });
+          changed(); break;
+        }
         // Preserve order: unresolved changes must not be overtaken by dependent saves.
         if (['conflict','invalid','blocked','paused'].includes(row.state)) break;
         const item = await storage.claim(row.key, now());
@@ -132,14 +142,16 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
           ]).finally(() => clearTimeout(confirmationTimer));
           if (!response || !['committed','retry','conflict','invalid','blocked','paused'].includes(response.state)) throw new Error('Unconfirmed sync response');
           // A response for the previous login cannot update this login's UI/cache.
-          await storage.patch(item.key, { state: response.state, result: response.result, message: response.message || '',
+          await storage.patch(item.key, { state: response.state, result: response.result, message: response.message || '', errorCode: '',
             leaseUntil: 0, nextAttempt: response.state === 'retry' ? now() + 5000 : 0 }, item.attempts);
           if (valid() && response.state === 'committed') await committed(item, response.result);
           if (response.state !== 'committed') break;
         } catch (error) {
           const denied = /SESSION_EXPIRED|ACCESS_DENIED|FORBIDDEN|Permission denied/i.test(error.code + ' ' + error.message);
-          const invalid = /VALIDATION_ERROR|DATA_SCHEMA_INVALID/.test(error.code || '');
-          await storage.patch(item.key, { state: denied ? 'blocked' : invalid ? 'invalid' : 'retry', leaseUntil: 0,
+          const schema = portalSyncSchemaIssue_({ errorCode: error.code, message: error.message });
+          const invalid = error.code === 'VALIDATION_ERROR';
+          await storage.patch(item.key, { state: denied ? 'blocked' : schema ? 'paused' : invalid ? 'invalid' : 'retry', leaseUntil: 0,
+            errorCode: schema ? 'DATA_SCHEMA_INVALID' : String(error.code || ''),
             message: denied ? 'Sign in and verify your access before retrying.' : error.message,
             nextAttempt: now() + Math.min(60000, 2000 * Math.pow(2, Math.min(item.attempts, 5))) }, item.attempts);
           break;
@@ -180,7 +192,7 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
   return { bind, observe, submit, drain, list, enabled: () => !!identity, handles: action => !!identity && actions.has(action),
     async retry(key) {
       const row = (await list()).find(row => row.key === key);
-      if (!row || !['retry','blocked','paused'].includes(row.state)) return;
+      if (!row || !(['retry','blocked','paused'].includes(row.state) || row.state === 'invalid' && portalSyncSchemaIssue_(row))) return;
       if (row.scope !== identity.scope) throw new Error('Permissions changed. This pending change is retained; an administrator must review its original reference.');
       await storage.patch(key, { state: 'queued', leaseUntil: 0, nextAttempt: 0 }); await drain(); changed();
     },
@@ -261,7 +273,7 @@ async function showPortalSyncQueue() {
     }
     if (['retry','blocked','paused','conflict','invalid','committed'].includes(row.state)) {
       const button = document.createElement('button'); button.className = 'btn btn-outlined';
-      const dismiss = ['conflict','invalid','committed'].includes(row.state);
+      const dismiss = ['conflict','invalid','committed'].includes(row.state) && !(row.state === 'invalid' && portalSyncSchemaIssue_(row));
       button.textContent = dismiss ? 'Dismiss' : 'Retry';
       button.onclick = async () => { try { await PortalSync[dismiss ? 'dismiss' : 'retry'](row.key); Swal.close(); await showPortalSyncQueue(); } catch (error) { toast(error.message, 'error'); } }; card.appendChild(button);
     }

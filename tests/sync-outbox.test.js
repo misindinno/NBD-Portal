@@ -73,3 +73,26 @@ test('logout while a send is in flight cannot notify or hydrate the next login',
   await assert.rejects(pending,/Session changed/);assert.equal(commits,0);assert.equal((await c.list()).length,0);
 });
 module.exports={storage,client};
+
+test('schema failures pause without losing input, and repair retries the same operation ID',async()=>{
+  const store=storage();let repaired=false,ids=[];
+  const c=client(store,async item=>{ids.push(item.id);if(!repaired)throw Object.assign(new Error('The portal data configuration is invalid. Contact an administrator.'),{code:'DATA_SCHEMA_INVALID'});return {state:'committed',result:'saved'};},{online:()=>true});
+  await assert.rejects(c.submit('apiSaveLead',[{Remark:'Keep my remark'}]),e=>e.code==='SYNC_PENDING');
+  const row=(await c.list())[0];assert.equal(row.state,'paused');assert.equal(row.args[0].Remark,'Keep my remark');
+  await c.drain();assert.equal(ids.length,1);
+  repaired=true;await c.retry(row.key);
+  assert.deepEqual(ids,[row.id,row.id]);assert.equal((await c.list())[0].state,'committed');
+  assert.equal((await c.list())[0].errorCode,'');
+});
+
+test('legacy schema-invalid commands become retryable without replaying ordinary invalid input',async()=>{
+  const store=storage();let sends=0;
+  const c=client(store,async()=>{sends++;return {state:'committed',result:'saved'};},{online:()=>true});
+  const old={key:'old',id:'original-reference',portal:'p1',user:'u1',scope:'a'.repeat(64),state:'invalid',attempts:1,
+    args:[{Remark:'Existing remark'}],message:'apiSyncPush: The portal data configuration is invalid. Contact an administrator.'};
+  store.data.set(old.key,structuredClone(old));
+  await c.drain();assert.equal(sends,0);assert.equal(store.data.get(old.key).state,'paused');
+  await c.retry(old.key);assert.equal(sends,1);assert.equal(store.data.get(old.key).id,old.id);
+  store.data.set('validation',{...old,key:'validation',message:'Remark is required.'});
+  await c.retry('validation');assert.equal(sends,1);assert.equal(store.data.get('validation').state,'invalid');
+});

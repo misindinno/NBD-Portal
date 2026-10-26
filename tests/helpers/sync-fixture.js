@@ -55,7 +55,7 @@ function syncFixture() {
       apply(batch); if(state.after){state.after=false;throw Error('Network failed after commit');} return {};
     }}},
     Logger:{log(){}}, readAllRowsWithFallback_:name=>c._legacyGetAllRows_(name),
-    _invalidateReadCache_(){}, validateSheetHeaders_:(_,headers)=>headers,
+    _invalidateReadCache_(){},
     parseSheetCell_:(_,key,value)=>value ?? '',
     getPortalSettings_:()=>({}),getStaffUserId:row=>row.ID,
     userHasModule:(u,m)=>u.modules.includes(m),
@@ -73,6 +73,12 @@ function syncFixture() {
   });
   ['Utils','SheetDB','IndexService','CustomFieldValueService','LeadService','FollowupService','ArchiveService','CallLogService','Api','LeadCacheService','SyncTransaction','SyncService','SyncDeltaService','FsrClientWebhook'].forEach(name=>vm.runInContext(read('src/server/'+name+'.js'),c));
   vm.runInContext(read('src/BulkService.js'),c);
+  // Exercise production schema checks: an identity stub hid duplicate-header failures.
+  const schemaContext = vm.createContext({
+    SHEET_NAMES: vm.runInContext('SHEET_NAMES', c), normalizeSheetName: c.normalizeSheetName
+  });
+  vm.runInContext(read('src/server/ArchitectureCore.js'), schemaContext);
+  c.validateSheetHeaders_ = schemaContext.validateSheetHeaders_;
   c.now=()=> '2026-10-24 12:00:00'; c.today=()=> '2026-10-24'; c.formatDate=v=>String(v||'').slice(0,10);
   c._validateNextPlannedDateLimit_=()=>({ok:true}); c._fsrWebhookConfig_=()=>({});
   c._apiUser=()=>{if(!state.permission)throw Error('Permission denied');return state.user;};

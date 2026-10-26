@@ -407,7 +407,8 @@ function safeInitHeaders(sheetName, requiredHeaders) {
   if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxInit_(sheetName, requiredHeaders);
   return withSheetDbTiming_('write_init_headers', sheetName, 'write', () => {
     _invalidateReadCache_();
-    requiredHeaders = Array.isArray(requiredHeaders) ? requiredHeaders.filter(Boolean) : [];
+    requiredHeaders = Array.isArray(requiredHeaders)
+      ? Array.from(new Set(requiredHeaders.map(h => String(h == null ? '' : h).trim()).filter(Boolean))) : [];
     if (!requiredHeaders.length) {
       if (typeof diagnosticLog_ === 'function') {
         diagnosticLog_('WARN', 'VALIDATION.INVALID_INPUT', 'sheet_headers_empty', {
@@ -420,7 +421,7 @@ function safeInitHeaders(sheetName, requiredHeaders) {
     const lastCol = sheet.getLastColumn();
 
     // Sheet is brand new — write full header row
-    if (lastCol === 0 || sheet.getRange(1, 1).getValue() === "") {
+    if (lastCol === 0) {
       sheet
         .getRange(1, 1, 1, requiredHeaders.length)
         .setValues([requiredHeaders]);
@@ -432,7 +433,7 @@ function safeInitHeaders(sheetName, requiredHeaders) {
     const existingHeaders = sheet
       .getRange(1, 1, 1, lastCol)
       .getValues()[0]
-      .map(String);
+      .map(h => String(h == null ? '' : h).trim());
     const missing = requiredHeaders.filter((h) => !existingHeaders.includes(h));
     if (missing.length === 0) return; // nothing to do
 

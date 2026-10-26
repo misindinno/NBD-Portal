@@ -17,10 +17,12 @@ function syncTxTable_(name) {
   if (SYNC_TX_.tables[name]) return SYNC_TX_.tables[name];
   const sheet = getSpreadsheet(name).getSheetByName(name);
   const values = sheet ? sheet.getDataRange().getValues() : [];
-  const headers = (values[0] || []).map(String);
-  if (sheet && typeof validateSheetHeaders_ === 'function') validateSheetHeaders_(name, headers);
+  const originalHeaders = (values[0] || []).slice();
+  const headers = sheet && typeof validateSheetHeaders_ === 'function'
+    ? validateSheetHeaders_(name, originalHeaders)
+    : originalHeaders.map(h => String(h == null ? '' : h).trim());
   const originals = values.slice(1).map(row => row.slice());
-  const table = { name, sheet, headers, originalHeaders: headers.slice(), originals,
+  const table = { name, sheet, headers, originalHeaders, originals,
     rows: originals.map((values, index) => ({ source: index + 1, values: values.slice() })) };
   SYNC_TX_.tables[name] = table;
   return table;
@@ -31,7 +33,8 @@ function syncTxRows_(name) {
 }
 function syncTxInit_(name, headers) {
   const table = syncTxTable_(name);
-  headers.forEach(header => { if (!table.headers.includes(header)) table.headers.push(header); });
+  headers.map(header => String(header == null ? '' : header).trim()).filter(Boolean)
+    .forEach(header => { if (!table.headers.includes(header)) table.headers.push(header); });
 }
 function syncTxInsert_(name, record) {
   const table = syncTxTable_(name);

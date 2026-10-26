@@ -2,6 +2,33 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const {syncFixture}=require('./helpers/sync-fixture');
 const done = {'Done Date':'2026-10-24','Next Follow-up Date':'2026-10-27',Remark:'Synthetic follow-up','Was Productive':'Yes','Contact Mode':'Call Connected'};
 function completion(f) { return f.command('apiMarkFollowupDoneDirect',['F1',done],[f.base('followup','F1'),f.base('lead','L1')]); }
+
+test('whitespace headers are normalized without appending duplicates or rewriting original headers',()=>{
+  const f=syncFixture();
+  f.add('LEAD_FIELD_VALUES',[' Value ID ','Lead ID','Field ID','Column Key','Field Value','File URL','Updated By','Updated At']);
+  const original=f.tables.get('LEAD_FIELD_VALUES').data[0].slice();
+  const cmd=completion(f),result=f.call(cmd);
+  assert.equal(result.data?.state,'committed',JSON.stringify(result));
+  assert.deepEqual(f.tables.get('LEAD_FIELD_VALUES').data[0],original);
+  assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);
+});
+
+test('duplicate value ID headers block atomically; a data-preserving repair permits the same command',()=>{
+  const f=syncFixture(),cmd=completion(f);
+  const headers=['Value ID','Lead ID','Field ID','Column Key','Field Value','File URL','Updated By','Updated At','Value ID'];
+  f.add('LEAD_FIELD_VALUES',headers);
+  const table=f.tables.get('LEAD_FIELD_VALUES');
+  table.data.push(['old-id','L1','field1','Extra','old value','','','','']);
+  table.data.push(['','L1','field2','Other','new value','','','','new-id']);
+  const failed=f.call(cmd);
+  assert.equal(failed.success,false);assert.match(failed.error,/Duplicate header/);
+  assert.equal(f.requests.length,0);assert.equal(f.rows('_SYNC_OPERATIONS').length,0);
+  table.data[2][0]=table.data[2][8];table.data[0][8]='Legacy Value ID';
+  const result=f.call(cmd);
+  assert.equal(result.data?.state,'committed',JSON.stringify(result));
+  assert.deepEqual(f.tables.get('LEAD_FIELD_VALUES').data.slice(1),table.data.slice(1));
+  assert.equal(f.call(cmd).data.repeated,true);assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);
+});
 test('follow-up, history, lead dates, indexes and receipt commit together; retry adds no duplicate',()=>{
   const f=syncFixture(),cmd=completion(f),result=f.call(cmd);
   assert.equal(result.success,true,JSON.stringify(result)); assert.equal(result.data.state,'committed',JSON.stringify(result));
