@@ -23,7 +23,8 @@ function sheetMirrorAllowed_(user, definition) {
 }
 function sheetMirrorIdentity_(user) {
   const base = leadCacheIdentity_(user), workbook = String(SPREADSHEET_ID);
-  return { ...base, workbook, syncEnabled: true, enabled: base.modulesEnabled && PropertiesService.getScriptProperties().getProperty('PORTAL_SHEET_MIRROR_ENABLED') !== 'false',
+  return { ...base, workbook, timeZone: Session.getScriptTimeZone(), leadListAllowed: user.role === 'ADMIN' || userHasModule(user, 'Leads'),
+    syncEnabled: true, enabled: base.modulesEnabled && PropertiesService.getScriptProperties().getProperty('PORTAL_SHEET_MIRROR_ENABLED') !== 'false',
     scope: leadCacheDigest_({ scope: base.scope, workbook, mirrorSchema: 1 }) };
 }
 function sheetMirrorContext_(user, query) {

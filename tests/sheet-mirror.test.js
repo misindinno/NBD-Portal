@@ -4,6 +4,25 @@ const vm = require('node:vm');
 const { read } = require('./helpers/lead-cache-fixture');
 const plain = value => JSON.parse(JSON.stringify(value));
 
+test('lead list uses verified local mirror without network and normalizes dates in the portal timezone', async () => {
+  const f=mirrorFixture(), t=f.tables.get('LEAD_MASTER');
+  t.data[1][t.data[0].indexOf('Updated At')]=new Date('2026-10-26T04:30:00Z');
+  const archived=t.data[1].slice();archived[t.data[0].indexOf('Lead ID')]='archived';archived[t.data[0].indexOf('Is Archived')]=true;t.data.push(archived);
+  const b=mirrorClient(f);await b.client.syncAll(true);const requests=b.requests;
+  const saved=await b.client.previewLeads();
+  assert.equal(b.requests,requests);assert.equal(saved.partial,true);assert.equal(saved.data.length,1);
+  assert.equal(saved.data[0]['Updated At'],'2026-10-26 10:00:00');assert.equal(saved.data[0]['Lead ID'],'L1');
+});
+
+test('lead mirror preview rejects duplicate IDs and cannot cross account, scope or module access', async () => {
+  for(const reason of ['duplicate','user','scope','module']) {
+    const f=mirrorFixture(), b=mirrorClient(f);await b.client.syncAll(true);
+    if(reason==='duplicate') {const t=f.tables.get('LEAD_MASTER');t.data.push(t.data[1].slice());await b.client.syncAll(true);}
+    else b.client.bind({...f.identity(),...(reason==='user'?{user:'other'}:reason==='scope'?{scope:'f'.repeat(64)}:{leadListAllowed:false})});
+    assert.equal(await b.client.previewLeads(),null,reason);
+  }
+});
+
 test('full sheet mirrors preserve actual header order, duplicate headers/rows, blanks and scalar/date types', async () => {
   const f = mirrorFixture(), t = f.tables.get('LEAD_MASTER');
   t.data = [['Assigned To','Lead ID','Company Name','','Extra','Extra','When','Password'],

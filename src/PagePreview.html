@@ -58,6 +58,7 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
     const previous = await fallback(endpoint, args);
     if (session !== epoch || !previous || !pagePreviewSafe(previous.data) ||
         !(now() - Date.parse(previous.verifiedAt) < 7 * 86400000)) return null;
+    if (previous.partial) return previous;
     // Migrate an existing verified module snapshot to the screen cache before use.
     if (previous) { const data = await capture(endpoint, args, previous.data, session, previous.verifiedAt); return { data, verifiedAt: previous.verifiedAt }; }
     return null;
@@ -111,7 +112,11 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
 
 const PagePreview = createPagePreviewCache({ storage: createLeadSnapshotStorage(leadIndexedDb_()),
   fallback: async (endpoint, args) => {
-    if (endpoint === 'apiGetLeads' && LeadReadCache.enabled()) return LeadReadCache.preview();
+    if (endpoint === 'apiGetLeads') {
+      const previous = LeadReadCache.enabled() ? await LeadReadCache.preview() : null;
+      if (previous) return previous;
+      if (typeof SheetMirror !== 'undefined' && SheetMirror.enabled()) return SheetMirror.previewLeads();
+    }
     if (PortalReadCache.handles(endpoint)) return PortalReadCache.preview(endpoint, args[0] || {}, {
       users: App.config.users || [], userNameMap: App.config.userNameMap || {}, hosts: App.config.users || []
     });

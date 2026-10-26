@@ -40,6 +40,22 @@ arguments prevent one filter's snapshot being displayed as another filter's data
 Only complete, integrity-checked snapshots less than seven days old can preview.
 Session bootstrap is still required before private cached data is displayed.
 
+## Lead list local preview
+
+When no saved `apiGetLeads` response exists, Leads can use the verified
+`LEAD_MASTER` mirror for the current portal, workbook, user and permission scope.
+This requires current Leads permission, a complete fresh mirror, unique lead IDs
+and the expected columns. Archived rows are excluded and date cells are converted
+to the script timezone. The core-row preview is partial: it is never saved as a
+complete API response containing custom-field joins. The server response still
+passes through IndexedDB commit and readback before updating the screen.
+
+The lead table uses a bounded virtual viewport. Background refresh updates only
+changed, added or removed rows, preserving filters, selection and scroll instead
+of rebuilding the table. A changed user/configuration or a new page mount builds
+a new table. Regression coverage is in `tests/lead-preview-render.test.js`,
+`tests/page-preview.test.js` and `tests/sheet-mirror.test.js`.
+
 ## Failure and interaction handling
 
 - IndexedDB commit/readback failures never fall back to displaying fresh network

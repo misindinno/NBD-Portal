@@ -3,6 +3,7 @@ const { syncFixture } = require('./sync-fixture');
 const { read, browserFactory, memoryStorage } = require('./lead-cache-fixture');
 function mirrorFixture() {
   const f = syncFixture();
+  f.c.Session = {getScriptTimeZone: () => 'Asia/Kolkata'};
   ['ClientFactoryVisitService', 'SheetMirrorService'].forEach(name => vm.runInContext(read('src/server/' + name + '.js'), f.c));
   f.add('Staff List', ['ID','Department','Password'], [{ ID:'u1', Department:'Sales', Password:'NEVER_EXPORT' }, { ID:'u2',Department:'Other' }]);
   f.c._cfvDirectory_ = () => [{ id:'u1',department:'Sales' }];

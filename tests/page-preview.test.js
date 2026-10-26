@@ -81,8 +81,8 @@ test('existing verified Leads and module snapshots can preview without a server 
   assert.ok(await modules.client.preview('apiGetFollowupPageSnapshot',{includeHistory:true}));
   assert.equal(await modules.client.preview('apiGetFollowupPageSnapshot',{includeHistory:false}),null);assert.equal(modules.requests,calls);
 });
-function runtime() {
-  const f=fixture(); const elements=new Map(),timers=[],requests=[],events={};
+function runtime(options = {}) {
+  const f=fixture(options); const elements=new Map(),timers=[],requests=[],events={};
   const content={before:node=>elements.set(node.id,node)};elements.set('content',content);
   Object.assign(f.c,{PagePreview:f.cache,App:{currentPage:'today'},window:{},setTimeout:fn=>timers.push(fn),
     document:{getElementById:id=>elements.get(id),createElement:()=>({style:{},setAttribute(){},append(){},remove(){elements.delete(this.id);}}),addEventListener:(type,fn)=>events[type]=fn,querySelector:()=>null,activeElement:null},
@@ -97,6 +97,17 @@ test('warm page renders preview while RPC is pending, then applies a background 
   assert.equal(first.leads[0],'old');assert.equal(f.requests.length,1);assert.equal(updated,undefined);
   f.requests[0].resolve({leads:['new']});await new Promise(setImmediate);f.timers.splice(0).forEach(fn=>fn());
   assert.equal(updated.leads[0],'new');
+});
+
+test('mirror-only lead data renders before the server responds without becoming a complete API snapshot', async () => {
+  const saved={data:[{'Lead ID':'local',_previewSource:'sheet-mirror'}],verifiedAt:'2026-10-26T09:00:00Z',partial:true};
+  const f=runtime({fallback:async()=>saved});let updated;
+  f.c.App.currentPage='leads';
+  const preview=await f.c.pagePreviewRead('apiGetLeads',[],data=>updated=data);
+  assert.equal(preview[0]['Lead ID'],'local');assert.equal(f.requests.length,1);assert.equal(updated,undefined);
+  assert.equal(f.storage.puts,0,'partial projections must not replace the full API snapshot');
+  f.requests[0].resolve([{'Lead ID':'fresh'}]);await new Promise(setImmediate);f.timers.splice(0).forEach(fn=>fn());
+  assert.equal(updated[0]['Lead ID'],'fresh');
 });
 test('late refresh cannot replace another route or overwrite typing', async () => {
   for (const action of ['navigate','input']) {
