@@ -170,6 +170,31 @@ test('API sync writes do not invalidate the commit refresh a second time; direct
     assert.equal(invalidations,1);assert.equal(refreshes,1);
   }
 });
+
+test('periodic revalidation uses the active query refresh queue instead of repainting the page loader', async () => {
+  let refreshed=0,legacy=0;
+  const c=vm.createContext({AuthToken:{get:()=>true},document:{hidden:false},navigator:{onLine:true},
+    PortalSync:{enabled:()=>true},PagePreview:{enabled:()=>true},hasActivePagePreviews:()=>true,
+    refreshActivePagePreviews:async()=>{refreshed++;},refreshPortalCachedScreen:()=>{legacy++;},portalCachedScreenActive:()=>true,
+    api:{getDataStamps:async()=>({leads:10})},App:{currentPage:'followups'},AppCache:{getServerSyncedAt:()=>0},console,window:{}});
+  vm.runInContext(read('src/AppData.html').replace(/^<script>\s*/,'').replace(/<\/script>\s*$/,''),c);
+  await c._checkCacheStamps();await c._checkCacheStamps();
+  assert.equal(refreshed,1);assert.equal(legacy,0);
+});
+
+test('automatic repaint restores worklist scroll and keeps dirty settings forms untouched', async () => {
+  const f=runtime();let painted=0;
+  const form={dataset:{},matches:()=>false};
+  const scroll={scrollTop:250,scrollLeft:40};
+  f.c.document.querySelector=selector=>selector==='.fu-table-scroll'?scroll:selector.includes('data-preview-dirty')&&form.dataset.previewDirty ? form : null;
+  await f.cache.capture('apiGetTodayActivitySnapshot',[],{});
+  await f.c.pagePreviewRead('apiGetTodayActivitySnapshot',[],()=>{painted++;scroll.scrollTop=0;scroll.scrollLeft=0;});
+  f.events.change({target:{closest:()=>form}});vm.runInContext('pagePreviewLastInput = 0',f.c);
+  f.requests[0].resolve({});await new Promise(setImmediate);f.timers.splice(0).forEach(fn=>fn());
+  assert.equal(painted,0);
+  delete form.dataset.previewDirty;f.timers.splice(0).forEach(fn=>fn());await new Promise(setImmediate);
+  assert.equal(painted,1);assert.equal(scroll.scrollTop,250);assert.equal(scroll.scrollLeft,40);
+});
 test('public page loaders use cached reads and runtime loading overlays are disabled', () => {
   for(const file of ['Today','Leads','Followups','Calls','ClientCallReport','ClientFactoryVisits','VisitManagement','Archive','Pipeline','BulkView','Webhooks','ConfigStages','ConfigDropdowns','ConfigFields','ConfigUsers']) assert.match(read('src/'+file+'.html'),/pagePreviewRead/);
   assert.match(read('src/AppUtils.html'),/function beginTableLoading[^]*?if \(window\.__PAGE_PREVIEW_READY\) return \(\) => \{\}/);

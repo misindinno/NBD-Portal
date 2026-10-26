@@ -164,6 +164,9 @@ function queuePagePreviewUpdate(slot, apply, current) {
   pagePreviewDeferred.set(slot, {apply, current});
   if (pagePreviewUpdateTimer === null) pagePreviewUpdateTimer = setTimeout(flushPagePreviewUpdates, 0);
 }
+function hasActivePagePreviews() {
+  return [...pagePreviewSubscriptions.values()].some(item => item.current());
+}
 async function refreshActivePagePreviews() {
   const generation = PagePreview.generation();
   await Promise.all([...pagePreviewSubscriptions.values()].filter(item => item.current()).map(async item => {
@@ -215,9 +218,17 @@ async function pagePreviewRead(endpoint, args = [], refresh, options = {}) {
     queuePagePreviewUpdate(slot, () => {
       const active = document.activeElement;
       const focus = active && active.id ? {id: active.id, start: active.selectionStart, end: active.selectionEnd} : null;
+      const scrolls = ['#content', '.fu-table-scroll', '.table-wrap'].map(selector => {
+        const node = document.querySelector(selector);
+        return node ? {selector, top:node.scrollTop, left:node.scrollLeft} : null;
+      }).filter(Boolean);
       applied = true;
       void Promise.resolve(refresh(unpack(values))).then(() => {
         if (current()) {
+          scrolls.forEach(position => {
+            const node = document.querySelector(position.selector);
+            if (node) { node.scrollTop = position.top; node.scrollLeft = position.left; }
+          });
           const target = focus && document.getElementById(focus.id);
           if (target && (!document.activeElement || document.activeElement === active || document.activeElement === document.body)) {
             target.focus({preventScroll:true});
