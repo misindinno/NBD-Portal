@@ -38,7 +38,6 @@ async function openMirrorSheet(name) {
     if (request !== sheetMirrorView.request || App.currentPage !== 'sheetdata') return;
     sheetMirrorView.data = data; sheetMirrorView.page = 1; sheetMirrorView.search = '';
     el('mirror-preview').innerHTML = `<h3>${escapeHtml(name)}</h3><p id="mirror-schema-note"></p><label>Search saved rows <input id="mirror-search" class="form-control" style="max-width:360px"></label><div id="mirror-rows" class="table-wrap" style="margin-top:16px;max-height:65vh;overflow:auto"></div><div style="display:flex;gap:12px;margin-top:12px"><button id="mirror-prev" class="btn btn-outlined">Previous</button><span id="mirror-page"></span><button id="mirror-next" class="btn btn-outlined">Next</button></div>`;
-    el('mirror-schema-note').textContent = data.headers.length + ' columns · ' + data.rowCount + ' authorized rows · ' + (data.redactedColumns.length ? data.redactedColumns.length + ' sensitive columns redacted' : 'Original column order') + ' · Values only; formulas use their calculated results.';
     el('mirror-search').oninput = event => { sheetMirrorView.search = event.target.value; sheetMirrorView.page = 1; renderMirrorRows(); };
     el('mirror-prev').onclick = () => { sheetMirrorView.page--; renderMirrorRows(); };
     el('mirror-next').onclick = () => { sheetMirrorView.page++; renderMirrorRows(); };
@@ -48,6 +47,7 @@ async function openMirrorSheet(name) {
 function renderMirrorRows() {
   const { data, search } = sheetMirrorView;
   if (!data) return;
+  el('mirror-schema-note').textContent = data.headers.length + ' columns · ' + data.rowCount + ' authorized rows · ' + (data.redactedColumns.length ? data.redactedColumns.length + ' sensitive columns redacted' : 'Original column order') + ' · Values only; formulas use their calculated results.';
   const filtered = data.rows.filter(row => !search || row.cells.some(value => String(value == null ? '' : value).toLowerCase().includes(search.toLowerCase())));
   const pages = Math.max(1, Math.ceil(filtered.length / 50));
   sheetMirrorView.page = Math.max(1, Math.min(sheetMirrorView.page, pages));

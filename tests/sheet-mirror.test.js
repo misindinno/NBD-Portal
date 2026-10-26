@@ -1,5 +1,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const { mirrorFixture, mirrorClient } = require('./helpers/sheet-mirror-fixture');
+const vm = require('node:vm');
+const { read } = require('./helpers/lead-cache-fixture');
 const plain = value => JSON.parse(JSON.stringify(value));
 
 test('full sheet mirrors preserve actual header order, duplicate headers/rows, blanks and scalar/date types', async () => {
@@ -148,4 +150,17 @@ test('sensitive custom-field/config values do not bypass header redaction', asyn
   assert.equal((await b.client.readSheet('CONFIG')).rows.length,1);
   assert.equal((await b.client.readSheet('LEAD_FIELD_VALUES')).rows.length,0);
   assert.ok(!JSON.stringify([...b.stores.values()].flatMap(s=>[...s.data.values()])).includes('NEVER_EXPORT'));
+});
+
+test('background schema changes update the local table and visible column/row counts', () => {
+  const nodes = new Map();
+  const c=vm.createContext({ App:{currentPage:'sheetdata'},
+    el:id=>{if(!nodes.has(id))nodes.set(id,{});return nodes.get(id);}, escapeHtml:String,
+    SheetMirror:{status:()=>({enabled:true,sheets:[],excluded:[]})} });
+  vm.runInContext(read('src/SheetMirrorView.html').replace(/^<script>\s*/,'').replace(/<\/script>\s*$/,''),c);
+  vm.runInContext("sheetMirrorView.name='CONFIG';sheetMirrorView.data={headers:['Value'],rowCount:1,redactedColumns:[],rows:[{rowNumber:2,cells:['Old']} ]};renderMirrorRows();",c);
+  assert.match(nodes.get('mirror-schema-note').textContent,/1 columns · 1 authorized rows/);
+  c.renderSheetMirrorStatus({name:'CONFIG',records:[{value:{headers:['Value','Added'],rowCount:0,redactedColumns:[]}}]});
+  assert.match(nodes.get('mirror-schema-note').textContent,/2 columns · 0 authorized rows/);
+  assert.match(nodes.get('mirror-rows').innerHTML,/>Added<\/th>/);
 });
