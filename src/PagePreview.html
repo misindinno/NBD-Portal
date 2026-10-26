@@ -1,0 +1,268 @@
+<script>
+// Explicit screen reads only. No writes, tokens, credentials, delivery bodies or
+// arbitrary API responses enter this cache. Live server validators still own saves.
+const PAGE_PREVIEW_READS = new Set([
+  'apiGetLeads','apiGetTodayActivitySnapshot','apiGetFollowupPageSnapshot',
+  'apiGetArchiveData','apiGetArchiveSuggestions','apiGetLostArchiveLeads',
+  'apiGetCallLogs','apiGetClientCallReport','apiClientFactoryVisitList',
+  'apiClientFactoryVisitOptions','apiVisitManagement','apiGetBulkConfig',
+  'apiGetAllStages','apiGetAllConfigs','apiGetAllFieldConfigs','apiGetCallWebhook',
+  'apiGetAppConfig','apiGetUsers','apiGetLead','apiGetLeadFieldValues',
+  'apiGetFollowups','apiGetFollowupHistory','apiGetLeadActivityLogs','apiGetFollowupLeads',
+  'apiGetFollowupFormData','apiGetCallMappingContext','apiGetFsrVisitHistory',
+  'apiClientFactoryVisitHistory','apiGetNavigationSummary','apiGlobalSearch',
+  'apiGetNbdAssignableUsers','apiGetNbdPushContext'
+]);
+function pagePreviewCanonical(value) {
+  if (Array.isArray(value)) return value.map(pagePreviewCanonical);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, pagePreviewCanonical(value[key])]));
+}
+function pagePreviewSafe(value) {
+  if (value === null || ['string','boolean'].includes(typeof value)) return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(pagePreviewSafe);
+  if (!value || typeof value !== 'object') return false;
+  const secret = /password|passwd|secret|credential|authorization|cookie|session|token|api[ _-]?key|__proto__|constructor|prototype|requestPayload|responseBody/i;
+  if (secret.test(String(value['Config Type'] || value['Column Key'] || ''))) return false;
+  return Object.keys(value).every(key => !secret.test(key) && pagePreviewSafe(value[key]));
+}
+function createPagePreviewCache({ storage, fallback = async () => null, now = () => Date.now() }) {
+  let identity = null, epoch = 0;
+  const memory = new Map();
+  const writes = new Map();
+  const same = other => identity && other && ['schema','portal','user','scope'].every(key => identity[key] === other[key]);
+  const keyFor = endpoint => JSON.stringify([identity.schema, identity.portal, identity.user, 'page-preview', endpoint]);
+  const requestKey = args => JSON.stringify(pagePreviewCanonical(args));
+  const safe = async (method, value) => { try { return await storage[method](value); } catch (_) { return null; } };
+  async function digest(value) {
+    try { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(pagePreviewCanonical(value))))), b => b.toString(16).padStart(2,'0')).join(''); }
+    catch (_) { return ''; }
+  }
+  function bind(value) { epoch++; memory.clear(); if (storage.cancel) storage.cancel(); identity = value && value.portal && value.user && /^[a-f0-9]{64}$/.test(value.scope) ? { ...value } : null; }
+  async function get(endpoint, args) {
+    if (!identity || !PAGE_PREVIEW_READS.has(endpoint)) return null;
+    const session = epoch, context = { ...identity }, query = requestKey(args);
+    const remembered = memory.get(endpoint + query);
+    if (remembered && now() - Date.parse(remembered.verifiedAt) < 7 * 86400000) return structuredClone(remembered);
+    const cached = await safe('get', keyFor(endpoint));
+    if (session !== epoch) return null;
+    if (cached && cached.complete === true && same(cached.identity) && cached.requestKey === query &&
+        pagePreviewSafe(cached.data) && now() - Date.parse(cached.verifiedAt) < 7 * 86400000 && Date.parse(cached.verifiedAt) <= now() + 60000) {
+      const hash = await digest({ scope: context.scope, query, data: cached.data });
+      if (hash && hash === cached.digest && session === epoch) {
+        const result = { data: structuredClone(cached.data), verifiedAt: cached.verifiedAt };
+        memory.set(endpoint + query, result); return structuredClone(result);
+      }
+    }
+    const previous = await fallback(endpoint, args);
+    if (session !== epoch || !previous || !pagePreviewSafe(previous.data) ||
+        !(now() - Date.parse(previous.verifiedAt) < 7 * 86400000)) return null;
+    // Migrate an existing verified module snapshot to the screen cache before use.
+    if (previous) { const data = await capture(endpoint, args, previous.data, session, previous.verifiedAt); return { data, verifiedAt: previous.verifiedAt }; }
+    return null;
+  }
+  async function put(endpoint, args, data, session = epoch, verifiedAt = new Date(now()).toISOString()) {
+    if (!identity || session !== epoch || !PAGE_PREVIEW_READS.has(endpoint) || !pagePreviewSafe(data)) throw new Error('CACHE_CANCELLED');
+    const context = { ...identity }, key = keyFor(endpoint), query = requestKey(args);
+    if (JSON.stringify(data).length > 20000000) throw new Error('This page exceeds the browser snapshot size limit. Narrow its filters.');
+    const hash = await digest({ scope: context.scope, query, data });
+    if (!hash || session !== epoch) throw new Error('Browser integrity verification is unavailable.');
+    // A failed transaction must not silently fall back to rendering network data.
+    await storage.put({ key, identity: context, requestKey: query, data: structuredClone(data), digest: hash, complete: true, verifiedAt });
+    if (session !== epoch) throw new Error('CACHE_CANCELLED');
+    memory.delete(endpoint + query);
+  }
+  function capture(endpoint, args, data, generation = epoch, verifiedAt) {
+    const task = (writes.get(endpoint) || Promise.resolve()).catch(() => {}).then(() => captureNow(endpoint, args, data, generation, verifiedAt));
+    writes.set(endpoint, task);
+    return task.finally(() => { if (writes.get(endpoint) === task) writes.delete(endpoint); });
+  }
+  async function captureNow(endpoint, args, data, generation, verifiedAt) {
+    // Secret fields are never stored, including credentials returned by legacy
+    // staff/configuration endpoints. They are not needed to render these screens.
+    function clean(value) {
+      if (Array.isArray(value)) return value.filter(item => !(item && /password|secret|token|credential|api[ _-]?key/i.test(String(item['Config Type'] || item['Column Key'] || '')))).map(clean);
+      if (!value || typeof value !== 'object') return value;
+      return Object.fromEntries(Object.entries(value).filter(([key, item]) => item !== undefined && !/password|passwd|secret|credential|authorization|cookie|session|token|api[ _-]?key|__proto__|constructor|prototype|requestPayload|responseBody/i.test(key)).map(([key,item]) => [key,clean(item)]));
+    }
+    const staffFields = new Set(['ID','User ID','Name','Title','Email','Email Address','Department','Permission','Role','Allowed Modules','Can Edit Config','Can Manage Users','Is Active']);
+    const safeData = clean(endpoint === 'apiGetUsers' && Array.isArray(data)
+      ? data.map(row => Object.fromEntries(Object.entries(row).filter(([key]) => staffFields.has(key)))) : data);
+    if (!identity || generation !== epoch || !pagePreviewSafe(safeData)) throw new Error('Page data could not be stored safely.');
+    await put(endpoint, args, safeData, generation, verifiedAt);
+    const stored = await safe('get', keyFor(endpoint));
+    if (generation !== epoch) throw new Error('CACHE_CANCELLED');
+    const query = requestKey(args);
+    if (!stored || !same(stored.identity) || stored.requestKey !== query || !stored.complete ||
+        !stored.digest || stored.digest !== await digest({ scope: identity.scope, query, data: stored.data })) throw new Error('IndexedDB could not save this page. Free browser storage and retry.');
+    const result = { data: structuredClone(stored.data), verifiedAt: stored.verifiedAt };
+    memory.set(endpoint + query, result);
+    if (memory.size > 48) memory.delete(memory.keys().next().value);
+    return structuredClone(result.data);
+  }
+  return { bind, get, put, capture, handles: endpoint => !!identity && PAGE_PREVIEW_READS.has(endpoint), generation: () => epoch, enabled: () => !!identity,
+    // Keep the last complete disk generation as a labelled preview while a write
+    // is reconciled. Authorization loss uses reset + the shared private DB purge.
+    async invalidate() { epoch++; memory.clear(); if (storage.cancel) storage.cancel(); },
+    reset() { bind(null); }
+  };
+}
+
+const PagePreview = createPagePreviewCache({ storage: createLeadSnapshotStorage(leadIndexedDb_()),
+  fallback: async (endpoint, args) => {
+    if (endpoint === 'apiGetLeads' && LeadReadCache.enabled()) return LeadReadCache.preview();
+    if (PortalReadCache.handles(endpoint)) return PortalReadCache.preview(endpoint, args[0] || {}, {
+      users: App.config.users || [], userNameMap: App.config.userNameMap || {}, hosts: App.config.users || []
+    });
+    return null;
+  }
+});
+let pagePreviewNavigation = 0, pagePreviewEdits = 0, pagePreviewPending = 0;
+const pagePreviewRequests = new Map();
+const pagePreviewNetwork = new Map();
+let pagePreviewWarmup = [], pagePreviewBackgroundRunning = false, pagePreviewStatusText = '', pagePreviewRefreshAction = null, pagePreviewWarmupGeneration = 0;
+function fetchPagePreview(endpoint, args) {
+  const key = JSON.stringify([PagePreview.generation(), endpoint, pagePreviewCanonical(args)]);
+  if (!pagePreviewNetwork.has(key)) {
+    const task = api._authedRead(endpoint, ...args).finally(() => { if (pagePreviewNetwork.get(key) === task) pagePreviewNetwork.delete(key); });
+    pagePreviewNetwork.set(key, task);
+  }
+  return pagePreviewNetwork.get(key);
+}
+function beginPagePreview() {
+  pagePreviewNavigation++; pagePreviewEdits++; pagePreviewRequests.clear();
+  pagePreviewStatusText = ''; pagePreviewRefreshAction = null;
+  const notice = document.getElementById('page-preview-status'); if (notice) notice.remove();
+}
+document.addEventListener('input', () => { pagePreviewEdits++; }, true);
+document.addEventListener('change', () => { pagePreviewEdits++; }, true);
+document.addEventListener('click', event => { if (event.target.closest && event.target.closest('#content')) pagePreviewEdits++; }, true);
+function pagePreviewNotice(text, refresh) {
+  pagePreviewStatusText = text; pagePreviewRefreshAction = refresh || null;
+  renderPageSyncCard();
+}
+function renderPageSyncCard() {
+  const footer = document.querySelector('#sidebar .sb-footer'); if (!footer || !App.user) return;
+  let card = document.getElementById('page-sync-card');
+  if (!card) { card = document.createElement('section'); card.id = 'page-sync-card'; card.className = 'sb-sync-card'; footer.before(card); }
+  const done = pagePreviewWarmup.filter(item => item.state === 'ready').length;
+  const failed = pagePreviewWarmup.filter(item => item.state === 'error').length;
+  const active = pagePreviewWarmup.find(item => item.state === 'syncing');
+  card.innerHTML = '<button type="button" class="sb-sync-open" aria-label="Data sync details"><strong>Data sync</strong><span>' + done + ' / ' + pagePreviewWarmup.length + ' ready' + (failed ? ' · ' + failed + ' need retry' : '') + '</span><progress max="' + Math.max(1,pagePreviewWarmup.length) + '" value="' + done + '"></progress></button><p role="status"></p>';
+  card.querySelector('p').textContent = active ? 'Syncing ' + active.label + ' in background' : pagePreviewStatusText || 'Saved data is available for page changes.';
+  card.querySelector('button').onclick = showPageSyncDetails;
+  if (pagePreviewRefreshAction) {
+    const action = document.createElement('button'); action.type = 'button'; action.className = 'sb-sync-update'; action.textContent = 'Show updated view'; action.onclick = pagePreviewRefreshAction; card.append(action);
+  }
+  const details = document.getElementById('page-sync-details');
+  if (details) details.innerHTML = pageSyncDetailsHtml();
+}
+function pageSyncDetailsHtml() {
+  return '<p>Current page: ' + escapeHtml(pagePreviewStatusText || 'Using saved browser data') + '</p><table style="width:100%;text-align:left"><thead><tr><th>Page data</th><th>Status</th><th>Last synced</th></tr></thead><tbody>' + pagePreviewWarmup.map(item => '<tr><td style="padding:8px">' + escapeHtml(item.label) + '</td><td>' + escapeHtml(item.error || item.state) + '</td><td>' + (item.verifiedAt ? escapeHtml(new Date(item.verifiedAt).toLocaleTimeString()) : '—') + '</td></tr>').join('') + '</tbody></table>';
+}
+function showPageSyncDetails() {
+  showModal('<div class="modal-header"><h2>Browser data sync</h2><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div><div class="modal-body"><p>Google Sheets → IndexedDB → Screen. Other pages prepare in the background without replacing your current view.</p><div id="page-sync-details">' + pageSyncDetailsHtml() + '</div><button id="page-sync-retry" type="button" class="btn btn-outlined">Retry incomplete pages</button></div>');
+  document.getElementById('page-sync-retry').onclick = () => { pagePreviewWarmup.forEach(item => { if (item.state === 'error') item.state = 'waiting'; }); startPagePreviewBackground(); };
+}
+// Returns a saved preview without waiting for the RPC. A single subsequent render
+// receives the fresh data directly, so refreshing cannot start a request loop.
+async function pagePreviewRead(endpoint, args = [], refresh, options = {}) {
+  const reads = Array.isArray(endpoint) ? endpoint : [[endpoint, args]];
+  const navigation = pagePreviewNavigation, edits = pagePreviewEdits, page = App.currentPage;
+  const requestId = {}, slot = options.slot || reads.map(read => read[0]).join('|');
+  pagePreviewRequests.set(slot, requestId);
+  const current = () => navigation === pagePreviewNavigation && page === App.currentPage && pagePreviewRequests.get(slot) === requestId && (!options.current || options.current());
+  const generation = PagePreview.generation();
+  const cached = await Promise.all(reads.map(([fn, params]) => PagePreview.get(fn, params).catch(() => null)));
+  if (!current()) throw new Error('CACHE_CANCELLED');
+  const hasPreview = cached.every(Boolean);
+  const unpack = values => Array.isArray(endpoint) ? values : values[0];
+  pagePreviewPending++;
+  const fresh = Promise.all(reads.map(async ([fn, params]) => {
+    const data = await fetchPagePreview(fn, params);
+    return data;
+  })).finally(() => { pagePreviewPending--; });
+  if (!hasPreview) return unpack(await fresh);
+  if (current()) pagePreviewNotice('Saved preview · Last synced ' + new Date(Math.min(...cached.map(value => Date.parse(value.verifiedAt)))).toLocaleString() + ' · Updating in background…');
+  void fresh.then(values => {
+    // Let the awaiting page finish its first render before applying the update.
+    setTimeout(() => {
+      if (!current() || generation !== PagePreview.generation()) return;
+      const apply = refresh && (() => {
+        if (!current()) return;
+        void Promise.resolve(refresh(unpack(values))).catch(error => pagePreviewNotice('Updated data is saved. Reopen this page to view it.'));
+        pagePreviewNotice('Up to date · ' + new Date().toLocaleTimeString());
+      });
+      const editing = pagePreviewEdits !== edits || document.querySelector('.modal-overlay, #cfv-form-panel:not([hidden]), details[open] form') ||
+        document.activeElement && document.activeElement.matches('input,select,textarea,[contenteditable="true"]');
+      if (apply && !editing) apply();
+      else pagePreviewNotice('Updated data saved. ' + (apply ? 'Your current view has been kept.' : 'Reopen this page to use the latest data.'), apply);
+    }, 0);
+  }).catch(error => {
+    if (!current()) return;
+    if (/SESSION_EXPIRED|ACCESS[_ ]DENIED|FORBIDDEN|CACHE_SCOPE_CHANGED|CACHE_DISABLED|Permission denied/i.test(error.message + ' ' + (error.code || ''))) {
+      void lockPrivateReadCache();
+    } else pagePreviewNotice('Saved preview · Background refresh failed. Data may be out of date. Use Refresh to retry.');
+  });
+  return unpack(cached.map(value => value.data));
+}
+
+async function preparePagePreviews(initialPage) {
+  const reads = [];
+  const add = (page, fn, args = []) => { if (canNavigate(page)) reads.push([fn, args, page]); };
+  add('today','apiGetTodayActivitySnapshot'); add('leads','apiGetLeads');
+  add('followups','apiGetFollowupPageSnapshot',[{includeHistory:true}]);
+  add('calls','apiGetCallLogs',[{search:'',from:'',to:'',caller:'all',type:'all',leadId:'',status:'all',page:1}]);
+  add('callreport','apiGetClientCallReport',[{page:1}]);
+  add('clientfactoryvisits','apiClientFactoryVisitOptions'); add('clientfactoryvisits','apiClientFactoryVisitList',[{page:1}]);
+  add('visitmanagement','apiVisitManagement',[{search:'',status:'',page:1}]);
+  add('archive','apiGetArchiveData'); add('archive','apiGetArchiveSuggestions'); add('archive','apiGetLostArchiveLeads');
+  add('bulkview','apiGetBulkConfig'); add('webhooks','apiGetCallWebhook');
+  add('followups','apiGetFollowupFormData');
+  if (App.user.canEditConfig) { add('config','apiGetAllStages'); add('config','apiGetAllConfigs'); add('config','apiGetAllFieldConfigs',['']); }
+  if (App.user.canManageUsers) add('config','apiGetUsers');
+  const labels = {today:"Today's Activity",leads:'Leads / Pipeline',followups:'Follow-ups',calls:'Calls',callreport:'Client call totals',clientfactoryvisits:'Client / Factory visits',visitmanagement:'Visits',archive:'Archive',bulkview:'Bulk Entry',webhooks:'Webhooks',config:'Configuration'};
+  pagePreviewWarmupGeneration++; pagePreviewBackgroundRunning = false;
+  pagePreviewWarmup = reads.map(([fn,args,page]) => ({fn,args,page,label:labels[page] || page,state:'waiting',error:'',verifiedAt:''}));
+  const first = String(initialPage || '').startsWith('followups') ? 'followups' : initialPage === 'pipeline' ? 'leads' : initialPage;
+  const required = pagePreviewWarmup.filter(item => item.page === first && item.fn !== 'apiGetFollowupFormData');
+  document.getElementById('content').innerHTML = '<section class="card" id="startup-data-progress" style="padding:32px;margin:24px"><h2>Opening your page</h2><p>Preparing ' + escapeHtml(labels[first] || 'your workspace') + '. Other pages will sync in the background.</p></section>';
+  renderPageSyncCard();
+  pagePreviewPending++;
+  try {
+    await Promise.all(required.map(preparePagePreviewItem));
+    if (first === 'bulkview' && typeof ensureBulkLibs === 'function') await ensureBulkLibs();
+  }
+  finally { pagePreviewPending--; }
+  window.__PAGE_PREVIEW_READY = true;
+}
+async function preparePagePreviewItem(item) {
+  item.state = 'syncing'; item.error = ''; renderPageSyncCard();
+  try {
+    let stored = await PagePreview.get(item.fn,item.args);
+    if (!stored) { await fetchPagePreview(item.fn,item.args); stored = await PagePreview.get(item.fn,item.args); }
+    if (!stored) throw new Error('No complete browser snapshot was saved.');
+    item.state = 'ready'; item.verifiedAt = stored.verifiedAt;
+  } catch (error) {
+    item.state = 'error'; item.error = error.message;
+    if (/SESSION_EXPIRED|CACHE_SCOPE_CHANGED/.test(error.message)) throw error;
+    if (window.PortalDiagnostics) window.PortalDiagnostics.record('startup.preview-unavailable', {page:item.page,operation:item.fn,message:error.message}, 'warn');
+  }
+  renderPageSyncCard();
+}
+function startPagePreviewBackground() {
+  if (pagePreviewBackgroundRunning || !PagePreview.enabled()) return;
+  pagePreviewBackgroundRunning = true;
+  const generation = pagePreviewWarmupGeneration;
+  const runNext = async () => {
+    if (generation !== pagePreviewWarmupGeneration || !PagePreview.enabled()) { pagePreviewBackgroundRunning = false; return; }
+    if (pagePreviewPending > 0 || document.hidden || !navigator.onLine) { setTimeout(runNext,1500); return; }
+    const item = pagePreviewWarmup.find(item => item.state === 'waiting');
+    if (!item) { pagePreviewBackgroundRunning = false; renderPageSyncCard(); refreshSheetMirror(); return; }
+    try { await preparePagePreviewItem(item); } catch (_) { pagePreviewBackgroundRunning = false; return; }
+    setTimeout(runNext,200);
+  };
+  setTimeout(runNext,0);
+}
+</script>

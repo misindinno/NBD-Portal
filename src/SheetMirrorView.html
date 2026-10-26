@@ -26,15 +26,16 @@ function renderSheetMirrorStatus(event) {
     <td>${sheet.verifiedAt ? escapeHtml(new Date(sheet.verifiedAt).toLocaleString()) : '—'}</td><td><button class="btn btn-outlined btn-sm" data-sheet="${escapeHtml(sheet.name)}">View rows</button></td></tr>`).join('')}</tbody></table>`;
   el('mirror-excluded').textContent = 'Staff credentials, internal queues, receipts and logs are not mirrored. Sensitive columns are marked as redacted.' + (status.excluded.length ? ' Other tabs excluded: ' + status.excluded.join(', ') : '');
   if (sheetMirrorView.data && status.sheets.some(sheet => sheet.name === sheetMirrorView.name && sheet.state === 'error')) {
-    sheetMirrorView.data = null; el('mirror-preview').textContent = 'This sheet could not be revalidated. Select it again to retry.';
+    pagePreviewNotice('Saved sheet preview · Background sync failed. Use Sync now to retry.');
   }
 }
 async function openMirrorSheet(name) {
   const request = ++sheetMirrorView.request;
   sheetMirrorView.name = name; sheetMirrorView.data = null;
-  el('mirror-preview').textContent = 'Verifying access and reading the complete sheet from IndexedDB…';
+  if (!window.__PAGE_PREVIEW_READY) el('mirror-preview').textContent = 'Reading the complete sheet from IndexedDB…';
   try {
-    const data = await SheetMirror.readSheet(name);
+    const cached = await SheetMirror.previewSheet(name);
+    const data = cached || await SheetMirror.readSheet(name);
     if (request !== sheetMirrorView.request || App.currentPage !== 'sheetdata') return;
     sheetMirrorView.data = data; sheetMirrorView.page = 1; sheetMirrorView.search = '';
     el('mirror-preview').innerHTML = `<h3>${escapeHtml(name)}</h3><p id="mirror-schema-note"></p><label>Search saved rows <input id="mirror-search" class="form-control" style="max-width:360px"></label><div id="mirror-rows" class="table-wrap" style="margin-top:16px;max-height:65vh;overflow:auto"></div><div style="display:flex;gap:12px;margin-top:12px"><button id="mirror-prev" class="btn btn-outlined">Previous</button><span id="mirror-page"></span><button id="mirror-next" class="btn btn-outlined">Next</button></div>`;
@@ -42,6 +43,13 @@ async function openMirrorSheet(name) {
     el('mirror-prev').onclick = () => { sheetMirrorView.page--; renderMirrorRows(); };
     el('mirror-next').onclick = () => { sheetMirrorView.page++; renderMirrorRows(); };
     renderMirrorRows();
+    if (cached) {
+      pagePreviewNotice('Saved sheet preview · Last synced ' + new Date(cached.verifiedAt).toLocaleString() + ' · Updating in background…');
+      void SheetMirror.readSheet(name).then(fresh => {
+        if (request !== sheetMirrorView.request || App.currentPage !== 'sheetdata') return;
+        sheetMirrorView.data = fresh; renderMirrorRows(); pagePreviewNotice('Up to date · ' + new Date().toLocaleTimeString());
+      }).catch(() => { if (request === sheetMirrorView.request && App.currentPage === 'sheetdata') pagePreviewNotice('Saved sheet preview · Background refresh failed. Use Sync now to retry.'); });
+    }
   } catch (e) { if (request === sheetMirrorView.request && App.currentPage === 'sheetdata') el('mirror-preview').textContent = e.message; }
 }
 function renderMirrorRows() {

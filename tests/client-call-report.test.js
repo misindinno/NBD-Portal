@@ -201,6 +201,7 @@ test('report UI route uses Reports permission and displays escaped, separate tot
   const { report } = setup({ leads: [lead('001', { 'Company Name': '<img src=x onerror=bad()>' })] });
   const elements = new Map();
   const ui = vm.createContext({ App: { currentPage: 'callreport' }, el: id => { if (!elements.has(id)) elements.set(id, {}); return elements.get(id); }, skeletonPage: () => 'loading', escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'), api: { _authedRead: async () => report() } });
+  ui.window = {}; ui.pagePreviewRead = (fn, args) => ui.api._authedRead(fn, ...args);
   vm.runInContext(read('src/ClientCallReport.html').replace(/^<script>\s*/, '').replace(/<\/script>\s*$/, ''), ui);
   await ui.loadClientCallReport();
   const html = elements.get('content').innerHTML;
@@ -215,6 +216,7 @@ test('late report responses cannot overwrite a newer request or another route', 
   const pending = [], box = {};
   const { report } = setup();
   const ui = vm.createContext({ App: { currentPage: 'callreport' }, el: () => box, skeletonPage: () => 'loading', escapeHtml: String, api: { _authedRead: () => new Promise(resolve => pending.push(resolve)) } });
+  ui.window = {}; ui.pagePreviewRead = (fn, args) => ui.api._authedRead(fn, ...args);
   vm.runInContext(read('src/ClientCallReport.html').replace(/^<script>\s*/, '').replace(/<\/script>\s*$/, ''), ui);
   const first = ui.loadClientCallReport(), second = ui.loadClientCallReport();
   pending[1](report()); await second;
@@ -236,6 +238,7 @@ test('background report refresh keeps the loaded table and does not interrupt a 
     if (!elements.has(id)) elements.set(id, {});
     return elements.get(id);
   }, skeletonPage: () => 'loading', escapeHtml: String, api: { _authedRead: () => new Promise((resolve, reject) => pending.push({ resolve, reject })) } });
+  ui.window = {}; ui.pagePreviewRead = (fn, args) => ui.api._authedRead(fn, ...args);
   vm.runInContext(read('src/ClientCallReport.html').replace(/^<script>\s*/, '').replace(/<\/script>\s*$/, ''), ui);
   const first = ui.loadClientCallReport();
   await ui.loadClientCallReport({ background: true });

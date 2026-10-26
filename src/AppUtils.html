@@ -221,6 +221,7 @@ function tableRowsSkeleton(rows = 8, columns = 6) {
 }
 
 function beginTableLoading(target, options = {}) {
+  if (window.__PAGE_PREVIEW_READY) return () => {};
   const host = typeof target === 'string' ? el(target) : target;
   if (!host) return () => {};
   const previous = host.querySelector('.table-loading-overlay');
@@ -244,6 +245,7 @@ function beginTableLoading(target, options = {}) {
 }
 
 function setContentLoading(type = 'table') {
+  if (window.__PAGE_PREVIEW_READY) return;
   const c = el('content');
   if (!c) return;
   c.removeAttribute('style');

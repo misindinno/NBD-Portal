@@ -18,9 +18,11 @@ function _todayCardClick(key) {
 }
 window._todayCardClick = _todayCardClick;
 
-async function loadToday() {
+async function loadToday(prefetched) {
   const request = ++_todaySnapshotRequest;
-  el('content').innerHTML = `<div id="today-wrap">${skeletonPage('today')}</div>`;
+  const previousRange = prefetched && window._todayRange;
+  const previousInputs = prefetched ? ['td-from','td-to','td-user','td-type'].map(id => [id, el(id)?.value || '']) : [];
+  if (!el('today-wrap')) el('content').innerHTML = `<div id="today-wrap">${window.__PAGE_PREVIEW_READY ? '' : skeletonPage('today')}</div>`;
 
   // First load right after bootstrap: leads + follow-ups are already cached. Paint
   // immediately from them, then fetch only history + activity logs in the background
@@ -40,7 +42,7 @@ async function loadToday() {
 
   // Normal open / manual refresh: always fetch a fresh snapshot.
   try {
-    const snapshot = await api.getTodayActivitySnapshot();
+    const snapshot = prefetched || await pagePreviewRead('apiGetTodayActivitySnapshot', [], data => loadToday(data), { current: () => request === _todaySnapshotRequest });
     if (request !== _todaySnapshotRequest || App.currentPage !== 'today') return;
     AppCache.setRows('leads', snapshot.leads || []);
     AppCache.setRows('followups', snapshot.followups || []);
@@ -48,6 +50,7 @@ async function loadToday() {
     AppCache.setRows('activityLogs', snapshot.activityLogs || []);
     if (App.currentPage !== 'today') return;
     _renderToday();
+    if (prefetched) { previousInputs.forEach(([id,value]) => { if (el(id)) el(id).value = value; }); if (previousRange) _todaySetRange(previousRange); else _todayApply(); }
     return;
   } catch (e) {
     if (request !== _todaySnapshotRequest || App.currentPage !== 'today') return;

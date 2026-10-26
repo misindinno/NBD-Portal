@@ -28,7 +28,7 @@ async function loadConfig() {
     <div class="tabs">
       ${tabs.map(([id, label], i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" onclick="switchConfigTab(this,'${id}')">${label}</button>`).join('')}
     </div>
-    ${tabs.map(([id], i) => `<div id="${id}" style="${i === 0 ? '' : 'display:none'}">${i === 0 ? skeletonPage(id === 'cfg-stages' ? 'cards' : 'table') : ''}</div>`).join('')}`;
+      ${tabs.map(([id], i) => `<div id="${id}" style="${i === 0 ? '' : 'display:none'}">${i === 0 && !window.__PAGE_PREVIEW_READY ? skeletonPage(id === 'cfg-stages' ? 'cards' : 'table') : ''}</div>`).join('')}`;
   renderIcons();
   if (activeTab === 'cfg-settings') loadPortalSettings();
   if (activeTab === 'cfg-stages') loadStagesConfig();

@@ -367,7 +367,7 @@ function _fuHasValidLead(row, ctx) {
   return !!leadId && !!(ctx && ctx.leadMap && ctx.leadMap[leadId]);
 }
 
-async function _renderFUTab(tab, force = false) {
+async function _renderFUTab(tab, force = false, prefetched) {
   const body = el('fu-body');
   if (!body) return;
   const seq = ++_fuLoadSeq;
@@ -375,7 +375,7 @@ async function _renderFUTab(tab, force = false) {
   const finishLoading = needsFetch ? beginTableLoading(body, { rows: 9, columns: 7 }) : () => {};
 
   try {
-    const snapshot = await _getFollowupPageSnapshot(force, { includeHistory: true });
+    const snapshot = await _getFollowupPageSnapshot(force, { includeHistory: true, prefetched, previewRefresh: data => _renderFUTab(tab, true, data), previewCurrent: () => seq === _fuLoadSeq });
     if (seq !== _fuLoadSeq || !_fuRouteIsActive()) return;
     const todayStr = localDateInputValue();
     let rows;
@@ -435,6 +435,7 @@ async function _renderFUTab(tab, force = false) {
 }
 async function _getFollowupPageSnapshot(force = false, options = {}) {
   const includeHistory = !!options.includeHistory;
+  if (options.prefetched || options.previewRefresh) force = true;
   if (typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled()) force = true;
   if (!force && _fuPageSnapshot && (!includeHistory || _fuPageSnapshot.includeHistory)) return _fuPageSnapshot;
   if (!force && _fuSnapshotRequest && (!includeHistory || _fuSnapshotRequest.includeHistory)) {
@@ -444,7 +445,9 @@ async function _getFollowupPageSnapshot(force = false, options = {}) {
   const requestId = ++_fuSnapshotRequestId;
   const promise = (async () => {
     const started = performance.now();
-    const data = await api.getFollowupPageSnapshot({ includeHistory });
+    const data = options.prefetched || (options.previewRefresh
+      ? await pagePreviewRead('apiGetFollowupPageSnapshot', [{ includeHistory }], options.previewRefresh, { current: options.previewCurrent })
+      : await api.getFollowupPageSnapshot({ includeHistory }));
     const snapshot = {
       leads: data.leads || [],
       followups: data.followups || [],

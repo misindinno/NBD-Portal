@@ -410,14 +410,14 @@ const BulkView = (() => {
   async function load() {
     el('content').innerHTML = _html();
     renderIcons(el('content'));
-    el('bulk-hot').innerHTML = '<div class="bulk-grid-loading">Loading bulk editor…</div>';
+    if (!window.__PAGE_PREVIEW_READY) el('bulk-hot').innerHTML = '<div class="bulk-grid-loading">Loading bulk editor…</div>';
     const ready = await ensureBulkLibs();
     if (!ready || typeof Handsontable === 'undefined') {
       el('bulk-hot').innerHTML = '<div style="padding:24px;color:#991b1b">Bulk editor could not load. Check your network and reload the page.</div>';
       return;
     }
-    el('bulk-hot').innerHTML = '<div class="bulk-grid-loading">Loading Excel view...</div>';
-    config = await api.getBulkConfig();
+    if (!window.__PAGE_PREVIEW_READY) el('bulk-hot').innerHTML = '<div class="bulk-grid-loading">Loading Excel view...</div>';
+    config = await pagePreviewRead('apiGetBulkConfig', [], null);
     _updateModeUI();
     _fillAssignUserOptions();
 

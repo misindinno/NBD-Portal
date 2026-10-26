@@ -5,11 +5,11 @@
 let cfvQuery = { page: 1 }, cfvLoadId = 0, cfvOptions = null;
 const cfvStatuses = ['New','Scheduled','Completed','Cancelled','No-show'];
 function cfvOption(value, label, selected) { return `<option value="${escapeHtml(String(value))}" ${value === selected ? 'selected' : ''}>${escapeHtml(String(label))}</option>`; }
-async function loadClientFactoryVisits() {
+async function loadClientFactoryVisits(prefetched) {
   const request = ++cfvLoadId, box = el('content');
-  box.innerHTML = skeletonPage('table');
+  if (!window.__PAGE_PREVIEW_READY) box.innerHTML = skeletonPage('table');
   try {
-    const [options, data] = await Promise.all([api._authedRead('apiClientFactoryVisitOptions'), api._authedRead('apiClientFactoryVisitList', { ...cfvQuery })]);
+    const [options, data] = prefetched || await pagePreviewRead([['apiClientFactoryVisitOptions', []], ['apiClientFactoryVisitList', [{ ...cfvQuery }]]], [], data => loadClientFactoryVisits(data), { current: () => request === cfvLoadId });
     if (request !== cfvLoadId || App.currentPage !== 'clientfactoryvisits') return;
     cfvOptions = options;
     box.innerHTML = `<div class="card cfv-panel"><div class="cfv-toolbar"><h2>Client &amp; Factory Visits</h2>${options.canCreate && data.initialized ? '<button id="cfv-new" class="btn btn-primary">New booking</button>' : ''}<button id="cfv-refresh" class="btn btn-outlined">Refresh</button></div>

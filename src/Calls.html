@@ -31,15 +31,15 @@ function _mountCallsView(host, leadId) {
   _loadCallsPage(state);
 }
 
-async function _loadCallsPage(state) {
+async function _loadCallsPage(state, prefetched) {
   const host = state.host, target = host.querySelector('[data-call-results]');
   const form = host.querySelector('[data-call-filters]');
   const seq = ++state.sequence;
   const values = Object.fromEntries(new FormData(form));
   if (values.caller === 'anonymous') values.caller = '';
-  target.innerHTML = '<div class="card" style="padding:24px">Loading calls…</div>';
+  if (!window.__PAGE_PREVIEW_READY) target.innerHTML = '<div class="card" style="padding:24px">Loading calls…</div>';
   try {
-    const data = await api.getCallLogs({ ...values, leadId: state.leadId, status: state.status, page: state.page });
+    const data = prefetched || await pagePreviewRead('apiGetCallLogs', [{ ...values, leadId: state.leadId, status: state.status, page: state.page }], data => _loadCallsPage(state, data), { current: () => host.isConnected && seq === state.sequence });
     if (!host.isConnected || seq !== state.sequence) return;
     state.page = data.page;
     host.querySelectorAll('[data-call-status]').forEach(b => {

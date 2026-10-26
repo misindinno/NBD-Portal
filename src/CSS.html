@@ -1,4 +1,10 @@
 <style>
+  .sb-sync-card{margin:8px 12px;padding:12px;border:1px solid #ffffff35;border-radius:12px;background:#ffffff16;color:#fff;flex-shrink:0}
+  .sb-sync-open{display:flex;flex-direction:column;gap:6px;width:100%;padding:0;background:transparent;border:0;color:inherit;text-align:left;cursor:pointer}
+  .sb-sync-open span,.sb-sync-card p{font-size:11px;line-height:1.5;margin:4px 0 0;opacity:.9;overflow-wrap:anywhere}
+  .sb-sync-open progress{width:100%;height:5px;accent-color:#a5f3fc}
+  .sb-sync-update{margin-top:6px;font-size:11px;background:transparent;color:#fff;border:1px solid #ffffff70;border-radius:6px;padding:4px 7px;cursor:pointer}
+  #sidebar.collapsed .sb-sync-card{display:none}
   .remark-content { position:relative; padding-right:26px; min-height:24px; white-space:pre-wrap; overflow-wrap:anywhere; }
   .remark-copy { position:absolute; top:0; right:0; display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; margin:0; padding:0; border:0; border-radius:4px; color:var(--md-primary, #6366f1); background:transparent; cursor:pointer; opacity:.65; }
   .remark-copy:hover { opacity:1; background:transparent; }
@@ -125,10 +131,13 @@
 
   /* Nav */
   .sb-nav {
-    flex: 1; overflow-y: auto; overflow-x: hidden;
+    flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior-y: contain; scrollbar-width: thin; scrollbar-color: #ffffff55 transparent;
     padding: 8px 10px 12px; display: flex; flex-direction: column;
     position: relative; z-index: 1;
   }
+  .sb-nav > *, .sb-nav a { flex-shrink: 0; }
+  .sb-nav a { min-height: 44px; }
   .sb-nav::-webkit-scrollbar { width: 3px; }
   .sb-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
   .nav-section {

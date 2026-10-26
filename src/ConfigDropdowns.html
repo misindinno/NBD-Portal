@@ -1,8 +1,8 @@
 <script>
-async function loadDropdownsConfig() {
+async function loadDropdownsConfig(prefetched) {
   if (!el('cfg-dropdowns')) return;
-  el('cfg-dropdowns').innerHTML = skeletonPage('cards');
-  const configs = await api.getAllConfigs();
+  if (!window.__PAGE_PREVIEW_READY) el('cfg-dropdowns').innerHTML = skeletonPage('cards');
+  const configs = prefetched || await pagePreviewRead('apiGetAllConfigs', [], data => loadDropdownsConfig(data));
   const types = [...new Set(configs.map(c => c['Config Type']))];
   
   el('cfg-dropdowns').innerHTML = `

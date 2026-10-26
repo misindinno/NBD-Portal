@@ -9,9 +9,9 @@ async function loadClientCallReport(options = {}) {
   const request = ++clientCallReportRequest;
   clientCallReportPending = request;
   const box = el('content');
-  if (!options.background || !box.querySelector('#ccr-filters')) box.innerHTML = skeletonPage('table');
+  if (!window.__PAGE_PREVIEW_READY && (!options.background || !box.querySelector('#ccr-filters'))) box.innerHTML = skeletonPage('table');
   try {
-    const data = await api._authedRead('apiGetClientCallReport', { ...clientCallReportQuery });
+    const data = options.data || await pagePreviewRead('apiGetClientCallReport', [{ ...clientCallReportQuery }], data => loadClientCallReport({ background: true, data }), { current: () => request === clientCallReportRequest });
     if (request !== clientCallReportRequest || App.currentPage !== 'callreport') return;
     // The user may start editing filters while a background read is pending.
     if (options.background && typeof document !== 'undefined' && document.activeElement && document.activeElement.matches('input,select,textarea')) return;

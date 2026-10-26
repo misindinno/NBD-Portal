@@ -146,12 +146,17 @@ const api = {
   async _authedRead(fn, ...args) {
     const token = api._token();
     try {
-      const result = typeof PortalSync !== 'undefined' && PortalSync.handles(fn)
+      const previewRead = typeof PagePreview !== 'undefined' && PagePreview.handles(fn);
+      const previewGeneration = previewRead ? PagePreview.generation() : 0;
+      let result = typeof PortalSync !== 'undefined' && PortalSync.handles(fn)
         ? await PortalSync.submit(fn, args)
+        : previewRead ? await api._read(fn, token, ...args)
         : fn === 'apiGetLeads' && typeof LeadReadCache !== 'undefined' && LeadReadCache.enabled() ? await LeadReadCache.load()
         : typeof PortalReadCache !== 'undefined' && PortalReadCache.handles(fn)
           ? await PortalReadCache.get(fn, args[0] || {}) : await api._read(fn, token, ...args);
       if (token !== api._token()) throw new Error('SESSION_EXPIRED: Session changed during request.');
+      if (previewRead) result = await PagePreview.capture(fn, args, result, previewGeneration);
+      if (/^api(?:Save|Delete|Archive|Restore|Update|Move|Push|Mark|Create|Map|Set)|^apiClientFactoryVisit(?:Save|Initialize)$/.test(fn) && typeof PagePreview !== 'undefined') await PagePreview.invalidate();
       if (typeof PortalSync !== 'undefined' && /^apiGet|^apiClientFactoryVisitList/.test(fn)) PortalSync.observe(result, fn === 'apiGetLead');
       if (/^api(?:Save|Delete|Archive|Restore|Update|Move|Push|Mark|Create|Map)/.test(fn) && typeof LeadReadCache !== 'undefined') await LeadReadCache.invalidate();
       if (/^api(?:Save|Delete|Archive|Restore|Update|Move|Push|Mark|Create|Map)|^apiClientFactoryVisit(?:Save|Initialize)$/.test(fn) && typeof PortalReadCache !== 'undefined') await PortalReadCache.invalidate();

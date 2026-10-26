@@ -1,9 +1,9 @@
 <script>
-async function loadWebhooks() {
+async function loadWebhooks(prefetched) {
   const container = el('content');
-  container.innerHTML = skeletonPage('table');
+  if (!window.__PAGE_PREVIEW_READY) container.innerHTML = skeletonPage('table');
   try {
-    const data = await api.getCallWebhook();
+    const data = prefetched || await pagePreviewRead('apiGetCallWebhook', [], data => loadWebhooks(data));
     if (App.currentPage !== 'webhooks') return;
     container.innerHTML = `
       <div class="card" style="padding:22px;margin-bottom:20px">

@@ -46,7 +46,9 @@ function leadCacheContentDigest_(scope, rows, canonical) {
 }
 
 function leadCacheIdentity_(user) {
-  const scope = { id: user.id, role: user.role, modules: user.modules || [], department: user.department || '', departments: _portalDepartmentScopeSet_() };
+  const scope = { id: user.id, role: user.role, modules: user.modules || [], department: user.department || '', departments: _portalDepartmentScopeSet_(),
+    workbook: typeof CLIENT_CONFIG !== 'undefined' ? CLIENT_CONFIG.SPREADSHEET_ID || '' : '',
+    canEditConfig: !!user.canEditConfig, canManageUsers: !!user.canManageUsers };
   return {
     schema: LEAD_CACHE_SCHEMA_, portal: ScriptApp.getScriptId(), user: String(user.id),
     scope: leadCacheDigest_(scope),

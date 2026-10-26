@@ -100,11 +100,11 @@ function _ensureConfigUserHelpers() {
   };
 }
 
-async function loadUsersConfig() {
+async function loadUsersConfig(prefetched) {
   _ensureConfigUserHelpers();
   if (!el('cfg-users')) return;
-  el('cfg-users').innerHTML = skeletonPage('table');
-  const allUsers = await api.getUsers();
+  if (!window.__PAGE_PREVIEW_READY) el('cfg-users').innerHTML = skeletonPage('table');
+  const allUsers = prefetched || await pagePreviewRead('apiGetUsers', [], data => loadUsersConfig(data));
   const selectedDepartments = window._parseDepartmentList(App.config.settings?.visibleDepartments || []);
   const selectedMap = selectedDepartments.reduce((m, d) => {
     m[String(d || '').trim().toLowerCase()] = true;

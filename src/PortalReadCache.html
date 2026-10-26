@@ -60,6 +60,16 @@ function createPortalReadCache({ request, storageFactory, onLock }) {
   }
   return {
     bind, reset, get,
+    async preview(endpoint, query = {}, volatile = {}) {
+      if (!identity || !routes[endpoint]) return null;
+      const kind = routes[endpoint], normalized = {};
+      Object.keys(query || {}).sort().forEach(key => { if (query[key] !== undefined) normalized[key] = query[key]; });
+      const client = createLeadReadCache({ namespace: 'module:' + kind, storage: storageFactory(), validateRows: portalCacheValidRecords, request });
+      client.bind(identity);
+      const snapshot = await client.preview();
+      if (!snapshot || snapshot.data[0].value.kind !== kind || JSON.stringify(snapshot.data[0].value.query) !== JSON.stringify(normalized)) return null;
+      return { data: portalCacheUnpack(snapshot.data, volatile), verifiedAt: snapshot.verifiedAt };
+    },
     handles: endpoint => !!identity && !!routes[endpoint], enabled: () => !!identity,
     async invalidate() { await Promise.all([...clients.values()].map(entry => entry.client.invalidate())); },
     suspend() { clients.forEach(entry => entry.client.suspend()); },

@@ -504,6 +504,7 @@ async function navigate(page) {
     return;
   }
   Store.dispatch('SET_PAGE', page);
+  if (typeof beginPagePreview === 'function') beginPagePreview();
   contentEl.setAttribute('data-page', page);
   _setActiveNav(page);
   const meta = _PAGE_META[page] || { title: page.charAt(0).toUpperCase() + page.slice(1), crumb: page };
@@ -511,6 +512,7 @@ async function navigate(page) {
   const crumbEl = el('tb-breadcrumb-page');
   if (crumbEl) crumbEl.textContent = meta.crumb;
   setContentLoading(pageSkeletonType(page));
+  if (window.__PAGE_PREVIEW_READY) contentEl.replaceChildren();
   try {
     if      (page === 'today')             await _runPageLoader(page, 'loadToday');
     else if (page === 'leads')             await _runPageLoader(page, 'loadLeads');
@@ -656,6 +658,7 @@ function renderSidebar() {
   if (logoutBtn) logoutBtn.classList.add('visible');
 
   renderIcons(nav);
+  if (typeof renderPageSyncCard === 'function') renderPageSyncCard();
 }
 
 function toggleNavGroup(id) {

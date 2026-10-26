@@ -368,17 +368,17 @@ test('primary worklists fetch complete collections once and process them client-
   const core = read('AppCore.html');
   const combined = [leads, followups, archive, core].join('\n');
 
-  assert.match(leads, /await api\.getLeads\(\)/);
+  assert.match(leads, /await pagePreviewRead\('apiGetLeads'/);
   assert.match(leads, /leadTable\.setFilter\(pred\.test\)/);
-  assert.match(followups, /_getFollowupPageSnapshot\(force, \{ includeHistory: true \}\)/);
+  assert.match(followups, /_getFollowupPageSnapshot\(force, \{ includeHistory: true,/);
   assert.match(followups, /rows = _fuApplyFilters\(rows, ctx\)/);
   assert.match(followups, /data\.slice\(0, _fuRenderedCount\)\.map\(_fuTableRow\)/);
   assert.match(followups, /function _fuAppendVisibleRows\s*\(/);
   assert.match(followups, /function _fuRouteIsActive\s*\(/);
   assert.match(followups, /_fuSnapshotRequest\.promise/);
-  assert.match(archive, /api\.getArchiveData\(\)/);
-  assert.match(archive, /api\.getArchiveSuggestions\(\)/);
-  assert.match(archive, /api\.getLostArchiveLeads\(\)/);
+  assert.match(archive, /'apiGetArchiveData'/);
+  assert.match(archive, /'apiGetArchiveSuggestions'/);
+  assert.match(archive, /'apiGetLostArchiveLeads'/);
   assert.match(archive, /function _archFiltered\s*\(/);
   assert.doesNotMatch(combined, /get(?:Leads|Followups|Archive)Page/);
   assert.doesNotMatch(combined, /_leadRenderPagination|_fuPagination|_archPagHTML|_archSetPage/);

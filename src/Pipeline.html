@@ -139,12 +139,11 @@ async function _pipelineDeleteCard(leadId) {
 }
 window._pipelineDeleteCard = _pipelineDeleteCard;
 
-async function loadPipeline() {
+async function loadPipeline(prefetched) {
   el('page-title').textContent = 'Pipeline';
-  if (!AppCache.isLoaded('leads')) {
-    setContentLoading('kanban');
-    await _ensureCached('leads', () => api.getLeads());
-  }
+  const rows = prefetched || await pagePreviewRead('apiGetLeads', [], data => loadPipeline(data));
+  if (App.currentPage !== 'pipeline') return;
+  AppCache.setRows('leads', rows);
 
   const finalStageIds = (App.config.allStages || App.config.stages || []).reduce((m, s) => {
     if (_isFinalStage(s)) m[s['Stage ID']] = true;

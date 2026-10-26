@@ -74,6 +74,7 @@ function createSheetMirrorStorage(indexedDB) {
     });
   };
   return { clear, cancel,
+    catalog: () => transaction(['_meta'], 'readonly', (tx, done) => { const request = tx.objectStore('_meta').getAll(); request.onsuccess = () => done(request.result.filter(row => row.schema && row.snapshot)); }),
     bind(identity) {
       cancel();
       const scope = JSON.stringify([identity.portal, identity.workbook, identity.user, identity.scope]);
@@ -127,6 +128,14 @@ function createSheetMirror({ request, storage, onLock = () => {}, changed = () =
     // A session/scope switch must not retain another account's private mirror.
     if (identity && storage.bind) bound = storage.bind(identity);
     else if (!identity || previous && !same(previous)) bound = storage.clear();
+    const session = epoch;
+    if (identity && storage.catalog) bound = bound.then(async () => {
+      const saved = await storage.catalog();
+      if (session !== epoch) return;
+      catalog = saved.filter(row => same(row.snapshot.identity) && row.snapshot.complete && SHEET_MIRROR_STORES.includes(row.schema.value.name))
+        .map(row => ({ name: row.schema.value.name, exists: row.schema.value.exists, rows: row.schema.value.rowCount, verifiedAt: row.snapshot.verifiedAt, preview: true }));
+      changed();
+    });
     bound.catch(e => { error = e.message; changed(); });
     changed();
   }
@@ -164,9 +173,12 @@ function createSheetMirror({ request, storage, onLock = () => {}, changed = () =
   async function syncSheet(name) {
     const session = epoch, entry = entryFor(name); entry.verified = false; changed();
     try {
-      const rows = await entry.client.load({ force: true });
+      await entry.client.load({ force: true });
       if (session !== epoch) throw new Error('CACHE_CANCELLED');
       if (entry.client.status().storage === 'unavailable') throw new Error('IndexedDB could not save ' + name + '. Free browser storage and retry.');
+      const stored = await entry.storage.get(key(name));
+      if (session !== epoch || !stored || !sheetMirrorValidRecords(stored.rows, stored.total)) throw new Error('CACHE_CANCELLED');
+      const rows = stored.rows;
       if (rows[0].value.name !== name) throw new Error('Invalid sheet snapshot');
       entry.verified = true; entry.rows = rows.length - 1; entry.schema = rows[0].value;
       entry.error = ''; changed({ name, records: rows }); return rows;
@@ -203,12 +215,21 @@ function createSheetMirror({ request, storage, onLock = () => {}, changed = () =
         rows: result.rows.slice(1).map(row => ({ rowNumber: row.index, cells: row.value.cells, dates: row.value.dates })) };
     } catch (e) { if (session === epoch) return fail(e); throw e; }
   }
-  return { bind, clear, readSheet, syncAll, enabled: () => !!identity,
+  async function previewSheet(name) {
+    if (!identity || !SHEET_MIRROR_STORES.includes(name)) return null;
+    const session = epoch; await bound;
+    if (session !== epoch || !catalog.some(sheet => sheet.name === name)) return null;
+    const entry = entryFor(name), snapshot = await entry.client.preview();
+    if (session !== epoch || !snapshot || Date.now() - Date.parse(snapshot.verifiedAt) > 7 * 86400000) return null;
+    return { ...snapshot.data[0].value, verifiedAt: snapshot.verifiedAt,
+      rows: snapshot.data.slice(1).map(row => ({ rowNumber: row.index, cells: row.value.cells, dates: row.value.dates })) };
+  }
+  return { bind, clear, readSheet, previewSheet, syncAll, enabled: () => !!identity,
     invalidate() { dirty++; lastSync = 0; clients.forEach(entry => { entry.verified = false; entry.client.verifyNext(); }); },
     status: () => ({ enabled: !!identity, running: !!running, lastSync, error, excluded: [...excluded],
-      sheets: catalog.map(sheet => { const entry = clients.get(sheet.name); return { ...sheet, rows: entry && entry.rows,
-        state: entry && entry.error ? 'error' : entry && entry.verified ? 'synced' : entry ? entry.client.status().state : 'waiting',
-        error: entry && entry.error || '', verifiedAt: entry && entry.client.status().verifiedAt || '' }; }) }) };
+      sheets: catalog.map(sheet => { const entry = clients.get(sheet.name); return { ...sheet, rows: entry && entry.rows != null ? entry.rows : sheet.rows,
+        state: entry && entry.error ? 'error' : entry && entry.verified ? 'synced' : sheet.preview ? 'saved preview' : entry ? entry.client.status().state : 'waiting',
+        error: entry && entry.error || '', verifiedAt: entry && entry.client.status().verifiedAt || sheet.verifiedAt || '' }; }) }) };
 }
 
 const SheetMirror = createSheetMirror({
@@ -217,6 +238,8 @@ const SheetMirror = createSheetMirror({
   changed: event => { if (typeof renderSheetMirrorStatus === 'function') renderSheetMirrorStatus(event); }
 });
 function refreshSheetMirror(force = false) {
+  if (typeof pagePreviewPending !== 'undefined' && pagePreviewPending > 0) return;
+  if (!force && typeof pagePreviewBackgroundRunning !== 'undefined' && pagePreviewBackgroundRunning) return;
   if (!SheetMirror.enabled() || document.hidden || !navigator.onLine) return;
   void SheetMirror.syncAll(force).catch(() => {});
 }

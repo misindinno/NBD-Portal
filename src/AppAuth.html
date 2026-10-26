@@ -54,6 +54,7 @@ async function _continueAppInit(token) {
   const waitNotice = setTimeout(() => {
     const content = document.getElementById('content');
     if (!content || document.getElementById('startup-wait-notice')) return;
+    if (document.getElementById('startup-data-progress')) return;
     const notice = document.createElement('section');
     notice.id = 'startup-wait-notice';
     notice.setAttribute('role', 'status');
@@ -102,9 +103,11 @@ async function _loadAppSession_(token) {
   Store.dispatch('SET_USER', boot.user);
   LeadReadCache.bind(boot.cacheIdentity);
   PortalReadCache.bind(boot.cacheIdentity);
+  if (typeof PagePreview !== 'undefined') PagePreview.bind(boot.cacheIdentity);
   if (typeof SheetMirror !== 'undefined') SheetMirror.bind(boot.sheetMirrorIdentity);
   if (typeof PortalSync !== 'undefined') { PortalSync.bind(boot.cacheIdentity); void renderPortalSyncStatus(); void PortalSync.drain().catch(() => {}); }
-  Store.dispatch('SET_CONFIG', boot.config);
+  const storedConfig = typeof PagePreview !== 'undefined' ? await PagePreview.capture('apiGetAppConfig', [], boot.config) : boot.config;
+  Store.dispatch('SET_CONFIG', storedConfig);
   AppCache.touch('config');
   AppLookup.rebuild();
 
@@ -120,6 +123,7 @@ async function _loadAppSession_(token) {
 
   const requestedPage = _initialRequestedPage();
   const defaultPage = requestedPage && canNavigate(requestedPage) ? requestedPage : defaultPageForUser();
+  if (typeof preparePagePreviews === 'function') await preparePagePreviews(defaultPage);
 
   if (diagnostics) {
     diagnostics.phase('startup.initial-page', 'start', { page: defaultPage });
@@ -135,6 +139,7 @@ async function _loadAppSession_(token) {
   // Optional counts must not prevent the menu and first page from appearing.
   void _refreshNavigationSummary_();
   startCacheRevalidation();
+  if (typeof startPagePreviewBackground === 'function') startPagePreviewBackground();
   if (typeof refreshSheetMirror === 'function') refreshSheetMirror();
   try { if (typeof _shortcutsFirstRunPreview === 'function') _shortcutsFirstRunPreview(); } catch (e) {}
 }

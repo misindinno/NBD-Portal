@@ -204,6 +204,7 @@ const PortalSync = createPortalSync({
   },
   changed: () => { void renderPortalSyncStatus(); },
   committed: async () => {
+    if (typeof PagePreview !== 'undefined') await PagePreview.invalidate();
     await LeadReadCache.invalidate(); await PortalReadCache.invalidate();
     if (typeof SheetMirror !== 'undefined') { SheetMirror.invalidate(); refreshSheetMirror(); }
     try { portalSyncChannel.postMessage('changed'); } catch (_) {}
@@ -212,6 +213,7 @@ const PortalSync = createPortalSync({
 });
 let portalSyncChannel;
 try { portalSyncChannel = new BroadcastChannel('nbd-sync-changes'); portalSyncChannel.onmessage = () => {
+  if (typeof PagePreview !== 'undefined') void PagePreview.invalidate();
   LeadReadCache.verifyNext(); PortalReadCache.verifyNext(); void renderPortalSyncStatus();
   if (typeof SheetMirror !== 'undefined') { SheetMirror.invalidate(); refreshSheetMirror(); }
 }; } catch (_) {}

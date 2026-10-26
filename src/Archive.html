@@ -143,7 +143,7 @@ window.loadArchive = loadArchive;
 function _archiveSwitchTab(tab) { if (tab !== _archiveTab || !_archTabs[tab].rows) _archActivateTab(tab); }
 window._archiveSwitchTab = _archiveSwitchTab;
 
-async function _archActivateTab(tab, force = false) {
+async function _archActivateTab(tab, force = false, prefetched) {
   const tabChanged = tab !== _archiveTab;
   if (tabChanged && _archSearchTimer) { clearTimeout(_archSearchTimer); _archSearchTimer = null; }
   _archiveTab = tab;
@@ -160,16 +160,10 @@ async function _archActivateTab(tab, force = false) {
 
   try {
     if (shouldFetch) {
-      if (!t.rows) _archShowLoading();
-      let rows;
-      if (tab === 'archived') {
-        const data = await api.getArchiveData();
-        rows = (data && data.archived) || [];
-      } else if (tab === 'suggestions') {
-        rows = (await api.getArchiveSuggestions()) || [];
-      } else {
-        rows = (await api.getLostArchiveLeads()) || [];
-      }
+      if (!t.rows && !window.__PAGE_PREVIEW_READY) _archShowLoading();
+      const endpoint = tab === 'archived' ? 'apiGetArchiveData' : tab === 'suggestions' ? 'apiGetArchiveSuggestions' : 'apiGetLostArchiveLeads';
+      const data = prefetched || await pagePreviewRead(endpoint, [], data => _archActivateTab(tab, true, data), { slot: 'archive', current: () => seq === _archLoadSeq });
+      const rows = tab === 'archived' ? data.archived || [] : data;
       if (seq !== _archLoadSeq || _archiveTab !== tab || !el('archive-page')) return;
       t.rows = rows;
     }

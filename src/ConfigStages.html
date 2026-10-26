@@ -1,11 +1,11 @@
 <script>
-async function loadStagesConfig() {
+async function loadStagesConfig(prefetched) {
   const container = el('cfg-stages');
   if (!container) return;
-  container.innerHTML = skeletonPage('cards');
+  if (!window.__PAGE_PREVIEW_READY) container.innerHTML = skeletonPage('cards');
   let stages;
   try {
-    stages = await api.getAllStages();
+    stages = prefetched || await pagePreviewRead('apiGetAllStages', [], data => loadStagesConfig(data));
   } catch (err) {
     const c = el('cfg-stages');
     if (c) c.innerHTML = `<div class="card" style="padding:24px;color:#D32F2F">${escapeHtml(err.message || String(err))}</div>`;

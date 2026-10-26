@@ -9,15 +9,11 @@ function _ensureConfigFieldHelpers() {
   };
 }
 
-async function loadFieldConfig() {
+async function loadFieldConfig(prefetched) {
   _ensureConfigFieldHelpers();
   if (!el('cfg-fields')) return;
-  el('cfg-fields').innerHTML = skeletonPage('table');
-  const [fields, stages, configs] = await Promise.all([
-    api.getAllFieldConfigs(''),
-    api.getAllStages(),
-    api.getAllConfigs()
-  ]);
+  if (!window.__PAGE_PREVIEW_READY) el('cfg-fields').innerHTML = skeletonPage('table');
+  const [fields, stages, configs] = prefetched || await pagePreviewRead([['apiGetAllFieldConfigs',['']],['apiGetAllStages',[]],['apiGetAllConfigs',[]]], [], data => loadFieldConfig(data));
   window._cfgFieldContext = {
     fields: (fields || []).filter(f => FieldValidation.ALLOWED_SHEETS.includes(f['Sheet Name'] || 'Leads')),
     stages,

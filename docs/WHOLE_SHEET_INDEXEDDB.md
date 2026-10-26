@@ -3,6 +3,11 @@
 Implemented 2026-10-26. The requested format is **tab names, column names/order
 and row values**, not colours, formatting, formulas or spreadsheet permissions.
 
+The subsequent [page-rendering update](INDEXEDDB_PAGE_RENDERING.md) adds
+IndexedDB-first page previews, current-page-only initial loading, and sidebar
+background sync status. Domain screens use authorized page projections alongside
+these raw schema-preserving stores.
+
 ## Storage and scope
 
 Database: `nbd-sheet-mirror`, version 1. Each supported tab has an object store

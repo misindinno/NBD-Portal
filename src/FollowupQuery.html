@@ -52,7 +52,7 @@ async function _runCustomQuery() {
     val:   row.querySelector('[name=val]').value.trim()
   })).filter(f => f.val || f.op === 'is empty' || f.op === 'is not empty');
 
-  el('query-results').innerHTML = skeletonPage('table');
+  if (!window.__PAGE_PREVIEW_READY) el('query-results').innerHTML = skeletonPage('table');
   try {
     const snapshot = await _getFollowupPageSnapshot();
     const ctx = _buildFollowupContext(snapshot.leads, snapshot);
