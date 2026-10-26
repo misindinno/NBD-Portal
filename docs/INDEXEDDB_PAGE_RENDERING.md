@@ -62,3 +62,19 @@ corruption, expiration, cross-user/scope isolation, concurrent filters, missing
 crypto, stale navigation responses, typing preservation, background read failure,
 access denial, current-page-only startup, and foreground priority over prefetch.
 See `tests/page-preview.test.js` plus the existing full regression suite.
+
+### Rollout result
+
+Runtime commit `88e5783`: 243 tests passed; syntax checks and GitHub Actions run
+`40297352780` passed. Deployment and cache-busted published-source checks passed
+for all six portals: NBD 169, LQ 101, NBD Lamination 38, LQ Lamination 41, CS 14,
+and Dead 15. Every published response contained the background worker, sidebar
+sync card and IndexedDB readback path.
+
+Signed-in NBD successfully displayed Today and Webhooks during the earlier preview
+iteration. Final interactive validation of the revised sidebar/background worker
+could not finish: the original Webhooks form had an unsaved edit, and Computer Use
+stopped while attempting to select Chrome for a non-disruptive duplicate tab because
+it could not confidently identify the active URL. No reload/discard of that form
+was performed. The final sidebar scroll change is implemented and deployed but
+has not been visually rechecked in the signed-in final build.
