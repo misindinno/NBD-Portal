@@ -83,6 +83,19 @@ Opening an existing lead displayed its one follow-up, five history records,
 custom values and copy-remark controls. Reopening that same dialog rendered the
 saved detail immediately. Other portal UI sessions were not individually tested.
 
+Live testing also exposed a mirror integrity failure on central tables and a
+Tabulator refresh before initialization. Revision `6983870` sends mirror pages as
+explicit JSON (with backward-compatible object responses for older clients),
+retains content-hash verification, and waits for the table-built event before
+background replacement. All 284 tests passed; GitHub workflow 40637005264 passed.
+On NBD version 183, the Sheet Data viewer confirmed durable synced stores with
+335 DQ_MASTER rows, 335 DQ_FOLLOWUPS rows, 1,362 DQ_FOLLOWUP_HISTORY rows and 64
+DQ_CONFIG rows. Ordinary source tables also continued syncing successfully.
+The final rollout passed HTTP smoke checks on all six deployments: NBD 183,
+LQ 111, NBD Lamination 48, LQ Lamination 51, CS 24 and Dead 25. The central row
+viewer showed the original column order and 335 rows; returning to Disqualified
+showed the saved list without new table initialization errors.
+
 The complete, schema-preserving business-table mirror added on 2026-10-26 is
 documented in [WHOLE_SHEET_INDEXEDDB.md](WHOLE_SHEET_INDEXEDDB.md). It adds named
 sheet stores and a local Sheet Data viewer alongside the existing worklist caches.
