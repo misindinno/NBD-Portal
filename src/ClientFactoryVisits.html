@@ -53,6 +53,7 @@ function cfvOpenForm(record, booking) {
   const statuses = record ? { New:['New','Scheduled','Cancelled'],Scheduled:['Scheduled','Completed','Cancelled','No-show'],Completed:['Completed'],Cancelled:['Cancelled'],'No-show':['No-show'] }[row.Status] : ['New','Scheduled'];
   panel.className = 'card cfv-panel';
   panel.innerHTML = `<div class="cfv-toolbar"><h3>${record ? 'Visit details' : 'New inbound visit booking'}</h3><button id="cfv-close" class="btn btn-outlined">Close</button></div>
+    ${record && /^\d{4}-\d{2}-\d{2}$/.test(String(row['Planned Start'])) ? `<p class="cfv-hint">Date-only visit request: ${escapeHtml(row['Planned Start'])}. Fill the booking details and choose an appointment time before scheduling. No host, site or time was assumed.</p>` : ''}
     ${record ? `<p class="cfv-hint">Visit ${escapeHtml(row['Visit ID'])} · Version ${Number(row.Version)} · ${escapeHtml(row.Status)}</p>` : ''}
     <p class="cfv-hint">Use the actual office/factory name in Site. Hosts are existing active portal users. Optional lead linking does not change the lead.</p>
     <form id="cfv-entry"><fieldset ${editable?'':'disabled'} style="border:0;padding:0;min-width:0">

@@ -1,0 +1,79 @@
+<script>
+function _mountFollowupRemarkTabs(overlay, followupId) {
+  const done = overlay.querySelector('#fu-done-form');
+  done.setAttribute('role', 'tabpanel');
+  done.setAttribute('aria-labelledby', 'fu-remark-tab');
+  overlay.dataset.followupTab = 'remark';
+  done.insertAdjacentHTML('beforebegin', `<div role="tablist" aria-label="Follow-up action" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <button type="button" id="fu-remark-tab" role="tab" aria-selected="true" aria-controls="fu-done-form" class="btn btn-primary" data-fu-tab="remark">Follow Up Remark</button>
+    <button type="button" id="fu-visit-tab" role="tab" aria-selected="false" aria-controls="fu-visit-form" tabindex="-1" class="btn btn-outlined" data-fu-tab="visit">Visit Remark</button></div>`);
+  done.insertAdjacentHTML('afterend', `<form id="fu-visit-form" role="tabpanel" aria-labelledby="fu-visit-tab" hidden>
+    <p>Customer visiting our office or factory. Saves a new visit request without completing this follow-up.</p>
+    <fieldset disabled style="border:0;padding:0;min-width:0">
+      <div class="form-group"><label for="fu-visit-date">Date *</label><input id="fu-visit-date" class="form-control" type="date" name="date" required></div>
+      <div class="form-group"><label for="fu-visit-remark">Remark *</label><textarea id="fu-visit-remark" class="form-control" name="remark" rows="3" maxlength="1000" required></textarea></div>
+      <div class="form-group"><label for="fu-visit-type">Visit Type *</label><select id="fu-visit-type" class="form-control" name="visitType" required><option value="">Choose visit type</option></select></div>
+    </fieldset><p data-visit-message role="status" style="white-space:pre-wrap"></p>
+    <div class="modal-footer"><button type="button" class="btn btn-outlined" data-visit-cancel>Cancel</button><button type="submit" class="btn btn-primary" disabled>Save Visit Remark</button></div></form>`);
+  const visit = overlay.querySelector('#fu-visit-form'), fields = visit.querySelector('fieldset');
+  const button = visit.querySelector('[type=submit]'), message = visit.querySelector('[data-visit-message]');
+  const tabs = [...overlay.querySelectorAll('[data-fu-tab]')];
+  let ready = false, loading = false, busy = false, pending = null;
+  const session = AuthToken.get();
+  const current = () => overlay.isConnected && session === AuthToken.get();
+  async function selectTab(name) {
+    if (done.dataset.submitting === '1' || busy || pending || !current()) return;
+    overlay.dataset.followupTab = name;
+    done.hidden = name !== 'remark'; visit.hidden = name !== 'visit';
+    tabs.forEach(tab => {
+      const selected = tab.dataset.fuTab === name;
+      tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1;
+      tab.className = 'btn ' + (selected ? 'btn-primary' : 'btn-outlined');
+    });
+    if (name !== 'visit' || ready || loading) return;
+    loading = true; message.textContent = 'Checking visit access…';
+    try {
+      const options = await api._authedRead('apiGetFollowupVisitOptions', followupId);
+      if (!current()) return;
+      visit.elements.date.value = options.today;
+      visit.elements.visitType.innerHTML = '<option value="">Choose visit type</option>' + options.types.map(type => `<option>${escapeHtml(type)}</option>`).join('');
+      ready = true; fields.disabled = false; button.disabled = false;
+      message.textContent = 'Host, site and appointment time can be added in Client & Factory Visits.';
+    } catch (error) {
+      if (current()) message.textContent = (error.message || String(error)) + ' Switch back and reopen this tab to retry.';
+    } finally { loading = false; }
+  }
+  tabs.forEach(tab => {
+    tab.onclick = () => void selectTab(tab.dataset.fuTab);
+    tab.onkeydown = event => {
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[1] : tabs.find(item => item !== tab);
+      void selectTab(next.dataset.fuTab); if (overlay.dataset.followupTab === next.dataset.fuTab) next.focus();
+    };
+  });
+  visit.querySelector('[data-visit-cancel]').onclick = () => overlay.remove();
+  visit.onsubmit = async event => {
+    event.preventDefault();
+    if (!current() || overlay.dataset.followupTab !== 'visit' || !ready || busy || done.dataset.submitting === '1') return;
+    if (!pending) {
+      if (!visit.reportValidity()) return;
+      const remark = visit.elements.remark.value.trim();
+      if (!remark) { message.textContent = 'Enter a visit remark.'; visit.elements.remark.focus(); return; }
+      pending = { requestId: crypto.randomUUID(), followupId, date: visit.elements.date.value, remark, visitType: visit.elements.visitType.value };
+    }
+    busy = true; fields.disabled = true; button.disabled = true; button.textContent = 'Saving…'; message.textContent = '';
+    try {
+      await api._authedRead('apiSaveFollowupVisit', pending);
+      if (!current()) return;
+      overlay.remove(); toast('Visit remark saved in Client & Factory Visits. Follow-up unchanged.', 'success');
+    } catch (error) {
+      if (!current()) return;
+      const rejected = ['VALIDATION_ERROR','FORBIDDEN','SESSION_EXPIRED'].includes(error.code) && !/VISIT_COMMIT_UNCONFIRMED/.test(error.message || '');
+      if (rejected) { pending = null; fields.disabled = false; }
+      message.textContent = (error.message || String(error)) + (pending ? ' Retry sends the same request; fields and tabs stay locked to prevent duplicates.' : '');
+      button.disabled = false; button.textContent = pending ? 'Retry same request' : 'Save Visit Remark';
+    } finally { busy = false; }
+  };
+}
+</script>

@@ -285,6 +285,7 @@ async function openMarkFollowupDoneForm(followupId) {
     </form>`);
 
   const form = overlay.querySelector('#fu-done-form');
+  _mountFollowupRemarkTabs(overlay, followupId);
 
   // Contact mode radio visual selection
   form.querySelectorAll('.fu-contact-mode-opt').forEach(lbl => {
@@ -365,7 +366,7 @@ async function openMarkFollowupDoneForm(followupId) {
   ]);
   _updateDoneNextDateRequirement(form);
   validator.onSuccess(async () => {
-    if (form.dataset.submitting === '1') return;
+    if (form.dataset.submitting === '1' || overlay.dataset.followupTab !== 'remark') return;
     if (!form.querySelector('[name="Contact Mode"]:checked')) {
       const errEl = document.getElementById('fu-contact-mode-err');
       if (errEl) errEl.style.display = '';

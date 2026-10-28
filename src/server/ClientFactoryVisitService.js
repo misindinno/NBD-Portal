@@ -167,13 +167,13 @@ function _cfvPayload_(payload, old, user, options) {
   if (['Cancelled','No-show'].includes(row.Status) && !row['Cancel Reason']) throw new Error('A cancellation or no-show reason is required.');
   return row;
 }
-function _cfvSave_(user, payload) {
+function _cfvSave_(user, payload, followupRequest) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload) || JSON.stringify(payload).length > 16000) throw new Error('Invalid or oversized visit request.');
   const p = payload || {}, request = _cfvText_(p.requestId, 80, true), visitId = _cfvText_(p.id, 100);
   if (!/^[A-Za-z0-9_-]{20,80}$/.test(request)) throw new Error('Invalid request reference.');
   if (!visitId && !_cfvGrant_(user, 'ClientFactoryVisitsCreate')) throw new Error('Permission denied. Visit creation access is required.');
   const normalized = Object.keys(p).filter(key => key !== 'requestId').sort().map(key => [key, p[key]]);
-  const hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([user.id, normalized])).map(value => ('0' + ((value + 256) % 256).toString(16)).slice(-2)).join('');
+  const hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([user.id, normalized, ...(followupRequest ? ['followup-visit'] : [])])).map(value => ('0' + ((value + 256) % 256).toString(16)).slice(-2)).join('');
   const lock = LockService.getScriptLock(); lock.waitLock(10000);
   try {
     const tables = _cfvTables_();
@@ -189,10 +189,11 @@ function _cfvSave_(user, payload) {
     const old = visitId ? tables.visits.rows.find(row => row['Visit ID'] === visitId) : null;
     if (visitId && (!old || !_cfvCanEdit_(old, user, directory))) throw new Error('Permission denied. Visit is unavailable.');
     if (old && Number(p.version) !== Number(old.Version)) throw new Error('Cannot save a stale visit. Reload the latest version.');
-    const options = _cfvOptions_(user), fields = _cfvPayload_(p, old, user, options);
+    const options = _cfvOptions_(user), fields = followupRequest
+      ? _cfvFollowupRequestFields_(user, p, options) : _cfvPayload_(p, old, user, options);
     const time = new Date().toISOString(), id = old ? old['Visit ID'] : generateUUID();
     const record = { ...(old || {}), ...fields, 'Visit ID': id, 'Portal ID': _cfvPortal_(), 'Created By': old ? old['Created By'] : user.id, 'Created At': old ? old['Created At'] : time, 'Updated By': user.id, 'Updated At': time, Version: old ? Number(old.Version) + 1 : 1 };
-    const event = { 'Event ID': generateUUID(), 'Visit ID': id, 'Request ID': request, 'Request Hash': hash, 'Actor ID': user.id, 'Event Type': old ? 'Updated' : 'Created', 'From Status': old ? old.Status : '', 'To Status': record.Status, Version: record.Version, 'Created At': time };
+    const event = { 'Event ID': generateUUID(), 'Visit ID': id, 'Request ID': request, 'Request Hash': hash, 'Actor ID': user.id, 'Event Type': followupRequest ? 'Follow-up visit request: ' + p.followupId : old ? 'Updated' : 'Created', 'From Status': old ? old.Status : '', 'To Status': record.Status, Version: record.Version, 'Created At': time };
     const cells = (headers, data) => ({ values: headers.map(header => ({ userEnteredValue: { stringValue: String(data[header] == null ? '' : data[header]) } })) });
     // One atomic Sheets batch commits the record and idempotency/audit event.
     // Strings are written as literal stringValue, never parsed as formulas.
