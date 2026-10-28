@@ -136,6 +136,7 @@ function centralArchiveWorker_() {
   if(!arEnabled_())return;
   return withServerContext_(()=>{
     const props=PropertiesService.getScriptProperties(),started=Date.now();
+    if(Number(props.getProperty('AR_NEXT_RUN_AT')||0)>started)return {state:'retry'};
     const lease=Utilities.getUuid(),leaseLock=LockService.getScriptLock();
     if(!leaseLock.tryLock(1000))return {state:'retry'};
     try {
@@ -155,12 +156,13 @@ function centralArchiveWorker_() {
       }
       arRepairReceipts_();
       arTransferDisqualified_();
-      let result;
-      do { result=arTransferBatch_(); if(result.state!=='committed')break; }
-      while(result.result && result.result.remaining>0 && Date.now()-started<180000);
+      // One bundle batch per trigger keeps bulk migration below Sheets' shared
+      // per-minute read budget and leaves capacity for interactive portal saves.
+      const result=arTransferBatch_();
       if(result.state!=='retry')props.setProperty('AR_LAST_STATUS',JSON.stringify({at:new Date().toISOString(),state:result.state,message:result.message||'',...result.result}));
       return result;
     } catch(error) {
+      if(/quota|rate.?limit|too many|429/i.test(String(error.message||error)))props.setProperty('AR_NEXT_RUN_AT',String(Date.now()+120000));
       props.setProperty('AR_LAST_STATUS',JSON.stringify({at:new Date().toISOString(),state:'error',message:String(error.message||error)}));
       logServerError_(error,{api:'centralArchiveWorker'});throw error;
     } finally {
