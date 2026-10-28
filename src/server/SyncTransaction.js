@@ -53,6 +53,11 @@ function syncTxRows_(name) {
   const table = syncTxTable_(name);
   return table.rows.map(row => rowObjectFromHeaders_(table.headers, row.values, true, name));
 }
+function syncTxRow_(name, key, id) {
+  const table = syncTxTable_(name), column = table.headers.indexOf(key);
+  const row = table.rows.find(row => String(row.values[column]) === String(id));
+  return row ? rowObjectFromHeaders_(table.headers, row.values, true, name) : null;
+}
 function syncTxInit_(name, headers) {
   const table = syncTxTable_(name);
   headers.map(header => String(header == null ? '' : header).trim()).filter(Boolean)
@@ -213,7 +218,8 @@ function syncAtomicWrite_(user, command, run) {
       const visible = !leadId || lead && _canReadAssignedRow(lead, user);
       return { state: 'committed', result: visible ? result : null, repeated: true, receiptOnly: !visible };
     }
-    SYNC_TX_ = { tables: {}, stamps: {}, apiRead:user.id==='central-transfer' && command.action==='centralDisqualifiedTransfer', apiValues:null };
+    SYNC_TX_ = { tables: {}, stamps: {}, apiRead:command.action==='apiMarkFollowupDoneDirect' ||
+      user.id==='central-transfer' && command.action==='centralDisqualifiedTransfer', apiValues:null };
     syncCheckBases_(user, command);
     const result = run();
     if (!result || !result.success) return { state: 'invalid', message: result && result.error || 'Validation failed.', code: result && result.code };

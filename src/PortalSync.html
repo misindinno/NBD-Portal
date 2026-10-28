@@ -144,7 +144,11 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
           // A response for the previous login cannot update this login's UI/cache.
           await storage.patch(item.key, { state: response.state, result: response.result, message: response.message || '', errorCode: '',
             leaseUntil: 0, nextAttempt: response.state === 'retry' ? now() + 5000 : 0 }, item.attempts);
-          if (valid() && response.state === 'committed') await committed(item, response.result);
+          // The receipt is authoritative. A cache/UI refresh failure must never
+          // turn an already committed business write back into a retry.
+          if (valid() && response.state === 'committed') {
+            try { await committed(item, response.result); } catch (_) {}
+          }
           if (response.state !== 'committed') break;
         } catch (error) {
           const denied = /SESSION_EXPIRED|ACCESS_DENIED|FORBIDDEN|Permission denied/i.test(error.code + ' ' + error.message);
@@ -182,6 +186,9 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
       portal: context.portal, user: context.user, scope: context.scope, state: 'queued', fingerprint, createdAt: now(), attempts: 0, nextAttempt: 0, leaseUntil: 0 });
     if (epoch !== generation) throw new Error('Session changed. The pending change is retained for its original account.');
     changed(); await drain();
+    // A periodic drain may have captured its queue before this enqueue. Run a
+    // fresh pass after joining it; claim/backoff still prevent duplicate sends.
+    if (epoch === generation) await drain();
     if (epoch !== generation) throw new Error('Session changed. Check Pending changes after signing in.');
     const current = (await storage.list(context)).find(row => row.key === item.key);
     if (current && current.state === 'committed') return current.result;
@@ -189,7 +196,32 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
       ? current.message : 'Saved on this device; waiting to sync with Google Sheets. Do not create another entry. Open Pending changes for status.';
     const error = new Error(message); error.code = 'SYNC_PENDING'; error.syncState = current && current.state; error.operationId = item.id; throw error;
   }
-  return { bind, observe, submit, drain, list, enabled: () => !!identity, handles: action => !!identity && actions.has(action),
+  function watch(id, receive) {
+    const generation = epoch;
+    let stopped = false, reading = false, last = '';
+    const stop = () => { stopped = true; clearInterval(timer); };
+    async function check() {
+      if (stopped || reading) return;
+      if (generation !== epoch) { stop(); return; }
+      reading = true;
+      try {
+        const row = (await list()).find(row => row.id === id);
+        if (stopped || generation !== epoch) { stop(); return; }
+        if (row) {
+          const signature = JSON.stringify([row.state, row.message, row.attempts]);
+          if (signature !== last) { last = signature; await receive(row); }
+          if (['committed','dismissed'].includes(row.state)) stop();
+        }
+      } catch (_) { /* Keep the saved command; try reading local storage again. */ }
+      finally { reading = false; }
+    }
+    // Read immediately as completion can race with the pending UI mounting.
+    // Polling also observes another tab committing this browser's shared queue.
+    const timer = setInterval(check, 1000);
+    void check();
+    return stop;
+  }
+  return { bind, observe, submit, drain, list, watch, enabled: () => !!identity, handles: action => !!identity && actions.has(action),
     async retry(key) {
       const row = (await list()).find(row => row.key === key);
       if (!row || !(['retry','blocked','paused'].includes(row.state) || row.state === 'invalid' && portalSyncSchemaIssue_(row))) return;

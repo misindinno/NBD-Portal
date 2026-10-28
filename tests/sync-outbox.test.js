@@ -10,7 +10,7 @@ function storage() {
 }
 const identity={portal:'p1',user:'u1',scope:'a'.repeat(64),syncEnabled:true};
 function client(store,send,options={}) {
-  const c=vm.createContext({crypto:crypto.webcrypto,TextEncoder,Uint8Array,structuredClone,setTimeout,clearTimeout});
+  const c=vm.createContext({crypto:crypto.webcrypto,TextEncoder,Uint8Array,structuredClone,setTimeout,clearTimeout,setInterval,clearInterval,...options.timers});
   vm.runInContext(read('src/PortalSync.html').replace(/^<script>\s*/,'').split('const PortalSync =')[0],c);
   const value=c.createPortalSync({storage:store,send,...options});value.bind(identity);return value;
 }
@@ -20,6 +20,51 @@ test('offline save persists before sending; a new browser session replays the sa
   assert.equal(sent.length,0);const row=(await first.list())[0];
   const restarted=client(store,async i=>{sent.push(i.id);return {state:'committed',result:'L1'};},{online:()=>true});
   await restarted.drain();assert.deepEqual(sent,[row.id]);assert.equal((await restarted.list())[0].state,'committed');
+});
+
+test('submit joins an older drain then sends the newly enqueued command without a false pending result',async()=>{
+  const store=storage();let release,started;const ready=new Promise(r=>started=r);
+  const list=store.list.bind(store);let hold=true;
+  store.list=async i=>{const rows=await list(i);if(hold){hold=false;started();await new Promise(r=>release=r);}return rows;};
+  let calls=0;const c=client(store,async()=>{calls++;return {state:'committed',result:'saved'};},{online:()=>true});
+  const draining=c.drain();await ready;
+  const pending=c.submit('apiSaveLead',[{Phone:'9000000000'}]);
+  while(!store.data.size)await new Promise(r=>setTimeout(r,0));
+  release();await draining;assert.equal(await pending,'saved');assert.equal(calls,1);
+});
+
+test('cache refresh failure after a confirmed commit never requeues the saved remark',async()=>{
+  const store=storage();let sends=0;
+  const c=client(store,async()=>{sends++;return {state:'committed',result:'saved'};},{online:()=>true,committed:async()=>{throw Error('Cache unavailable');}});
+  assert.equal(await c.submit('apiSaveLead',[{Phone:'9000000000'}]),'saved');
+  await c.drain();assert.equal(sends,1);assert.equal((await c.list())[0].state,'committed');
+});
+
+test('pending watchers reconcile an already completed receipt and stop across account changes',async()=>{
+  const store=storage(),timers=new Map();let next=0;
+  const c=client(store,async()=>({state:'committed',result:'saved'}),{online:()=>true,timers:{
+    setInterval:fn=>{timers.set(++next,fn);return next;},clearInterval:id=>timers.delete(id)
+  }});
+  await c.submit('apiSaveLead',[{Phone:'9000000000'}]);const row=(await c.list())[0];
+  const events=[];c.watch(row.id,r=>events.push(r.state));
+  await new Promise(r=>setTimeout(r,0));assert.deepEqual(events,['committed']);assert.equal(timers.size,0);
+  store.data.set(row.key,{...row,state:'retry'});c.watch(row.id,r=>events.push(r.state));
+  await new Promise(r=>setTimeout(r,0));assert.deepEqual(events,['committed','retry']);
+  const tick=[...timers.values()][0];c.bind({...identity,user:'other'});await tick();
+  assert.equal(timers.size,0);assert.equal(events.length,2);
+});
+
+test('pending watcher sees another tab commit and unsubscribe prevents stale form updates',async()=>{
+  const store=storage(),ticks=new Map();let n=0;
+  const c=client(store,async()=>{}, {online:()=>false,timers:{setInterval:fn=>{ticks.set(++n,fn);return n;},clearInterval:id=>ticks.delete(id)}});
+  await assert.rejects(c.submit('apiSaveLead',[{Phone:'9000000000'}]));const row=(await c.list())[0],events=[];
+  const stop=c.watch(row.id,r=>events.push(r.state));await new Promise(r=>setTimeout(r,0));
+  await store.patch(row.key,{state:'committed',result:'saved in another tab'});
+  await [...ticks.values()][0]();assert.deepEqual(events,['queued','committed']);assert.equal(ticks.size,0);
+  stop();
+  // The second watcher is stopped before its asynchronous initial read returns.
+  let notified=false;const stopSecond=c.watch(row.id,()=>{notified=true;});stopSecond();
+  await new Promise(r=>setTimeout(r,0));assert.equal(notified,false);
 });
 test('response loss retains the ID, exponential backoff applies, and a retry reconciles the receipt',async()=>{
   const store=storage();let time=0,calls=0,ids=[];

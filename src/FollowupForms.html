@@ -393,10 +393,12 @@ async function openMarkFollowupDoneForm(followupId) {
       if (closesFollowup) delete payload['Next Follow-up Date'];
       const result = await api.markFollowupDoneDirect(followupId, payload);
       overlay.remove();
-      _applyFollowupDoneResult(result);
-      if (App.currentPage.startsWith('followups')) await _renderFUTab(window.currentFollowupTab || 'all');
-      toast(closesFollowup ? 'Follow-up closed.' : 'Follow-up saved. Next follow-up planned.');
+      _finishFollowupDoneSave(result);
     } catch (err) {
+      if (err.code === 'SYNC_PENDING' && err.operationId) {
+        _watchPendingFollowupSave(overlay, form, btn, err);
+        return;
+      }
       const step = err.details && err.details.step;
       const reference = err.requestId;
       const message = (err.message || String(err)) + (step ? '\nStep: ' + step : '') + (reference ? '\nReference: ' + reference : '');
@@ -408,6 +410,55 @@ async function openMarkFollowupDoneForm(followupId) {
     }
   });
   renderIcons(overlay);
+}
+
+function _finishFollowupDoneSave(result) {
+  // Rendering is separate from the confirmed write. A display error must not
+  // ask the user to submit the same remark again.
+  toast('Follow-up saved in Google Sheets.', 'success');
+  try {
+    _applyFollowupDoneResult(result);
+    if (App.currentPage.startsWith('followups')) {
+      Promise.resolve(_renderFUTab(window.currentFollowupTab || 'all')).catch(() =>
+        toast('Remark saved. Refresh the view to see the latest history.', 'info'));
+    }
+  } catch (_) { toast('Remark saved. Refresh the view to see the latest history.', 'info'); }
+}
+
+function _watchPendingFollowupSave(overlay, form, button, error) {
+  // Freeze this submitted payload while its exact operation ID is unresolved.
+  // Closing the form is safe: the durable outbox continues syncing it.
+  form.querySelectorAll('input,select,textarea,button[type="submit"]').forEach(el => { el.disabled = true; });
+  button.disabled = true;
+  button.textContent = 'Waiting for sync';
+  const status = document.createElement('p');
+  status.setAttribute('role', 'status');
+  const review = document.createElement('button');
+  review.type = 'button'; review.className = 'btn btn-outlined'; review.textContent = 'View sync status';
+  review.onclick = showPortalSyncQueue;
+  form.append(status, review);
+  const describe = row => {
+    status.textContent = (row.state === 'sending' ? 'Syncing your saved remark with Google Sheets.' :
+      row.message || 'Remark saved on this device and queued for sync.') + ' Reference: ' + error.operationId;
+  };
+  describe({ state: error.syncState, message: error.message });
+  let stop = () => {};
+  const observer = new MutationObserver(() => {
+    if (!overlay.isConnected) { stop(); observer.disconnect(); }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  stop = PortalSync.watch(error.operationId, row => {
+    if (!overlay.isConnected) { stop(); observer.disconnect(); return; }
+    if (row.state === 'committed') {
+      stop(); observer.disconnect(); overlay.remove();
+      _finishFollowupDoneSave(row.result);
+    } else if (row.state === 'dismissed') {
+      stop(); observer.disconnect(); overlay.remove();
+    } else {
+      describe(row);
+      button.textContent = ['invalid','conflict','paused','blocked'].includes(row.state) ? 'Review pending change' : 'Waiting for sync';
+    }
+  });
 }
 
 function _applyFollowupSaveResult(payload, followupId) {

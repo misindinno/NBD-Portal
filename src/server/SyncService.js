@@ -22,7 +22,7 @@ function syncTargets_(action, args) {
 function syncBaseRow_(type, id) {
   const key = type === 'lead' ? 'Lead ID' : 'Follow-up ID';
   const table = type === 'lead' ? SHEET_NAMES.LEADS : SHEET_NAMES.FOLLOWUPS;
-  const row = getAllRows(table).find(row => String(row[key]) === id);
+  const row = syncTxHandles_(table) ? syncTxRow_(table, key, id) : getAllRows(table).find(row => String(row[key]) === id);
   if (!row) return null;
   return type === 'lead' ? getRowsWithCustomFieldValuesReadOnly_('Leads', [row])[0] : _normalizeFollowupRow(row);
 }

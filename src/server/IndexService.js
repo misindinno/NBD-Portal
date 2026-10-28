@@ -134,7 +134,7 @@ function findIndexedRowNumber_(sheetName, idColumn, idValue) {
 }
 
 function getRowByIndexedId_(sheetName, idColumn, idValue) {
-  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxRows_(sheetName).find(row => String(row[idColumn]) === String(idValue)) || null;
+  if (typeof syncTxHandles_ === 'function' && syncTxHandles_(sheetName)) return syncTxRow_(sheetName, idColumn, idValue);
   assertServerContext_();
   const rowNumber = findIndexedRowNumber_(sheetName, idColumn, idValue);
   if (rowNumber > 1) {

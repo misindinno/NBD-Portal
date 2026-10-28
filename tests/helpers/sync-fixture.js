@@ -1,7 +1,7 @@
 const vm = require('node:vm'), crypto = require('node:crypto'), assert = require('node:assert/strict');
 const { read } = require('./lead-cache-fixture');
 function syncFixture() {
-  const tables = new Map(), named = new Set(), requests = [];
+  const tables = new Map(), named = new Set(), requests = [], apiReads = [];
   let nextSheet = 1, held = false;
   const state = { user: { id: 'u1', email: 'u1@example.test', role: 'ADMIN', modules: ['Leads','Followups','Archive','BulkEntry'] },
     before: false, after: false, enabled: true, permission: true, pending: null };
@@ -44,12 +44,21 @@ function syncFixture() {
   }
   const c = vm.createContext({ console, Date, Math, Set, Map,
     CLIENT_CONFIG:{ SPREADSHEET_ID:'book',USER_DATABASE_SPREADSHEET_ID:'staff',USER_DATABASE_SHEET_NAME:'Staff List' },
+    _a1Sheet_:name=>"'"+String(name).replace(/'/g,"''")+"'",
     SpreadsheetApp:{ openById:()=>book },
     ScriptApp:{getScriptId:()=> 'portal'},
     Utilities:{getUuid:()=>crypto.randomUUID(),DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_,v)=> [...crypto.createHash('sha256').update(v).digest()]},
     PropertiesService:{getScriptProperties:()=>({getProperty:()=>state.enabled?'true':null,setProperty(){}})},
     LockService:{getScriptLock:()=>({tryLock(){if(held)return false;held=true;return true;},waitLock(){assert.equal(held,false);held=true;},releaseLock(){assert.equal(held,true);held=false;}})},
-    Sheets:{Spreadsheets:{batchUpdate(batch,id){assert.equal(id,'book'); assert.equal(held,true); requests.push(batch);
+    Sheets:{Spreadsheets:{Values:{batchGet(id,options){
+      assert.equal(id,'book'); apiReads.push(options.ranges.slice());
+      if(state.beforeRead) state.beforeRead(options,apiReads.length);
+      return {valueRanges:options.ranges.map(range=>{
+        const name=range.replace(/^'|'$/g,'').replace(/''/g,"'");
+        assert.ok(tables.has(name),'known API table: '+name);
+        return {values:structuredClone(tables.get(name).data)};
+      })};
+    }},batchUpdate(batch,id){assert.equal(id,'book'); assert.equal(held,true); requests.push(batch);
       if(state.before){state.before=false;throw Error('Network failed before commit');}
       if(state.delay){state.delay=false;state.pending=batch;throw Error('Network timeout while still running');}
       apply(batch); if(state.after){state.after=false;throw Error('Network failed after commit');} return {};
@@ -72,6 +81,8 @@ function syncFixture() {
     canEditConfigPermission:()=>true, _callPhone_:v=>String(v||'').replace(/\D/g,''),
   });
   ['Utils','SheetDB','IndexService','CustomFieldValueService','LeadService','FollowupService','ArchiveService','CallLogService','Api','LeadCacheService','SyncTransaction','SyncService','SyncDeltaService','FsrClientWebhook'].forEach(name=>vm.runInContext(read('src/server/'+name+'.js'),c));
+  const readService=read('src/server/SheetReadApiService.js');
+  vm.runInContext(readService.slice(readService.indexOf('const _DATE_COLUMN_EXCEPTIONS_'),readService.indexOf('function _sheetsApiCellValue_')),c);
   vm.runInContext(read('src/BulkService.js'),c);
   // Exercise production schema checks: an identity stub hid duplicate-header failures.
   const schemaContext = vm.createContext({
@@ -104,6 +115,6 @@ function syncFixture() {
   const base=(type,id)=>c.withServerContext_(()=>({type,id,values:c.syncBaseRow_(type,id)}));
   const command=(action,args,bases=[])=>({id:crypto.randomUUID(),portal:'portal',user:'u1',scope:c.leadCacheIdentity_(state.user).scope,action,args:structuredClone(args),bases:structuredClone(bases)});
   const call=cmd=>{vm.runInContext('_cfvSheetsEnsured_=false; _archiveSchemaEnsured_=false;',c);return JSON.parse(JSON.stringify(c.apiSyncPush('valid',structuredClone(cmd))));};
-  return {c,state,tables,named,requests,add,rows,base,command,call,apply};
+  return {c,state,tables,named,requests,apiReads,add,rows,base,command,call,apply};
 }
 module.exports={syncFixture};

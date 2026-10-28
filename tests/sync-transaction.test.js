@@ -137,7 +137,10 @@ test('one remark in a large workbook updates only its two index entries even whe
   const defs=vm.runInContext('_indexDefinitions_()',f.c).slice(0,2);
   defs.forEach(def=>f.add(def.indexSheet,Array.from(def.headers),f.rows(def.sourceSheet).map((row,i)=>def.build(row,i+2)).reverse()));
   const snapshots=defs.map(def=>structuredClone(f.tables.get(def.indexSheet).data));
-  const result=f.call(completion(f));
+  const command=completion(f);
+  let normalized=0;const parse=f.c.rowObjectFromHeaders_;
+  f.c.rowObjectFromHeaders_=(...args)=>{normalized++;return parse(...args);};
+  const result=f.call(command);
   assert.equal(result.data?.state,'committed',JSON.stringify(result));
   assert.ok(f.requests[0].requests.length<30,'small save must not emit thousands of index writes');
   defs.forEach((def,i)=>{
@@ -146,6 +149,33 @@ test('one remark in a large workbook updates only its two index entries even whe
     assert.equal(f.rows(def.indexSheet).at(-1)['Next Follow-up Date'],'2026-10-27');
   });
   assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);
+  assert.ok(normalized<40,'single-record checks must not normalize every lead and follow-up repeatedly');
+  assert.equal(f.apiReads.length,2,'batch read plus fresh pre-commit verification');
+});
+
+test('batch read-set verification detects a concurrent sheet edit before committing a remark',()=>{
+  const f=syncFixture(),command=completion(f);
+  f.state.beforeRead=(_options,count)=>{
+    if(count===2){const table=f.tables.get('LEAD_MASTER');table.data[1][table.data[0].indexOf('Company Name')]='Concurrent edit';}
+  };
+  assert.equal(f.call(command).data.state,'conflict');
+  assert.equal(f.requests.length,0);assert.equal(f.rows('FOLLOWUP_HISTORY').length,0);
+  assert.equal(f.rows('_SYNC_OPERATIONS').length,0);
+});
+
+test('API snapshot pads sparse cells and preserves date serials and unrelated values during a remark save',()=>{
+  const f=syncFixture(),table=f.tables.get('LEAD_MASTER');
+  table.data[0].push('Unrelated Number','Unrelated Boolean');table.data[1].push(17,true);
+  table.data[1][table.data[0].indexOf('Created At')]=46319.5;
+  const original=f.c.parseSheetCell_;
+  f.c.parseSheetCell_=(sheet,key,value)=>key==='Created At'&&typeof value==='number'?f.c._serialToDateTimeString_(value):original(sheet,key,value);
+  const get=f.c.Sheets.Spreadsheets.Values.batchGet;
+  f.c.Sheets.Spreadsheets.Values.batchGet=(...args)=>{
+    const response=get(...args);response.valueRanges.forEach(r=>r.values.forEach(row=>{while(row.at(-1)==='')row.pop();}));return response;
+  };
+  const result=f.call(completion(f));assert.equal(result.data?.state,'committed',JSON.stringify(result));
+  const lead=f.rows('LEAD_MASTER')[0];
+  assert.equal(lead['Created At'],46319.5);assert.equal(lead['Unrelated Number'],17);assert.equal(lead['Unrelated Boolean'],true);
 });
 
 test('index planning fixes row pointers after deletion and appends new source IDs',()=>{
