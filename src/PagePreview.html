@@ -2,7 +2,7 @@
 // Explicit screen reads only. No writes, tokens, credentials, delivery bodies or
 // arbitrary API responses enter this cache. Live server validators still own saves.
 const PAGE_PREVIEW_READS = new Set([
-  'apiGetDisqualified','apiGetDisqualifiedDetail',
+  'apiGetDisqualified','apiGetDisqualifiedDetail','apiGetCentralArchiveDetail',
   'apiGetLeads','apiGetTodayActivitySnapshot','apiGetFollowupPageSnapshot',
   'apiGetArchiveData','apiGetArchiveSuggestions','apiGetLostArchiveLeads',
   'apiGetCallLogs','apiGetClientCallReport','apiClientFactoryVisitList',
@@ -114,8 +114,8 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
 const PagePreview = createPagePreviewCache({ storage: createLeadSnapshotStorage(leadIndexedDb_()),
   fallback: async (endpoint, args) => {
     if (typeof SheetMirror !== 'undefined' && SheetMirror.enabled() &&
-        ['apiGetFollowupHistory','apiGetLeadActivityLogs','apiGetDisqualifiedDetail'].includes(endpoint)) {
-      const central = endpoint === 'apiGetDisqualifiedDetail';
+        ['apiGetFollowupHistory','apiGetLeadActivityLogs','apiGetDisqualifiedDetail','apiGetCentralArchiveDetail'].includes(endpoint)) {
+      const central = endpoint === 'apiGetCentralArchiveDetail' ? 'archive' : endpoint === 'apiGetDisqualifiedDetail';
       const leadId = central ? args[0] : args[0]?.leadId;
       if (leadId) {
         const saved = await SheetMirror.previewLeadDetail(leadId, central);

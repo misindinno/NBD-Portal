@@ -459,6 +459,12 @@ function apiRestoreArchivedLead(token, leadId) {
   return apiGuard_('apiRestoreArchivedLead', () => {
     const user = _apiUser();
     _assertCanMutate_(user, 'archive', 'restoreArchivedLead');
+    if(typeof arEnabled_==='function' && arEnabled_() && arFindLead_(leadId)) {
+      const lead=arFindLead_(leadId), command={id:Utilities.getUuid(),action:'apiRestoreArchivedLead',args:[leadId],bases:[{type:'lead',id:String(leadId),values:lead}]};
+      const saved=syncAtomicWrite_(user,command,()=>withTrustedWriteUser_(user.email,()=>restoreArchivedLead(leadId,user.email)));
+      if(saved.state!=='committed')throw new Error(saved.message||'Restore pending. Check the archive before retrying.');
+      return respond(saved.result);
+    }
     return withTrustedWriteUser_(user.email, () => restoreArchivedLead(leadId || '', user.email));
   });
 }

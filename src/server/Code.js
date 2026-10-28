@@ -45,6 +45,8 @@ function doGet(e) {
       // selects a workbook or invokes a transfer through this public route.
       try { if(typeof dqEnsureWorker_ === 'function') dqEnsureWorker_(); }
       catch(error) { logServerError_(error,{api:'centralDisqualifiedSetup'}); }
+      try { if(typeof arEnsureWorker_ === 'function') arEnsureWorker_(); }
+      catch(error) { logServerError_(error,{api:'centralArchiveSetup'}); }
       if (e && e.parameter && e.parameter.page === 'visit-form') {
         return HtmlService.createHtmlOutputFromFile('PublicVisitForm')
           .setTitle(CLIENT_CONFIG.APP_TITLE + ' — Visit form')

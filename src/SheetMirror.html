@@ -1,5 +1,5 @@
 <script>
-const SHEET_MIRROR_STORES = ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY','LEAD_ACTIVITY_LOGS','LEAD_FIELD_VALUES','FOLLOWUP_FIELD_VALUES','PIPELINE_STAGES','FIELD_CONFIG','CONFIG','Bulk_Config','CALL_LOGS','VISIT_SUBMISSIONS','CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS','DQ_MASTER','DQ_FOLLOWUPS','DQ_FOLLOWUP_HISTORY','DQ_CONFIG'];
+const SHEET_MIRROR_STORES = ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY','LEAD_ACTIVITY_LOGS','LEAD_FIELD_VALUES','FOLLOWUP_FIELD_VALUES','PIPELINE_STAGES','FIELD_CONFIG','CONFIG','Bulk_Config','CALL_LOGS','VISIT_SUBMISSIONS','CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS','DQ_MASTER','DQ_FOLLOWUPS','DQ_FOLLOWUP_HISTORY','DQ_CONFIG','AR_MASTER','AR_FOLLOWUPS','AR_FOLLOWUP_HISTORY','AR_CONFIG'];
 
 function sheetMirrorValidRecords(records, total) {
   if (!Array.isArray(records) || records.length !== total || !records.length) return false;
@@ -26,7 +26,7 @@ function createSheetMirrorStorage(indexedDB) {
     if (opening) return opening;
     if (!indexedDB) return Promise.reject(new Error('IndexedDB is unavailable in this browser.'));
     opening = new Promise((resolve, reject) => {
-      const req = indexedDB.open('nbd-sheet-mirror', 2);
+      const req = indexedDB.open('nbd-sheet-mirror', 3);
       let failed = false;
       req.onupgradeneeded = () => {
         if(!req.result.objectStoreNames.contains('_meta')) req.result.createObjectStore('_meta', { keyPath: 'key' });
@@ -258,7 +258,7 @@ function createSheetMirror({ request, storage, onLock = () => {}, changed = () =
   async function previewLeadDetail(leadId, central = false) {
     if (!identity || !identity.timeZone || !leadId) return null;
     const session = epoch, zone = identity.timeZone;
-    const names = central ? ['DQ_MASTER','DQ_FOLLOWUPS','DQ_FOLLOWUP_HISTORY'] :
+    const names = central === 'archive' ? ['AR_MASTER','AR_FOLLOWUPS','AR_FOLLOWUP_HISTORY'] : central ? ['DQ_MASTER','DQ_FOLLOWUPS','DQ_FOLLOWUP_HISTORY'] :
       ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY','LEAD_ACTIVITY_LOGS'];
     const saved = await Promise.all(names.map(name => previewSheet(name)));
     if (session !== epoch || !saved[0]?.exists) return null;

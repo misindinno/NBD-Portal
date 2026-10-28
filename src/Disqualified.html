@@ -38,7 +38,7 @@ async function loadDisqualified(prefetched) {
   } catch(error){if(current())toast(error.message,'error');}
 }
 function dqFilter(){const q=String(el('dq-search')?.value||'').toLowerCase();if(dqTable && dqTableBuilt)dqTable.setFilter(row=>!q||['Company Name','Contact Person','Phone','City'].some(k=>String(row[k]||'').toLowerCase().includes(q)));if(el('dq-count'))el('dq-count').textContent=dqRows.filter(row=>!q||['Company Name','Contact Person','Phone','City'].some(k=>String(row[k]||'').toLowerCase().includes(q))).length+' leads';}
-async function openDisqualified(id){
+async function openDisqualified(id, endpoint = 'apiGetDisqualifiedDetail'){
   const modal=document.createElement('dialog');modal.style.cssText='width:min(900px,90vw);max-height:85vh;border:0;border-radius:14px;padding:24px';
   modal.innerHTML='<button class="btn btn-outlined" style="float:right" id="dq-close">Close</button><h2>Lead & follow-up history</h2><div id="dq-detail">Opening saved history…</div>';
   document.body.append(modal);modal.showModal();modal.querySelector('#dq-close').onclick=()=>modal.close();modal.onclose=()=>modal.remove();
@@ -50,6 +50,6 @@ async function openDisqualified(id){
     const records=(rows,keys)=>rows.length?'<div style="overflow:auto"><table class="table"><thead><tr>'+keys.map(k=>'<th>'+escapeHtml(k)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+keys.map(k=>'<td style="white-space:pre-wrap;max-width:420px">'+cell(k,row[k])+'</td>').join('')+'</tr>'+(custom(row)?'<tr><td colspan="'+keys.length+'">'+custom(row)+'</td></tr>':'')).join('')+'</tbody></table></div>':'<p>No records.</p>';
     modal.querySelector('#dq-detail').innerHTML='<dl>'+fields.filter(k=>data.lead[k]).map(k=>'<dt><b>'+escapeHtml(k)+'</b></dt><dd>'+cell(k,data.lead[k])+'</dd>').join('')+'</dl>'+custom(data.lead)+'<h3>Follow-ups ('+data.followups.length+')</h3>'+records(data.followups,['Planned Date','Status','Discussion','Outcome'])+'<h3>Follow-up history ('+data.history.length+')</h3>'+records(data.history,['Done Date','Remark','Outcome','Contact Mode','Next Planned Date']);
   };
-  try{const data=await pagePreviewRead('apiGetDisqualifiedDetail',[id],render,{current:()=>modal.open});render(data);}catch(e){if(modal.open)modal.querySelector('#dq-detail').textContent=e.message;}
+  try{const data=await pagePreviewRead(endpoint,[id],render,{current:()=>modal.open});render(data);}catch(e){if(modal.open)modal.querySelector('#dq-detail').textContent=e.message;}
 }
 </script>

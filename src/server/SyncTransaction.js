@@ -219,7 +219,8 @@ function syncAtomicWrite_(user, command, run) {
       return { state: 'committed', result: visible ? result : null, repeated: true, receiptOnly: !visible };
     }
     SYNC_TX_ = { tables: {}, stamps: {}, apiRead:command.action==='apiMarkFollowupDoneDirect' ||
-      user.id==='central-transfer' && command.action==='centralDisqualifiedTransfer', apiValues:null };
+      user.id==='central-transfer' && command.action==='centralDisqualifiedTransfer' ||
+      user.id==='archive-transfer' && command.action==='centralArchiveTransfer', apiValues:null };
     syncCheckBases_(user, command);
     const result = run();
     if (!result || !result.success) return { state: 'invalid', message: result && result.error || 'Validation failed.', code: result && result.code };

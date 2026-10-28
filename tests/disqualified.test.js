@@ -1,6 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm');
 const {syncFixture}=require('./helpers/sync-fixture');
 const {read}=require('./helpers/lead-cache-fixture');
+const centralStore=read('src/server/CentralStore.js');
 test('background Disqualified refresh waits for Tabulator initialization',async()=>{
  const nodes=new Map(['content','dq-search','dq-count','dq-refresh','dq-status'].map(k=>[k,{value:'',addEventListener(){}}]));
  let table,built=false,replacements=0;
@@ -16,7 +17,7 @@ test('background Disqualified refresh waits for Tabulator initialization',async(
 });
 function fixture(){
  const f=syncFixture(),c=f.c,central=new Map();
- vm.runInContext(read('src/server/DisqualifiedService.js'),c);
+ vm.runInContext(centralStore+read('src/server/DisqualifiedService.js'),c);
  c.dqBook_=()=> 'central';c.dqEnabled_=()=>true;c._a1Sheet_=s=>"'"+s+"'";c._columnLetter_=n=>String.fromCharCode(64+n);
  c.getRowsWithCustomFieldValuesReadOnly_=(_name,rows)=>rows;
  c.dqCopyConfiguration_=()=>{};
@@ -92,7 +93,7 @@ test('large source indexes remain inside the atomic batch limit during removal',
 });
 test('upsert retries resolve an unknown append and preserve unrelated central records',()=>{
  const c=vm.createContext({CLIENT_CONFIG:{APP_TITLE:'Test'},SPREADSHEET_ID:'source',Date,Set,Map,Utilities:{},Session:{}});
- vm.runInContext(read('src/server/DisqualifiedService.js'),c);
+ vm.runInContext(centralStore+read('src/server/DisqualifiedService.js'),c);
  const headers=['Central Key','Origin Workbook','Origin Portal','Transfer State','Transferred At','Lead ID','Company Name'];
  let rows=[{'Central Key':'other|a','Origin Workbook':'other','Lead ID':'a','Company Name':'Other portal'}],lose=true;
  c.dqRead_=()=>({headers,rows:rows.map((value,i)=>({row:i+2,value}))});c.dqBook_=()=> 'central';c._a1Sheet_=s=>s;c._columnLetter_=()=> 'G';
@@ -104,7 +105,7 @@ test('upsert retries resolve an unknown append and preserve unrelated central re
 
 test('verification bypasses stale SpreadsheetApp values after an API write',()=>{
  const c=vm.createContext({CLIENT_CONFIG:{},SPREADSHEET_ID:'source',Date,Set,Map});
- vm.runInContext(read('src/server/DisqualifiedService.js'),c);
+ vm.runInContext(centralStore+read('src/server/DisqualifiedService.js'),c);
  const headers=['Central Key','Origin Workbook','Origin Portal','Transfer State','Transferred At','Lead ID'];let server=[headers];let reads=0;
  c.dqBook_=()=> 'central';c._a1Sheet_=s=>s;c._columnLetter_=()=> 'F';
  c.SpreadsheetApp={openById:()=>{throw Error('Stale SpreadsheetApp cache must not be used');}};

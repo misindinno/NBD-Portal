@@ -680,6 +680,7 @@ function _archiveOpenLead(leadId) {
   // fetch (only the custom-field values are back-filled quietly).
   const t = _archTabs[_archiveTab];
   const seed = ((t && t.rows) || []).find(r => String(r['Lead ID']) === String(leadId)) || null;
+  if(seed && seed._centralArchive) return openDisqualified(leadId, 'apiGetCentralArchiveDetail');
   openLeadDetail(leadId, seed);
 }
 window._archiveOpenLead = _archiveOpenLead;

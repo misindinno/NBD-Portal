@@ -65,6 +65,24 @@ test('central mirror JSON transport preserves hashed literal cells and scoped pa
   assert.equal(typeof legacy,'object','existing tabs keep their response format');
 });
 
+test('archive mirror stores exact columns and serves scoped history locally without requests', async () => {
+  const f=mirrorFixture(),c=f.c;
+  vm.runInContext(read('src/server/CentralArchiveService.js'),c);c.arEnabled_=()=>true;
+  const book=vm.runInContext('SPREADSHEET_ID',c);
+  c.arRead_=name=>{
+    const headers=['Central Key','Origin Workbook','Transfer State','Lead ID','Assigned To','Remark'];
+    const records=[['book|A',book,'Transferred','A','u1','Saved archive remark'],['foreign|B','foreign','Transferred','B','u1','Private']];
+    return {headers,rows:records.map((r,i)=>({row:i+2,value:Object.fromEntries(headers.map((h,j)=>[h,r[j]]))}))};
+  };
+  const b=mirrorClient(f);await b.client.syncAll(true);
+  const count=b.requests,detail=await b.client.previewLeadDetail('A','archive');
+  assert.equal(b.requests,count);assert.equal(detail.data.followupHistory[0].Remark,'Saved archive remark');
+  assert.equal(await b.client.previewLeadDetail('B','archive'),null);
+  assert.equal((await b.client.readSheet('AR_MASTER')).rows.length,1);
+  f.state.user={...f.state.user,role:'SALES',modules:['Leads']};
+  assert.equal(f.request('apiGetSheetMirrorManifest',f.identity()).sheets.some(s=>s.name==='AR_MASTER'),false);
+});
+
 test('corrupt mirror JSON payload cannot commit a snapshot', async () => {
   const f=mirrorFixture();
   const b=mirrorClient(f,{request:(fn,q)=>{

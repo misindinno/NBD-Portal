@@ -14,7 +14,13 @@ function getArchiveData(user, readOnly) {
     ]);
   } finally { _bootstrapReadMode_ = false; }
 
-  const scopedLeads = _scopeAssignedRows(batch[SHEET_NAMES.LEADS] || [], user);
+  const central = typeof arEnabled_==='function' && arEnabled_() ? arVisibleLeads_(user) : [];
+  const scopedLeads = _scopeAssignedRows(batch[SHEET_NAMES.LEADS] || [], user).concat(central.map(r=>({...r,_centralArchive:true})));
+  if(central.length) {
+    const ids=new Set(central.map(r=>String(r['Lead ID'])));
+    for(const [source,target] of [['FOLLOWUPS',SHEET_NAMES.FOLLOWUPS],['FOLLOWUP_HISTORY',SHEET_NAMES.FOLLOWUP_HISTORY]])
+      batch[target]=(batch[target]||[]).concat(arRead_(source).rows.map(r=>r.value).filter(r=>r['Origin Workbook']===SPREADSHEET_ID && ids.has(String(r['Lead ID']))));
+  }
   const notPickedByLead = (batch[SHEET_NAMES.FOLLOWUP_HISTORY] || []).reduce((map, row) => {
     if (String(row['Contact Mode'] || '').trim() !== 'Not Picked') return map;
     const leadId = String(row['Lead ID'] || '').trim();
@@ -266,6 +272,7 @@ function restoreArchivedLead(leadId, email) {
   const user = result.data;
   if (!(user.role === 'ADMIN' || userHasModule(user, 'Archive'))) throw new Error('Permission denied.');
 
+  const centralArchiveRestored=typeof arPrepareRestore_==='function' ? arPrepareRestore_(leadId,user) : null;
   const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canReadAssignedRow(lead, user)) return respond(null, 'Permission denied.');
@@ -307,7 +314,7 @@ function restoreArchivedLead(leadId, email) {
   }
   _bumpArchiveStamps_();
   pushFsrLeadById_(leadId, 'client.updated');
-  return respond({ leadId, status: restoredStatus || 'Open' });
+  return respond({ leadId, status: restoredStatus || 'Open', ...(centralArchiveRestored?{centralArchiveRestored}:{}) });
 }
 
 function _restoreArchiveMutationSnapshot_(lead, followups) {

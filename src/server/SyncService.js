@@ -19,22 +19,22 @@ function syncTargets_(action, args) {
   } else lead(p['Lead ID'] || p.leadId || p.LeadID || p['Lead Id'] || p.ID);
   return targets;
 }
-function syncBaseRow_(type, id) {
+function syncBaseRow_(type, id, archiveRestore) {
   const key = type === 'lead' ? 'Lead ID' : 'Follow-up ID';
   const table = type === 'lead' ? SHEET_NAMES.LEADS : SHEET_NAMES.FOLLOWUPS;
   const row = syncTxHandles_(table) ? syncTxRow_(table, key, id) : getAllRows(table).find(row => String(row[key]) === id);
-  if (!row) return null;
+  if (!row) return archiveRestore && type==='lead' && typeof arFindLead_==='function' ? arFindLead_(id) : null;
   return type === 'lead' ? getRowsWithCustomFieldValuesReadOnly_('Leads', [row])[0] : _normalizeFollowupRow(row);
 }
 function syncCheckBases_(user, command) {
   const targets = syncTargets_(command.action, command.args);
   for (const target of targets.slice()) {
-    const row = syncBaseRow_(target.type, target.id);
+    const row = syncBaseRow_(target.type, target.id, command.action==='apiRestoreArchivedLead');
     if (!row) throw new Error('SYNC_CONFLICT: Record was removed. Refresh and review your pending change.');
     if (target.type === 'followup' && row['Lead ID']) targets.push({ type: 'lead', id: String(row['Lead ID']) });
   }
   for (const target of targets) {
-    const row = syncBaseRow_(target.type, target.id);
+    const row = syncBaseRow_(target.type, target.id, command.action==='apiRestoreArchivedLead');
     if (target.type === 'lead' && !_canReadAssignedRow(row, user)) throw new Error('Permission denied. Record access changed.');
     const base = (command.bases || []).find(base => base.type === target.type && base.id === target.id);
     if (!base || !base.values || !Object.prototype.hasOwnProperty.call(base.values, 'Updated At')) throw new Error('SYNC_CONFLICT: Open the latest record before saving.');
