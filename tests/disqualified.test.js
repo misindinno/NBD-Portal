@@ -1,6 +1,19 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm');
 const {syncFixture}=require('./helpers/sync-fixture');
 const {read}=require('./helpers/lead-cache-fixture');
+test('background Disqualified refresh waits for Tabulator initialization',async()=>{
+ const nodes=new Map(['content','dq-search','dq-count','dq-refresh','dq-status'].map(k=>[k,{value:'',addEventListener(){}}]));
+ let table,built=false,replacements=0;
+ const c=vm.createContext({App:{currentPage:'disqualified',user:{role:'SALES'},config:{users:[]}},
+  el:k=>nodes.get(k),escapeHtml:String,toast:message=>{throw Error(message);},
+  Tabulator:function(){nodes.set('dq-table',{});table=this;this.on=(_event,fn)=>{this.ready=fn;};this.replaceData=async()=>{assert.equal(built,true);replacements++;};this.setFilter=()=>assert.equal(built,true);}
+ });
+ vm.runInContext(read('src/Disqualified.html').replace(/^<script>\s*/,'').replace(/<\/script>\s*$/,''),c);
+ await c.loadDisqualified({leads:[],status:null});
+ const refreshed=c.loadDisqualified({leads:[{'Lead ID':'new'}],status:null});
+ assert.equal(replacements,0);built=true;table.ready();await refreshed;
+ assert.equal(replacements,1);assert.equal(nodes.get('dq-count').textContent,'1 leads');
+});
 function fixture(){
  const f=syncFixture(),c=f.c,central=new Map();
  vm.runInContext(read('src/server/DisqualifiedService.js'),c);

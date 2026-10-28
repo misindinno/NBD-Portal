@@ -49,6 +49,40 @@ with the source retained. Fix the schema/data and retry using Transfer pending
 leads or the next worker run. Source receipts and revision fences must not be
 deleted. Keep the pre-conversion hidden workbook snapshots for recovery.
 
+### Production verification, 2026-10-28
+
+Code revision `d1eee568cdc3a073d10e4fbdc2a9b05d4a8611e4` passed syntax checks,
+281 automated tests and GitHub workflow 40635397226. The versioned production
+deployments passed HTTP smoke checks: NBD 182, LQ 110, NBD Lamination 47,
+LQ Lamination 50, CS 23 and Dead 24.
+
+| Origin portal | Transferred leads | Follow-ups | History records |
+| --- | ---: | ---: | ---: |
+| NBD | 335 | 335 | 1,362 |
+| LQ | 1,005 | 1,007 | 2,806 |
+| NBD Lamination | 62 | 62 | 53 |
+| LQ Lamination | 557 | 372 | 1,681 |
+| CS | 0 | 0 | 0 |
+| Dead | 3 | 3 | 4 |
+| Total | 1,962 | 1,779 | 5,906 |
+
+Fresh source reads found zero remaining Disqualified leads and zero source lead,
+follow-up or history rows linked to those transferred IDs. Central keys were
+unique in all four central tables, and every transferred child record matched a
+central parent. The workbook also retains 12 pre-existing legacy records and 157
+stage/field configuration records across all six portals.
+
+One additional staged NBD lead, `C4ECF51C-9CE7-4BCC-8A71-AAE0D3FC429D`,
+was already absent from the source lead table before this transfer. Its staged
+copy remains Pending and excluded from portal views; its one follow-up and seven
+history records remain in NBD pending a recovery decision. It is not included in
+the verified transfer totals above.
+
+In the signed-in NBD production UI, the Disqualified page displayed 335 records.
+Opening an existing lead displayed its one follow-up, five history records,
+custom values and copy-remark controls. Reopening that same dialog rendered the
+saved detail immediately. Other portal UI sessions were not individually tested.
+
 The complete, schema-preserving business-table mirror added on 2026-10-26 is
 documented in [WHOLE_SHEET_INDEXEDDB.md](WHOLE_SHEET_INDEXEDDB.md). It adds named
 sheet stores and a local Sheet Data viewer alongside the existing worklist caches.

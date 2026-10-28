@@ -1,5 +1,5 @@
 <script>
-let dqRows=[],dqTable=null,dqLoadId=0;
+let dqRows=[],dqTable=null,dqLoadId=0,dqTableReady=Promise.resolve(),dqTableBuilt=false;
 function dqRenderStatus(value) {
   const node=el('dq-status');if(!node)return;
   try {const s=JSON.parse(value||'null');node.textContent=!s?'':s.state==='error'?'Transfer needs attention: '+s.message:s.state==='running'?'Transfer in progress: '+s.message:'Last transfer check: '+new Date(s.at).toLocaleString();}catch(_){node.textContent='';}
@@ -12,7 +12,11 @@ async function loadDisqualified(prefetched) {
     if(!current())return;
     dqRows=data.leads;
     const query=el('dq-search')?.value||'';
-    if(dqTable && el('dq-table')) { await dqTable.replaceData(dqRows); dqFilter(); dqRenderStatus(data.status); return; }
+    if(dqTable && el('dq-table')) {
+      const table=dqTable;await dqTableReady;
+      if(!current() || table!==dqTable || !el('dq-table'))return;
+      await table.replaceData(dqRows);dqFilter();dqRenderStatus(data.status);return;
+    }
     el('content').innerHTML='<section class="card" style="padding:22px"><h2>Disqualified leads</h2><p>Central records for this portal. Saved data opens from this browser; updates sync in the background.</p><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><input id="dq-search" class="form-control" style="max-width:360px" placeholder="Search company, contact or phone"><span id="dq-count"></span><button class="btn btn-outlined" id="dq-refresh">Refresh</button>'+(App.user.role==='ADMIN'?'<button class="btn btn-outlined" id="dq-transfer">Transfer pending leads</button>':'')+'</div><p id="dq-status" role="status"></p><div id="dq-table"></div></section>';
     el('dq-search').value=query;
     el('dq-search').addEventListener('input',dqFilter);
@@ -20,6 +24,7 @@ async function loadDisqualified(prefetched) {
     if(el('dq-transfer'))el('dq-transfer').onclick=async()=>{const b=el('dq-transfer');b.disabled=true;try{const r=await api._authedRead('apiRunDisqualifiedTransfer');if(r.state!=='committed')throw new Error(r.message||'Transfer will retry.');await PagePreview.invalidate();await loadDisqualified();toast('Transfer batch checked. Remaining entries continue in the background.','success');}catch(e){toast(e.message,'error');}finally{if(b.isConnected)b.disabled=false;}};
     dqRenderStatus(data.status);
     if(dqTable)try{dqTable.destroy();}catch(_){}
+    dqTableBuilt=false;
     dqTable=new Tabulator('#dq-table',{data:dqRows,index:'Central Key',height:'60vh',layout:'fitColumns',columns:[
       {title:'Company',field:'Company Name',minWidth:200,formatter:'plaintext'},
       {title:'Contact',field:'Contact Person',formatter:'plaintext'},
@@ -28,10 +33,11 @@ async function loadDisqualified(prefetched) {
       {title:'Assigned to',field:'Assigned To',formatter:cell=>escapeHtml((App.config.users||[]).find(u=>String(u.id)===String(cell.getValue()))?.name||cell.getValue())},
       {title:'History',headerSort:false,width:95,formatter:()=>'<button class="btn btn-outlined btn-sm">View</button>',cellClick:(_e,cell)=>openDisqualified(cell.getRow().getData()['Lead ID'])}
     ]});
-    dqTable.on('tableBuilt',dqFilter);
+    const table=dqTable;
+    dqTableReady=new Promise(resolve=>table.on('tableBuilt',()=>{if(table===dqTable){dqTableBuilt=true;dqFilter();}resolve();}));
   } catch(error){if(current())toast(error.message,'error');}
 }
-function dqFilter(){const q=String(el('dq-search')?.value||'').toLowerCase();if(dqTable)dqTable.setFilter(row=>!q||['Company Name','Contact Person','Phone','City'].some(k=>String(row[k]||'').toLowerCase().includes(q)));if(el('dq-count'))el('dq-count').textContent=dqRows.filter(row=>!q||['Company Name','Contact Person','Phone','City'].some(k=>String(row[k]||'').toLowerCase().includes(q))).length+' leads';}
+function dqFilter(){const q=String(el('dq-search')?.value||'').toLowerCase();if(dqTable && dqTableBuilt)dqTable.setFilter(row=>!q||['Company Name','Contact Person','Phone','City'].some(k=>String(row[k]||'').toLowerCase().includes(q)));if(el('dq-count'))el('dq-count').textContent=dqRows.filter(row=>!q||['Company Name','Contact Person','Phone','City'].some(k=>String(row[k]||'').toLowerCase().includes(q))).length+' leads';}
 async function openDisqualified(id){
   const modal=document.createElement('dialog');modal.style.cssText='width:min(900px,90vw);max-height:85vh;border:0;border-radius:14px;padding:24px';
   modal.innerHTML='<button class="btn btn-outlined" style="float:right" id="dq-close">Close</button><h2>Lead & follow-up history</h2><div id="dq-detail">Opening saved history…</div>';

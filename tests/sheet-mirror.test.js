@@ -4,6 +4,52 @@ const vm = require('node:vm');
 const { read } = require('./helpers/lead-cache-fixture');
 const plain = value => JSON.parse(JSON.stringify(value));
 
+test('central mirror JSON transport preserves hashed literal cells and scoped parent/history stores', async () => {
+  const f=mirrorFixture(),c=f.c;
+  vm.runInContext(read('src/server/DisqualifiedService.js'),c);
+  c.dqEnabled_=()=>true;
+  const workbook=vm.runInContext('SPREADSHEET_ID',c);
+  const text='Literal =value, "quoted"\nनमस्ते café \\ path';
+  c.dqRead_=name=>{
+    const headers=['Central Key','Origin Workbook','Origin Portal','Transfer State','Transferred At','Lead ID','Assigned To','Company Name','Remark','Custom Fields JSON'];
+    const records=[{ 'Central Key':workbook+'|L1','Origin Workbook':workbook,'Transfer State':'Transferred','Lead ID':'L1','Assigned To':'u1','Company Name':'Central client',Remark:text,'Custom Fields JSON':JSON.stringify({value:text}) },
+      {'Central Key':'foreign|L2','Origin Workbook':'foreign','Transfer State':'Transferred','Lead ID':'L2','Assigned To':'u1','Company Name':'Other portal'}];
+    return {name,headers,rows:records.map((r,i)=>({row:i+2,value:Object.fromEntries(headers.map(h=>[h,r[h]||'']))}))};
+  };
+  let wirePages=0;
+  const b=mirrorClient(f,{request:(fn,q)=>{
+    const result=f.request(fn,q);
+    if(fn==='apiGetSheetMirrorPage') {assert.equal(q.wireFormat,'json-v1');assert.equal(typeof result,'string');wirePages++;}
+    return result;
+  }});
+  await b.client.syncAll(true);
+  for(const name of ['DQ_MASTER','DQ_FOLLOWUPS','DQ_FOLLOWUP_HISTORY','DQ_CONFIG']) {
+    const data=await b.client.readSheet(name);
+    assert.equal(data.sheetId,null);assert.equal(data.rows.length,1);
+    assert.equal(data.rows[0].cells[data.headers.indexOf('Remark')],text);
+    assert.ok(b.stores.get(name).puts>0);
+  }
+  assert.ok(wirePages>0);
+  const legacy=f.request('apiGetSheetMirrorPage',{...f.identity(),sheet:'DQ_MASTER'});
+  assert.equal(typeof legacy,'object','existing tabs keep their response format');
+});
+
+test('corrupt mirror JSON payload cannot commit a snapshot', async () => {
+  const f=mirrorFixture();
+  const b=mirrorClient(f,{request:(fn,q)=>{
+    const result=f.request(fn,q);
+    if(fn==='apiGetSheetMirrorPage' && q.sheet==='LEAD_MASTER') {
+      const page=JSON.parse(result);
+      if(page.items?.[1])page.items[1].value.cells[0]='Corrupted';
+      return JSON.stringify(page);
+    }
+    return result;
+  }});
+  await b.client.syncAll(true);
+  assert.match(b.client.status().sheets.find(s=>s.name==='LEAD_MASTER').error,/integrity/);
+  assert.equal(b.stores.get('LEAD_MASTER').data.size,0);
+});
+
 test('lead list uses verified local mirror without network and normalizes dates in the portal timezone', async () => {
   const f=mirrorFixture(), t=f.tables.get('LEAD_MASTER');
   t.data[1][t.data[0].indexOf('Updated At')]=new Date('2026-10-26T04:30:00Z');

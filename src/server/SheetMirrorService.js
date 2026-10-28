@@ -192,7 +192,13 @@ function apiGetSheetMirrorManifest(token, query) {
 function apiGetSheetMirrorPage(token, query) {
   _currentApiToken_ = token || '';
   return apiGuard_('apiGetSheetMirrorPage', () => {
-    try { return respond(sheetMirrorPage_(_apiUser(), query)); }
+    try {
+      const page = sheetMirrorPage_(_apiUser(), query);
+      // Preserve the exact hashed JSON through google.script.run, including
+      // nested arrays, null metadata and literal cell text. Older tabs retain
+      // their object response until they reload.
+      return respond(query && query.wireFormat === 'json-v1' ? JSON.stringify(page) : page);
+    }
     catch (error) {
       const code = String(error.message || '').split(':')[0];
       if (['CACHE_SCOPE_CHANGED','CACHE_REVISION_CHANGED','CACHE_DISABLED'].includes(code)) return respond(null, code, code);

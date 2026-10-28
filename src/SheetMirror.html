@@ -163,7 +163,10 @@ function createSheetMirror({ request, storage, onLock = () => {}, changed = () =
     if (!clients.has(name)) {
       const local = storage.table(name), context = { ...identity };
       const client = createLeadReadCache({ namespace: 'sheet:' + identity.workbook + ':' + name, storage: local, validateRows: sheetMirrorValidRecords, retainSnapshotOnReplace: true,
-        request: query => request('apiGetSheetMirrorPage', { ...query, workbook: context.workbook, sheet: name }),
+        request: async query => {
+          const page = await request('apiGetSheetMirrorPage', { ...query, workbook: context.workbook, sheet: name, wireFormat: 'json-v1' });
+          return typeof page === 'string' ? JSON.parse(page) : page;
+        },
         onLock: () => { void clear().catch(() => {}).finally(onLock); } });
       // Deltas and short verified reuse work for the read mirror independently of the write queue.
       client.bind({ ...identity, syncEnabled: true });
