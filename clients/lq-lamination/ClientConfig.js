@@ -1,6 +1,7 @@
 // ClientConfig.js - lq-lamination
 
 const CLIENT_CONFIG = {
+  DISQUALIFIED_SPREADSHEET_ID: '1UXR5TRwhUmXc9JqieANuzKNuzogA_BRTyjLIpzN6ixI',
   FSR_SOURCE_KEY: 'lq-lamination-portal',
   SPREADSHEET_ID:               '1EKUMWJ_zyoPQ9tbV-PGySMFBm-jsbx6NWO9x6R6slK8',
   NBD_TARGET_SPREADSHEET_ID:    '1_INBusaKi3TdGe-1MjlOdnTL-XdRdhWnBxwE5_3HBpw',

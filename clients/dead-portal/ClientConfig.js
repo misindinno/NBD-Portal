@@ -1,6 +1,7 @@
 // ─── ClientConfig.js — dead-portal ───────────────────────────────────────────
 
 const CLIENT_CONFIG = {
+  DISQUALIFIED_SPREADSHEET_ID: '1UXR5TRwhUmXc9JqieANuzKNuzogA_BRTyjLIpzN6ixI',
   FSR_SOURCE_KEY: 'dead-portal',
   SPREADSHEET_ID:               '19nD4wIW8O3uwlsEMkErBWqiKJLh94nBJfudtJu0AErk',
   NBD_TARGET_SPREADSHEET_ID:    '',

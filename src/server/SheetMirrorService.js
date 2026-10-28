@@ -2,6 +2,7 @@
 // Arrays preserve column positions, empty/duplicate headers and duplicate rows.
 function sheetMirrorDefinitions_() {
   return [
+    ...((typeof dqEnabled_ === 'function' && dqEnabled_()) ? Object.keys(DQ_TABLES_).map(name=>[name,['Leads'],'disqualified']) : []),
     ['LEAD_MASTER', ['Leads','Followups','Pipeline','Archive'], 'leads'],
     ['FOLLOWUPS', ['Followups'], 'followups'],
     ['FOLLOWUP_HISTORY', ['Followups','Archive'], 'history'],
@@ -25,7 +26,7 @@ function sheetMirrorIdentity_(user) {
   const base = leadCacheIdentity_(user), workbook = String(SPREADSHEET_ID);
   return { ...base, workbook, timeZone: Session.getScriptTimeZone(), leadListAllowed: user.role === 'ADMIN' || userHasModule(user, 'Leads'),
     syncEnabled: true, enabled: base.modulesEnabled && PropertiesService.getScriptProperties().getProperty('PORTAL_SHEET_MIRROR_ENABLED') !== 'false',
-    scope: leadCacheDigest_({ scope: base.scope, workbook, mirrorSchema: 1 }) };
+    scope: leadCacheDigest_({ scope: base.scope, workbook, mirrorSchema: 2 }) };
 }
 function sheetMirrorContext_(user, query) {
   const identity = sheetMirrorIdentity_(user);
@@ -37,7 +38,7 @@ function sheetMirrorManifest_(user, query) {
   const identity = sheetMirrorContext_(user, query);
   const existing = getSpreadsheet(SHEET_NAMES.LEADS).getSheets().map(sheet => sheet.getName());
   const definitions = sheetMirrorDefinitions_().filter(def => sheetMirrorAllowed_(user, def));
-  return { identity, sheets: definitions.map(def => ({ name: def.name, exists: existing.includes(def.name) })),
+  return { identity, sheets: definitions.map(def => ({ name: def.name, exists: def.kind === 'disqualified' || existing.includes(def.name) })),
     // Names only, and only for administrators. Never read unknown/internal tables.
     excluded: user.role === 'ADMIN' ? existing.filter(name => !definitions.some(def => def.name === name)) : [] };
 }
@@ -147,10 +148,10 @@ function sheetMirrorUniqueIds_(rows, key) {
   });
 }
 function sheetMirrorRecords_(user, definition) {
-  const table = sheetMirrorReadTable_(definition.name);
+  const table = definition.kind === 'disqualified' ? dqMirrorTable_(definition.name,user) : sheetMirrorReadTable_(definition.name);
   const sensitive = /password|passwd|secret|token|credential|authorization|cookie|session|api[ _-]?key|__proto__|constructor|prototype/i;
   const redactedColumns = table.headers.map((name, index) => sensitive.test(name) ? index : -1).filter(index => index >= 0);
-  const rows = sheetMirrorScopedRows_(user, definition, table).filter(row => {
+  const rows = (definition.kind === 'disqualified' ? table.rows : sheetMirrorScopedRows_(user, definition, table)).filter(row => {
     if (['leadFields','followupFields'].includes(definition.kind) && sensitive.test(String(row.object['Column Key'] || ''))) return false;
     // CONFIG is key/value-shaped: sensitive config types must not export values.
     return definition.name !== 'CONFIG' || !sensitive.test(String(row.object['Config Type'] || ''));

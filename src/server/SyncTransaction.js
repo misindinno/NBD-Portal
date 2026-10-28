@@ -80,17 +80,22 @@ function syncTxIndexes_() {
     const targets = table.originals.length ? changed : source.rows.map((row, i) => ({row, rowNumber:i + 2}));
     const desired = new Map(targets.map(({row, rowNumber}) => {
       const built = def.build(rowObjectFromHeaders_(source.headers, row.values, true, source.name), rowNumber);
-      return [String(built[def.idColumn] || ''), built];
+      const pointerOnly=row.source!==null && JSON.stringify(row.values)===JSON.stringify(source.originals[row.source-1]);
+      return [String(built[def.idColumn] || ''), {built,pointerOnly}];
     }).filter(([id]) => id));
     const indexId = table.headers.indexOf(def.idColumn), found = new Set();
     table.rows = table.rows.filter(row => !removedIds.has(String(row.values[indexId] || '')));
     table.rows.forEach(row => {
-      const id = String(row.values[indexId] || ''), built = desired.get(id);
-      if (!built) return;
+      const id = String(row.values[indexId] || ''), target = desired.get(id);
+      if (!target) return;
+      const built=target.built;
       found.add(id);
-      table.headers.forEach((header, i) => { if (Object.prototype.hasOwnProperty.call(built, header)) row.values[i] = built[header]; });
+      // Row removal changes positions, not the remaining records' business data.
+      // Preserve untouched index dates/types instead of rewriting thousands of
+      // cells merely because a preceding source row was removed.
+      table.headers.forEach((header, i) => { if ((!target.pointerOnly || header==='Row Number') && Object.prototype.hasOwnProperty.call(built, header)) row.values[i] = built[header]; });
     });
-    desired.forEach((built, id) => {
+    desired.forEach(({built}, id) => {
       if (!found.has(id)) table.rows.push({ source: null, values: table.headers.map(key => built[key] === undefined ? '' : built[key]) });
     });
   });
@@ -138,7 +143,23 @@ function syncTxRequests_() {
     const added = table.rows.filter(row => row.source === null);
     if (added.length) requests.push({ appendCells: { sheetId, rows: added.map(row => ({ values: row.values.map(syncCell_) })), fields: 'userEnteredValue' } });
   });
-  return requests;
+  return typeof compactSyncRequests_ === 'function' ? compactSyncRequests_(requests) : requests;
+}
+
+// Combine adjacent row writes before row deletions. This keeps index-pointer
+// updates after a multi-lead transfer below the request limit without changing
+// which cells are written or weakening the read-set/fence checks.
+function compactSyncRequests_(requests) {
+  const result=[];
+  for(const request of requests){
+    const previous=result[result.length-1],a=previous && previous.updateCells,b=request.updateCells;
+    if(a && b && a.start && b.start && a.fields===b.fields && a.start.sheetId===b.start.sheetId && a.start.columnIndex===b.start.columnIndex &&
+      a.start.rowIndex+a.rows.length===b.start.rowIndex && a.rows[0].values.length===b.rows[0].values.length){a.rows.push(...b.rows);continue;}
+    const x=previous && previous.deleteDimension,y=request.deleteDimension;
+    if(x && y && x.range.sheetId===y.range.sheetId && x.range.dimension===y.range.dimension && y.range.endIndex===x.range.startIndex){x.range.startIndex=y.range.startIndex;continue;}
+    result.push(request);
+  }
+  return result;
 }
 
 function syncTxCheckReadSet_() {

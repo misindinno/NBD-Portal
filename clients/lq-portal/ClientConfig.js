@@ -1,6 +1,7 @@
 // ─── ClientConfig.js — lq-portal ─────────────────────────────────────────────
 
 const CLIENT_CONFIG = {
+  DISQUALIFIED_SPREADSHEET_ID: '1UXR5TRwhUmXc9JqieANuzKNuzogA_BRTyjLIpzN6ixI',
   FSR_SOURCE_KEY: 'lq-portal',
   SPREADSHEET_ID:               '1LeALluP02bd37clVesulu1JY7HeJjVNA4J067-QUM5w',
   NBD_TARGET_SPREADSHEET_ID:    '1X3ltwu9Etf9FjG2gxoCSHfw8sEDQcvXtWJTugEcUz8U',

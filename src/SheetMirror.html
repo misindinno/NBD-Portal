@@ -1,5 +1,5 @@
 <script>
-const SHEET_MIRROR_STORES = ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY','LEAD_ACTIVITY_LOGS','LEAD_FIELD_VALUES','FOLLOWUP_FIELD_VALUES','PIPELINE_STAGES','FIELD_CONFIG','CONFIG','Bulk_Config','CALL_LOGS','VISIT_SUBMISSIONS','CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS'];
+const SHEET_MIRROR_STORES = ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY','LEAD_ACTIVITY_LOGS','LEAD_FIELD_VALUES','FOLLOWUP_FIELD_VALUES','PIPELINE_STAGES','FIELD_CONFIG','CONFIG','Bulk_Config','CALL_LOGS','VISIT_SUBMISSIONS','CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS','DQ_MASTER','DQ_FOLLOWUPS','DQ_FOLLOWUP_HISTORY','DQ_CONFIG'];
 
 function sheetMirrorValidRecords(records, total) {
   if (!Array.isArray(records) || records.length !== total || !records.length) return false;
@@ -26,11 +26,12 @@ function createSheetMirrorStorage(indexedDB) {
     if (opening) return opening;
     if (!indexedDB) return Promise.reject(new Error('IndexedDB is unavailable in this browser.'));
     opening = new Promise((resolve, reject) => {
-      const req = indexedDB.open('nbd-sheet-mirror', 1);
+      const req = indexedDB.open('nbd-sheet-mirror', 2);
       let failed = false;
       req.onupgradeneeded = () => {
-        req.result.createObjectStore('_meta', { keyPath: 'key' });
+        if(!req.result.objectStoreNames.contains('_meta')) req.result.createObjectStore('_meta', { keyPath: 'key' });
         SHEET_MIRROR_STORES.forEach(name => {
+          if(req.result.objectStoreNames.contains(name)) return;
           const store = req.result.createObjectStore(name, { keyPath: ['snapshotKey','rowNumber'] });
           store.createIndex('snapshotKey', 'snapshotKey');
         });

@@ -1,6 +1,7 @@
 // ─── ClientConfig.js — cs-portal ───────────────────────────────────────────
 
 const CLIENT_CONFIG = {
+  DISQUALIFIED_SPREADSHEET_ID: '1UXR5TRwhUmXc9JqieANuzKNuzogA_BRTyjLIpzN6ixI',
   FSR_SOURCE_KEY: 'cs-portal',
   SPREADSHEET_ID:               '1FbrQ-IPnWuxtZBbdSWHVlDF2ri4WHUdV_P6gIm_FR38',
   NBD_TARGET_SPREADSHEET_ID:    '',

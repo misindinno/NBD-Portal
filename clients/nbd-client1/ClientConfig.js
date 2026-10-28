@@ -1,6 +1,7 @@
 // ─── ClientConfig.js — nbd-client1 ───────────────────────────────────────────
 
 const CLIENT_CONFIG = {
+  DISQUALIFIED_SPREADSHEET_ID: '1UXR5TRwhUmXc9JqieANuzKNuzogA_BRTyjLIpzN6ixI',
   FSR_SOURCE_KEY: 'nbd-portal',
   SPREADSHEET_ID:               '1X3ltwu9Etf9FjG2gxoCSHfw8sEDQcvXtWJTugEcUz8U',
   NBD_TARGET_SPREADSHEET_ID:    '',

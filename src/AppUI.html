@@ -447,6 +447,7 @@ const _PAGE_META = {
   calls:     { title: 'Calls', crumb: 'Calls' },
   callreport: { title: 'Client Call Totals', crumb: 'Client Call Totals' },
   sheetdata: { title: 'Sheet Data', crumb: 'Sheet Data' },
+  disqualified: { title: 'Disqualified leads', crumb: 'Disqualified' },
   clientfactoryvisits: { title: 'Client & Factory Visits', crumb: 'Client & Factory Visits' },
   visitmanagement: { title: 'Visits', crumb: 'Visits' },
   webhooks:  { title: 'Webhooks',         crumb: 'Webhooks' },
@@ -529,6 +530,7 @@ async function navigate(page) {
     else if (page === 'calls')             await _runPageLoader(page, 'loadCalls');
     else if (page === 'callreport')        await _runPageLoader(page, 'loadClientCallReport');
     else if (page === 'sheetdata')         await _runPageLoader(page, 'loadSheetMirror');
+    else if (page === 'disqualified')      await _runPageLoader(page, 'loadDisqualified');
     else if (page === 'clientfactoryvisits') await _runPageLoader(page, 'loadClientFactoryVisits');
     else if (page === 'visitmanagement')   await _runPageLoader(page, 'loadVisitManagement');
     else if (page === 'webhooks')          await _runPageLoader(page, 'loadWebhooks');
@@ -615,6 +617,7 @@ function renderSidebar() {
   if (mainItems) html += `<div class="nav-section">Main</div>${mainItems}`;
 
   const leadItems = [
+    show('Leads')     ? navItem('disqualified', 'circle-slash', 'Disqualified') : '',
     show('Leads')     ? navItem('leads',    'list-todo',  'Lead Master', badge(leadsCount, 'Pending (not in final stage)')) : '',
     show('LeadForm')  ? navItem('leadform', 'file-plus',  'Lead Form')   : '',
     show('Archive')   ? navItem('archive',  'archive',    'Archive')     : '',
@@ -675,6 +678,7 @@ function canNavigate(page) {
   if (!App.user) return false;
   if (page === 'sheetdata') return typeof SheetMirror !== 'undefined' && SheetMirror.enabled();
   const moduleMap = {
+    disqualified: 'Leads',
     leads: 'Leads', pipeline: 'Pipeline',
     archive: 'Archive',
     followups: 'Followups', 'followups-today': 'Followups',

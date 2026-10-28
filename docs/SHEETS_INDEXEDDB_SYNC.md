@@ -2,7 +2,46 @@
 
 Google Sheets remains the shared source of truth. IndexedDB stores verified reads
 and durable pending commands in each browser. No PostgreSQL, extra shared database,
-workbook migration or credentials in IndexedDB are introduced.
+credentials in IndexedDB are introduced.
+
+## Central Disqualified records (2026-10-28)
+
+All six client configurations point to the shared Disqualified workbook. `Master`,
+`FOLLOWUPS`, and `FOLLOWUP_HISTORY` store literal values with origin workbook,
+origin portal, a namespaced Central Key, and transfer state. `PORTAL_CONFIG`
+retains stage/field definitions. Existing manual/legacy records are preserved.
+
+The configured worker is installed once when a deployment is opened. Each minute
+it selects leads whose current stage is Disqualified, copies complete parent and
+child bundles, reads back every copied value, and then uses the source sync
+transaction and revision fence to remove the three source record types and
+update indexes. A failed or ambiguous copy never permits source deletion. An
+ambiguous source commit is reconciled on retry. Changing data during preparation
+aborts removal. Other modules remain in their original workbooks; custom values
+are additionally carried in the parent's Custom Fields JSON cell.
+
+Verification uses fresh Sheets API reads after API writes; it must not use a
+SpreadsheetApp read cached before the write. A ten-minute worker lease prevents
+overlapping scheduled/manual runs, with cleanup on ordinary success/failure and
+expiry after a terminated execution. Batches retain complete lead bundles, up to
+150 leads / normally 600 parent and child rows. Source index rows that only move
+position update their row number without rewriting unchanged business fields.
+
+The Disqualified page is read-only and uses the existing Leads permission and
+assignment/department rules, additionally restricted to its origin workbook.
+Archived records also require Archive access. Configuration is copied even for a
+portal with no Disqualified leads; subsequent definition changes refresh it.
+Its list/detail APIs commit into the scoped IndexedDB page cache before rendering.
+The whole-sheet mirror adds DQ_MASTER, DQ_FOLLOWUPS, DQ_FOLLOWUP_HISTORY and
+DQ_CONFIG stores; database version 2 preserves existing stores during upgrade.
+Scope hashes include the configured central workbook. Live background reads
+detect manual central sheet edits; this is polling, not WebSockets.
+
+Operational checks: inspect Transfer State and the admin page's last transfer
+status. Unknown schema columns, duplicate IDs and oversized bundles fail closed
+with the source retained. Fix the schema/data and retry using Transfer pending
+leads or the next worker run. Source receipts and revision fences must not be
+deleted. Keep the pre-conversion hidden workbook snapshots for recovery.
 
 The complete, schema-preserving business-table mirror added on 2026-10-26 is
 documented in [WHOLE_SHEET_INDEXEDDB.md](WHOLE_SHEET_INDEXEDDB.md). It adds named

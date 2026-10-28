@@ -2,6 +2,7 @@
 // Explicit screen reads only. No writes, tokens, credentials, delivery bodies or
 // arbitrary API responses enter this cache. Live server validators still own saves.
 const PAGE_PREVIEW_READS = new Set([
+  'apiGetDisqualified','apiGetDisqualifiedDetail',
   'apiGetLeads','apiGetTodayActivitySnapshot','apiGetFollowupPageSnapshot',
   'apiGetArchiveData','apiGetArchiveSuggestions','apiGetLostArchiveLeads',
   'apiGetCallLogs','apiGetClientCallReport','apiClientFactoryVisitList',
@@ -269,6 +270,7 @@ async function preparePagePreviews(initialPage) {
   const reads = [];
   const add = (page, fn, args = []) => { if (canNavigate(page)) reads.push([fn, args, page]); };
   add('today','apiGetTodayActivitySnapshot'); add('leads','apiGetLeads');
+  add('disqualified','apiGetDisqualified');
   add('followups','apiGetFollowupPageSnapshot',[{includeHistory:true}]);
   add('calls','apiGetCallLogs',[{search:'',from:'',to:'',caller:'all',type:'all',leadId:'',status:'all',page:1}]);
   add('callreport','apiGetClientCallReport',[{page:1}]);

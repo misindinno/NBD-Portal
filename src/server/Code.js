@@ -41,6 +41,10 @@ function doPost(e) {
 function doGet(e) {
   return withServerContext_(() => {
     try {
+      // Provision only the fixed, deployment-configured worker. No caller input
+      // selects a workbook or invokes a transfer through this public route.
+      try { if(typeof dqEnsureWorker_ === 'function') dqEnsureWorker_(); }
+      catch(error) { logServerError_(error,{api:'centralDisqualifiedSetup'}); }
       if (e && e.parameter && e.parameter.page === 'visit-form') {
         return HtmlService.createHtmlOutputFromFile('PublicVisitForm')
           .setTitle(CLIENT_CONFIG.APP_TITLE + ' — Visit form')
