@@ -88,6 +88,7 @@ test('already archived disqualified records move with their history and retain s
 
 test('archive worker runs one bounded batch and pauses subsequent triggers after quota errors',()=>{
  const f=fixture(),c=f.c,properties=new Map();let runs=0;
+ c._bootstrapReadMode_=false;
  c.PropertiesService={getScriptProperties:()=>({getProperty:k=>properties.get(k)||null,setProperty:(k,v)=>properties.set(k,v),deleteProperty:k=>properties.delete(k)})};
  for(const name of ['arInitialize_','arRepairRestores_','arRepairReceipts_','arTransferDisqualified_'])c[name]=()=>{};
  c.arTransferBatch_=()=>{runs++;return {state:'committed',result:{moved:50,remaining:200}};};
