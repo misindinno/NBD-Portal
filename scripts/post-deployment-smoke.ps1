@@ -14,7 +14,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$url = "https://script.google.com/macros/s/$DeploymentId/exec"
+$url = "https://script.google.com/macros/s/$DeploymentId/exec?deploymentCheck=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
 $failures = [System.Collections.Generic.List[string]]::new()
 
 for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
