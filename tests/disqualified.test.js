@@ -34,6 +34,16 @@ test('source changes after copy prevent deletion',()=>{
  const f=fixture(),upsert=f.c.dqUpsert_;f.c.dqUpsert_=(name,records)=>{upsert(name,records);if(name==='FOLLOWUP_HISTORY'){const t=f.tables.get('LEAD_MASTER');t.data[1][t.data[0].indexOf('Company Name')]='Concurrent edit';}};
  assert.throws(f.run,/SYNC_CONFLICT/);assert.equal(f.rows('LEAD_MASTER').length,1);assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);
 });
+
+test('recovery requires a committed receipt and cancels a staged copy if its source stage changed',()=>{
+ const f=fixture(),c=f.c;const row=f.rows('LEAD_MASTER')[0];
+ c.withServerContext_(()=>c.dqUpsert_('Master',[c.dqDecorate_(row,'L1','Copied')]));
+ const source=f.tables.get('LEAD_MASTER');source.data[1][source.data[0].indexOf('Stage ID')]='S2';
+ c.withServerContext_(()=>c.dqRepairReceipts_());assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Cancelled');
+ [...f.central.get('Master').values()][0]['Transfer State']='Copied';source.data.splice(1);
+ assert.throws(()=>c.withServerContext_(()=>c.dqRepairReceipts_()),/without a confirmed transfer receipt/);
+ assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Copied');
+});
 test('planner uses stage, rejects duplicate IDs and limits complete lead bundles',()=>{
  const f=fixture(),c=f.c;const stages=[{'Stage ID':'D','Stage Name':'Disqualified'}];
  const rows=[{'Lead ID':'a','Stage ID':'D'},{'Lead ID':'b','Stage ID':'OPEN','Lead Status':'Disqualified'},{'Lead ID':'c','Stage ID':'D'}];

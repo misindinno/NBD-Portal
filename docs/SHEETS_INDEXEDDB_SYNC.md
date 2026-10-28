@@ -16,7 +16,9 @@ it selects leads whose current stage is Disqualified, copies complete parent and
 child bundles, reads back every copied value, and then uses the source sync
 transaction and revision fence to remove the three source record types and
 update indexes. A failed or ambiguous copy never permits source deletion. An
-ambiguous source commit is reconciled on retry. Changing data during preparation
+ambiguous source commit is reconciled against committed source receipts on retry.
+If a staged lead changes to another stage before removal, its copy is marked
+Cancelled and excluded from portal views. Changing data during preparation
 aborts removal. Other modules remain in their original workbooks; custom values
 are additionally carried in the parent's Custom Fields JSON cell.
 

@@ -124,15 +124,27 @@ function dqTransferBatch_() {
     syncTxDelete_(SHEET_NAMES.FOLLOWUP_HISTORY,row=>ids.has(String(row['Lead ID'])));
     syncTxDelete_(SHEET_NAMES.LEADS,row=>ids.has(String(row['Lead ID'])));
     _bumpStamp('leads');_bumpStamp('followups');_bumpStamp('followup_history');
-    return respond({moved:moved.length,remaining:plan.remaining});
+    return respond({moved:moved.length,remaining:plan.remaining,leadIds:moved});
   });
   if(result.state==='committed' && moved.length) dqUpsert_('Master',moved.map(id=>dqDecorate_({},id,'Transferred')));
   return result;
 }
 function dqRepairReceipts_() {
-  const sourceIds=new Set(getAllRows(SHEET_NAMES.LEADS).map(r=>String(r['Lead ID'])));
-  const pending=dqRead_('Master').rows.filter(r=>r.value['Origin Workbook']===SPREADSHEET_ID && r.value['Transfer State']==='Copied' && !sourceIds.has(String(r.value['Lead ID'])));
-  if(pending.length)dqUpsert_('Master',pending.map(r=>dqDecorate_({},r.value['Lead ID'],'Transferred')));
+  const source=new Map(getAllRows(SHEET_NAMES.LEADS).map(r=>[String(r['Lead ID']),r])),stages=dqStageIds_(getAllRows(SHEET_NAMES.STAGES));
+  const pending=dqRead_('Master').rows.filter(r=>r.value['Origin Workbook']===SPREADSHEET_ID && ['Pending','Copied'].includes(r.value['Transfer State']));
+  const receipts=getSpreadsheet(SYNC_RECEIPTS_).getSheetByName(SYNC_RECEIPTS_).getDataRange().getValues();
+  const committed=new Set();
+  receipts.slice(1).filter(row=>row[1]==='central-transfer').forEach(row=>{const result=JSON.parse(row[3]);(result.leadIds||[]).forEach(id=>committed.add(String(id)));});
+  const changes=[];
+  pending.forEach(({value})=>{
+    const id=String(value['Lead ID']),lead=source.get(id);
+    if(lead && !stages.has(String(lead['Stage ID'])))changes.push(dqDecorate_({},id,'Cancelled'));
+    else if(!lead && value['Transfer State']==='Copied') {
+      if(!committed.has(id))throw new Error('Source lead missing without a confirmed transfer receipt. Review central copies before continuing.');
+      changes.push(dqDecorate_({},id,'Transferred'));
+    }
+  });
+  if(changes.length)dqUpsert_('Master',changes);
 }
 function centralDisqualifiedWorker_() {
   if(!dqEnabled_())return;
