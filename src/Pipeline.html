@@ -1,6 +1,23 @@
 <script>
 let _pipelineFilters = { search: '', priority: '', userId: '', overdueOnly: false, myLeads: false };
 let _pipelineFiltersOpen = false;
+let _pipelineLoadId = 0;
+
+function pipelineDisqualifiedStage(stages) {
+  const ordered = (stages || []).slice().sort((a,b) => Number(a['Stage Order']) - Number(b['Stage Order']));
+  return ordered.find(s => s['Pipeline Data Source'] === 'central_disqualified') ||
+    ordered.find(s => !s['Pipeline Data Source'] &&
+      (s['Stage Outcome'] === 'Disqualified' || /disqualif/i.test(s['Stage Name'] || ''))) || null;
+}
+function pipelineMergeCentralLeads(local, central, stage) {
+  if (!stage) return local;
+  const rows = (central || []).filter(r => r['Transfer State'] === 'Transferred' &&
+    ![true,'TRUE','true'].includes(r['Is Archived']) && r['Lead Status'] !== 'Archived');
+  const ids = new Set(rows.map(r => String(r['Lead ID'])));
+  return local.filter(r => !ids.has(String(r['Lead ID']))).concat(rows.map(r => ({
+    ...r, 'Stage ID': stage['Stage ID'], _centralDisqualified: true
+  })));
+}
 
 function _pipelineApplyFilters() {
   const f = _pipelineFilters;
@@ -98,6 +115,7 @@ window._pipelineClearFilters = _pipelineClearFilters;
 // ── Card quick actions (archive / delete) ──────────────────────────────────────
 async function _pipelineArchiveCard(leadId) {
   if (!leadId) return;
+  if (window.pipelineLeadMap?.[leadId]?._centralDisqualified) return;
   let reason = 'Archived from pipeline';
   if (typeof Swal !== 'undefined') {
     const res = await Swal.fire({
@@ -124,6 +142,7 @@ window._pipelineArchiveCard = _pipelineArchiveCard;
 
 async function _pipelineDeleteCard(leadId) {
   if (!leadId) return;
+  if (window.pipelineLeadMap?.[leadId]?._centralDisqualified) return;
   if (!confirm('Delete this lead and all related follow-ups, history, activity logs and custom fields? This cannot be undone.')) return;
   try {
     if (typeof _removeLeadRelatedRowsFromCache === 'function') _removeLeadRelatedRowsFromCache(leadId);
@@ -140,22 +159,28 @@ async function _pipelineDeleteCard(leadId) {
 window._pipelineDeleteCard = _pipelineDeleteCard;
 
 async function loadPipeline(prefetched) {
+  const request = ++_pipelineLoadId;
   el('page-title').textContent = 'Pipeline';
-  const rows = prefetched || await pagePreviewRead('apiGetLeads', [], data => loadPipeline(data));
-  if (App.currentPage !== 'pipeline') return;
+  const centralStage = pipelineDisqualifiedStage(App.config.allStages || App.config.stages);
+  const reads = [['apiGetLeads', []]];
+  if (centralStage) reads.push(['apiGetDisqualified', []]);
+  const data = prefetched || await pagePreviewRead(reads, [], value => loadPipeline(value),
+    {current: () => request === _pipelineLoadId && App.currentPage === 'pipeline'});
+  if (App.currentPage !== 'pipeline' || request !== _pipelineLoadId) return;
+  const rows = data[0];
   AppCache.setRows('leads', rows);
 
   const finalStageIds = (App.config.allStages || App.config.stages || []).reduce((m, s) => {
     if (_isFinalStage(s)) m[s['Stage ID']] = true;
     return m;
   }, {});
-  const pipelineLeads = AppCache.getRows('leads').filter(r =>
-    r['Lead Status'] === 'Open' || finalStageIds[r['Stage ID']]
+  const pipelineLeads = pipelineMergeCentralLeads(rows, data[1]?.leads, centralStage).filter(r =>
+    r._centralDisqualified || r['Lead Status'] === 'Open' || finalStageIds[r['Stage ID']]
   );
   const _activeStageIdSet = new Set((App.config.stages || []).map(s => s['Stage ID']));
   const _allPipelineStages = [
     ...App.config.stages,
-    ...(App.config.allStages || []).filter(s => _isFinalStage(s) && !_activeStageIdSet.has(s['Stage ID']))
+    ...(App.config.allStages || []).filter(s => (_isFinalStage(s) || s === centralStage) && !_activeStageIdSet.has(s['Stage ID']))
   ];
   const pipeline = _allPipelineStages.map(s => ({
     stage: s, leads: pipelineLeads.filter(l => l['Stage ID'] === s['Stage ID'])
@@ -235,15 +260,16 @@ async function loadPipeline(prefetched) {
     const pcls    = String(priority || '').toLowerCase();
     const canArchive = App.user.role === 'ADMIN' || (typeof hasModule === 'function' && hasModule('Archive'));
     const canDelete  = App.user.role === 'ADMIN' || String(App.user.department || '').trim().toUpperCase() === 'MIS';
-    const actions = nbdLocked ? '' : `<div class="pc-actions">
+    const actions = nbdLocked || lead._centralDisqualified ? '' : `<div class="pc-actions">
         ${canArchive ? `<button type="button" class="pc-act pc-act-archive" title="Archive" data-lead-id="${leadId}" onclick="event.stopPropagation();_pipelineArchiveCard(this.dataset.leadId)">${icon('archive', 14)}</button>` : ''}
         ${canDelete ? `<button type="button" class="pc-act pc-act-delete" title="Delete" data-lead-id="${leadId}" onclick="event.stopPropagation();_pipelineDeleteCard(this.dataset.leadId)">${icon('trash-2', 14)}</button>` : ''}
       </div>`;
 
-    return `<div class="pipeline-card ${nbdLocked ? 'pipeline-card-nbd-locked' : ''}" data-lead-id="${leadId}" title="${escapeHtml(tooltip)}">
+    return `<div class="pipeline-card ${nbdLocked ? 'pipeline-card-nbd-locked' : ''} ${lead._centralDisqualified ? 'pipeline-card-central' : ''}" data-lead-id="${leadId}" title="${escapeHtml(tooltip)}">
       <div class="pc-head">
         <div class="pc-head-id">
           <div class="pc-title">${title || '—'}</div>
+          ${lead._centralDisqualified ? '<span class="badge">Central Disqualified · View history</span>' : ''}
           ${contactPerson ? `<div class="pc-contact">${contactPerson}</div>` : ''}
         </div>
         ${priority ? `<span class="pc-pri pc-pri-${pcls}">${icon('flame', 10)} ${escapeHtml(leadPriorityLabel(priority))}</span>` : ''}
@@ -404,11 +430,12 @@ async function loadPipeline(prefetched) {
       ghostClass: 'sortable-ghost',
       chosenClass: 'sortable-chosen',
       dragClass: 'sortable-drag',
-      filter: '.pipeline-empty, .pipeline-card-nbd-locked',
+      filter: '.pipeline-empty, .pipeline-card-nbd-locked, .pipeline-card-central',
       preventOnFilter: true,
       onStart: () => { _pipelineDragHappened = false; },
       onMove: (evt) => {
         if (window.pipelineUpdateInFlight) return false;
+        if (evt.dragged && evt.dragged.classList.contains('pipeline-card-central')) return false;
         if (evt.dragged && evt.dragged.classList.contains('pipeline-card-nbd-locked')) return false;
         const fromId = evt.from.dataset.stageId;
         const toId   = evt.to.dataset.stageId;
@@ -421,6 +448,7 @@ async function loadPipeline(prefetched) {
         _pipelineDragHappened = true;
         setTimeout(() => { _pipelineDragHappened = false; }, 200);
         const leadId     = evt.item.dataset.leadId;
+        if (evt.item.classList.contains('pipeline-card-central')) { _restorePipelineDrag(evt); return; }
         if (evt.item.classList.contains('pipeline-card-nbd-locked')) {
           _restorePipelineDrag(evt);
           toast('Lead is already moved to NBD and cannot be moved in LQ.', 'info');
@@ -474,6 +502,7 @@ async function loadPipeline(prefetched) {
     card.addEventListener('click', () => {
       if (_pipelineDragHappened) return;
       const leadId = card.dataset.leadId;
+      if (window.pipelineLeadMap?.[leadId]?._centralDisqualified) { openDisqualified(leadId); return; }
       if (leadId && typeof openLeadDetail === 'function') openLeadDetail(leadId);
     });
   });

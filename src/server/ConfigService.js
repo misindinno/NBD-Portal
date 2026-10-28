@@ -67,6 +67,21 @@ function saveStage(stage, email) {
   let stageId = stage["Stage ID"];
   let movedLeadCount = 0;
   let targetStage = null;
+  const stagesForLink = getAllStages();
+  const previousStage = stagesForLink.find(s => s['Stage ID'] === stageId);
+  if (stageId && !previousStage) return respond(null, 'Stage not found.');
+  const effectiveSource = Object.prototype.hasOwnProperty.call(stage, 'Pipeline Data Source')
+    ? String(stage['Pipeline Data Source'] || '')
+    : String((previousStage || {})['Pipeline Data Source'] || '');
+  if (!['','portal','central_disqualified'].includes(effectiveSource)) return respond(null, 'Invalid pipeline data source.');
+  if (effectiveSource === 'central_disqualified') {
+    const other = stagesForLink.find(s => s['Stage ID'] !== stageId && s['Pipeline Data Source'] === effectiveSource);
+    if (other) return respond(null, 'Central Disqualified data is already linked to ' + other['Stage Name'] + '. Set that stage to Portal leads only before linking another stage.');
+    const initial = Object.prototype.hasOwnProperty.call(stage, 'Is Initial Stage') ? stage['Is Initial Stage'] : (previousStage || {})['Is Initial Stage'];
+    if (initial === true || initial === 'TRUE') return respond(null, 'A central Disqualified stage cannot be the initial stage.');
+    stage = { ...stage, 'Stage Outcome': 'Disqualified', 'Is Final Stage': true };
+  }
+  if (Object.prototype.hasOwnProperty.call(stage, 'Pipeline Data Source')) safeInitHeaders(SHEET_NAMES.STAGES, ['Pipeline Data Source']);
   if (stageId) {
     const stages = getAllStages();
     const currentIndex = stages.findIndex(s => String(s['Stage ID']) === String(stageId));

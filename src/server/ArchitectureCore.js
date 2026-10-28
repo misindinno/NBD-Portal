@@ -118,7 +118,7 @@ function sheetSchemas_() {
   SHEET_SCHEMA_CACHE_[SHEET_NAMES.STAGES] = {
     required: ['Stage ID','Stage Name'],
     fields: {
-      'Stage ID': text, 'Stage Name': text, 'Stage Order': number,
+      'Stage ID': text, 'Stage Name': text, 'Stage Order': number, 'Pipeline Data Source': text,
       'Is Active': bool, 'Is Final Stage': bool, 'Created At': date, 'Updated At': date
     }
   };

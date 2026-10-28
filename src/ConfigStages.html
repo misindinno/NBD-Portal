@@ -26,6 +26,7 @@ async function loadStagesConfig(prefetched) {
           <div style="width:12px;height:12px;border-radius:50%;background:${safeColor(s['Color'])}"></div>
           <div style="flex:1">
             <b>${escapeHtml(s['Stage Name'])}</b>
+            ${pipelineDisqualifiedStage(stages)?.['Stage ID'] === s['Stage ID'] ? '<span class="badge" style="margin-left:8px">Central Disqualified data</span>' : ''}
             <span style="color:#999;font-size:12px;margin-left:8px">Order: ${escapeHtml(s['Stage Order'])}</span>
             ${s['Is Initial Stage'] === true || s['Is Initial Stage'] === 'TRUE' ? '<span class="badge" style="background:#E8F5E9;color:#2E7D32;margin-left:6px">Initial</span>' : ''}
             ${s['Is Final Stage'] ? '<span class="badge" style="background:#E3F2FD;color:#1565C0;margin-left:6px">Final</span>' : ''}
@@ -102,6 +103,14 @@ function openStageForm(data = {}) {
           </select>
         </div>
       </div>
+      <div class="form-group"><label>Pipeline data source</label>
+        <select class="form-control" name="Pipeline Data Source">
+          <option value="" ${!data['Pipeline Data Source']?'selected':''}>Automatic — link the Disqualified stage</option>
+          <option value="portal" ${data['Pipeline Data Source']==='portal'?'selected':''}>Portal leads only</option>
+          <option value="central_disqualified" ${data['Pipeline Data Source']==='central_disqualified'?'selected':''}>Central Disqualified data</option>
+        </select>
+        <p style="font-size:12px;color:#666">Link one custom stage to show this portal's permitted central Disqualified clients and their history. An explicit link overrides the automatic Disqualified column. Linked stages are final with a Disqualified outcome; leads placed here transfer to the central sheet. Central cards open history and cannot be dragged, archived or deleted here.</p>
+      </div>
       <div class="form-group" style="margin-top:4px">
         <label style="font-size:12.5px;font-weight:600;color:#1f2937;display:block;margin-bottom:8px">Stage Options</label>
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
@@ -144,6 +153,15 @@ function openStageForm(data = {}) {
     lbl.addEventListener('mouseleave', () => { if (!cb.checked) lbl.style.borderColor = '#e5e7eb'; });
   });
 
+  const sourceSelect = overlay.querySelector('[name="Pipeline Data Source"]');
+  const reflectCentralSource = () => {
+    if (sourceSelect.value !== 'central_disqualified') return;
+    overlay.querySelector('[name="Stage Outcome"]').value = 'Disqualified';
+    const finalOption = overlay.querySelector('[name="Is Final Stage"]');
+    finalOption.checked = true; finalOption.dispatchEvent(new Event('change'));
+  };
+  sourceSelect.addEventListener('change', reflectCentralSource);
+  reflectCentralSource();
   overlay.querySelector('#stage-form').addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -153,6 +171,7 @@ function openStageForm(data = {}) {
       'Stage Order': fd.get('Stage Order'),
       'TAT Days': fd.get('TAT Days') || '',
       'Stage Outcome': fd.get('Stage Outcome') || '',
+      'Pipeline Data Source': fd.get('Pipeline Data Source') || '',
       'Is Active': fd.has('Is Active'),
       'Is Final Stage': fd.has('Is Final Stage'),
       'Is Initial Stage': fd.has('Is Initial Stage'),

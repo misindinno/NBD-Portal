@@ -26,6 +26,7 @@ function setup(stages, leads = [], options = {}) {
     insertRow: (sheet, row) => rows[sheet].push(structuredClone(row)),
     now: () => '2026-09-08 12:00:00',
     generateUUID: () => 'new-stage',
+    safeInitHeaders: (sheet, headers) => events.push({type:'headers', sheet, headers}),
     respond: (data, error) => ({ success: !error, data, error }),
     _bumpStamp: key => events.push({ type: 'stamp', key }),
     insertLeadActivityLog_: (...args) => events.push({ type: 'activity', args }),
@@ -143,6 +144,31 @@ test('unknown stage IDs and unauthorized saves cannot move leads', () => {
   const denied = setup([stage('first', 1)], [lead('one', 'first')], { denied: true });
   assert.throws(() => denied.save({ 'Stage ID': 'first', 'Is Active': false }), /Permission denied/);
   assert.equal(denied.events.length, 0);
+});
+
+test('a custom linked stage persists its source and enforces the disqualified final outcome', () => {
+  const app = setup([stage('original', 1)]);
+  const result = app.save({'Stage Name':'Closed clients','Pipeline Data Source':'central_disqualified','Is Final Stage':false,'Stage Outcome':'Won'});
+  assert.equal(result.success,true);
+  const created = app.rows.stages.find(s => s['Stage ID']==='new-stage');
+  assert.equal(created['Pipeline Data Source'],'central_disqualified');
+  assert.equal(created['Stage Outcome'],'Disqualified');assert.equal(created['Is Final Stage'],true);
+  assert.ok(app.events.some(e=>e.type==='headers'&&e.headers.includes('Pipeline Data Source')));
+});
+test('central link rejects duplicate targets, invalid sources and initial stages without writes', () => {
+  const app=setup([{...stage('linked',1),'Pipeline Data Source':'central_disqualified'},stage('other',2)]);
+  assert.equal(app.save({'Stage ID':'other','Pipeline Data Source':'central_disqualified'}).success,false);
+  assert.equal(app.save({'Stage ID':'other','Pipeline Data Source':'arbitrary-sheet'}).success,false);
+  const initial=setup([{...stage('first',1),'Is Initial Stage':true}]);
+  assert.equal(initial.save({'Stage ID':'first','Pipeline Data Source':'central_disqualified'}).success,false);
+  assert.equal(initial.events.length,0);assert.equal(app.events.length,0);
+});
+test('a central link can be reassigned without moving central records or changing their IDs', () => {
+  const app=setup([{...stage('linked',1),'Pipeline Data Source':'central_disqualified'},stage('other',2)]);
+  assert.equal(app.save({'Stage ID':'linked','Pipeline Data Source':'portal'}).success,true);
+  assert.equal(app.save({'Stage ID':'other','Pipeline Data Source':'central_disqualified'}).success,true);
+  assert.equal(app.rows.stages.filter(s=>s['Pipeline Data Source']==='central_disqualified').length,1);
+  assert.equal(app.events.filter(e=>e.type==='activity'||e.type==='webhook').length,0);
 });
 
 let failed = 0;

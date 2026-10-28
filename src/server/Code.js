@@ -287,7 +287,7 @@ function setupSheets() {
     ensureCustomFieldValueSheets_();
     ensureIndexSheets_();
     safeInitHeaders(SHEET_NAMES.STAGES, [
-      'Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Stage Outcome','Created At'
+      'Stage ID','Stage Name','Stage Order','Color','Is Active','Is Final Stage','Is Initial Stage','TAT Days','Is Skippable','Stage Outcome','Created At','Pipeline Data Source'
     ]);
     safeInitHeaders(SHEET_NAMES.FIELD_CONFIG, [
       'Field ID','Sheet Name','Field Name','Column Key','Field Type',

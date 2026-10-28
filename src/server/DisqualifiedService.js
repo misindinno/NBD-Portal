@@ -64,7 +64,8 @@ function dqUpsert_(name, records) {
     if(mismatch.length)throw new Error('Central verification failed in '+name+' ('+mismatch.join(', ')+'). Source retained.');
   });
 }
-function dqStageIds_(stages) { return new Set(stages.filter(s => /disqualif/i.test(String(s['Stage Name']||''))).map(s=>String(s['Stage ID']))); }
+function dqStageIds_(stages) { return new Set(stages.filter(s => s['Pipeline Data Source']==='central_disqualified' ||
+  String(s['Stage Outcome']||'').toLowerCase()==='disqualified' || /disqualif/i.test(String(s['Stage Name']||''))).map(s=>String(s['Stage ID']))); }
 function dqPlan_(leads, followups, history, stages, limit) {
   const stageIds=dqStageIds_(stages), seen=new Set();
   const candidates=leads.filter(row=>row['Lead ID'] && stageIds.has(String(row['Stage ID'])));
