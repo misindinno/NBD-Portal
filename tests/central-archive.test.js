@@ -85,3 +85,16 @@ test('already archived disqualified records move with their history and retain s
  assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Transferred');
  assert.equal([...f.central.get('FOLLOWUP_HISTORY').values()][0].Remark,'Older remark');
 });
+
+test('archive worker runs one bounded batch and pauses subsequent triggers after quota errors',()=>{
+ const f=fixture(),c=f.c,properties=new Map();let runs=0;
+ c.PropertiesService={getScriptProperties:()=>({getProperty:k=>properties.get(k)||null,setProperty:(k,v)=>properties.set(k,v),deleteProperty:k=>properties.delete(k)})};
+ for(const name of ['arInitialize_','arRepairRestores_','arRepairReceipts_','arTransferDisqualified_'])c[name]=()=>{};
+ c.arTransferBatch_=()=>{runs++;return {state:'committed',result:{moved:50,remaining:200}};};
+ c.centralArchiveWorker_();assert.equal(runs,1,'remaining records wait for a later trigger');
+ c.arTransferBatch_=()=>{runs++;throw Error('Quota exceeded for Read requests');};
+ assert.throws(()=>c.centralArchiveWorker_(),/Quota exceeded/);
+ assert.ok(Number(properties.get('AR_NEXT_RUN_AT'))>Date.now());
+ assert.equal(c.centralArchiveWorker_().state,'retry');assert.equal(runs,2);
+ assert.equal(properties.has('AR_WORKER_LEASE'),false);
+});
