@@ -255,7 +255,36 @@ function createSheetMirror({ request, storage, onLock = () => {}, changed = () =
     // Never persist this projection as a complete apiGetLeads response.
     return {data, verifiedAt:saved.verifiedAt, partial:true};
   }
-  return { bind, clear, readSheet, previewSheet, previewLeads, syncAll, enabled: () => !!identity,
+  async function previewLeadDetail(leadId, central = false) {
+    if (!identity || !identity.timeZone || !leadId) return null;
+    const session = epoch, zone = identity.timeZone;
+    const names = central ? ['DQ_MASTER','DQ_FOLLOWUPS','DQ_FOLLOWUP_HISTORY'] :
+      ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY','LEAD_ACTIVITY_LOGS'];
+    const saved = await Promise.all(names.map(name => previewSheet(name)));
+    if (session !== epoch || !saved[0]?.exists) return null;
+    const formatter = new Intl.DateTimeFormat('en-GB', {timeZone:zone, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'});
+    function records(snapshot) {
+      if (!snapshot?.exists) return null;
+      const headers = snapshot.headers.map(h => h.trim()), present = headers.filter(Boolean);
+      if (new Set(present).size !== present.length || !headers.includes('Lead ID')) return null;
+      const column = headers.indexOf('Lead ID');
+      return snapshot.rows.filter(row => String(row.cells[column]) === String(leadId)).map(row =>
+        Object.fromEntries(headers.map((h,i) => {
+          let value = row.cells[i];
+          if (row.dates.includes(i)) {
+            const p = Object.fromEntries(formatter.formatToParts(new Date(value)).map(part => [part.type,part.value]));
+            value = `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+          }
+          return [h,value];
+        }).filter(([h]) => h && !/password|passwd|secret|credential|authorization|cookie|session|token|api[ _-]?key|__proto__|constructor|prototype/i.test(h))));
+    }
+    const rows = saved.map(records), parents = rows[0];
+    if (!parents || parents.length !== 1 || central && parents[0]['Transfer State'] !== 'Transferred') return null;
+    const data = {lead:parents[0]};
+    ['followups','followupHistory','activityLogs'].forEach((key,i) => { if (rows[i+1]) data[key] = rows[i+1]; });
+    return {data, verifiedAt:new Date(Math.min(...saved.filter(Boolean).map(s => Date.parse(s.verifiedAt)))).toISOString(), partial:true};
+  }
+  return { bind, clear, readSheet, previewSheet, previewLeads, previewLeadDetail, syncAll, enabled: () => !!identity,
     invalidate() { dirty++; lastSync = 0; clients.forEach(entry => { entry.verified = false; entry.client.verifyNext(); }); },
     status: () => ({ enabled: !!identity, running: !!running, lastSync, error, excluded: [...excluded],
       sheets: catalog.map(sheet => { const entry = clients.get(sheet.name); return { ...sheet, rows: entry && entry.rows != null ? entry.rows : sheet.rows,

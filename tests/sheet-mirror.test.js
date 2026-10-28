@@ -4,6 +4,33 @@ const vm = require('node:vm');
 const { read } = require('./helpers/lead-cache-fixture');
 const plain = value => JSON.parse(JSON.stringify(value));
 
+test('history and activity previews join persisted sheets locally without any server request', async () => {
+  const f=mirrorFixture();
+  f.add('FOLLOWUP_HISTORY',['History ID','Lead ID','Done Date','Remark'],[
+    {'History ID':'H1','Lead ID':'L1','Done Date':new Date('2026-10-26T04:30:00Z'),Remark:'Saved remark'},
+    {'History ID':'H2','Lead ID':'L2',Remark:'Another lead'}]);
+  f.add('LEAD_ACTIVITY_LOGS',['Log ID','Lead ID','Created At','Action'],[
+    {'Log ID':'A1','Lead ID':'L1','Created At':new Date('2026-10-26T04:30:00Z'),Action:'Stage Change'}]);
+  const b=mirrorClient(f);await b.client.syncAll(true);const before=b.requests;
+  const saved=await b.client.previewLeadDetail('L1');
+  assert.equal(b.requests,before);assert.equal(saved.partial,true);
+  assert.equal(saved.data.followupHistory.length,1);assert.equal(saved.data.followupHistory[0].Remark,'Saved remark');
+  assert.equal(saved.data.activityLogs[0].Action,'Stage Change');
+  assert.equal(saved.data.activityLogs[0]['Created At'],'2026-10-26 10:00:00');
+  assert.equal(await b.client.previewLeadDetail('unknown'),null);
+  b.client.bind({...f.identity(),user:'different-user'});
+  assert.equal(await b.client.previewLeadDetail('L1'),null);
+});
+
+test('mirror distinguishes a verified empty history from a missing history snapshot', async () => {
+  const f=mirrorFixture();f.add('FOLLOWUP_HISTORY',['History ID','Lead ID','Remark']);
+  const b=mirrorClient(f);await b.client.syncAll(true);
+  const saved=await b.client.previewLeadDetail('L1');
+  assert.deepEqual(plain(saved.data.followupHistory),[]);
+  assert.equal(saved.data.activityLogs,undefined);
+  await b.client.clear();assert.equal(await b.client.previewLeadDetail('L1'),null);
+});
+
 test('central mirror JSON transport preserves hashed literal cells and scoped parent/history stores', async () => {
   const f=mirrorFixture(),c=f.c;
   vm.runInContext(read('src/server/DisqualifiedService.js'),c);
@@ -29,6 +56,10 @@ test('central mirror JSON transport preserves hashed literal cells and scoped pa
     assert.equal(data.rows[0].cells[data.headers.indexOf('Remark')],text);
     assert.ok(b.stores.get(name).puts>0);
   }
+  const requests=b.requests,detail=await b.client.previewLeadDetail('L1',true);
+  assert.equal(b.requests,requests);assert.equal(detail.data.lead['Company Name'],'Central client');
+  assert.equal(detail.data.followupHistory[0].Remark,text);assert.equal(detail.data.followups.length,1);
+  assert.equal(await b.client.previewLeadDetail('L2',true),null);
   assert.ok(wirePages>0);
   const legacy=f.request('apiGetSheetMirrorPage',{...f.identity(),sheet:'DQ_MASTER'});
   assert.equal(typeof legacy,'object','existing tabs keep their response format');

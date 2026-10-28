@@ -113,6 +113,20 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
 
 const PagePreview = createPagePreviewCache({ storage: createLeadSnapshotStorage(leadIndexedDb_()),
   fallback: async (endpoint, args) => {
+    if (typeof SheetMirror !== 'undefined' && SheetMirror.enabled() &&
+        ['apiGetFollowupHistory','apiGetLeadActivityLogs','apiGetDisqualifiedDetail'].includes(endpoint)) {
+      const central = endpoint === 'apiGetDisqualifiedDetail';
+      const leadId = central ? args[0] : args[0]?.leadId;
+      if (leadId) {
+        const saved = await SheetMirror.previewLeadDetail(leadId, central);
+        if (saved) {
+          if (central && saved.data.followups && saved.data.followupHistory) return {...saved,
+            data:{lead:saved.data.lead,followups:saved.data.followups,history:saved.data.followupHistory}};
+          const key = endpoint === 'apiGetFollowupHistory' ? 'followupHistory' : 'activityLogs';
+          if (!central && saved.data[key]) return {...saved,data:saved.data[key]};
+        }
+      }
+    }
     if (endpoint === 'apiGetLeads') {
       const previous = LeadReadCache.enabled() ? await LeadReadCache.preview() : null;
       if (previous) return previous;

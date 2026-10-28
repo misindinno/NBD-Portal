@@ -39,10 +39,32 @@ function dialogFixture(history=true) {
 test('lead history opens immediately from displayed rows, without waiting for activity logs',async()=>{
   const f=dialogFixture();const opened=f.c.openLeadDetail('lead');
   assert.equal(f.modals.length,1);assert.match(f.modals[0],/history:.*Saved remark/);
-  await opened;assert.equal(f.calls.length,0);
+  await opened;assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'history');
   f.overlay._loadActivityLogs();await new Promise(setImmediate);
-  assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'logs');assert.equal(f.calls[0][1].leadId,'lead');
-  f.overlay._loadActivityLogs();assert.equal(f.calls.length,1);
+  assert.equal(f.calls.length,2);assert.equal(f.calls[1][0],'logs');assert.equal(f.calls[1][1].leadId,'lead');
+  f.overlay._loadActivityLogs();assert.equal(f.calls.length,2);
+});
+
+test('cold detail dialogs show mirrored history and activity before pending network refreshes finish',async()=>{
+  const f=dialogFixture(false);let releaseHistory,releaseLogs;
+  f.c.SheetMirror={enabled:()=>true,previewLeadDetail:async()=>({data:{lead,
+    followupHistory:[{'Lead ID':'lead',Remark:'IndexedDB history'}],activityLogs:[{'Lead ID':'lead',Remark:'IndexedDB activity'}]}})};
+  f.c.api.getFollowupHistory=()=>new Promise(r=>releaseHistory=r);
+  f.c.api.getLeadActivityLogs=()=>new Promise(r=>releaseLogs=r);
+  await f.c.openLeadDetail('lead');
+  assert.match(f.modals[0],/IndexedDB history/);assert.match(f.modals[0],/IndexedDB activity/);
+  assert.doesNotMatch(f.modals[0],/>Loading…</);
+  f.overlay._loadActivityLogs();await new Promise(setImmediate);
+  releaseHistory([{Remark:'Updated history'}]);releaseLogs([{Remark:'Updated activity'}]);
+  await new Promise(setImmediate);
+  assert.match(f.nodes['#tab-history'].innerHTML,/Updated history/);assert.match(f.nodes['#tab-log'].innerHTML,/Updated activity/);
+});
+
+test('a session change during the IndexedDB join cannot open the previous user detail',async()=>{
+  const f=dialogFixture(false);let release;
+  f.c.SheetMirror={enabled:()=>true,previewLeadDetail:()=>new Promise(r=>release=r)};
+  const opening=f.c.openLeadDetail('lead');f.invalidate();release({data:{lead,followupHistory:[],activityLogs:[]}});
+  await opening;assert.equal(f.modals.length,0);assert.equal(f.calls.length,0);
 });
 
 test('uncached history loads only this client and does not wait for a hidden tab',async()=>{

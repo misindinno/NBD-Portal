@@ -19,6 +19,19 @@ async function openLeadDetail(leadId, seed) {
     let followupHistory = (snapshotHistoryLoaded ? snapshot.followupHistory || [] : AppCache.getRows('followupHistory')).filter(f => f['Lead ID'] === leadId);
     let activityLogs    = logLoaded  ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId) : [];
     let historyPending = !histLoaded, logsPending = !logLoaded;
+    // The full scoped mirror is a separate IndexedDB store from per-lead RPC
+    // snapshots. Join it locally before deciding that a loading screen is needed.
+    if (historyPending || logsPending) {
+      try {
+        const saved = typeof SheetMirror !== 'undefined' && SheetMirror.enabled() && await SheetMirror.previewLeadDetail(leadId);
+        if (!current()) return;
+        if (saved) {
+          if (!lead) { lead = saved.data.lead; seedOnly = true; }
+          if (historyPending && saved.data.followupHistory) { followupHistory = saved.data.followupHistory; historyPending = false; }
+          if (logsPending && saved.data.activityLogs) { activityLogs = saved.data.activityLogs; logsPending = false; }
+        }
+      } catch (_) { /* Missing local data falls back to the existing scoped API. */ }
+    }
 
     // Lead not in the cache (archived or out-of-scope — cached leads open with zero
     // wait): never block silently. Show a skeleton shell instantly, then fetch only the
@@ -204,17 +217,17 @@ async function openLeadDetail(leadId, seed) {
     }
 
     // Each tab reads only this lead. History never waits for the hidden logs tab.
-    const loadSection = async (tabId, endpoint, args, read, select, render) => {
+    const loadSection = async (tabId, endpoint, args, read, select, render, alreadyDisplayed = false) => {
       const host = overlay.querySelector('#' + tabId);
       const valid = () => host && overlay.isConnected && current();
-      let displayed = false;
+      let displayed = alreadyDisplayed;
       const paint = data => {
         if (!valid()) return;
         host.innerHTML = render(select(data) || [], tabId === 'tab-history' ? 'No follow-up history yet.' : 'No activity logs yet.', fuContext);
         renderIcons(host); displayed = true;
       };
       try {
-        const saved = typeof PagePreview !== 'undefined' && await PagePreview.get(endpoint, args);
+        const saved = !alreadyDisplayed && typeof PagePreview !== 'undefined' && await PagePreview.get(endpoint, args);
         if (!valid()) return;
         if (saved) paint(saved.data);
         paint(await read());
@@ -222,14 +235,13 @@ async function openLeadDetail(leadId, seed) {
         if (valid() && !displayed) host.innerHTML = '<p style="padding:24px;color:#b45309">Could not load this section. Close and reopen to retry.</p>';
       }
     };
-    if (historyPending) {
-      if (hasModule('Followups')) void loadSection('tab-history', 'apiGetFollowupHistory', [{leadId}], () => api.getFollowupHistory({leadId}), data => data, _followupHistoryTable);
-      else void loadSection('tab-history', 'apiGetLead', [leadId], () => api.getLead(leadId), data => data.followupHistory, _followupHistoryTable);
-    }
+    if (hasModule('Followups')) void loadSection('tab-history', 'apiGetFollowupHistory', [{leadId}], () => api.getFollowupHistory({leadId}), data => data, _followupHistoryTable, !historyPending);
+    else void loadSection('tab-history', 'apiGetLead', [leadId], () => api.getLead(leadId), data => data.followupHistory, _followupHistoryTable, !historyPending);
+    let logsRequested = false;
     overlay._loadActivityLogs = () => {
-      if (!logsPending) return;
-      logsPending = false;
-      void loadSection('tab-log', 'apiGetLeadActivityLogs', [{leadId}], () => api.getLeadActivityLogs({leadId}), data => data, _activityLogTable);
+      if (logsRequested) return;
+      logsRequested = true;
+      void loadSection('tab-log', 'apiGetLeadActivityLogs', [{leadId}], () => api.getLeadActivityLogs({leadId}), data => data, _activityLogTable, !logsPending);
     };
   }
 
