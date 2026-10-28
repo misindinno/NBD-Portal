@@ -32,7 +32,21 @@ function _cfvTable_(name, required) {
   const values = sheet.getDataRange().getValues();
   const headers = (values[0] || []).map(String);
   if (required.some(h => !headers.includes(h)) || new Set(headers).size !== headers.length) throw new Error('Invalid visit sheet headers. Ask an administrator to initialize the module.');
-  const rows = values.slice(1).map((cells, i) => ({ ...Object.fromEntries(headers.map((h, n) => [h, cells[n] == null ? '' : cells[n]])), _row: i + 2 }));
+  // Sheets can coerce date cells even when the original visit was saved as text.
+  // google.script.run cannot transport Date objects; normalize before filtering
+  // as well so date ranges and edit forms keep the visit's local calendar time.
+  const localTimes = ['Planned Start', 'Planned End', 'Actual Start', 'Actual End'];
+  const cellValue = (header, value) => {
+    if (value == null) return '';
+    if (value instanceof Date) {
+      if (!Number.isFinite(value.getTime())) return '';
+      return localTimes.includes(header)
+        ? Utilities.formatDate(value, 'Asia/Kolkata', "yyyy-MM-dd'T'HH:mm")
+        : value.toISOString();
+    }
+    return value;
+  };
+  const rows = values.slice(1).map((cells, i) => ({ ...Object.fromEntries(headers.map((h, n) => [h, cellValue(h, cells[n])])), _row: i + 2 }));
   return { sheet, headers, rows };
 }
 function _cfvTables_() {

@@ -1,6 +1,33 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {fixture,modules,root}=require('./helpers/cfv-fixture');
+
+test('sheet date cells remain transport-safe in visit lists, date filters, history and edits',()=>{
+  const f=fixture();
+  const created=f.call('apiClientFactoryVisitSave',f.payload()).data;
+  const visits=f.tables.get('CLIENT_FACTORY_VISITS'),events=f.tables.get('CLIENT_FACTORY_VISIT_EVENTS');
+  const set=(table,key,value)=>table[1][table[0].indexOf(key)]=value;
+  set(visits,'Planned Start',new Date('2026-01-01T04:30:00Z'));
+  set(visits,'Planned End',new Date('2026-01-01T05:30:00Z'));
+  set(visits,'Created At',new Date('2025-12-31T12:00:00Z'));
+  set(events,'Created At',new Date('2025-12-31T12:00:00Z'));
+  // Inspect raw endpoint output: JSON round-tripping in the fixture would hide
+  // the Date objects that google.script.run rejects in production.
+  const transportSafe=value=>{
+    assert.ok(!(value instanceof Date),'Raw Date cannot cross google.script.run');
+    if(value&&typeof value==='object')Object.values(value).forEach(transportSafe);
+  };
+  const result=f.c.apiClientFactoryVisitList('valid',{from:'2026-01-01',to:'2026-01-01'});
+  assert.equal(result.success,true);assert.equal(result.data.total,1);transportSafe(result);
+  const row=result.data.rows[0];
+  assert.equal(row['Planned Start'],'2026-01-01T10:00');
+  assert.equal(row['Planned End'],'2026-01-01T11:00');
+  assert.equal(row['Created At'],'2025-12-31T12:00:00.000Z');
+  const history=f.c.apiClientFactoryVisitHistory('valid',created.id);
+  assert.equal(history.success,true);transportSafe(history);
+  assert.equal(history.data[0].at,'2025-12-31T12:00:00.000Z');
+  assert.equal(f.call('apiClientFactoryVisitSave',f.payload({...row,id:created.id,version:1})).success,true);
+});
 test('new permissions default denied and existing Visits grants do not authorize this module',()=>{
   const f=fixture();
   for(const role of ['MANAGER','SALES','USER','VIEWER'])assert.ok(!f.c.getRoleModules(role).includes('ClientFactoryVisits'));
