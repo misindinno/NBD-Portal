@@ -5,6 +5,19 @@ let SYNC_TX_ = null;
 const SYNC_RECEIPTS_ = '_SYNC_OPERATIONS';
 const SYNC_RECEIPT_HEADERS_ = ['Operation ID','User ID','Request Hash','Result','Committed At'];
 
+function syncTxReadApiTables_(names) {
+  if(!names.length)return {};
+  const response=Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID,{ranges:names.map(_a1Sheet_),valueRenderOption:'UNFORMATTED_VALUE',dateTimeRenderOption:'SERIAL_NUMBER'});
+  if(!response.valueRanges || response.valueRanges.length!==names.length)throw new Error('Incomplete transaction read. Source retained.');
+  return Object.fromEntries(names.map((name,index)=>{
+    const values=response.valueRanges[index].values||[],headers=values[0]||[],width=values.reduce((n,row)=>Math.max(n,row.length),0);
+    return [name,values.map((row,r)=>Array.from({length:width},(_,c)=>{
+      const value=row[c]==null?'':row[c];
+      return r && typeof value==='number' && _isDateColumnHeader_(headers[c]) ? _serialToDateTimeString_(value) : value;
+    }))];
+  }));
+}
+
 function syncTxHandles_(name) {
   return !!SYNC_TX_ && [SHEET_NAMES.LEADS, SHEET_NAMES.FOLLOWUPS,
     SHEET_NAMES.FOLLOWUP_HISTORY, SHEET_NAMES.LEAD_ACTIVITY_LOGS,
@@ -16,7 +29,16 @@ function syncTxTable_(name) {
   if (!syncTxHandles_(name)) throw new Error('Unsupported sync table.');
   if (SYNC_TX_.tables[name]) return SYNC_TX_.tables[name];
   const sheet = getSpreadsheet(name).getSheetByName(name);
-  const values = sheet ? sheet.getDataRange().getValues() : [];
+  let values=[];
+  if(sheet && SYNC_TX_.apiRead) {
+    if(!SYNC_TX_.apiValues) {
+      const existing=new Set(getSpreadsheet(SYNC_RECEIPTS_).getSheets().map(s=>s.getName()));
+      const names=[SHEET_NAMES.LEADS,SHEET_NAMES.FOLLOWUPS,SHEET_NAMES.FOLLOWUP_HISTORY,SHEET_NAMES.LEAD_FIELD_VALUES,SHEET_NAMES.FOLLOWUP_FIELD_VALUES,SHEET_NAMES.IDX_LEADS,SHEET_NAMES.IDX_FOLLOWUPS,SYNC_RECEIPTS_].filter(n=>existing.has(n));
+      SYNC_TX_.apiValues=syncTxReadApiTables_(names);
+    }
+    if(!Object.prototype.hasOwnProperty.call(SYNC_TX_.apiValues,name))Object.assign(SYNC_TX_.apiValues,syncTxReadApiTables_([name]));
+    values=SYNC_TX_.apiValues[name];
+  } else if(sheet)values=sheet.getDataRange().getValues();
   const originalHeaders = (values[0] || []).slice();
   const headers = sheet && typeof validateSheetHeaders_ === 'function'
     ? validateSheetHeaders_(name, originalHeaders)
@@ -163,11 +185,12 @@ function compactSyncRequests_(requests) {
 }
 
 function syncTxCheckReadSet_() {
+  const fresh=SYNC_TX_.apiRead ? syncTxReadApiTables_(Object.values(SYNC_TX_.tables).filter(t=>t.sheet).map(t=>t.name)) : null;
   Object.values(SYNC_TX_.tables).forEach(table => {
     const current = getSpreadsheet(table.name).getSheetByName(table.name);
     if (!table.sheet && !current) return;
     if (!current || !table.sheet || current.getSheetId() !== table.sheet.getSheetId() ||
-        JSON.stringify(current.getDataRange().getValues()) !== JSON.stringify([table.originalHeaders, ...table.originals])) {
+        JSON.stringify(fresh ? fresh[table.name] : current.getDataRange().getValues()) !== JSON.stringify([table.originalHeaders, ...table.originals])) {
       throw new Error('SYNC_CONFLICT: Sheet changed while preparing this save. Refresh and review.');
     }
   });
@@ -190,7 +213,7 @@ function syncAtomicWrite_(user, command, run) {
       const visible = !leadId || lead && _canReadAssignedRow(lead, user);
       return { state: 'committed', result: visible ? result : null, repeated: true, receiptOnly: !visible };
     }
-    SYNC_TX_ = { tables: {}, stamps: {} };
+    SYNC_TX_ = { tables: {}, stamps: {}, apiRead:user.id==='central-transfer' && command.action==='centralDisqualifiedTransfer', apiValues:null };
     syncCheckBases_(user, command);
     const result = run();
     if (!result || !result.success) return { state: 'invalid', message: result && result.error || 'Validation failed.', code: result && result.code };

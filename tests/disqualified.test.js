@@ -8,6 +8,9 @@ function fixture(){
  c.getRowsWithCustomFieldValuesReadOnly_=(_name,rows)=>rows;
  c.dqCopyConfiguration_=()=>{};
  c.dqProgress_=()=>{};
+ c._isDateColumnHeader_=h=>/[\s_-](At|Date)$/i.test(h||'');
+ c._serialToDateTimeString_=n=>new Date(Math.round((n-25569)*86400000)).toISOString().slice(0,19).replace('T',' ');
+ c.Sheets.Spreadsheets.Values={batchGet:(_id,options)=>{f.state.apiReads=(f.state.apiReads||0)+1;return {valueRanges:options.ranges.map(range=>({values:structuredClone(f.tables.get(range.slice(1,-1))?.data||[])}))};}};
  c.dqUpsert_=(name,records)=>{const data=central.get(name)||new Map();for(const row of records)data.set(row['Central Key'],{...(data.get(row['Central Key'])||{}),...JSON.parse(JSON.stringify(row))});central.set(name,data);};
  c.dqRead_=name=>({headers:[],rows:[...(central.get(name)||new Map()).values()].map((value,i)=>({row:i+2,value}))});
  f.add('PIPELINE_STAGES',['Stage ID','Stage Name'],[{'Stage ID':'S1','Stage Name':'Disqualified'},{'Stage ID':'S2','Stage Name':'Open'}]);
@@ -20,6 +23,7 @@ test('verified lead, followup and remark move together; source indexes/receipt c
  assert.equal([...f.central.get('FOLLOWUP_HISTORY').values()][0].Remark,'Original remark');
  assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Transferred');
  const receipts=f.rows('_SYNC_OPERATIONS').length;f.run();assert.equal(f.rows('_SYNC_OPERATIONS').length,receipts,'idle runs create no receipts');
+ assert.equal(f.state.apiReads,2,'one source batch read and one fresh read-set verification');
 });
 test('central failure retains source lead, followup and history',()=>{
  const f=fixture();f.c.dqUpsert_=(name)=>{if(name==='FOLLOWUP_HISTORY')throw Error('Verification failed');};
@@ -104,4 +108,13 @@ test('worker lease prevents overlap and releases on an error without hiding its 
  props.clear();c.dqTransferBatch_=()=>{throw Error('Verified failure');};
  assert.throws(()=>c.centralDisqualifiedWorker_(),/Verified failure/);assert.equal(props.has('DQ_WORKER_LEASE'),false);
  assert.equal(JSON.parse(props.get('DQ_LAST_STATUS')).state,'error');assert.equal(c._bootstrapReadMode_,false);
+});
+
+test('migration API snapshots preserve sparse rows and normalize only date columns',()=>{
+ const f=fixture(),c=f.c;
+ f.add('FOLLOWUP_HISTORY',['History ID','Done Date','Call Duration Seconds','Remark'],[{'History ID':'h','Done Date':46323.5,'Call Duration Seconds':120,Remark:'=Literal remark'}]);
+ f.tables.get('FOLLOWUP_HISTORY').data.push([],['tail']);
+ const data=c.syncTxReadApiTables_(['FOLLOWUP_HISTORY']).FOLLOWUP_HISTORY;
+ assert.equal(data[1][1],'2026-10-28 12:00:00');assert.equal(data[1][2],120);assert.equal(data[1][3],'=Literal remark');
+ assert.deepEqual(Array.from(data[2]),['','','','']);assert.deepEqual(Array.from(data[3]),['tail','','','']);
 });

@@ -28,6 +28,10 @@ overlapping scheduled/manual runs, with cleanup on ordinary success/failure and
 expiry after a terminated execution. Batches retain complete lead bundles, up to
 150 leads / normally 600 parent and child rows. Source index rows that only move
 position update their row number without rewriting unchanged business fields.
+Transfer transactions batch-read the source tables through Sheets API and repeat
+that batch read before commit. Sparse rows and date columns are normalized
+consistently on both reads; API errors stop removal rather than falling back to a
+potentially stalled full-table SpreadsheetApp read.
 
 The Disqualified page is read-only and uses the existing Leads permission and
 assignment/department rules, additionally restricted to its origin workbook.
