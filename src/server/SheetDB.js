@@ -200,7 +200,7 @@ function insertRow(sheetName, rowObj) {
     let rowNumber = 0;
     lock.waitLock(10000);
     try {
-      rowNumber = _appendRowWithFallback_(sheetName, row, headers.length);
+      rowNumber = _appendRowWithFallback_(sheetName, row, headers.length, headers);
     } finally {
       lock.releaseLock();
     }
@@ -283,7 +283,9 @@ function _legacyUpdateRow_(sheetName, idColumn, idValue, updates) {
     const safeUpdatedRow = typeof sanitizeSheetRowValues_ === 'function'
       ? sanitizeSheetRowValues_(updatedRow) : updatedRow;
     _sheetUpdateStep_('writing the target row', () => {
-      sheet.getRange(targetRow, 1, 1, headers.length).setValues([safeUpdatedRow]);
+      const typedRow = typeof sheetTypedRow_ === 'function' ? sheetTypedRow_(safeUpdatedRow, headers) : safeUpdatedRow;
+      sheet.getRange(targetRow, 1, 1, headers.length).setValues([typedRow]);
+      if (typeof formatSheetDateRow_ === 'function') formatSheetDateRow_(sheet, targetRow, safeUpdatedRow, headers);
       SpreadsheetApp.flush();
     });
     syncedRow = rowObjectFromHeaders_(headers, safeUpdatedRow, true, sheetName);

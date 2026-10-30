@@ -54,12 +54,9 @@ function _a1Sheet_(normName) {
 }
 
 // Always route writes through SpreadsheetApp instead of a RAW Sheets API write.
-// A RAW write stores every value as a literal string, so numeric- or date-looking
-// values ("919876", "2026-06-30") land as TEXT and Google Sheets flags them with a
-// leading apostrophe (e.g. '919876) — also breaking number/date sorting. SpreadsheetApp
-// setValues()/appendRow() parse values as if typed, storing real numbers and dates with
-// no apostrophe (the original portal behaviour). Writes are not the performance
-// bottleneck, so this is the safe, correct default; the read fast-path is unaffected.
+// RAW preserves supplied types; it does not infer dates from strings. The legacy
+// path below explicitly converts schema date values to Date objects. Never switch
+// whole rows to USER_ENTERED: IDs/phones could lose zeros and text could become formulas.
 function _rawWriteSafe_(values) {
   return false;
 }
@@ -120,7 +117,7 @@ function _deleteSheetRowsByNumber_(ssId, gid, rowNumbers) {
 // ── Primitives consumed by SheetDB.js ──────────────────────────────────────────
 
 // Appends a row, returning its 1-based row number. Sheets API first, SpreadsheetApp fallback.
-function _appendRowWithFallback_(sheetName, row, colCount) {
+function _appendRowWithFallback_(sheetName, row, colCount, headers) {
   const ssId = _spreadsheetIdForSheet_(sheetName);
   if (ssId && _sheetsApiAvailable_() && _rawWriteSafe_(row)) {
     try {
@@ -141,8 +138,11 @@ function _appendRowWithFallback_(sheetName, row, colCount) {
     }
   }
   const sheet = getSheet(sheetName);
-  sheet.appendRow(row);
-  return sheet.getLastRow();
+  const typedRow = headers && typeof sheetTypedRow_ === 'function' ? sheetTypedRow_(row, headers) : row;
+  sheet.appendRow(typedRow);
+  const rowNumber = sheet.getLastRow();
+  if (headers && typeof formatSheetDateRow_ === 'function') formatSheetDateRow_(sheet, rowNumber, row, headers);
+  return rowNumber;
 }
 
 // Updates the row identified by idColumn=idValue. Returns { ok:true, syncedRow, rowNumber }

@@ -29,6 +29,7 @@ function syncFixture() {
         if (names.has(name)) throw Error('Named range already exists'); names.add(name); continue;
       }
       if (request.appendDimension) continue;
+      if (request.updateCells?.fields === 'userEnteredFormat.numberFormat') continue;
       const op = request.updateCells || request.appendCells || request.deleteDimension;
       const id = op.sheetId || op.start?.sheetId || op.range?.sheetId;
       const table = [...cloned.values()].find(t=>t.id===id); assert.ok(table, 'known sheet');

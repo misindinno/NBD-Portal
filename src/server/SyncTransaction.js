@@ -127,8 +127,10 @@ function syncTxIndexes_() {
     });
   });
 }
-function syncCell_(value) {
+function syncCell_(value, header) {
   if (value === undefined || value === null || value === '') return {};
+  const date = typeof sheetDateCell_ === 'function' ? sheetDateCell_(value, header) : null;
+  if (date) return { userEnteredValue: { numberValue: date.serial }, userEnteredFormat: { numberFormat: { type: 'DATE_TIME', pattern: date.pattern } } };
   if (value instanceof Date) return { userEnteredValue: { numberValue: value.getTime() / 86400000 + 25569 } };
   if (typeof value === 'boolean') return { userEnteredValue: { boolValue: value } };
   if (typeof value === 'number' && Number.isFinite(value)) return { userEnteredValue: { numberValue: value } };
@@ -149,9 +151,17 @@ function syncTxRequests_() {
       if (needed > table.sheet.getMaxRows()) requests.push({ appendDimension: { sheetId, dimension: 'ROWS', length: needed - table.sheet.getMaxRows() } });
       if (table.headers.length > table.sheet.getMaxColumns()) requests.push({ appendDimension: { sheetId, dimension: 'COLUMNS', length: table.headers.length - table.sheet.getMaxColumns() } });
     }
-    const write = (rowIndex, columnIndex, values) => requests.push({ updateCells: {
-      start: { sheetId, rowIndex, columnIndex }, rows: [{ values: values.map(syncCell_) }], fields: 'userEnteredValue'
-    } });
+    const write = (rowIndex, columnIndex, values) => {
+      const cells = values.map((value, i) => syncCell_(value, rowIndex ? table.headers[columnIndex + i] : ''));
+      requests.push({ updateCells: {
+        start: { sheetId, rowIndex, columnIndex }, rows: [{ values: cells }], fields: 'userEnteredValue'
+      } });
+      cells.forEach((cell, i) => {
+        if (cell.userEnteredFormat) requests.push({ updateCells: {
+          start: { sheetId, rowIndex, columnIndex: columnIndex + i }, rows: [{ values: [cell] }], fields: 'userEnteredFormat.numberFormat'
+        } });
+      });
+    };
     if (table.headers.length > table.originalHeaders.length) write(0, table.originalHeaders.length, table.headers.slice(table.originalHeaders.length));
     table.rows.filter(row => row.source !== null).forEach(row => {
       const old = table.originals[row.source - 1] || [];
@@ -168,7 +178,7 @@ function syncTxRequests_() {
       if (!retained.has(i)) requests.push({ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: i, endIndex: i + 1 } } });
     }
     const added = table.rows.filter(row => row.source === null);
-    if (added.length) requests.push({ appendCells: { sheetId, rows: added.map(row => ({ values: row.values.map(syncCell_) })), fields: 'userEnteredValue' } });
+    if (added.length) requests.push({ appendCells: { sheetId, rows: added.map(row => ({ values: row.values.map((value, i) => syncCell_(value, table.headers[i])) })), fields: 'userEnteredValue,userEnteredFormat.numberFormat' } });
   });
   return typeof compactSyncRequests_ === 'function' ? compactSyncRequests_(requests) : requests;
 }
