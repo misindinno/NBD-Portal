@@ -45,7 +45,15 @@ function syncCheckBases_(user, command) {
     const definitions = target.type === 'lead' ? getLeadCustomFieldsForStage(row['Stage ID']) : getFollowupCustomFields();
     const allowed = new Set((target.type === 'lead' ? LEAD_MASTER_FIELDS : FOLLOWUP_MASTER_FIELDS)
       .concat(definitions.filter(field => field['Field Type'] !== 'Formula').map(field => _customEffectiveColumnKey_(field, row['Stage ID']))));
-    const keys = Object.keys(base.values).filter(key => allowed.has(key));
+    let keys = Object.keys(base.values).filter(key => allowed.has(key));
+    if (command.action === 'apiMarkFollowupDoneDirect' && target.type === 'lead') {
+      // A remark appends history using the current lead. Unrelated contact/FSR
+      // metadata changes must not reject it, but stage, owner, lifecycle and
+      // fields this submission can change still require an unchanged base.
+      const relevant = new Set(['Stage ID','Assigned To','Lead Status','Is Archived','Archived At',
+        ...Object.keys(command.args[1] || {})]);
+      keys = keys.filter(key => relevant.has(key));
+    }
     if (keys.some(key => String(row[key] == null ? '' : row[key]) !== String(base.values[key] == null ? '' : base.values[key]))) {
       throw new Error('SYNC_CONFLICT: This record changed in Sheets or another session. Review the latest record before resubmitting.');
     }

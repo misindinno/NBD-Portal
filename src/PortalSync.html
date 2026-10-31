@@ -116,6 +116,9 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
     const valid = () => generation === epoch && identity && online();
     const task = (async () => {
       const items = (await storage.list(context)).sort((a,b) => a.createdAt - b.createdAt);
+      const blockedTargets = new Set();
+      const targets = row => (row.bases || []).map(base => base.type + ':' + base.id);
+      const hold = row => { const keys = targets(row); keys.forEach(key => blockedTargets.add(key)); return keys.length > 0; };
       for (const row of items) {
         if (!valid()) break;
         if (['committed','dismissed'].includes(row.state)) continue;
@@ -125,10 +128,14 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
           await storage.patch(row.key, { state: 'paused', errorCode: 'DATA_SCHEMA_INVALID', leaseUntil: 0 });
           changed(); break;
         }
-        // Preserve order: unresolved changes must not be overtaken by dependent saves.
-        if (['conflict','invalid','blocked','paused'].includes(row.state)) break;
+        // A conflict belongs to its records, not the entire user's queue.
+        // Unknown dependencies and account/schema failures still stop safely.
+        if (['blocked','paused'].includes(row.state)) break;
+        if (['conflict','invalid'].includes(row.state)) { if (!hold(row)) break; continue; }
+        if (targets(row).some(key => blockedTargets.has(key))) { hold(row); continue; }
+        if (blockedTargets.size && !targets(row).length) break;
         const item = await storage.claim(row.key, now());
-        if (!item) break;
+        if (!item) { if (!hold(row)) break; continue; }
         if (!valid()) { await storage.patch(item.key, { state: 'queued', leaseUntil: 0 }); break; }
         changed();
         try {
@@ -149,7 +156,10 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
           if (valid() && response.state === 'committed') {
             try { await committed(item, response.result); } catch (_) {}
           }
-          if (response.state !== 'committed') break;
+          if (response.state !== 'committed') {
+            if (['conflict','invalid'].includes(response.state) && hold(item)) continue;
+            break;
+          }
         } catch (error) {
           const denied = /SESSION_EXPIRED|ACCESS_DENIED|FORBIDDEN|Permission denied/i.test(error.code + ' ' + error.message);
           const schema = portalSyncSchemaIssue_({ errorCode: error.code, message: error.message });
@@ -164,7 +174,7 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
     })().finally(() => { if (running === task) running = null; });
     running = task; return task;
   }
-  async function submit(action, args) {
+  async function submit(action, args, options = {}) {
     if (!identity || !actions.has(action)) throw new Error('Sync unavailable.');
     const context = { ...identity }, generation = epoch;
     const id = crypto.randomUUID(), bases = basesFor(action, args);
@@ -185,7 +195,15 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
     const item = await storage.enqueue({ key: JSON.stringify([context.portal, context.user, id]), id, action, args: cleanArgs, bases,
       portal: context.portal, user: context.user, scope: context.scope, state: 'queued', fingerprint, createdAt: now(), attempts: 0, nextAttempt: 0, leaseUntil: 0 });
     if (epoch !== generation) throw new Error('Session changed. The pending change is retained for its original account.');
-    changed(); await drain();
+    changed();
+    if (options.background) {
+      if (item.state === 'committed') return item.result;
+      void drain().then(() => { if (epoch === generation) return drain(); }).catch(() => {});
+      const error = new Error('Remark saved on this device. Syncing in background; check Pending changes for confirmation.');
+      error.code = 'SYNC_PENDING'; error.operationId = item.id; error.syncState = item.state; error.background = true;
+      throw error;
+    }
+    await drain();
     // A periodic drain may have captured its queue before this enqueue. Run a
     // fresh pass after joining it; claim/backoff still prevent duplicate sends.
     if (epoch === generation) await drain();
@@ -224,7 +242,7 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
   return { bind, observe, submit, drain, list, watch, enabled: () => !!identity, handles: action => !!identity && actions.has(action),
     async retry(key) {
       const row = (await list()).find(row => row.key === key);
-      if (!row || !(['retry','blocked','paused'].includes(row.state) || row.state === 'invalid' && portalSyncSchemaIssue_(row))) return;
+      if (!row || !(['retry','blocked','paused','conflict'].includes(row.state) || row.state === 'invalid' && portalSyncSchemaIssue_(row))) return;
       if (row.scope !== identity.scope) throw new Error('Permissions changed. This pending change is retained; an administrator must review its original reference.');
       await storage.patch(key, { state: 'queued', leaseUntil: 0, nextAttempt: 0 }); await drain(); changed();
     },
@@ -304,6 +322,12 @@ async function showPortalSyncQueue() {
     const detail = document.createElement('p'); detail.textContent = (row.message || '') + ' Reference: ' + row.id; card.appendChild(detail);
     if (['conflict','invalid'].includes(row.state)) {
       const payload = document.createElement('pre'); payload.textContent = JSON.stringify(row.args, null, 2); payload.style.cssText = 'max-height:180px;overflow:auto;white-space:pre-wrap'; card.appendChild(payload);
+    }
+    if (row.state === 'conflict') {
+      const recheck = document.createElement('button'); recheck.className = 'btn btn-outlined'; recheck.textContent = 'Recheck safely';
+      recheck.title = 'Retry the same saved remark without overwriting changed records.';
+      recheck.onclick = async () => { recheck.disabled = true; try { await PortalSync.retry(row.key); Swal.close(); await showPortalSyncQueue(); } catch (error) { toast(error.message,'error'); } finally { recheck.disabled = false; } };
+      card.appendChild(recheck);
     }
     if (['retry','blocked','paused','conflict','invalid','committed'].includes(row.state)) {
       const button = document.createElement('button'); button.className = 'btn btn-outlined';

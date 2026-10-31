@@ -427,6 +427,20 @@ function _finishFollowupDoneSave(result) {
 }
 
 function _watchPendingFollowupSave(overlay, form, button, error) {
+  if (error.background) {
+    const token = AuthToken.get();
+    overlay.remove();
+    toast('Remark saved on this device. Syncing in background.', 'info');
+    let finished = false;
+    PortalSync.watch(error.operationId, row => {
+      if (finished || AuthToken.get() !== token) return;
+      if (row.state === 'committed') { finished = true; _finishFollowupDoneSave(row.result); }
+      else if (['conflict','invalid','blocked','paused'].includes(row.state)) {
+        toast('Remark needs review in Pending changes: ' + (row.message || row.state), 'error');
+      } else if (row.state === 'dismissed') finished = true;
+    });
+    return;
+  }
   // Freeze this submitted payload while its exact operation ID is unresolved.
   // Closing the form is safe: the durable outbox continues syncing it.
   form.querySelectorAll('input,select,textarea,button[type="submit"]').forEach(el => { el.disabled = true; });

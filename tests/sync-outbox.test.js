@@ -9,6 +9,22 @@ function storage() {
   };
 }
 const identity={portal:'p1',user:'u1',scope:'a'.repeat(64),syncEnabled:true};
+test('conflicted lead does not block an independent remark, but dependent work stays queued',async()=>{
+  const store=storage(),sent=[];
+  for(const [id,lead,state] of [['a','L1','conflict'],['b','L1','queued'],['c','L2','queued']])store.data.set(id,{...identity,key:id,id,state,createdAt:sent.length,bases:[{type:'lead',id:lead}],attempts:0,nextAttempt:0,leaseUntil:0});
+  const c=client(store,async item=>{sent.push(item.id);return {state:'committed',result:{}};},{online:()=>true});
+  await c.drain();assert.deepEqual(sent,['c']);assert.equal(store.data.get('a').state,'conflict');assert.equal(store.data.get('b').state,'queued');
+});
+test('background remark acknowledges durable storage without waiting for the server',async()=>{
+  const store=storage();let release;
+  const c=client(store,()=>new Promise(resolve=>release=resolve),{online:()=>true});
+  c.observe([{'Lead ID':'L1','Updated At':'x','Stage ID':'s','Assigned To':'u1'}, {'Lead ID':'L1','Follow-up ID':'F1','Updated At':'x',Status:'Open','Planned Date':'2026-10-31'}]);
+  await assert.rejects(c.submit('apiMarkFollowupDoneDirect',['F1',{Remark:'Keep me'}],{background:true}),e=>e.code==='SYNC_PENDING'&&e.background===true);
+  assert.equal(store.data.size,1);assert.equal((await c.list())[0].args[1].Remark,'Keep me');
+  while(!release)await new Promise(r=>setTimeout(r,0));
+  release({state:'committed',result:{}});await c.drain();
+  assert.equal((await c.list())[0].state,'committed');
+});
 function client(store,send,options={}) {
   const c=vm.createContext({crypto:crypto.webcrypto,TextEncoder,Uint8Array,structuredClone,setTimeout,clearTimeout,setInterval,clearInterval,...options.timers});
   vm.runInContext(read('src/PortalSync.html').replace(/^<script>\s*/,'').split('const PortalSync =')[0],c);

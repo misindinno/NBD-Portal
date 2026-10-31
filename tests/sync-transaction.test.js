@@ -68,6 +68,15 @@ test('changed Sheet record conflicts and no partial write is applied',()=>{
   table.data[1][table.data[0].indexOf('Status')]='Closed';
   assert.equal(f.call(cmd).data.state,'conflict');assert.equal(f.requests.length,0);
 });
+test('remark tolerates unrelated lead metadata updates but still rejects a changed owner',()=>{
+  const f=syncFixture(),cmd=completion(f),table=f.tables.get('LEAD_MASTER');
+  table.data[1][table.data[0].indexOf('Updated At')]='2026-10-31 12:00:00';
+  assert.equal(f.call(cmd).data.state,'committed');
+  const g=syncFixture(),other=completion(g),leads=g.tables.get('LEAD_MASTER');
+  leads.data[1][leads.data[0].indexOf('Assigned To')]='someone-else';
+  assert.notEqual(g.call(other).data?.state,'committed');
+  assert.equal(g.requests.length,0);
+});
 test('required business validation is retained and an invalid completion creates no history',()=>{
   const f=syncFixture(),cmd=completion(f);cmd.args[1].Remark='';
   assert.equal(f.call(cmd).data.state,'invalid');assert.equal(f.requests.length,0);

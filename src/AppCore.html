@@ -150,7 +150,7 @@ const api = {
       const previewGeneration = previewRead ? PagePreview.generation() : 0;
       const syncWrite = typeof PortalSync !== 'undefined' && PortalSync.handles(fn);
       let result = syncWrite
-        ? await PortalSync.submit(fn, args)
+        ? await PortalSync.submit(fn, args, {background: fn === 'apiMarkFollowupDoneDirect'})
         : previewRead ? await api._read(fn, token, ...args)
         : fn === 'apiGetLeads' && typeof LeadReadCache !== 'undefined' && LeadReadCache.enabled() ? await LeadReadCache.load()
         : typeof PortalReadCache !== 'undefined' && PortalReadCache.handles(fn)

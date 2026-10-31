@@ -1,12 +1,13 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm');
 const {read}=require('./helpers/lead-cache-fixture');
 
-function fixture() {
+function fixture(background = false) {
   let callback,mutation,stopped=0,disconnected=0,renders=0;
   const notices=[],applied=[],controls=[{disabled:false},{disabled:false}],button={disabled:false},nodes=[];
   const overlay={isConnected:true,remove(){this.isConnected=false;}};
   const form={querySelectorAll:()=>controls,append:(...items)=>nodes.push(...items)};
   const context=vm.createContext({Promise,
+    AuthToken:{get:()=> 'session-1'},
     document:{body:{},createElement:()=>({setAttribute(){}})},
     MutationObserver:class {constructor(fn){mutation=fn;}observe(){}disconnect(){disconnected++;}},
     PortalSync:{watch(id,fn){assert.equal(id,'op-1');callback=fn;return ()=>stopped++;}},
@@ -15,9 +16,18 @@ function fixture() {
   });
   const source=read('src/FollowupForms.html');
   vm.runInContext(source.slice(source.indexOf('function _finishFollowupDoneSave('),source.indexOf('function _applyFollowupSaveResult(')),context);
-  context._watchPendingFollowupSave(overlay,form,button,{operationId:'op-1',syncState:'retry',message:'Waiting for confirmation'});
+  context._watchPendingFollowupSave(overlay,form,button,{operationId:'op-1',syncState:'retry',message:'Waiting for confirmation',background});
   return {context,overlay,form,button,nodes,notices,applied,controls,update:row=>callback(row),detach:()=>mutation(),stops:()=>stopped,disconnects:()=>disconnected,renders:()=>renders};
 }
+test('durably queued background remark closes immediately and reconciles once after sync',()=>{
+  const f=fixture(true);assert.equal(f.overlay.isConnected,false);assert.equal(f.applied.length,0);
+  assert.match(f.notices[0][0],/on this device/);
+  f.update({state:'conflict',message:'Stage changed'});assert.equal(f.applied.length,0);
+  f.update({state:'committed',result:{history:{Remark:'Saved'}}});
+  f.update({state:'committed',result:{}});assert.equal(f.applied.length,1);
+  const other=fixture(true);other.context.AuthToken.get=()=> 'session-2';
+  other.update({state:'committed',result:{}});assert.equal(other.applied.length,0);
+});
 test('queued remark stays disabled and automatically closes with confirmed history after a late commit',()=>{
   const f=fixture();assert.ok(f.controls.every(c=>c.disabled));assert.equal(f.button.disabled,true);
   assert.match(f.nodes[0].textContent,/op-1/);
