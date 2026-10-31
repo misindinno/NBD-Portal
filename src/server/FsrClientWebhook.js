@@ -30,6 +30,9 @@ function handleFsrClientCreate(event) {
 function installFsrClientTriggers() {
   return withServerContext_(() => {
     requireContainerAdmin_(false);
+    const config = _fsrWebhookConfig_();
+    if (!config.url || !config.secret) throw new Error('Configure FSR_WEBHOOK_URL and FSR_WEBHOOK_SECRET before installing triggers.');
+    _ensureFsrSyncWorker_();
     _installFsrClientTrigger_('handleFsrClientEdit', ScriptApp.EventType.ON_EDIT);
     _installFsrClientTrigger_('handleFsrClientCreate', ScriptApp.EventType.ON_FORM_SUBMIT);
     return 'FSR lead/client edit and form-submit triggers installed.';
@@ -82,7 +85,8 @@ function _fsrClientWebhookStatus_() {
     secretConfigured: !!config.secret,
     sheetName: config.sheetName,
     editTriggerInstalled: _hasFsrClientTrigger_('handleFsrClientEdit'),
-    createTriggerInstalled: _hasFsrClientTrigger_('handleFsrClientCreate')
+    createTriggerInstalled: _hasFsrClientTrigger_('handleFsrClientCreate'),
+    workerInstalled: _hasFsrClientTrigger_('processFsrSyncQueue_')
   };
 }
 
@@ -118,15 +122,19 @@ function pushFsrLeadIds_(leadIds, eventType, sheet) {
     const ids = Array.from(new Set((leadIds || []).map(id => String(id || '').trim()).filter(Boolean)));
     if (!ids.length) return [];
     const event = _fsrEventType_(eventType);
-    safeInitHeaders(FSR_SYNC_QUEUE_SHEET_, FSR_SYNC_QUEUE_HEADERS_);
-    const queue = getSheet(FSR_SYNC_QUEUE_SHEET_);
-    const createdAt = now();
-    const rows = [];
-    for (let i = 0; i < ids.length; i += 25) {
-      rows.push([Utilities.getUuid(), JSON.stringify(ids.slice(i, i + 25)), event, 'Pending', 0, createdAt, createdAt, '']);
-    }
-    queue.getRange(queue.getLastRow() + 1, 1, rows.length, FSR_SYNC_QUEUE_HEADERS_.length).setValues(rows);
-    SpreadsheetApp.flush();
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      safeInitHeaders(FSR_SYNC_QUEUE_SHEET_, FSR_SYNC_QUEUE_HEADERS_);
+      const queue = getSheet(FSR_SYNC_QUEUE_SHEET_);
+      const createdAt = now();
+      const rows = [];
+      for (let i = 0; i < ids.length; i += 25) {
+        rows.push([Utilities.getUuid(), JSON.stringify(ids.slice(i, i + 25)), event, 'Pending', 0, createdAt, createdAt, '']);
+      }
+      queue.getRange(queue.getLastRow() + 1, 1, rows.length, FSR_SYNC_QUEUE_HEADERS_.length).setValues(rows);
+      SpreadsheetApp.flush();
+    } finally { lock.releaseLock(); }
     _ensureFsrSyncWorker_();
     return [{ queued: true, count: ids.length }];
   } catch (error) {
@@ -173,7 +181,7 @@ function processFsrSyncQueue_() {
         const ids = JSON.parse(job.ids);
         if (!Array.isArray(ids) || ids.length > 25) throw new Error('Invalid queued lead IDs.');
         const wanted = ids.reduce((map, id) => { map[String(id)] = true; return map; }, {});
-        const sheet = getSheet(SHEET_NAMES.LEADS);
+        const sheet = getSheet(_fsrWebhookConfig_().sheetName);
         const found = _fsrLeadRowNumbersById_(sheet, wanted);
         if (found.length) {
           const results = _pushFsrLeadRows_(found, job.event, sheet);
@@ -223,9 +231,12 @@ function fsrSendRange_(range, eventType) {
     if (!_isFsrClientSheet_(sheet)) return [{ skipped: true, reason: 'not_client_sheet' }];
     const start = Math.max(2, range.getRow());
     const end = Math.min(sheet.getLastRow(), range.getLastRow());
-    const rows = [];
-    for (let row = start; row <= end; row++) rows.push(row);
-    return _pushFsrLeadRows_(rows, eventType || 'client.updated', sheet);
+    if (end < start) return [];
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(value => String(value || '').trim());
+    const idColumn = ['Lead ID', 'Client ID', 'ID'].map(name => headers.indexOf(name)).find(index => index >= 0);
+    if (idColumn === undefined) throw new Error('The FSR client sheet needs a Lead ID, Client ID or ID column.');
+    const ids = sheet.getRange(start, idColumn + 1, end - start + 1, 1).getValues().map(row => row[0]);
+    return pushFsrLeadIds_(ids, eventType || 'client.updated', sheet);
   } catch (error) {
     _logFsrWebhookFailure_('range_send_failed', error, { eventType });
     return [{ error: diagnosticErrorSummary_(error) }];
@@ -481,8 +492,8 @@ function _fsrEventType_(eventType) {
 function _fsrLeadRowNumbersById_(sheet, wanted) {
   if (sheet.getLastRow() < 2) return [];
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
-  const idColumn = headers.indexOf('Lead ID');
-  if (idColumn === -1) return [];
+  const idColumn = ['Lead ID', 'Client ID', 'ID'].map(name => headers.indexOf(name)).find(index => index >= 0);
+  if (idColumn === undefined) return [];
   return sheet.getRange(2, idColumn + 1, sheet.getLastRow() - 1, 1).getValues()
     .reduce((rows, value, index) => {
       if (wanted[String(value[0] || '').trim()]) rows.push(index + 2);
@@ -509,9 +520,11 @@ function _fsrWebhookConfig_() {
 
 function _isFsrClientSheet_(sheet) {
   if (!sheet) return false;
+  // Ignore same-named tabs in other workbooks.
+  if (sheet.getParent && sheet.getParent().getId() !== CLIENT_CONFIG.SPREADSHEET_ID) return false;
   const actual = String(sheet.getName() || '').trim().toLowerCase();
   const configured = _fsrWebhookConfig_().sheetName.toLowerCase();
-  return [String(SHEET_NAMES.LEADS).toLowerCase(), configured].indexOf(actual) !== -1;
+  return actual === configured;
 }
 
 function _installFsrClientTrigger_(handler, eventType) {
