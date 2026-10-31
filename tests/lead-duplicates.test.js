@@ -86,3 +86,38 @@ test('master read errors propagate instead of allowing an unchecked insert', () 
   assert.equal(state.rows.length, 0);
   assert.equal(state.locked, false);
 });
+
+test('CS checks only company name for preview, locked creation and edits', () => {
+  const { ctx, state } = setup();
+  ctx.CLIENT_CONFIG = { PORTAL_KEY: 'CS' };
+  state.rows = [{ ...lead, Email: 'same@example.test', 'Alternate No': '8888888888' }];
+  const different = { ...lead, 'Lead ID': 'new-id', 'Company Name': 'Another company', Email: 'same@example.test', 'Alternate No': '8888888888' };
+  assert.equal(ctx.checkLeadDuplicates(lead.Phone, different.Email, '', different['Company Name']).length, 0);
+  assert.equal(ctx.checkLeadDuplicates('8888888888', different.Email, '', '').length, 0);
+  assert.equal(ctx._leadDuplicateMessage_(different, ''), '');
+  assert.equal(ctx._insertLeadMasterRowBlockingDuplicates_(different).success, true);
+  assert.equal(ctx.checkLeadDuplicates('', '', '', '  ANOTHER   COMPANY ').length, 1);
+  assert.match(ctx._leadDuplicateMessage_({ 'Company Name': 'another company' }, ''), /company already exists/);
+  assert.equal(ctx._leadDuplicateMessage_(different, 'new-id'), '');
+  assert.equal(ctx.checkLeadDuplicates('', '', 'new-id', 'Another company').length, 0);
+  assert.equal(ctx._insertLeadMasterRowBlockingDuplicates_({ ...different, 'Lead ID': 'third-id', Phone: '7777777777' }).success, false);
+});
+
+test('CS bulk checks name only against existing records and within pasted rows', () => {
+  const { ctx } = setup();
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/BulkService.js'), 'utf8'), ctx);
+  ctx.CLIENT_CONFIG = { PORTAL_KEY: 'CS' };
+  const map = { phone: { '123': 'old-id' }, email: { 'a@test.example': 'old-id' }, company: { acme: 'old-id' } };
+  const row = { 'Company Name': 'Different', Phone: '123', Email: 'a@test.example' };
+  assert.equal(ctx.checkDuplicate(row, map, ''), '');
+  assert.match(ctx.checkDuplicate({ ...row, 'Company Name': ' ACME ' }, map, ''), /company/);
+  assert.equal(ctx.checkDuplicate({ ...row, 'Company Name': 'Acme' }, map, 'old-id'), '');
+  const batch = { phone: {}, email: {}, company: {} };
+  assert.equal(ctx._bulkBatchDuplicate_(row, batch, 'create'), '');
+  assert.equal(ctx._bulkBatchDuplicate_({ ...row, 'Company Name': 'Next' }, batch, 'create'), '');
+  assert.match(ctx._bulkBatchDuplicate_({ ...row, 'Company Name': ' DIFFERENT ' }, batch, 'create'), /company/);
+  for (const portal of ['NBD', 'LQ', 'DEAD', 'NBD_LAMINATION', 'LQ_LAMINATION']) {
+    ctx.CLIENT_CONFIG.PORTAL_KEY = portal;
+    assert.match(ctx.checkDuplicate(row, map, ''), /phone/);
+  }
+});

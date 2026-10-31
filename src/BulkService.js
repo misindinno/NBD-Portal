@@ -685,6 +685,7 @@ function checkDuplicate(row, existingMap, excludeLeadId) {
   const phoneHit = phone ? existingMap.phone[phone] : '';
   const emailHit = email ? existingMap.email[email] : '';
   const companyHit = company ? existingMap.company[company] : '';
+  if (_leadNameOnlyDuplicates_()) return companyHit && companyHit !== excludeLeadId ? 'Duplicate company already exists.' : '';
   if (phoneHit && phoneHit !== excludeLeadId) return 'Duplicate phone already exists.';
   if (emailHit && emailHit !== excludeLeadId) return 'Duplicate email already exists.';
   if (companyHit && companyHit !== excludeLeadId) return 'Duplicate company already exists.';
@@ -693,8 +694,9 @@ function checkDuplicate(row, existingMap, excludeLeadId) {
 
 function _bulkBatchDuplicate_(row, batchMap, mode) {
   if (_bulkMode_(mode) === 'update') return '';
-  const phone = _bulkNormPhone_(row['Phone']);
-  const email = _bulkNormEmail_(row['Email']);
+  const nameOnly = _leadNameOnlyDuplicates_();
+  const phone = nameOnly ? '' : _bulkNormPhone_(row['Phone']);
+  const email = nameOnly ? '' : _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
   if (phone && batchMap.phone[phone]) return 'Duplicate phone in pasted rows.';
   if (email && batchMap.email[email]) return 'Duplicate email in pasted rows.';

@@ -203,9 +203,14 @@ function _insertLeadMasterRowBlockingDuplicates_(leadRow) {
   }
 }
 
+function _leadNameOnlyDuplicates_() {
+  return typeof CLIENT_CONFIG !== 'undefined' && String(CLIENT_CONFIG.PORTAL_KEY || '').trim().toUpperCase() === 'CS';
+}
+
 function checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
-  const normPhone = phone ? String(phone).replace(/\D/g, '') : '';
-  const normEmail = email ? String(email).trim().toLowerCase() : '';
+  const nameOnly = _leadNameOnlyDuplicates_();
+  const normPhone = !nameOnly && phone ? String(phone).replace(/\D/g, '') : '';
+  const normEmail = !nameOnly && email ? String(email).trim().toLowerCase() : '';
   const normCompany = _leadNormText_(companyName);
   if (!normPhone && !normEmail && !normCompany) return [];
   return _leadMasterLookupRows_()
@@ -248,6 +253,7 @@ function _leadDuplicateMessage_(data, excludeLeadId) {
   const altHit = altPhone ? existingMap.phone[altPhone] : '';
   const emailHit = email ? existingMap.email[email] : '';
   const companyHit = company ? existingMap.company[company] : '';
+  if (_leadNameOnlyDuplicates_()) return companyHit && companyHit !== exclude ? 'Duplicate lead blocked: company already exists.' : '';
   if (phoneHit && phoneHit !== exclude) return 'Duplicate lead blocked: phone already exists.';
   if (altHit && altHit !== exclude) return 'Duplicate lead blocked: alternate phone already exists.';
   if (emailHit && emailHit !== exclude) return 'Duplicate lead blocked: email already exists.';
