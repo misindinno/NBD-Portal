@@ -78,9 +78,34 @@ test('archive mirror stores exact columns and serves scoped history locally with
   const count=b.requests,detail=await b.client.previewLeadDetail('A','archive');
   assert.equal(b.requests,count);assert.equal(detail.data.followupHistory[0].Remark,'Saved archive remark');
   assert.equal(await b.client.previewLeadDetail('B','archive'),null);
+  const archive=await b.client.previewArchiveData();
+  assert.equal(b.requests,count,'list and details must not call the server when mirrored');
+  assert.equal(archive.data.archived.length,1);
+  assert.equal(archive.data.archived[0]._centralArchive,true);
+  assert.equal(archive.data.archived[0]._followupCount,1);
+  assert.equal(archive.data.trash.length,0);
   assert.equal((await b.client.readSheet('AR_MASTER')).rows.length,1);
   f.state.user={...f.state.user,role:'SALES',modules:['Leads']};
   assert.equal(f.request('apiGetSheetMirrorManifest',f.identity()).sheets.some(s=>s.name==='AR_MASTER'),false);
+});
+
+test('Archive sync populates list and recoverable Trash detail together and coalesces requests', async () => {
+  const f=mirrorFixture(),c=f.c;
+  vm.runInContext(read('src/server/CentralArchiveService.js'),c);c.arEnabled_=()=>true;
+  const book=vm.runInContext('SPREADSHEET_ID',c);
+  c.arRead_=name=>{
+    const value={'Central Key':book+'|T','Origin Workbook':book,'Transfer State':'Trashed','Lead ID':'T','Assigned To':'u1',Remark:'Kept history'};
+    return {headers:Object.keys(value),rows:[{row:2,value}]};
+  };
+  const b=mirrorClient(f);
+  assert.equal(await b.client.previewArchiveData(),null);
+  const one=b.client.syncArchive(),two=b.client.syncArchive();assert.equal(one,two);
+  await one;const requests=b.requests;
+  const list=await b.client.previewArchiveData(),detail=await b.client.previewLeadDetail('T','archive');
+  assert.equal(list.data.archived.length,0);assert.equal(list.data.trash.length,1);
+  assert.equal(detail.data.followupHistory[0].Remark,'Kept history');assert.equal(b.requests,requests);
+  b.client.bind({...f.identity(),user:'other'});
+  assert.equal(await b.client.previewArchiveData(),null);
 });
 
 test('corrupt mirror JSON payload cannot commit a snapshot', async () => {

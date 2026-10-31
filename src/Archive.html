@@ -162,6 +162,9 @@ async function _archActivateTab(tab, force = false, prefetched) {
   if (force) t.selected.clear();
   const cachedRead = typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled();
   const shouldFetch = cachedRead || force || !t.rows;
+  if (t.rows && (_archRenderedTab !== tab || !el('arch-live'))) {
+    _archRenderKpis(); _archRenderCard(); _archRenderedTab = tab;
+  }
   // Keep the saved table visible while its replacement is persisted in IndexedDB.
   const finishLoading = () => {};
 

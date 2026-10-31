@@ -5,7 +5,7 @@ function sheetMirrorDefinitions_() {
     ...((typeof arEnabled_ === 'function' && arEnabled_()) ? Object.keys(AR_TABLES_).map(name=>[name,['Archive'],'archive']) : []),
     ...((typeof dqEnabled_ === 'function' && dqEnabled_()) ? Object.keys(DQ_TABLES_).map(name=>[name,['Leads'],'disqualified']) : []),
     ['LEAD_MASTER', ['Leads','Followups','Pipeline','Archive'], 'leads'],
-    ['FOLLOWUPS', ['Followups'], 'followups'],
+    ['FOLLOWUPS', ['Followups','Archive'], 'followups'],
     ['FOLLOWUP_HISTORY', ['Followups','Archive'], 'history'],
     ['LEAD_ACTIVITY_LOGS', ['Followups','Leads'], 'activity'],
     ['LEAD_FIELD_VALUES', ['Leads','Pipeline','Archive'], 'leadFields'],

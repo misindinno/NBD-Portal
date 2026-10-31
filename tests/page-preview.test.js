@@ -7,6 +7,30 @@ const {read, memoryStorage, browserFactory, serverFixture} = require('./helpers/
 const {moduleFixture, moduleClient} = require('./helpers/portal-cache-fixture');
 const source = read('src/PagePreview.html').replace(/^<script>\s*/,'').replace(/<\/script>\s*$/,'');
 const identity = {schema:1,portal:'portal',user:'user',scope:'a'.repeat(64)};
+test('archive refresh reads back committed mirror data instead of calling the detail/list sheet endpoints', async () => {
+  const events=[];
+  const c=vm.createContext({SheetMirror:{enabled:()=>true,syncArchive:async()=>events.push('sync'),
+    previewArchiveData:async()=>({data:{archived:[],trash:[]},verifiedAt:'now'}),
+    previewLeadDetail:async()=>({data:{lead:{id:'A'},followups:[],followupHistory:[]},verifiedAt:'now'})},
+    PagePreview:{generation:()=>1,capture:async(fn,args,data)=>{events.push('persist');return data;}},
+    api:{_authedRead:()=>{throw Error('Direct sheet endpoint forbidden');}}});
+  vm.runInContext(source.slice(source.indexOf('async function fetchPagePreviewData'),source.indexOf('function fetchPagePreview(endpoint')),c);
+  assert.equal((await c.fetchPagePreviewData('apiGetCentralArchiveDetail',['A'])).lead.id,'A');
+  assert.equal((await c.fetchPagePreviewData('apiGetArchiveData',[])).archived.length,0);
+  assert.deepEqual(events,['sync','persist','sync','persist']);
+  c.SheetMirror.previewArchiveData=async()=>null;
+  await assert.rejects(c.fetchPagePreviewData('apiGetArchiveData',[]),/not available/);
+});
+test('archive detail snapshots survive reopening multiple clients after browser restart', async () => {
+  const first=fixture();
+  await first.cache.capture('apiGetCentralArchiveDetail',['A'],{lead:{id:'A'},followups:[],history:[{Remark:'A remark'}]});
+  await first.cache.capture('apiGetCentralArchiveDetail',['B'],{lead:{id:'B'},followups:[],history:[{Remark:'B remark'}]});
+  const next=fixture({storage:first.storage});
+  assert.equal((await next.cache.get('apiGetCentralArchiveDetail',['A'])).data.history[0].Remark,'A remark');
+  assert.equal((await next.cache.get('apiGetCentralArchiveDetail',['B'])).data.history[0].Remark,'B remark');
+  next.cache.bind({...identity,user:'different'});
+  assert.equal(await next.cache.get('apiGetCentralArchiveDetail',['A']),null);
+});
 function fixture(overrides = {}) {
   const storage = overrides.storage || memoryStorage();
   const c = vm.createContext({crypto,TextEncoder,structuredClone,Map,Set,...overrides.globals});

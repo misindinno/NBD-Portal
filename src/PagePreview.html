@@ -33,7 +33,8 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
   const memory = new Map();
   const writes = new Map();
   const same = other => identity && other && ['schema','portal','user','scope'].every(key => identity[key] === other[key]);
-  const keyFor = endpoint => JSON.stringify([identity.schema, identity.portal, identity.user, 'page-preview', endpoint]);
+  const keyFor = (endpoint, args) => JSON.stringify([identity.schema, identity.portal, identity.user, 'page-preview', endpoint,
+    ...(/Detail$|History$|ActivityLogs$/.test(endpoint) ? [pagePreviewCanonical(args)] : [])]);
   const requestKey = args => JSON.stringify(pagePreviewCanonical(args));
   const safe = async (method, value) => { try { return await storage[method](value); } catch (_) { return null; } };
   async function digest(value) {
@@ -46,7 +47,7 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
     const session = epoch, context = { ...identity }, query = requestKey(args);
     const remembered = memory.get(endpoint + query);
     if (remembered && now() - Date.parse(remembered.verifiedAt) < 7 * 86400000) return structuredClone(remembered);
-    const cached = await safe('get', keyFor(endpoint));
+    const cached = await safe('get', keyFor(endpoint, args));
     if (session !== epoch) return null;
     if (cached && cached.complete === true && same(cached.identity) && cached.requestKey === query &&
         pagePreviewSafe(cached.data) && now() - Date.parse(cached.verifiedAt) < 7 * 86400000 && Date.parse(cached.verifiedAt) <= now() + 60000) {
@@ -66,7 +67,7 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
   }
   async function put(endpoint, args, data, session = epoch, verifiedAt = new Date(now()).toISOString()) {
     if (!identity || session !== epoch || !PAGE_PREVIEW_READS.has(endpoint) || !pagePreviewSafe(data)) throw new Error('CACHE_CANCELLED');
-    const context = { ...identity }, key = keyFor(endpoint), query = requestKey(args);
+    const context = { ...identity }, key = keyFor(endpoint, args), query = requestKey(args);
     if (JSON.stringify(data).length > 20000000) throw new Error('This page exceeds the browser snapshot size limit. Narrow its filters.');
     const hash = await digest({ scope: context.scope, query, data });
     if (!hash || session !== epoch) throw new Error('Browser integrity verification is unavailable.');
@@ -93,7 +94,7 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
       ? data.map(row => Object.fromEntries(Object.entries(row).filter(([key]) => staffFields.has(key)))) : data);
     if (!identity || generation !== epoch || !pagePreviewSafe(safeData)) throw new Error('Page data could not be stored safely.');
     await put(endpoint, args, safeData, generation, verifiedAt);
-    const stored = await safe('get', keyFor(endpoint));
+    const stored = await safe('get', keyFor(endpoint, args));
     if (generation !== epoch) throw new Error('CACHE_CANCELLED');
     const query = requestKey(args);
     if (!stored || !same(stored.identity) || stored.requestKey !== query || !stored.complete ||
@@ -113,6 +114,9 @@ function createPagePreviewCache({ storage, fallback = async () => null, now = ()
 
 const PagePreview = createPagePreviewCache({ storage: createLeadSnapshotStorage(leadIndexedDb_()),
   fallback: async (endpoint, args) => {
+    if (endpoint === 'apiGetArchiveData' && typeof SheetMirror !== 'undefined' && SheetMirror.enabled()) {
+      const saved = await SheetMirror.previewArchiveData(); if (saved) return saved;
+    }
     if (typeof SheetMirror !== 'undefined' && SheetMirror.enabled() &&
         ['apiGetFollowupHistory','apiGetLeadActivityLogs','apiGetDisqualifiedDetail','apiGetCentralArchiveDetail'].includes(endpoint)) {
       const central = endpoint === 'apiGetCentralArchiveDetail' ? 'archive' : endpoint === 'apiGetDisqualifiedDetail';
@@ -144,10 +148,21 @@ const pagePreviewNetwork = new Map();
 const pagePreviewSubscriptions = new Map(), pagePreviewDeferred = new Map();
 let pagePreviewUpdateTimer = null, pagePreviewLastInput = 0;
 let pagePreviewWarmup = [], pagePreviewBackgroundRunning = false, pagePreviewStatusText = '', pagePreviewWarmupGeneration = 0;
+async function fetchPagePreviewData(endpoint, args) {
+  if (['apiGetArchiveData','apiGetCentralArchiveDetail'].includes(endpoint) && typeof SheetMirror !== 'undefined' && SheetMirror.enabled()) {
+    const generation = PagePreview.generation();
+    await SheetMirror.syncArchive();
+    const saved = endpoint === 'apiGetArchiveData' ? await SheetMirror.previewArchiveData() : await SheetMirror.previewLeadDetail(args[0], 'archive');
+    if (!saved || endpoint !== 'apiGetArchiveData' && (!saved.data.followups || !saved.data.followupHistory)) throw new Error('Archive data is not available in this browser yet. Retry sync.');
+    const data = endpoint === 'apiGetArchiveData' ? saved.data : {lead:saved.data.lead,followups:saved.data.followups,history:saved.data.followupHistory};
+    return PagePreview.capture(endpoint,args,data,generation,saved.verifiedAt);
+  }
+  return api._authedRead(endpoint,...args);
+}
 function fetchPagePreview(endpoint, args) {
   const key = JSON.stringify([PagePreview.generation(), endpoint, pagePreviewCanonical(args)]);
   if (!pagePreviewNetwork.has(key)) {
-    const task = api._authedRead(endpoint, ...args).finally(() => { if (pagePreviewNetwork.get(key) === task) pagePreviewNetwork.delete(key); });
+    const task = fetchPagePreviewData(endpoint, args).finally(() => { if (pagePreviewNetwork.get(key) === task) pagePreviewNetwork.delete(key); });
     pagePreviewNetwork.set(key, task);
   }
   return pagePreviewNetwork.get(key);
