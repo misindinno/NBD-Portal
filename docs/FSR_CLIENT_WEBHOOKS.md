@@ -4,6 +4,8 @@ The shared backend covers CS and Dead along with other NBD deployments. Direct e
 
 ## Activation per Apps Script project
 
+Trigger installation can happen before credentials are supplied. Unconfigured sends are skipped; configure the URL and secret to enable delivery. Do not use placeholder secrets. The setup applies to cs-portal, dead-portal, nbd-client1, nbd-lamination, lq-portal and lq-lamination.
+
 1. Set Script Properties FSR_WEBHOOK_URL to the deployed FSR origin followed by /api/webhooks/clients/cs-portal or /api/webhooks/clients/dead-portal.
 2. Set FSR_WEBHOOK_SECRET to that source's signing secret from FSR Webhooks. Never put secrets in source code or sheet cells. Set FSR_CLIENT_SHEET to LEAD_MASTER.
 3. As a portal administrator, run installFsrClientTriggers from the bound Apps Script editor (or the existing spreadsheet menu). Approve Google's required Apps Script authorization if prompted. This installs edit, form-submit and one-minute delivery triggers. Re-running replaces this user's edit/form triggers without duplicating them.

@@ -31,11 +31,13 @@ function installFsrClientTriggers() {
   return withServerContext_(() => {
     requireContainerAdmin_(false);
     const config = _fsrWebhookConfig_();
-    if (!config.url || !config.secret) throw new Error('Configure FSR_WEBHOOK_URL and FSR_WEBHOOK_SECRET before installing triggers.');
+    // Triggers may be prepared before credentials; unconfigured deliveries are skipped.
     _ensureFsrSyncWorker_();
     _installFsrClientTrigger_('handleFsrClientEdit', ScriptApp.EventType.ON_EDIT);
     _installFsrClientTrigger_('handleFsrClientCreate', ScriptApp.EventType.ON_FORM_SUBMIT);
-    return 'FSR lead/client edit and form-submit triggers installed.';
+    return config.url && config.secret
+      ? 'FSR lead/client edit, form-submit and worker triggers installed.'
+      : 'FSR triggers installed. Delivery is inactive until FSR_WEBHOOK_URL and FSR_WEBHOOK_SECRET are configured.';
   });
 }
 

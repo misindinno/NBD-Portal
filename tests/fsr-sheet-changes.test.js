@@ -43,5 +43,7 @@ test('trigger installation is repeatable and includes the delivery worker', () =
   assert.equal(h.triggers.length,3);
   assert.equal(h.ctx.getFsrClientWebhookStatus().workerInstalled,true);
   delete h.props.FSR_WEBHOOK_SECRET;
-  assert.throws(() => h.ctx.installFsrClientTriggers(), /Configure/);
+  assert.match(h.ctx.installFsrClientTriggers(), /inactive/);
+  assert.equal(h.ctx.getFsrClientWebhookStatus().configured,false);
+  assert.equal(h.triggers.length,3);
 });
