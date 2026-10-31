@@ -34,7 +34,7 @@ function createPortalReadCache({ request, storageFactory, onLock }) {
     apiGetArchiveData: 'archive', apiGetArchiveSuggestions: 'archiveSuggestions', apiGetLostArchiveLeads: 'archiveLost',
     apiClientFactoryVisitList: 'visits', apiGetClientCallReport: 'callReport', apiGetCallLogs: 'calls'
   };
-  function reset() { clients.forEach(entry => entry.client.suspend()); clients.clear(); identity = null; }
+  function reset() { clients.forEach(entry => entry.client.suspend()); clients.clear(); identity = null; if(typeof resetArchiveState==='function')resetArchiveState(); }
   function bind(value) { reset(); identity = value && value.modulesEnabled ? { ...value, enabled: true } : null; }
   async function get(endpoint, query = {}) {
     if (!identity || !routes[endpoint]) throw new Error('CACHE_NOT_BOUND');

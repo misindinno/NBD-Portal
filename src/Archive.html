@@ -106,12 +106,19 @@
 let _archiveTab = 'archived';
 const _archTabs = {
   archived:    { rows: null, search: '', owner: '', sortKey: 'archived', sortDir: 'desc', selected: new Set() },
+  trash:       { rows: null, search: '', owner: '', sortKey: 'updated', sortDir: 'desc', selected: new Set() },
   suggestions: { rows: null, search: '', owner: '', status: '', severity: 'all', sortKey: 'streak', sortDir: 'desc', selected: new Set() },
   lost:        { rows: null, search: '', owner: '', sortKey: 'updated', sortDir: 'desc', selected: new Set() }
 };
 let _archSearchTimer = null;
 let _archLoadSeq = 0;
 let _archRenderedTab = '';
+function resetArchiveState() {
+  _archLoadSeq++;clearTimeout(_archSearchTimer);_archSearchTimer=null;_archRenderedTab='';_archiveTab='archived';
+  Object.values(_archTabs).forEach(t=>{t.rows=null;t.search='';t.owner='';t.selected.clear();});
+  if(_archBulkState)_archBulkState.cancelled=true;
+  document.querySelectorAll('dialog[data-archive-management]').forEach(node=>node.remove());
+}
 
 async function loadArchive(tab = 'archived', force = false) {
   const content = el('content');
@@ -128,6 +135,7 @@ async function loadArchive(tab = 'archived', force = false) {
           <button class="arch-tab" data-tab="archived" onclick="_archiveSwitchTab('archived')">${icon('archive', 15)} Archived</button>
           <button class="arch-tab" data-tab="suggestions" onclick="_archiveSwitchTab('suggestions')">${icon('lightbulb', 15)} Suggestions</button>
           <button class="arch-tab" data-tab="lost" onclick="_archiveSwitchTab('lost')">${icon('circle-x', 15)} Lost Leads</button>
+          <button class="arch-tab" data-tab="trash" onclick="_archiveSwitchTab('trash')">${icon('trash-2', 15)} Trash</button>
         </div>
         <div class="arch-tools" id="arch-tools"></div>
       </div>
@@ -154,16 +162,15 @@ async function _archActivateTab(tab, force = false, prefetched) {
   if (force) t.selected.clear();
   const cachedRead = typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled();
   const shouldFetch = cachedRead || force || !t.rows;
-  const finishLoading = shouldFetch && t.rows && el('arch-live')
-    ? beginTableLoading(el('arch-live'), { rows: 9, columns: 7 })
-    : () => {};
+  // Keep the saved table visible while its replacement is persisted in IndexedDB.
+  const finishLoading = () => {};
 
   try {
     if (shouldFetch) {
       if (!t.rows && !window.__PAGE_PREVIEW_READY) _archShowLoading();
-      const endpoint = tab === 'archived' ? 'apiGetArchiveData' : tab === 'suggestions' ? 'apiGetArchiveSuggestions' : 'apiGetLostArchiveLeads';
+      const endpoint = ['archived','trash'].includes(tab) ? 'apiGetArchiveData' : tab === 'suggestions' ? 'apiGetArchiveSuggestions' : 'apiGetLostArchiveLeads';
       const data = prefetched || await pagePreviewRead(endpoint, [], data => _archActivateTab(tab, true, data), { slot: 'archive', current: () => seq === _archLoadSeq });
-      const rows = tab === 'archived' ? data.archived || [] : data;
+      const rows = ['archived','trash'].includes(tab) ? data[tab] || [] : data;
       if (seq !== _archLoadSeq || _archiveTab !== tab || !el('archive-page')) return;
       t.rows = rows;
     }
@@ -340,9 +347,9 @@ function _archRenderKpis() {
       _archKpi({ label: 'Not Picked Count', val: rows.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), sub: 'across lost leads', ic: 'phone-missed', variant: 'warn' })
     ].join('');
   } else {
-    const rows = _archTabs.archived.rows || [];
+    const rows = _archTabs[_archiveTab].rows || [];
     kpis.innerHTML = [
-      _archKpi({ label: 'Archived Leads', val: rows.length, sub: 'hidden from active work', ic: 'archive', variant: 'neutral' }),
+      _archKpi({ label: _archiveTab==='trash'?'Trashed Leads':'Archived Leads', val: rows.length, sub: 'hidden from active work', ic: 'archive', variant: 'neutral' }),
       _archKpi({ label: 'Archived Follow-ups', val: rows.reduce((n, r) => n + Number(r._followupCount || 0), 0), sub: 'linked records archived', ic: 'phone', variant: 'total' }),
       _archKpi({ label: 'Not Picked Count', val: rows.reduce((n, r) => n + Number(r._notPickedCount || 0), 0), sub: 'before archive', ic: 'phone-missed', variant: 'crit' })
     ].join('');
@@ -360,7 +367,7 @@ function _archRenderCard() {
   const t = _archTabs[tab];
   const owners = _archOwners(t);
   const statuses = tab === 'suggestions' ? _archStatuses(t) : [];
-  const title = tab === 'suggestions' ? 'Archive Suggestions' : (tab === 'lost' ? 'Lost Stage Leads' : 'Archived Leads');
+  const title = tab === 'trash' ? 'Recoverable Trash' : tab === 'suggestions' ? 'Archive Suggestions' : (tab === 'lost' ? 'Lost Stage Leads' : 'Archived Leads');
   const sub = tab === 'suggestions'
     ? 'Leads with 7+ consecutive unanswered calls or a Lost status/stage.'
     : (tab === 'lost'
@@ -405,7 +412,7 @@ function _archLiveHTML() {
   const selCount = t.selected.size;
   const allVisible = rows.length > 0 && rows.every(r => t.selected.has(String(r['Lead ID'])));
 
-  const bulkbar = selCount ? `<div class="arch-bulkbar">
+  const bulkbar = selCount && tab!=='trash' ? `<div class="arch-bulkbar">
       <span class="arch-bulkbar-text">${selCount} selected</span>
       ${tab === 'suggestions'
         ? `<button class="arch-btn" onclick="_archSugBulkArchive()">${icon('archive', 14)} Archive selected</button>`
@@ -421,7 +428,7 @@ function _archLiveHTML() {
     ? `<th style="width:38px"><input type="checkbox" class="arch-check" ${allVisible ? 'checked' : ''} onclick="_archToggleAll(this.checked)" title="Select all matching rows"></th>
        <th>Lead</th><th>Owner</th>
        ${_archTh('total', 'Status / Not Picked')}
-       ${_archTh('streak', 'Longest run')}
+       ${_archTh('streak', 'Current run')}
        ${_archTh('last', 'Last attempt')}
        <th style="width:1%"></th>`
     : tab === 'lost'
@@ -505,7 +512,7 @@ function _archLostRowHTML(row) {
 }
 
 function _archArchivedRowHTML(row) {
-  const t = _archTabs.archived;
+  const t = _archTabs[_archiveTab];
   const leadId = String(row['Lead ID'] || '');
   const owner = _archOwnerName(row['Assigned To']);
   const title = row['Company Name'] || row['Client Description'] || leadId || '—';
@@ -516,7 +523,7 @@ function _archArchivedRowHTML(row) {
   const reason = String(row['Archive Reason'] || '').trim();
   const archTitle = row['Archived At'] ? `${formatDateTime(row['Archived At'])}${reason ? ' — ' + reason : ''}` : reason;
   return `<tr>
-    <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)"></td>
+    <td>${_archiveTab==='trash'?'':`<input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)">`}</td>
     <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
       <div class="arch-lead-title">${escapeHtml(title)}</div>
       <div class="arch-lead-sub">${escapeHtml(place)}</div>
@@ -529,12 +536,13 @@ function _archArchivedRowHTML(row) {
       <div>${escapeHtml(_archFmtDate(row['Archived At']))}</div>
       ${reason ? `<div class="arch-lead-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(reason)}</div>` : ''}
     </td>
-    <td style="text-align:right"><button class="arch-row-btn safe" onclick="_restoreArchivedLead('${escapeHtml(leadId)}')">${icon('rotate-ccw', 13)} Restore</button></td>
+    <td style="text-align:right">${_archiveTab==='trash'?`<button class="arch-row-btn safe" onclick="_archManage('${escapeHtml(leadId)}','recover')">Recover</button>`:`<button class="arch-row-btn" onclick="_archManage('${escapeHtml(leadId)}','update')">Edit</button> <button class="arch-row-btn danger" onclick="_archManage('${escapeHtml(leadId)}','trash')">Trash</button> <button class="arch-row-btn safe" onclick="_restoreArchivedLead('${escapeHtml(leadId)}')">${icon('rotate-ccw', 13)} Restore</button>`}</td>
   </tr>`;
 }
 
 function _archEmptyHTML(tab, totalAll) {
   if (totalAll === 0) {
+    if (tab === 'trash') return '<div class="arch-empty"><div class="arch-empty-title">Trash is empty</div><p>Deleted archive entries appear here and can be recovered with their history.</p></div>';
     if (tab === 'lost') {
       return `<div class="arch-empty">
         <div class="arch-empty-ic" style="background:#ecfdf5;color:#059669">${icon('check-circle', 30)}</div>
@@ -685,6 +693,49 @@ function _archiveOpenLead(leadId) {
 }
 window._archiveOpenLead = _archiveOpenLead;
 
+async function _archManage(leadId, action) {
+  const modal=document.createElement('dialog');modal.dataset.archiveManagement='true';
+  modal.style.cssText='width:min(720px,92vw);max-height:85vh;border:0;border-radius:14px;padding:24px';
+  modal.innerHTML='<button class="btn btn-outlined" style="float:right" data-close>Close</button><h2>Manage archived lead</h2><div data-body>Preparing this record…</div>';
+  document.body.append(modal);modal.showModal();modal.querySelector('[data-close]').onclick=()=>modal.close();modal.onclose=()=>modal.remove();
+  const session=AuthToken.get();
+  try {
+    const data=await api._authedRead('apiPrepareArchiveManagement',leadId);
+    if(!modal.open||session!==AuthToken.get())return;
+    const title=action==='trash'?'Move to recoverable Trash':action==='recover'?'Recover to Archive':'Save changes';
+    modal.querySelector('[data-body]').innerHTML='<p><strong>'+escapeHtml(data.lead['Company Name'])+'</strong></p>'+
+      (action==='update'?'<form data-edit style="display:grid;gap:12px">'+data.fields.map(key=>'<label>'+escapeHtml(key)+'<textarea class="form-control" rows="'+(/Remark|Description|Address/.test(key)?3:1)+'" data-field="'+escapeHtml(key)+'" maxlength="5000">'+escapeHtml(String(data.lead[key]||''))+'</textarea></label>').join('')+'</form>':'<p>'+ (action==='trash'?'The lead and all follow-ups/history stay preserved. You can recover this record from the Trash tab.':'This returns the record to Archive. Use Restore there when you want it back in active leads.')+'</p>')+
+      '<p data-status role="status"></p><button class="btn btn-primary" data-save>'+title+'</button>';
+    let command=null;
+    modal.querySelector('[data-save]').onclick=async()=>{
+      const button=modal.querySelector('[data-save]'),status=modal.querySelector('[data-status]');button.disabled=true;
+      if(!command)command={id:crypto.randomUUID(),leadId,action,revision:data.revision,changes:Object.fromEntries([...modal.querySelectorAll('[data-field]')].map(n=>[n.dataset.field,n.value]))};
+      modal.querySelectorAll('[data-field]').forEach(n=>n.disabled=true);
+      status.textContent='Saving…';
+      try {
+        await api._authedRead('apiManageArchivedLead',command);
+        if(session!==AuthToken.get())return;
+        modal.close();toast('Archive change saved.');
+        _archTabs.archived.rows=null;_archTabs.trash.rows=null;
+        await PagePreview.invalidate();if(typeof PortalReadCache!=='undefined')await PortalReadCache.invalidate();if(typeof SheetMirror!=='undefined')SheetMirror.invalidate();
+        if(App.currentPage==='archive')await loadArchive(_archiveTab,true);
+      } catch(error) {if(modal.open){status.textContent=error.message;button.textContent='Retry same change';button.disabled=false;}}
+    };
+  } catch(error) {if(modal.open)modal.querySelector('[data-body]').textContent=error.message;}
+}
+window._archManage=_archManage;
+
+function _archWatchPending(error, done) {
+  if(error.code!=='SYNC_PENDING'||!error.operationId||typeof PortalSync==='undefined')return false;
+  if(['conflict','invalid','blocked','paused'].includes(error.syncState))return false;
+  const session=AuthToken.get();let applied=false;
+  PortalSync.watch(error.operationId,row=>{
+    if(applied||session!==AuthToken.get())return;
+    if(row.state==='committed'){applied=true;done(row.result);toast('Archive change synced.');}
+  });
+  toast('Change saved in pending sync. The list will update after confirmation.','info');return true;
+}
+
 // ── Single actions ───────────────────────────────────────────────────────────────
 async function _archiveSuggestionLead(leadId) {
   const result = await Swal.fire({
@@ -700,7 +751,7 @@ async function _archiveSuggestionLead(leadId) {
   const reason = (result.value || '').trim() || 'Archive suggestion: 7+ unanswered calls or Lost status/stage';
   try {
     await api.archiveLead({ leadId, reason });
-  } catch (e) { toast(e && e.message || e, 'error'); return; }
+  } catch (e) { if(!_archWatchPending(e,()=>_archApplyArchived([leadId],reason)))toast(e && e.message || e, 'error'); return; }
   toast('Lead archived.');
   _archApplyArchived([leadId], reason);
 }
@@ -720,7 +771,7 @@ async function _archiveLostLead(leadId) {
   const reason = (result.value || '').trim() || 'Lost lead archived from Archive tab';
   try {
     await api.archiveLead({ leadId, reason });
-  } catch (e) { toast(e && e.message || e, 'error'); return; }
+  } catch (e) { if(!_archWatchPending(e,()=>_archApplyArchived([leadId],reason)))toast(e && e.message || e, 'error'); return; }
   toast('Lost lead archived.');
   _archApplyArchived([leadId], reason);
 }
@@ -737,11 +788,21 @@ async function _restoreArchivedLead(leadId) {
   if (!result.isConfirmed) return;
   try {
     await api.restoreArchivedLead(leadId);
-  } catch (e) { toast(e && e.message || e, 'error'); return; }
+  } catch (e) { if(!_archWatchPending(e,()=>_archApplyRestored([leadId])))toast(e && e.message || e, 'error'); return; }
   toast('Lead restored.');
   _archApplyRestored([leadId]);
 }
 window._restoreArchivedLead = _restoreArchivedLead;
+
+async function _archBulkArchiveRequest(chunk,reason) {
+  try {
+    const res=await api.archiveLeads({leadIds:chunk,reason});
+    return {done:res?.archived||[],failed:(res?.failed||[]).length};
+  } catch(error) {
+    if(_archWatchPending(error,result=>_archApplyArchived(result?.archived||[],reason)))return {done:[],failed:0,pending:chunk.length};
+    throw error;
+  }
+}
 
 // ── Bulk actions (chunked, minimisable progress dialog) ─────────────────────────
 async function _archSugBulkArchive() {
@@ -760,10 +821,7 @@ async function _archSugBulkArchive() {
   const reason = (result.value || '').trim() || 'Archive suggestion: 7+ unanswered calls or Lost status/stage';
   _archBulkRun(ids, {
     verb: 'Archiving leads', doneVerb: 'archived', chunk: 15,
-    exec: async (chunk) => {
-      const res = await api.archiveLeads({ leadIds: chunk, reason });
-      return { done: (res && res.archived) || [], failed: (res && res.failed || []).length };
-    },
+    exec: chunk => _archBulkArchiveRequest(chunk,reason),
     after: (ids) => _archApplyArchived(ids, reason)
   });
 }
@@ -785,10 +843,7 @@ async function _archLostBulkArchive() {
   const reason = (result.value || '').trim() || 'Lost leads archived from Archive tab';
   _archBulkRun(ids, {
     verb: 'Archiving lost leads', doneVerb: 'archived', chunk: 15,
-    exec: async (chunk) => {
-      const res = await api.archiveLeads({ leadIds: chunk, reason });
-      return { done: (res && res.archived) || [], failed: (res && res.failed || []).length };
-    },
+    exec: chunk => _archBulkArchiveRequest(chunk,reason),
     after: (doneIds) => _archApplyArchived(doneIds, reason)
   });
 }
@@ -808,11 +863,12 @@ async function _archBulkRestore() {
   _archBulkRun(ids, {
     verb: 'Restoring leads', doneVerb: 'restored', chunk: 5,
     exec: async (chunk) => {
-      const settled = await Promise.all(chunk.map(id =>
-        api.restoreArchivedLead(id).then(() => id).catch(() => null)
-      ));
-      const done = settled.filter(Boolean);
-      return { done, failed: chunk.length - done.length };
+      const done=[];let failed=0,pending=0;
+      for(const id of chunk) {
+        try {await api.restoreArchivedLead(id);done.push(id);}
+        catch(error){if(_archWatchPending(error,()=>_archApplyRestored([id])))pending++;else failed++;}
+      }
+      return {done,failed,pending};
     },
     after: _archApplyRestored
   });
@@ -822,7 +878,7 @@ window._archBulkRestore = _archBulkRestore;
 let _archBulkState = null;
 async function _archBulkRun(ids, opts) {
   const s = _archBulkState = {
-    total: ids.length, done: 0, failed: 0, doneIds: [],
+    total: ids.length, done: 0, failed: 0, pending: 0, doneIds: [],
     cancelled: false, finished: false, minimized: false,
     verb: opts.verb, doneVerb: opts.doneVerb
   };
@@ -834,6 +890,7 @@ async function _archBulkRun(ids, opts) {
       s.doneIds = s.doneIds.concat(res.done || []);
       s.done += (res.done || []).length;
       s.failed += Number(res.failed || 0);
+      s.pending += Number(res.pending || 0);
     } catch (e) {
       s.failed += chunk.length;
     }
@@ -841,7 +898,7 @@ async function _archBulkRun(ids, opts) {
   }
   s.finished = true;
   _archProgressRender();
-  toast(`${s.done} lead${s.done !== 1 ? 's' : ''} ${s.doneVerb}${s.failed ? `, ${s.failed} failed` : ''}.`);
+  toast(`${s.done} lead${s.done !== 1 ? 's' : ''} ${s.doneVerb}${s.failed ? `, ${s.failed} failed` : ''}${s.pending ? `, ${s.pending} waiting for sync` : ''}.`);
   setTimeout(() => { if (_archBulkState && _archBulkState.finished) _archProgressRemove(); }, 4000);
   opts.after(s.doneIds);
 }

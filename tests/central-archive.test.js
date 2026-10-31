@@ -61,6 +61,58 @@ test('restore failure commits no partial local bundle and leaves central copy av
  assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Transferred');
 });
 
+test('restoring a non-final archive with only completed history creates one open follow-up',()=>{
+ const f=fixture();const table=f.tables.get('FOLLOWUPS');
+ table.data[1][table.data[0].indexOf('Status')]='Closed';
+ table.data[1][table.data[0].indexOf('Outcome')]='Customer contacted';
+ f.run();
+ const command=f.command('apiRestoreArchivedLead',['L1'],[{type:'lead',id:'L1',values:[...f.central.get('Master').values()][0]}]);
+ assert.equal(f.call(command).data.state,'committed');
+ assert.equal(f.rows('FOLLOWUPS').filter(r=>r.Status==='Open').length,1);
+ assert.equal(f.rows('FOLLOWUPS').find(r=>r.Status==='Open')['Planned Date'],'2026-10-24');
+ assert.equal(f.rows('LEAD_MASTER')[0]['Next Follow-up Date'],'2026-10-24');
+ assert.equal(f.rows('FOLLOWUPS').find(r=>r['Follow-up ID']==='F1').Outcome,'Customer contacted');
+ assert.equal(f.rows('FOLLOWUP_HISTORY')[0].Remark,'Original remark');
+ assert.equal(f.call(command).data.repeated,true);
+ assert.equal(f.rows('FOLLOWUPS').filter(r=>r.Status==='Open').length,1);
+});
+
+test('final-stage restore does not reopen archive-closed follow-ups or schedule a new one',()=>{
+ const f=fixture();const table=f.tables.get('FOLLOWUPS');
+ table.data[1][table.data[0].indexOf('Status')]='Closed';table.data[1][table.data[0].indexOf('Outcome')]='Lead archived';
+ f.c._leadStageIsFinal_=()=>true;f.run();
+ const command=f.command('apiRestoreArchivedLead',['L1'],[{type:'lead',id:'L1',values:[...f.central.get('Master').values()][0]}]);
+ assert.equal(f.call(command).data.state,'committed');
+ assert.equal(f.rows('FOLLOWUPS').filter(r=>r.Status==='Open').length,0);
+ assert.equal(f.rows('LEAD_MASTER')[0]['Next Follow-up Date'],'');
+});
+
+test('a second restore with a fresh request leaves an active lead and its audit unchanged',()=>{
+ const f=fixture();f.run();
+ const first=f.command('apiRestoreArchivedLead',['L1'],[{type:'lead',id:'L1',values:[...f.central.get('Master').values()][0]}]);
+ assert.equal(f.call(first).data.state,'committed');
+ const logs=f.rows('LEAD_ACTIVITY_LOGS').length,followups=JSON.stringify(f.rows('FOLLOWUPS'));
+ const second=f.command('apiRestoreArchivedLead',['L1'],[f.base('lead','L1')]);
+ assert.equal(f.call(second).data.result.alreadyRestored,true);
+ assert.equal(f.rows('LEAD_ACTIVITY_LOGS').length,logs);assert.equal(JSON.stringify(f.rows('FOLLOWUPS')),followups);
+});
+
+test('viewers cannot mutate archive even with Archive module permission',()=>{
+ const f=fixture();f.state.user.role='VIEWER';
+ assert.throws(()=>f.c._assertCanMutate_(f.state.user,'archive','archiveLead'),/Permission denied/);
+});
+
+test('an answered call ends an old archive suggestion streak',()=>{
+ const f=fixture();const lead={'Lead ID':'candidate','Stage ID':'S1','Assigned To':'u1'};
+ const history=Array.from({length:7},(_,i)=>({'Lead ID':'candidate','Done Date':'2026-10-'+String(i+1).padStart(2,'0'),'Contact Mode':'Not Picked'}));
+ history.push({'Lead ID':'candidate','Done Date':'2026-10-08','Contact Mode':'Call Connected'});
+ f.c._scopeAssignedRows=r=>r;f.c._isLeadPushedToNbd_=()=>false;
+ f.c.sheetApiBatchGetRows_=()=>({LEAD_MASTER:[lead],FOLLOWUP_HISTORY:history,PIPELINE_STAGES:[]});
+ assert.equal(f.c.getArchiveSuggestionsFast_(f.state.user,true).length,0);
+ history.push(...Array.from({length:7},(_,i)=>({'Lead ID':'candidate','Done Date':'2026-10-'+String(i+9),'Contact Mode':'Not Picked'})));
+ assert.equal(f.c.getArchiveSuggestionsFast_(f.state.user,true)[0]._notPickedStreak,7);
+});
+
 test('restore response loss retries the same receipt without duplicate leads or history',()=>{
  const f=fixture();f.run();const command=f.command('apiRestoreArchivedLead',['L1'],[{type:'lead',id:'L1',values:[...f.central.get('Master').values()][0]}]);
  f.state.after=true;assert.equal(f.call(command).data.state,'retry');

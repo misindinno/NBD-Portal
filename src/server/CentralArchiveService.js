@@ -50,9 +50,9 @@ function arProgress_(step) {
   PropertiesService.getScriptProperties().setProperty('AR_LAST_STATUS',JSON.stringify({at:new Date().toISOString(),state:'running',message:step}));
 }
 function arUpsert_(name, records) { return centralUpsert_(arBook_(), name, records, arRead_); }
-function arPlan_(leads, followups, history, stages, limit) {
+function arPlan_(leads, followups, history, stages, limit, onlyLeadId) {
   const seen=new Set();
-  const candidates=leads.filter(row=>row['Lead ID'] && _isArchivedLead_(row));
+  const candidates=leads.filter(row=>row['Lead ID'] && _isArchivedLead_(row) && (!onlyLeadId || String(row['Lead ID'])===String(onlyLeadId)));
   candidates.forEach(row=>{const id=String(row['Lead ID']);if(seen.has(id))throw new Error('Duplicate source Lead ID. Source retained.');seen.add(id);});
   if(leads.filter(row=>seen.has(String(row['Lead ID']))).length!==candidates.length)throw new Error('Duplicate source Lead ID. Source retained.');
   const selected=[]; let size=0;
@@ -76,7 +76,7 @@ function arCopyConfiguration_() {
   arUpsert_('PORTAL_CONFIG',records);
   props.setProperty('AR_CONFIG_HASH',hash);
 }
-function arTransferBatch_() {
+function arTransferBatch_(onlyLeadId) {
   if(!getAllRows(SHEET_NAMES.LEADS).some(_isArchivedLead_)) return {state:'committed',result:{moved:0,remaining:0}};
   const command={id:Utilities.getUuid(),action:'centralArchiveTransfer',args:[],bases:[]};
   const user={id:'archive-transfer',role:'ADMIN'};
@@ -84,7 +84,7 @@ function arTransferBatch_() {
   const result=syncAtomicWrite_(user,command,()=>{
     arProgress_('Reading source lead, follow-up and history tables');
     const leads=syncTxRows_(SHEET_NAMES.LEADS), followups=syncTxRows_(SHEET_NAMES.FOLLOWUPS), history=syncTxRows_(SHEET_NAMES.FOLLOWUP_HISTORY);
-    const plan=arPlan_(leads,followups,history,getAllRows(SHEET_NAMES.STAGES),150);
+    const plan=arPlan_(leads,followups,history,getAllRows(SHEET_NAMES.STAGES),150,onlyLeadId);
     if(!plan.leads.length) return respond({moved:0,remaining:0});
     for(const [rows,key] of [[plan.followups,'Follow-up ID'],[plan.history,'History ID']]) {
       const ids=rows.map(r=>String(r[key]||''));
@@ -201,15 +201,15 @@ function arEnsureWorker_() {
   if(!ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==='centralArchiveWorker_')) ScriptApp.newTrigger('centralArchiveWorker_').timeBased().everyMinutes(1).create();
   props.setProperty('AR_WORKER_VERSION','1');
 }
-function arVisibleLeads_(user) {
-  const rows=arRead_('Master').rows.map(r=>r.value).filter(r=>r['Origin Workbook']===SPREADSHEET_ID && r['Transfer State']==='Transferred');
+function arVisibleLeads_(user, state) {
+  const rows=arRead_('Master').rows.map(r=>r.value).filter(r=>r['Origin Workbook']===SPREADSHEET_ID && r['Transfer State']===(state || 'Transferred'));
   const local=new Set(getAllRows(SHEET_NAMES.LEADS).map(r=>String(r['Lead ID'])));
   return _scopeAssignedRows(rows,user).filter(row=>!local.has(String(row['Lead ID'])));
 }
 function arMirrorTable_(logical,user) {
   const name=AR_TABLES_[logical];if(!name)throw new Error('Invalid central table.');
-  const table=arRead_(name),leads=arVisibleLeads_(user),ids=new Set(leads.map(r=>String(r['Lead ID'])));
-  const allowed=table.rows.filter(r=>r.value['Origin Workbook']===SPREADSHEET_ID && (logical==='AR_CONFIG' || ids.has(String(r.value['Lead ID']))));
+  const table=arRead_(name),leads=arVisibleLeads_(user).concat(arVisibleLeads_(user,'Trashed')),ids=new Set(leads.map(r=>String(r['Lead ID'])));
+  const allowed=table.rows.filter(r=>r.value['Origin Workbook']===SPREADSHEET_ID && (logical==='AR_CONFIG' ? ['PIPELINE_STAGES','FIELD_CONFIG'].includes(r.value['Sheet Name']) : ids.has(String(r.value['Lead ID']))));
   return {name:logical,exists:true,sheetId:null,headers:table.headers,rows:allowed.map(r=>({rowNumber:r.row,cells:table.headers.map(h=>r.value[h]),object:r.value}))};
 }
 function apiGetCentralArchive(token) {
@@ -222,7 +222,7 @@ function apiGetCentralArchive(token) {
 function apiGetCentralArchiveDetail(token,leadId) {
   _currentApiToken_=token||'';
   return apiGuard_('apiGetCentralArchiveDetail',()=>{
-    const user=_requireModule('Archive'),lead=arVisibleLeads_(user).find(r=>String(r['Lead ID'])===String(leadId));
+    const user=_requireModule('Archive'),lead=arVisibleLeads_(user).concat(arVisibleLeads_(user,'Trashed')).find(r=>String(r['Lead ID'])===String(leadId));
     if(!lead)throw new Error('Permission denied.');
     const linked=name=>arRead_(name).rows.map(r=>r.value).filter(r=>r['Origin Workbook']===SPREADSHEET_ID && String(r['Lead ID'])===String(leadId));
     return respond({lead,followups:linked('FOLLOWUPS'),history:linked('FOLLOWUP_HISTORY')});

@@ -296,15 +296,6 @@ test('archive summaries and sort values cover suggestion and archived modes', ()
   ]))), { total: 2, followups: 7, notPicked: 3 });
 });
 
-test('archive restore schedules the lead and reopened follow-ups for today', () => {
-  const archive = fs.readFileSync(path.join(ROOT, 'src', 'server', 'ArchiveService.js'), 'utf8');
-  assert.match(archive, /const restoredPlannedDate = today\(\);/);
-  assert.equal((archive.match(/const restoredPlannedDate = today\(\);/g) || []).length, 1);
-  assert.match(archive, /'Next Follow-up Date': restoredPlannedDate/);
-  assert.match(archive, /'Planned Date': restoredPlannedDate/);
-  assert.doesNotMatch(archive, /followup\['Planned Date'\]\s*\|\|\s*today\(\)/);
-});
-
 test('post-load icon rendering is idempotent and Follow-up tab icons stay at 16px', () => {
   const read = file => fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
   const utils = read('AppUtils.html');
@@ -391,7 +382,9 @@ test('primary worklists fetch complete collections once and process them client-
   const loadingCss = read('CSS.html');
   assert.match(read('AppUtils.html'), /function beginTableLoading\s*\(/);
   assert.match(loadingCss, /\.table-loading-overlay\s*\{/);
-  for (const file of ['Followups.html', 'Leads.html', 'Archive.html']) {
+  assert.match(archive, /if \(!t\.rows && !window\.__PAGE_PREVIEW_READY\) _archShowLoading\(\)/);
+  assert.doesNotMatch(archive, /beginTableLoading\s*\(/, 'Archive background refresh must not cover saved rows');
+  for (const file of ['Followups.html', 'Leads.html']) {
     const source = read(file);
     assert.match(source, /beginTableLoading\s*\(/, file + ' must show rows while a full refresh is in flight');
     assert.match(source, /finally\s*\{\s*finishLoading\(\)/, file + ' must clear the loading state');

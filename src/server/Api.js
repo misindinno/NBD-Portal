@@ -904,6 +904,7 @@ function _assertCanEnqueueJob_(user, moduleName, actionType) {
     return;
   }
   if (['archiveLead', 'restoreArchivedLead'].includes(actionType)) {
+    if (user.role === 'VIEWER') throw new Error('Permission denied. Viewers cannot change archived leads.');
     if (!(isAdmin || has('Archive'))) throw new Error('Permission denied.');
     return;
   }

@@ -44,14 +44,15 @@ function getArchiveData(user, readOnly) {
     archived.push(_archiveEnrichLead_(lead, followupByLead[leadId] || [], notPickedByLead[leadId] || 0));
   });
   return {
-    archived: archived.sort((a, b) => new Date(b['Archived At'] || 0) - new Date(a['Archived At'] || 0))
+    archived: archived.sort((a, b) => new Date(b['Archived At'] || 0) - new Date(a['Archived At'] || 0)),
+    trash: typeof arEnabled_==='function' && arEnabled_() ? arVisibleLeads_(user,'Trashed').map(r=>({...r,_centralArchive:true})) : []
   };
 }
 
 // ── Archive suggestions ─────────────────────────────────────────────────────────
 // Leads whose last calls went unanswered ("Not Picked") this many times IN A ROW are
-// unreachable/dead → suggested for archiving. We flag on the longest CONSECUTIVE run of
-// Not Picked contacts (any answered call breaks the run); the total is kept as extra info.
+// unreachable/dead → suggested for archiving. Only the current consecutive run
+// counts: an answered call clears the suggestion; the total is kept as extra info.
 const ARCHIVE_SUGGESTION_MODE_ = 'Not Picked';
 const ARCHIVE_SUGGESTION_MIN_ = 7;
 
@@ -124,10 +125,10 @@ function getArchiveSuggestionsFast_(user, readOnly) {
         streak = 0;                                      // any answered/other contact breaks the run
       }
     });
-    if (maxStreak >= ARCHIVE_SUGGESTION_MIN_ || isLost) {
+    if (streak >= ARCHIVE_SUGGESTION_MIN_ || isLost) {
       suggestions.push(Object.assign({}, lead, {
         _notPickedTotal: total,
-        _notPickedStreak: maxStreak,
+        _notPickedStreak: streak,
         _lastNotPickedDate: lastDate,
         _stageName: stage['Stage Name'] || '',
         _stageOutcome: stage['Stage Outcome'] || ''
@@ -210,7 +211,7 @@ function archiveLead(leadId, reason, email, opts) {
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   const user = result.data;
-  if (!(user.role === 'ADMIN' || userHasModule(user, 'Archive'))) throw new Error('Permission denied.');
+  if (user.role === 'VIEWER' || !(user.role === 'ADMIN' || userHasModule(user, 'Archive'))) throw new Error('Permission denied.');
 
   const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
   if (!lead) return respond(null, 'Lead not found.');
@@ -270,20 +271,48 @@ function restoreArchivedLead(leadId, email) {
   const result = getCurrentUserByEmail_(trustedEmail);
   if (!result.success) throw new Error(result.error);
   const user = result.data;
-  if (!(user.role === 'ADMIN' || userHasModule(user, 'Archive'))) throw new Error('Permission denied.');
+  if (user.role === 'VIEWER' || !(user.role === 'ADMIN' || userHasModule(user, 'Archive'))) throw new Error('Permission denied.');
 
   const centralArchiveRestored=typeof arPrepareRestore_==='function' ? arPrepareRestore_(leadId,user) : null;
   const lead = getRowByIndexedId_(SHEET_NAMES.LEADS, 'Lead ID', leadId);
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canReadAssignedRow(lead, user)) return respond(null, 'Permission denied.');
 
+  // A retry or second click must not reopen tasks or append another restore log.
+  if (!_isArchivedLead_(lead)) return respond({ leadId, status: lead['Lead Status'] || 'Open', alreadyRestored: true });
   const stage = queryRows(SHEET_NAMES.STAGES, r => String(r['Stage ID'] || '').trim() === String(lead['Stage ID'] || '').trim())[0] || null;
   let restoredStatus = String(lead['Pre-Archive Status'] || '').trim();
   if (!restoredStatus || restoredStatus.toLowerCase() === 'archived') restoredStatus = leadLifecycleStatus_(lead, stage);
   const ts = now();
-  const restoredPlannedDate = today();
+  const finalStage = _leadStageIsFinal_(stage);
+  let restoredPlannedDate = finalStage ? '' : today();
   const followups = getRowsByIndexedColumn_(SHEET_NAMES.FOLLOWUPS, 'Lead ID', leadId);
+  let createdFollowupId = '';
   try {
+    if (!finalStage) {
+      const open = followups.find(row => row['Follow-up ID'] && _isFollowupTaskRow(row) &&
+        String(_normalizeFollowupRow(row)['Status']).trim().toLowerCase() === 'open' && _plannedDate(row));
+      if (open) restoredPlannedDate = _plannedDate(open);
+      else {
+        const closed = followups.filter(row => row['Follow-up ID'] && _isFollowupTaskRow(row) &&
+          String(row['Status'] || '').trim().toLowerCase() === 'closed' && row['Outcome'] === 'Lead archived')
+          .sort((a,b) => _archiveDateMs_(b['Created At']) - _archiveDateMs_(a['Created At']))[0];
+        if (closed) updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', closed['Follow-up ID'], {
+          'Status':'Open','Outcome':'','Done Date':'','Planned Date':restoredPlannedDate,
+          'Next Follow-up Date':restoredPlannedDate,'Updated At':ts
+        });
+        else {
+          createdFollowupId = generateUUID();
+          insertRow(SHEET_NAMES.FOLLOWUPS, pickFollowupMasterFields_({
+            'Follow-up ID':createdFollowupId,'Lead ID':leadId,'Follow-up Type':'Call',
+            'Discussion':'Lead restored from archive.','Status':'Open',
+            'Planned Date':restoredPlannedDate,'Follow-up Date':restoredPlannedDate,
+            'Next Follow-up Date':restoredPlannedDate,'Stage ID':lead['Stage ID'] || '',
+            'Created By':user.id,'Created At':ts,'Updated At':ts
+          }));
+        }
+      }
+    }
     updateRow(SHEET_NAMES.LEADS, 'Lead ID', leadId, pickLeadMasterFields_({
       'Lead Status': restoredStatus || 'Open',
       'Pre-Archive Status': '',
@@ -294,21 +323,10 @@ function restoreArchivedLead(leadId, email) {
       'Next Follow-up Date': restoredPlannedDate,
       'Updated At': ts
     }));
-    followups.forEach(followup => {
-      if (!followup['Follow-up ID']) return;
-      const wasAutoClosed = String(followup['Status'] || '') === 'Closed' && String(followup['Outcome'] || '') === 'Lead archived';
-      if (!wasAutoClosed) return;
-      updateRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', followup['Follow-up ID'], {
-        'Status': 'Open',
-        'Outcome': '',
-        'Done Date': '',
-        'Planned Date': restoredPlannedDate,
-        'Next Follow-up Date': restoredPlannedDate,
-        'Updated At': ts
-      });
-    });
+    _assertNonFinalLeadHasOpenFollowup_({ ...lead, 'Is Archived':'', 'Archived At':'', 'Lead Status':restoredStatus || 'Open' }, stage);
     insertLeadActivityLog_(leadId, 'Restore Lead', 'Archived', restoredStatus || 'Open', 'Lead restored from archive.', user.id);
   } catch (error) {
+    if (createdFollowupId) deleteRow(SHEET_NAMES.FOLLOWUPS, 'Follow-up ID', createdFollowupId);
     _restoreArchiveMutationSnapshot_(lead, followups);
     throw error;
   }
