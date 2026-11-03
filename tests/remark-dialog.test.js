@@ -63,8 +63,31 @@ test('cold detail dialogs show mirrored history and activity before pending netw
 test('a session change during the IndexedDB join cannot open the previous user detail',async()=>{
   const f=dialogFixture(false);let release;
   f.c.SheetMirror={enabled:()=>true,previewLeadDetail:()=>new Promise(r=>release=r)};
-  const opening=f.c.openLeadDetail('lead');f.invalidate();release({data:{lead,followupHistory:[],activityLogs:[]}});
+  const opening=f.c.openLeadDetail('lead');await new Promise(setImmediate);f.invalidate();release({data:{lead,followupHistory:[],activityLogs:[]}});
   await opening;assert.equal(f.modals.length,0);assert.equal(f.calls.length,0);
+});
+
+test('empty loaded memory cannot hide IndexedDB history while the server is pending',async()=>{
+  const f=dialogFixture(false);
+  f.c.AppCache.isLoaded=()=>true;
+  f.c.PagePreview.get=async endpoint=>({data:endpoint==='apiGetFollowupHistory'?[{Remark:'Restored saved history'}]:[]});
+  f.c.api.getFollowupHistory=()=>new Promise(()=>{});
+  await f.c.openLeadDetail('lead');
+  assert.match(f.modals[0],/Restored saved history/);
+  assert.doesNotMatch(f.modals[0],/No follow-up history yet/);
+});
+
+test('empty caches show a pending state until an authoritative empty response arrives',async()=>{
+  const f=dialogFixture(false);let finish;
+  f.c.AppCache.isLoaded=()=>true;
+  f.c.PagePreview.get=async()=>({data:[]});
+  f.c.SheetMirror={enabled:()=>true,previewLeadDetail:async()=>({data:{lead,followupHistory:[],activityLogs:[]}})};
+  f.c.api.getFollowupHistory=()=>new Promise(r=>finish=r);
+  await f.c.openLeadDetail('lead');
+  assert.doesNotMatch(f.modals[0],/No follow-up history yet/);
+  assert.doesNotMatch(f.modals[0],/history:\[\]/);
+  await new Promise(setImmediate);finish([]);await new Promise(setImmediate);
+  assert.equal(f.nodes['#tab-history'].innerHTML,'history:[]');
 });
 
 test('uncached history loads only this client and does not wait for a hidden tab',async()=>{

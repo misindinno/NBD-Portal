@@ -115,6 +115,17 @@ test('archive and restore atomically update all linked follow-ups and activity',
   assert.equal(result.data?.state,'committed',JSON.stringify(result));assert.equal(f.rows('FOLLOWUPS')[0].Status,'Open');
   assert.equal(f.rows('LEAD_ACTIVITY_LOGS').length,2);
 });
+
+test('archive batches source reads and verification while preserving concurrent-write protection',()=>{
+  const f=syncFixture();
+  const cmd=f.command('apiArchiveLead',[{leadId:'L1',reason:'Performance test'}],[f.base('lead','L1')]);
+  const result=f.call(cmd);assert.equal(result.data?.state,'committed',JSON.stringify(result));
+  assert.equal(f.apiReads.length,2,'one source batch and one fresh verification batch');
+  assert.equal(f.requests.length,1,'one atomic write including receipt');
+  const g=syncFixture(),other=g.command('apiArchiveLead',[{leadId:'L1',reason:'Conflict test'}],[g.base('lead','L1')]);
+  g.state.beforeRead=(_options,count)=>{if(count===2){const t=g.tables.get('LEAD_MASTER');t.data[1][t.data[0].indexOf('Company Name')]='Concurrent edit';}};
+  assert.equal(g.call(other).data.state,'conflict');assert.equal(g.requests.length,0);
+});
 test('bulk valid rows, per-row errors and receipt are committed as one request',()=>{
   const f=syncFixture();f.c._bulkInitialStageId_=()=> 'S1';
   const cmd=f.command('apiSaveBulkRows',[[{'Company Name':'Bulk One',Phone:'9000000001'},{'Company Name':'Duplicate',Phone:'9000000000'}],'create']);

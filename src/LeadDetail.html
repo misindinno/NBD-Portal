@@ -18,7 +18,20 @@ async function openLeadDetail(leadId, seed) {
     const logLoaded  = AppCache.isLoaded('activityLogs');
     let followupHistory = (snapshotHistoryLoaded ? snapshot.followupHistory || [] : AppCache.getRows('followupHistory')).filter(f => f['Lead ID'] === leadId);
     let activityLogs    = logLoaded  ? AppCache.getRows('activityLogs').filter(f => f['Lead ID'] === leadId) : [];
-    let historyPending = !histLoaded, logsPending = !logLoaded;
+    // A loaded collection can still be an old snapshot from before a restore.
+    // Empty memory is not proof that this client has no history.
+    let historyPending = !followupHistory.length, logsPending = !activityLogs.length;
+    if (historyPending && typeof PagePreview !== 'undefined') {
+      try {
+        const saved = await Promise.all([
+          historyPending ? PagePreview.get('apiGetFollowupHistory', [{leadId}]) : null,
+          logsPending ? PagePreview.get('apiGetLeadActivityLogs', [{leadId}]) : null
+        ]);
+        if (!current()) return;
+        if (saved[0]?.data?.length) {followupHistory=saved[0].data;historyPending=false;}
+        if (saved[1]?.data?.length) {activityLogs=saved[1].data;logsPending=false;}
+      } catch (_) { /* A missing local preview is resolved by the scoped read below. */ }
+    }
     // The full scoped mirror is a separate IndexedDB store from per-lead RPC
     // snapshots. Join it locally before deciding that a loading screen is needed.
     if (historyPending || logsPending) {
@@ -27,8 +40,8 @@ async function openLeadDetail(leadId, seed) {
         if (!current()) return;
         if (saved) {
           if (!lead) { lead = saved.data.lead; seedOnly = true; }
-          if (historyPending && saved.data.followupHistory) { followupHistory = saved.data.followupHistory; historyPending = false; }
-          if (logsPending && saved.data.activityLogs) { activityLogs = saved.data.activityLogs; logsPending = false; }
+          if (historyPending && saved.data.followupHistory?.length) { followupHistory = saved.data.followupHistory; historyPending = false; }
+          if (logsPending && saved.data.activityLogs?.length) { activityLogs = saved.data.activityLogs; logsPending = false; }
         }
       } catch (_) { /* Missing local data falls back to the existing scoped API. */ }
     }
@@ -229,7 +242,7 @@ async function openLeadDetail(leadId, seed) {
       try {
         const saved = !alreadyDisplayed && typeof PagePreview !== 'undefined' && await PagePreview.get(endpoint, args);
         if (!valid()) return;
-        if (saved) paint(saved.data);
+        if (saved && (select(saved.data) || []).length) paint(saved.data);
         paint(await read());
       } catch (error) {
         if (valid() && !displayed) host.innerHTML = '<p style="padding:24px;color:#b45309">Could not load this section. Close and reopen to retry.</p>';

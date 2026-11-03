@@ -33,7 +33,7 @@ function syncTxTable_(name) {
   if(sheet && SYNC_TX_.apiRead) {
     if(!SYNC_TX_.apiValues) {
       const existing=new Set(getSpreadsheet(SYNC_RECEIPTS_).getSheets().map(s=>s.getName()));
-      const names=[SHEET_NAMES.LEADS,SHEET_NAMES.FOLLOWUPS,SHEET_NAMES.FOLLOWUP_HISTORY,SHEET_NAMES.LEAD_FIELD_VALUES,SHEET_NAMES.FOLLOWUP_FIELD_VALUES,SHEET_NAMES.IDX_LEADS,SHEET_NAMES.IDX_FOLLOWUPS,SYNC_RECEIPTS_].filter(n=>existing.has(n));
+      const names=[SHEET_NAMES.LEADS,SHEET_NAMES.FOLLOWUPS,SHEET_NAMES.FOLLOWUP_HISTORY,SHEET_NAMES.LEAD_FIELD_VALUES,SHEET_NAMES.FOLLOWUP_FIELD_VALUES,SHEET_NAMES.IDX_LEADS,SHEET_NAMES.IDX_FOLLOWUPS,SYNC_RECEIPTS_,...(SYNC_TX_.archiveWrite?[SHEET_NAMES.LEAD_ACTIVITY_LOGS]:[])].filter(n=>existing.has(n));
       SYNC_TX_.apiValues=syncTxReadApiTables_(names);
     }
     if(!Object.prototype.hasOwnProperty.call(SYNC_TX_.apiValues,name))Object.assign(SYNC_TX_.apiValues,syncTxReadApiTables_([name]));
@@ -228,7 +228,8 @@ function syncAtomicWrite_(user, command, run) {
       const visible = !leadId || lead && _canReadAssignedRow(lead, user);
       return { state: 'committed', result: visible ? result : null, repeated: true, receiptOnly: !visible };
     }
-    SYNC_TX_ = { tables: {}, stamps: {}, apiRead:command.action==='apiMarkFollowupDoneDirect' ||
+    const archiveWrite = ['apiArchiveLead','apiArchiveLeads','apiRestoreArchivedLead'].includes(command.action);
+    SYNC_TX_ = { tables: {}, stamps: {}, archiveWrite, apiRead:archiveWrite || command.action==='apiMarkFollowupDoneDirect' ||
       user.id==='central-transfer' && command.action==='centralDisqualifiedTransfer' ||
       user.id==='archive-transfer' && command.action==='centralArchiveTransfer', apiValues:null };
     syncCheckBases_(user, command);
