@@ -36,6 +36,15 @@ test('background archive refresh preserves selection and prunes only removed lea
  assert.deepEqual([...vm.runInContext('_archTabs.archived.selected',c)],['keep']);
 });
 
+test('archive uses updated sheet mirror rather than a stale page snapshot',async()=>{
+ const f=fixture(),c=f.c;c.window.__PAGE_PREVIEW_READY=true;c.document.querySelectorAll=()=>[];
+ Object.assign(c,{el:()=>({}),PortalReadCache:{enabled:()=>true},pagePreviewRead:async()=>({archived:[]}),
+ SheetMirror:{enabled:()=>true,previewArchiveData:async()=>({data:{archived:[{'Lead ID':'newly-archived'}]}})}});
+ vm.runInContext('_archRenderTools=()=>{};_archRenderKpis=()=>{};_archRenderCard=()=>{};',c);
+ await c._archActivateTab('archived',true);
+ assert.equal(vm.runInContext('_archTabs.archived.rows[0]["Lead ID"]',c),'newly-archived');
+});
+
 test('archive mutation closes after durable enqueue but applies only confirmed commit',async()=>{
  const f=fixture();let closed=0,applied=0;
  await f.c._archRunMutation(async()=>{throw {code:'SYNC_PENDING',operationId:'one',syncState:'queued'};},()=>applied++,()=>closed++);

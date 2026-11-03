@@ -171,7 +171,13 @@ async function _archActivateTab(tab, force = false, prefetched) {
     if (shouldFetch) {
       if (!t.rows && !window.__PAGE_PREVIEW_READY) _archShowLoading();
       const endpoint = ['archived','trash'].includes(tab) ? 'apiGetArchiveData' : tab === 'suggestions' ? 'apiGetArchiveSuggestions' : 'apiGetLostArchiveLeads';
-      const data = prefetched || await pagePreviewRead(endpoint, [], data => _archActivateTab(tab, true, data), { slot: 'archive', current: () => seq === _archLoadSeq });
+      let data = prefetched || await pagePreviewRead(endpoint, [], data => _archActivateTab(tab, true, data), { slot: 'archive', current: () => seq === _archLoadSeq });
+      // The sheet mirror may already contain a committed archive/restore while
+      // the page snapshot is still waiting for the full history reconciliation.
+      if (!prefetched && ['archived','trash'].includes(tab) && typeof SheetMirror !== 'undefined' && SheetMirror.enabled()) {
+        const local = await SheetMirror.previewArchiveData();
+        if (local) data = local.data;
+      }
       const rows = ['archived','trash'].includes(tab) ? data[tab] || [] : data;
       if (seq !== _archLoadSeq || _archiveTab !== tab || !el('archive-page')) return;
       t.rows = rows;
