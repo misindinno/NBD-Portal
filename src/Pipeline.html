@@ -125,18 +125,11 @@ async function _pipelineArchiveCard(leadId) {
     if (!res.isConfirmed) return;
     reason = res.value || reason;
   } else if (!confirm('Archive this lead?')) return;
-  try {
-    AppCache.removeRow('leads', 'Lead ID', leadId);
-    loadPipeline();
-    toast('Archiving…', 'info');
-    await api.archiveLead({ leadId, reason });
+  await _archRunMutation(()=>api.archiveLead({leadId,reason}),()=>{
+    _archApplyArchived([leadId],reason);
+    if(App.currentPage==='pipeline')loadPipeline();
     toast('Lead archived');
-    if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient([leadId]);
-    if (typeof _ackOwnArchive === 'function') _ackOwnArchive([leadId], reason);
-  } catch (err) {
-    toast('Archive failed: ' + (err.message || err), 'error');
-    _refreshLeadsCache().catch(() => {});
-  }
+  });
 }
 window._pipelineArchiveCard = _pipelineArchiveCard;
 

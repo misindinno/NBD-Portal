@@ -82,7 +82,7 @@
   .arch-empty-text { font-size: 13px; color: #64748b; }
 
   /* Bulk progress dialog (minimisable) */
-  .arch-prog-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.4); display: flex; align-items: center; justify-content: center; z-index: 1200; }
+  .arch-prog-overlay { position: fixed; right: 20px; bottom: 70px; background: transparent; display: block; z-index: 1000; max-width: calc(100vw - 40px); }
   .arch-prog-overlay.min { inset: auto; right: 20px; bottom: 20px; background: transparent; display: block; }
   .arch-prog-card { background: #fff; border-radius: 14px; width: min(420px, 92vw); padding: 20px; box-shadow: 0 14px 44px rgba(15,23,42,.28); }
   .arch-prog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -159,7 +159,6 @@ async function _archActivateTab(tab, force = false, prefetched) {
   document.querySelectorAll('#archive-page .arch-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   _archRenderTools();
   const t = _archTabs[tab];
-  if (force) t.selected.clear();
   const cachedRead = typeof PortalReadCache !== 'undefined' && PortalReadCache.enabled();
   const shouldFetch = cachedRead || force || !t.rows;
   if (t.rows && (_archRenderedTab !== tab || !el('arch-live'))) {
@@ -176,6 +175,8 @@ async function _archActivateTab(tab, force = false, prefetched) {
       const rows = ['archived','trash'].includes(tab) ? data[tab] || [] : data;
       if (seq !== _archLoadSeq || _archiveTab !== tab || !el('archive-page')) return;
       t.rows = rows;
+      const available = new Set(rows.map(row => String(row['Lead ID'])));
+      for (const id of t.selected) if (!available.has(id)) t.selected.delete(id);
     }
     _archRenderKpis();
     if (shouldFetch || _archRenderedTab !== tab || !el('arch-live')) {
@@ -698,9 +699,9 @@ window._archiveOpenLead = _archiveOpenLead;
 
 async function _archManage(leadId, action) {
   const modal=document.createElement('dialog');modal.dataset.archiveManagement='true';
-  modal.style.cssText='width:min(720px,92vw);max-height:85vh;border:0;border-radius:14px;padding:24px';
+  modal.style.cssText='position:fixed;inset:80px 20px auto auto;margin:0;width:min(720px,92vw);max-height:75vh;overflow:auto;z-index:1000;border:1px solid #ddd;border-radius:14px;padding:24px;box-shadow:0 8px 32px #0003';
   modal.innerHTML='<button class="btn btn-outlined" style="float:right" data-close>Close</button><h2>Manage archived lead</h2><div data-body>Preparing this record…</div>';
-  document.body.append(modal);modal.showModal();modal.querySelector('[data-close]').onclick=()=>modal.close();modal.onclose=()=>modal.remove();
+  document.body.append(modal);modal.show();modal.querySelector('[data-close]').onclick=()=>modal.close();modal.onclose=()=>modal.remove();
   const session=AuthToken.get();
   try {
     const data=await api._authedRead('apiPrepareArchiveManagement',leadId);
@@ -714,7 +715,7 @@ async function _archManage(leadId, action) {
       const button=modal.querySelector('[data-save]'),status=modal.querySelector('[data-status]');button.disabled=true;
       if(!command)command={id:crypto.randomUUID(),leadId,action,revision:data.revision,changes:Object.fromEntries([...modal.querySelectorAll('[data-field]')].map(n=>[n.dataset.field,n.value]))};
       modal.querySelectorAll('[data-field]').forEach(n=>n.disabled=true);
-      status.textContent='Saving…';
+      status.textContent='Saving to Archive… You can close this panel and continue working.';
       try {
         await api._authedRead('apiManageArchivedLead',command);
         if(session!==AuthToken.get())return;
@@ -722,7 +723,7 @@ async function _archManage(leadId, action) {
         _archTabs.archived.rows=null;_archTabs.trash.rows=null;
         await PagePreview.invalidate();if(typeof PortalReadCache!=='undefined')await PortalReadCache.invalidate();if(typeof SheetMirror!=='undefined')SheetMirror.invalidate();
         if(App.currentPage==='archive')await loadArchive(_archiveTab,true);
-      } catch(error) {if(modal.open){status.textContent=error.message;button.textContent='Retry same change';button.disabled=false;}}
+      } catch(error) {if(session!==AuthToken.get())return;if(modal.open){status.textContent=error.message;button.textContent='Retry same change';button.disabled=false;}else toast('Archive change could not be confirmed. Reopen the record to check it. '+error.message,'error');}
     };
   } catch(error) {if(modal.open)modal.querySelector('[data-body]').textContent=error.message;}
 }
@@ -731,12 +732,25 @@ window._archManage=_archManage;
 function _archWatchPending(error, done) {
   if(error.code!=='SYNC_PENDING'||!error.operationId||typeof PortalSync==='undefined')return false;
   if(['conflict','invalid','blocked','paused'].includes(error.syncState))return false;
-  const session=AuthToken.get();let applied=false;
+  const session=AuthToken.get();let applied=false, reported='';
   PortalSync.watch(error.operationId,row=>{
     if(applied||session!==AuthToken.get())return;
     if(row.state==='committed'){applied=true;done(row.result);toast('Archive change synced.');}
+    else if(['conflict','invalid','blocked','paused'].includes(row.state) && reported!==row.state){reported=row.state;toast('Archive change needs review in Pending changes. '+(row.error||''),'error');}
   });
   toast('Change saved in pending sync. The list will update after confirmation.','info');return true;
+}
+
+// Only apply confirmed mutations. A durable pending operation is not a failure.
+async function _archRunMutation(request, done, close) {
+  const session=AuthToken.get();
+  const apply=result=>{if(session===AuthToken.get())done(result);};
+  try { const result=await request(); if(session!==AuthToken.get())return; if(close)close(); apply(result); }
+  catch(error) {
+    if(session!==AuthToken.get())return;
+    if(_archWatchPending(error,apply)){if(close)close();}
+    else toast(error.message||String(error),'error');
+  }
 }
 
 // ── Single actions ───────────────────────────────────────────────────────────────
@@ -800,7 +814,7 @@ window._restoreArchivedLead = _restoreArchivedLead;
 async function _archBulkArchiveRequest(chunk,reason) {
   try {
     const res=await api.archiveLeads({leadIds:chunk,reason});
-    return {done:res?.archived||[],failed:(res?.failed||[]).length};
+    return {done:res?.archived||[],failed:(res?.failed||[]).length,errors:(res?.failed||[]).map(row=>typeof row==='string'?row:JSON.stringify(row))};
   } catch(error) {
     if(_archWatchPending(error,result=>_archApplyArchived(result?.archived||[],reason)))return {done:[],failed:0,pending:chunk.length};
     throw error;
@@ -866,12 +880,12 @@ async function _archBulkRestore() {
   _archBulkRun(ids, {
     verb: 'Restoring leads', doneVerb: 'restored', chunk: 5,
     exec: async (chunk) => {
-      const done=[];let failed=0,pending=0;
+      const done=[],errors=[];let failed=0,pending=0;
       for(const id of chunk) {
         try {await api.restoreArchivedLead(id);done.push(id);}
-        catch(error){if(_archWatchPending(error,()=>_archApplyRestored([id])))pending++;else failed++;}
+        catch(error){if(_archWatchPending(error,()=>_archApplyRestored([id])))pending++;else {failed++;errors.push(id+': '+(error.message||String(error)));}}
       }
-      return {done,failed,pending};
+      return {done,failed,pending,errors};
     },
     after: _archApplyRestored
   });
@@ -880,9 +894,10 @@ window._archBulkRestore = _archBulkRestore;
 
 let _archBulkState = null;
 async function _archBulkRun(ids, opts) {
+  if (_archBulkState && !_archBulkState.finished) {toast('An archive batch is already running.','info');return;}
   const s = _archBulkState = {
-    total: ids.length, done: 0, failed: 0, pending: 0, doneIds: [],
-    cancelled: false, finished: false, minimized: false,
+    total: ids.length, done: 0, failed: 0, pending: 0, doneIds: [], errors: [],
+    cancelled: false, finished: false, minimized: true,
     verb: opts.verb, doneVerb: opts.doneVerb
   };
   _archProgressOpen();
@@ -894,20 +909,24 @@ async function _archBulkRun(ids, opts) {
       s.done += (res.done || []).length;
       s.failed += Number(res.failed || 0);
       s.pending += Number(res.pending || 0);
+      s.errors.push(...(res.errors||[]));
     } catch (e) {
       s.failed += chunk.length;
+      s.errors.push(e.message||String(e));
     }
     _archProgressRender();
   }
   s.finished = true;
   _archProgressRender();
   toast(`${s.done} lead${s.done !== 1 ? 's' : ''} ${s.doneVerb}${s.failed ? `, ${s.failed} failed` : ''}${s.pending ? `, ${s.pending} waiting for sync` : ''}.`);
-  setTimeout(() => { if (_archBulkState && _archBulkState.finished) _archProgressRemove(); }, 4000);
+  if(!s.failed && !s.pending)setTimeout(() => { if (_archBulkState === s && s.finished) _archProgressRemove(); }, 4000);
   opts.after(s.doneIds);
 }
 
 function _archProgressOpen() {
-  _archProgressRemove();
+  // Replace the DOM only; clearing state here leaves an empty click-blocking layer.
+  const previous = document.getElementById('arch-progress');
+  if (previous) previous.remove();
   const node = document.createElement('div');
   node.id = 'arch-progress';
   node.className = 'arch-prog-overlay';
@@ -924,7 +943,7 @@ function _archProgressRender() {
 }
 function _archProgressCardHTML() {
   const s = _archBulkState;
-  const processed = s.done + s.failed;
+  const processed = s.done + s.failed + s.pending;
   const pct = s.total ? Math.round(processed / s.total * 100) : 0;
   const foot = s.finished
     ? `<button class="arch-btn" onclick="_archProgressRemove()" style="background:var(--brand,#6366f1);color:#fff;border-color:var(--brand,#6366f1)">Done</button>`
@@ -938,13 +957,15 @@ function _archProgressCardHTML() {
     <div class="arch-prog-stats">
       <span><strong>${processed}</strong> of ${s.total} processed</span>
       ${s.failed ? `<span style="color:#b91c1c">${s.failed} failed</span>` : `<span style="color:#059669">${s.done} ${s.doneVerb}</span>`}
+      ${s.pending ? `<span>${s.pending} waiting for sync</span>` : ''}
     </div>
+    ${s.errors.length?'<div role="alert" style="max-height:140px;overflow:auto">'+s.errors.map(error=>'<p>'+escapeHtml(error)+'</p>').join('')+'</div>':''}
     <div class="arch-prog-foot">${foot}</div>
   </div>`;
 }
 function _archProgressChipHTML() {
   const s = _archBulkState;
-  const processed = s.done + s.failed;
+  const processed = s.done + s.failed + s.pending;
   const pct = s.total ? Math.round(processed / s.total * 100) : 0;
   return `<button class="arch-prog-chip" onclick="_archProgressMaximize()" title="Show progress">
     ${s.finished ? icon('check-circle', 15) : `<span class="arch-prog-spin">${icon('loader-circle', 15)}</span>`}
@@ -954,7 +975,7 @@ function _archProgressChipHTML() {
 }
 function _archProgressMinimize() { if (_archBulkState) { _archBulkState.minimized = true; _archProgressRender(); } }
 function _archProgressMaximize() { if (_archBulkState) { _archBulkState.minimized = false; _archProgressRender(); } }
-function _archProgressCancel() { if (_archBulkState) { _archBulkState.cancelled = true; _archProgressRender(); } }
+function _archProgressCancel() { if (_archBulkState) { _archBulkState.cancelled = true; _archBulkState.minimized = true; _archProgressRender(); toast('Remaining batches cancelled. Already submitted changes may still sync.','info'); } }
 function _archProgressRemove() { const node = document.getElementById('arch-progress'); if (node) node.remove(); _archBulkState = null; }
 window._archProgressMinimize = _archProgressMinimize;
 window._archProgressMaximize = _archProgressMaximize;

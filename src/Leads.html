@@ -10,8 +10,8 @@
 
   async function loadLeads(force = false, prefetched) {
     el('page-title').textContent = 'Leads';
-    if (!force) _leadSelected.clear();
     const rebuild = !leadTable || !el('leads-page');
+    if (rebuild) _leadSelected.clear();
     const filterIds = ['lead-search','lead-status-f','lead-priority-f','lead-stage-f','lead-state-f','lead-city-f'];
     const previousFilters = rebuild ? null : filterIds.reduce((values, id) => {
       const node = el(id);
@@ -500,22 +500,12 @@
     });
     if (!result.isConfirmed) return;
     const reason = result.value || 'Archived from lead master';
-    // Optimistic: the row disappears instantly; the server call completes in the
-    // background and we acknowledge our own write so the poll doesn't repaint the page.
-    AppCache.removeRow('leads', 'Lead ID', leadId);
-    if (row) row.delete();
-    if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient([leadId]);
-    else if (typeof renderSidebar === 'function') renderSidebar();
-    toast('Lead archived.');
-    try {
-      await api.archiveLead({ leadId, reason });
-      if (typeof _ackOwnArchive === 'function') _ackOwnArchive([leadId], reason);
-      await loadLeads(true);
-    } catch (err) {
-      toast('Archive failed: ' + (err.message || err), 'error');
-      AppCache.invalidate('followups');
-      _refreshLeadsCache().catch(() => {});
-    }
+    await _archRunMutation(()=>api.archiveLead({leadId,reason}),()=>{
+      _archApplyArchived([leadId],reason);
+      _leadSelected.delete(leadId);
+      if(App.currentPage==='leads')loadLeads(true).catch(()=>{});
+      toast('Lead archived.');
+    });
   }
 
   // ── Bulk archive ──────────────────────────────────────────────────────────────
@@ -566,24 +556,19 @@
     });
     if (!result.isConfirmed) return;
     const reason = result.value || 'Bulk archived from lead master';
-    try {
-      toast('Archiving ' + ids.length + '…', 'info');
-      const res = await api.archiveLeads({ leadIds: ids, reason });
+    await _archRunMutation(()=>api.archiveLeads({ leadIds: ids, reason }),res=>{
       const archived = (res && res.archived) || [];
       const failed = (res && res.failed) || [];
       archived.forEach(id => AppCache.removeRow('leads', 'Lead ID', id));
       if (typeof _onLeadsArchivedClient === 'function') _onLeadsArchivedClient(archived);
       if (typeof _ackOwnArchive === 'function') _ackOwnArchive(archived, reason);
-      _leadSelected.clear();
+      archived.forEach(id=>_leadSelected.delete(String(id)));
       _leadUpdateBulkBar();
-      await loadLeads(true);
+      if(App.currentPage==='leads')loadLeads(true).catch(()=>{});
       if (typeof renderSidebar === 'function') renderSidebar();
-      if (failed.length) toast('Archived ' + archived.length + ', ' + failed.length + ' failed', 'error');
+      if (failed.length) toast('Archived ' + archived.length + ', ' + failed.length + ' failed: '+failed.map(row=>typeof row==='string'?row:JSON.stringify(row)).join('; '), 'error');
       else toast('Archived ' + archived.length + ' lead' + (archived.length > 1 ? 's' : ''));
-    } catch (err) {
-      toast('Bulk archive failed: ' + (err.message || err), 'error');
-      _refreshLeadsCache().catch(() => {});
-    }
+    });
   }
   window._leadBulkArchive = _leadBulkArchive;
 

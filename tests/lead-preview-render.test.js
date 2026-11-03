@@ -39,3 +39,13 @@ test('removed fields are cleared once and different object key order does not fo
   assert.equal(delta.updated[0]._previewSource,'');
   const next=f.c._leadRowChanges(delta.updated,[{Phone:'','Lead ID':'1'}]);assert.equal(next.updated.length,0);
 });
+
+test('background lead updates preserve selected IDs while removing unavailable rows',async()=>{
+ const f=fixture(),rows=[{'Lead ID':'1'},{'Lead ID':'2'}];
+ await f.c._renderLeadsTable(rows);f.nodes.set('leads-page',{});
+ Object.assign(f.c,{AppCache:{getRows:()=>[{'Lead ID':'1'},{'Lead ID':'3'}]}});
+ vm.runInContext("_leadSelected=new Set(['1','2']);leadTable.clearFilter=()=>{};",f.c);
+ await f.c._renderLeadsTable([{'Lead ID':'1'},{'Lead ID':'3'}]);
+ f.c.applyLeadFilters(true);
+ assert.deepEqual([...vm.runInContext('_leadSelected',f.c)],['1']);
+});

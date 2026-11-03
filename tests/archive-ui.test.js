@@ -25,3 +25,55 @@ test('account reset removes archived and trash memory, selection and editor stat
  assert.equal(vm.runInContext('_archTabs.archived.selected.size',f.c),0);
  assert.equal(vm.runInContext('_archBulkState.cancelled',f.c),true);assert.equal(f.removed(),1);
 });
+
+test('background archive refresh preserves selection and prunes only removed leads',async()=>{
+ const f=fixture(),c=f.c;
+ c.window.__PAGE_PREVIEW_READY=true;
+ Object.assign(c,{el:()=>({}),PortalReadCache:{enabled:()=>false}});
+ c.document.querySelectorAll=()=>[];
+ vm.runInContext("_archTabs.archived.selected=new Set(['keep','gone']);_archRenderTools=()=>{};_archRenderKpis=()=>{};_archRenderCard=()=>{};_archRenderLive=()=>{};",c);
+ await c._archActivateTab('archived',true,{archived:[{'Lead ID':'keep'},{'Lead ID':'new'}]});
+ assert.deepEqual([...vm.runInContext('_archTabs.archived.selected',c)],['keep']);
+});
+
+test('archive mutation closes after durable enqueue but applies only confirmed commit',async()=>{
+ const f=fixture();let closed=0,applied=0;
+ await f.c._archRunMutation(async()=>{throw {code:'SYNC_PENDING',operationId:'one',syncState:'queued'};},()=>applied++,()=>closed++);
+ assert.equal(closed,1);assert.equal(applied,0);
+ f.emit({state:'conflict',error:'changed'});assert.equal(applied,0);
+ assert.match(f.notices.at(-1)[0],/needs review/);
+ f.emit({state:'committed'});f.emit({state:'committed'});assert.equal(applied,1);
+});
+
+test('failed archive keeps record and dialog recoverable; account switch ignores late result',async()=>{
+ const f=fixture();let applied=0,closed=0;
+ await f.c._archRunMutation(async()=>{throw Error('denied');},()=>applied++,()=>closed++);
+ assert.equal(applied,0);assert.equal(closed,0);assert.equal(f.notices.at(-1)[0],'denied');
+ await f.c._archRunMutation(async()=>{f.login('other');return {};},()=>applied++,()=>closed++);
+ assert.equal(applied,0);assert.equal(closed,0);
+});
+
+test('bulk archive accounts for pending and failures without a blocking backdrop',async()=>{
+ const f=fixture();Object.assign(f.c,{escapeHtml:s=>s,icon:()=>'',setTimeout:()=>{}});
+ vm.runInContext('_archProgressOpen=()=>{};_archProgressRender=()=>{};',f.c);
+ let applied;
+ await f.c._archBulkRun(['a','b','c'],{verb:'Archiving',doneVerb:'archived',chunk:3,exec:async()=>({done:['a'],pending:1,failed:1,errors:['denied']}),after:ids=>applied=ids});
+ assert.deepEqual(Array.from(applied),['a']);
+ const html=f.c._archProgressCardHTML();
+ assert.match(html,/<strong>3<\/strong> of 3/);assert.match(html,/1 waiting for sync/);assert.match(html,/denied/);
+ const css=read('src/Archive.html').match(/\.arch-prog-overlay \{([^}]+)\}/)[1];
+ assert.match(css,/background: transparent/);assert.doesNotMatch(css,/inset: 0/);
+});
+
+test('opening progress keeps batch state and renders content instead of an empty layer',()=>{
+ const f=fixture();let attached,removed=0;
+ f.c.document.getElementById=()=>attached||{remove(){removed++;}};
+ f.c.document.createElement=()=>({innerHTML:'',remove(){}});
+ f.c.document.body={appendChild:n=>{attached=n;}};
+ Object.assign(f.c,{icon:()=>'',renderIcons:()=>{}});
+ vm.runInContext("_archBulkState={total:2,done:0,failed:0,pending:0,errors:[],minimized:true,verb:'Archiving'}",f.c);
+ f.c._archProgressOpen();
+ assert.equal(removed,1);assert.equal(vm.runInContext('_archBulkState.total',f.c),2);
+ assert.match(attached.innerHTML,/Archiving 0\/2/);
+ assert.match(attached.className,/min/);
+});

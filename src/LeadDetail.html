@@ -291,7 +291,7 @@ async function openLeadDetail(leadId, seed) {
     });
     if (!result.isConfirmed) return;
     const reason = result.value || 'Archived from lead detail';
-    await api.archiveLead({ leadId, reason });
+    await _archRunMutation(()=>api.archiveLead({leadId,reason}),()=>{
     // In-place: drop the lead + its follow-ups from the cache and acknowledge our own
     // write, so neither this handler nor the revalidation poll repaints the portal.
     AppCache.removeRow('leads', 'Lead ID', leadId);
@@ -303,10 +303,11 @@ async function openLeadDetail(leadId, seed) {
     if (App.currentPage === 'archive' && typeof loadArchive === 'function') loadArchive(_archiveTab || 'archived', true);
     else if (App.currentPage === 'leads' && window.leadTable) {
       leadTable.replaceData(AppCache.getRows('leads'));
-      if (typeof applyLeadFilters === 'function') applyLeadFilters();
+      if (typeof applyLeadFilters === 'function') applyLeadFilters(true);
       if (typeof _renderLeadKpis === 'function') _renderLeadKpis(AppCache.getRows('leads'));
     }
     else if (App.currentPage === 'leads' && typeof loadLeads === 'function') loadLeads(true);
+    },()=>{if(overlay)overlay.remove();});
   }
 
   async function restoreLeadFromDetail(leadId, overlay) {
@@ -318,7 +319,7 @@ async function openLeadDetail(leadId, seed) {
       confirmButtonText: 'Restore'
     });
     if (!result.isConfirmed) return;
-    await api.restoreArchivedLead(leadId);
+    await _archRunMutation(()=>api.restoreArchivedLead(leadId),()=>{
     if (overlay) overlay.remove();
     toast('Lead restored.');
     // Restore brings back rows the client can't reconstruct (the lead + reopened
@@ -328,6 +329,7 @@ async function openLeadDetail(leadId, seed) {
     if (typeof _refreshFollowupsCache === 'function') _refreshFollowupsCache().catch(() => {});
     if (typeof renderSidebar === 'function') renderSidebar();
     if (App.currentPage === 'archive' && typeof loadArchive === 'function') loadArchive(_archiveTab || 'archived', true);
+    },()=>{if(overlay)overlay.remove();});
   }
 
   function _leadStageIsWonForNbd(lead) {
