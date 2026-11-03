@@ -801,6 +801,7 @@ async function _archiveLostLead(leadId) {
 window._archiveLostLead = _archiveLostLead;
 
 async function _restoreArchivedLead(leadId) {
+  const displayed = (_archTabs.archived.rows || []).find(row => String(row['Lead ID']) === String(leadId));
   const result = await Swal.fire({
     title: 'Restore lead?',
     text: 'This will move the lead back to active leads.',
@@ -809,6 +810,7 @@ async function _restoreArchivedLead(leadId) {
     confirmButtonText: 'Restore'
   });
   if (!result.isConfirmed) return;
+  if (displayed && typeof PortalSync !== 'undefined') PortalSync.observe(displayed, true);
   try {
     await api.restoreArchivedLead(leadId);
   } catch (e) { if(!_archWatchPending(e,()=>_archApplyRestored([leadId])))toast(e && e.message || e, 'error'); return; }
@@ -874,6 +876,7 @@ window._archLostBulkArchive = _archLostBulkArchive;
 
 async function _archBulkRestore() {
   const ids = Array.from(_archTabs.archived.selected);
+  const displayed = (_archTabs.archived.rows || []).filter(row => ids.includes(String(row['Lead ID'])));
   if (!ids.length) return;
   const result = await Swal.fire({
     title: `Restore ${ids.length} lead${ids.length > 1 ? 's' : ''}?`,
@@ -883,6 +886,7 @@ async function _archBulkRestore() {
     confirmButtonText: 'Restore'
   });
   if (!result.isConfirmed) return;
+  if (typeof PortalSync !== 'undefined') PortalSync.observe(displayed, true);
   _archBulkRun(ids, {
     verb: 'Restoring leads', doneVerb: 'restored', chunk: 5,
     exec: async (chunk) => {

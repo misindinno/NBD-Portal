@@ -45,6 +45,16 @@ test('archive uses updated sheet mirror rather than a stale page snapshot',async
  assert.equal(vm.runInContext('_archTabs.archived.rows[0]["Lead ID"]',c),'newly-archived');
 });
 
+test('restore queues against the displayed archived version, not the old active record',async()=>{
+ const f=fixture();let observed,called=false;
+ Object.assign(f.c,{Swal:{fire:async()=>({isConfirmed:true})},api:{restoreArchivedLead:async()=>{
+   assert.equal(observed['Is Archived'],true);called=true;
+ }}});
+ f.c.PortalSync.observe=(row,replace)=>{assert.equal(replace,true);observed=row;};
+ vm.runInContext("_archTabs.archived.rows=[{'Lead ID':'one','Is Archived':true,'Updated At':'new'}];_archApplyRestored=()=>{};",f.c);
+ await f.c._restoreArchivedLead('one');assert.equal(called,true);
+});
+
 test('archive mutation closes after durable enqueue but applies only confirmed commit',async()=>{
  const f=fixture();let closed=0,applied=0;
  await f.c._archRunMutation(async()=>{throw {code:'SYNC_PENDING',operationId:'one',syncState:'queued'};},()=>applied++,()=>closed++);
