@@ -185,7 +185,7 @@ test('bulk locked recheck sees a master-only lead inserted after validation', ()
   assert.equal(data.leads.length, 1);
 });
 
-test('a 13-row pending bulk save can be clicked again without replay and settles per row', async () => {
+for (const allSaved of [true,false]) test(`bulk save waits for both confirmations before showing the result (all saved: ${allSaved})`, async () => {
   const rows = Array.from({ length: 13 }, (_, i) => ({ Company: 'Client ' + i }));
   const watchers = [], notices = [];
   const ctx = { hot: { getSourceDataAtRow: i => rows[i], getSourceData: () => rows, render() {} },
@@ -204,15 +204,17 @@ test('a 13-row pending bulk save can be clicked again without replay and settles
   const view = read('src/BulkView.html');
   vm.runInNewContext(view.slice(view.indexOf('  function _bulkSaveErrorMessage('),view.indexOf('  async function downloadErrors')),ctx);
   await ctx.saveQueued();
-  assert.match(notices[0][1], /13 awaiting confirmation · 0 failed/);
+  assert.equal(notices.length,0);
   await ctx.saveQueued();
-  assert.equal(notices[1][0],'Already submitted');
+  assert.equal(notices.length,0);
   assert.equal(watchers.length,2);
   for (const [id,cb] of watchers) {
     const batch = rows.filter(row=>row.__syncId__===id);
-    cb({id,state:'committed',result:{rowResults:batch.map(row=>({rowNumber:row.__submittedRow__,saved:row.__submittedRow__!==13,errors:'Duplicate'}))}});
+    cb({id,state:'committed',result:{rowResults:batch.map(row=>({rowNumber:row.__submittedRow__,saved:allSaved || row.__submittedRow__!==13,errors:'Duplicate'}))}});
   }
-  assert.equal(rows.filter(row=>row.__status__==='Saved').length,12);
-  assert.equal(rows[12].__status__,'Error');
-  assert.equal(ctx.errors.length,1);
+  assert.equal(notices.length,1);
+  assert.equal(notices[0][2],allSaved ? 'success' : 'warning');
+  assert.equal(rows.filter(row=>row.__status__==='Saved').length,allSaved ? 13 : 12);
+  assert.equal(rows[12].__status__,allSaved ? 'Saved' : 'Error');
+  assert.equal(ctx.errors.length,allSaved ? 0 : 1);
 });

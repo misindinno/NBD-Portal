@@ -583,8 +583,7 @@ const BulkView = (() => {
       return !row.__syncId__ && row.__status__ !== 'Saved';
     });
     if (!gridRows.length) {
-      Swal.fire(allRows.length ? 'Already submitted' : 'No rows', allRows.length
-        ? 'Check Pending changes for the original save.' : 'Paste at least one row before saving.', 'info');
+      if (!allRows.length) Swal.fire('No rows', 'Paste at least one row before saving.', 'info');
       return;
     }
     if (gridRows.length > 500) {
@@ -656,7 +655,7 @@ const BulkView = (() => {
               _setRowMeta(item.rowNumber, { __syncId__: e.operationId, __submittedRow__: item.rowNumber,
                 __status__: 'Pending sync', __errors__: 'Check Pending changes for confirmation.' });
             }
-            waiting.push({ id: e.operationId, count: chunk.length });
+            waiting.push({ id: e.operationId, rows: chunk.map(item => item.rowNumber) });
             continue;
           }
           const message = _bulkSaveErrorMessage(e);
@@ -670,16 +669,33 @@ const BulkView = (() => {
       _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
 
       const saved = savedCount;
-      const pending = waiting.reduce((count, part) => count + part.count, 0);
+      const pending = waiting.reduce((count, part) => count + part.rows.length, 0);
       const failed = gridRows.length - saved - pending;
       _renderSummary({ total: gridRows.length, valid: saved, errors: failed });
       _markErrors(errors);
       const summary = `${saved} saved · ${pending} awaiting confirmation · ${failed} failed`;
       _setProgress(100, summary);
-      Swal.fire(failed ? 'Completed with errors' : pending ? 'Bulk save submitted' : 'Bulk save complete',
-        summary + (pending ? '. Check Pending changes for status.' : '') + (failed && errors.length ? `\nRow ${errors[0].rowNumber}: ${errors[0].errors}` : ''),
-        failed ? 'warning' : pending ? 'info' : 'success');
-      waiting.forEach(part => PortalSync.watch(part.id, _applyBulkSyncResult));
+      const outstanding = new Set(waiting.map(part => part.id));
+      let confirmed = saved;
+      let problem = errors.length ? `Row ${errors[0].rowNumber}: ${errors[0].errors}` : '';
+      const finish = () => {
+        const complete = confirmed === gridRows.length;
+        Swal.fire(complete ? 'Leads saved successfully' : 'Some leads need attention',
+          `${confirmed} of ${gridRows.length} leads saved.` + (problem ? '\n' + problem : ''),
+          complete ? 'success' : 'warning');
+      };
+      if (!pending) finish();
+      waiting.forEach(part => PortalSync.watch(part.id, command => {
+        _applyBulkSyncResult(command);
+        if (!['committed', 'dismissed'].includes(command.state) || !outstanding.delete(part.id)) return;
+        const results = new Map((command.result?.rowResults || []).map(row => [Number(row.rowNumber), row]));
+        for (const n of part.rows) {
+          const row = results.get(n);
+          if (command.state === 'committed' && row?.saved) confirmed++;
+          else if (!problem) problem = `Row ${n}: ${row?.errors || 'Save was not confirmed. Check Pending changes.'}`;
+        }
+        if (!outstanding.size) finish();
+      }));
     } catch (err) {
       const message = _bulkSaveErrorMessage(err);
       const knownRows = new Set((errors || []).map(row => Number(row.rowNumber)));
