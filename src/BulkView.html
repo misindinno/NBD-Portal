@@ -347,6 +347,7 @@ const BulkView = (() => {
     });
 
     hot.getSourceData().forEach((row, i) => {
+      if (row.__syncId__) return;
       row.__errors__ = (errorMap[i + 1] || {}).msg || '';
       if (errorMap[i + 1]) row.__status__ = 'Error';
       else if (!['Saved', 'Saving'].includes(String(row.__status__ || ''))) row.__status__ = '';
@@ -442,9 +443,13 @@ const BulkView = (() => {
       height: gridHeight,
       beforeChange(changes) {
         const assignedField = _assignedToFieldName();
-        if (!assignedField || !Array.isArray(changes)) return;
+        if (!Array.isArray(changes)) return;
+        if (changes.some(change => change && hot?.getSourceDataAtRow(change[0])?.__syncId__)) return false;
         changes.forEach(change => {
-          if (change && change[1] === assignedField) change[3] = _userIdByName(change[3]);
+          if (!change) return;
+          if (assignedField && change[1] === assignedField) change[3] = _userIdByName(change[3]);
+          const row = hot?.getSourceDataAtRow(change[0]);
+          if (row?.__status__ === 'Saved' && change[2] !== change[3]) row.__status__ = '';
         });
       },
       afterPaste(data) {
@@ -572,9 +577,14 @@ const BulkView = (() => {
   }
 
   async function saveQueued() {
-    const gridRows = _gridRows();
+    const allRows = _gridRows();
+    const gridRows = allRows.filter(item => {
+      const row = hot.getSourceDataAtRow(item.rowNumber - 1);
+      return !row.__syncId__ && row.__status__ !== 'Saved';
+    });
     if (!gridRows.length) {
-      Swal.fire('No rows', 'Paste at least one row before saving.', 'info');
+      Swal.fire(allRows.length ? 'Already submitted' : 'No rows', allRows.length
+        ? 'Check Pending changes for the original save.' : 'Paste at least one row before saving.', 'info');
       return;
     }
     if (gridRows.length > 500) {
@@ -585,7 +595,7 @@ const BulkView = (() => {
     _markErrors([]);
     _setProgress(5, 'Validating before save...');
     try {
-      const validation = await api.validateBulkRows(_rows(), bulkMode);
+      const validation = await api.validateBulkRows(gridRows.map(item => ({ ...item.data, __rowNumber: item.rowNumber })), bulkMode);
       _markErrors(validation.errorRows || []);
       const invalidRows = new Set((validation.errorRows || []).map(r => Number(r.rowNumber)));
       if (invalidRows.size === gridRows.length) {
@@ -614,6 +624,7 @@ const BulkView = (() => {
       });
 
       let savedCount = 0;
+      const waiting = [];
       const chunks = _chunk(validItems, BULK_CHUNK_SIZE);
       // Smaller requests reduce the chance of exceeding the Apps Script execution limit.
       for (let i = 0; i < chunks.length; i++) {
@@ -640,6 +651,14 @@ const BulkView = (() => {
             }
           });
         } catch (e) {
+          if (e.code === 'SYNC_PENDING' && e.operationId) {
+            for (const item of chunk) {
+              _setRowMeta(item.rowNumber, { __syncId__: e.operationId, __submittedRow__: item.rowNumber,
+                __status__: 'Pending sync', __errors__: 'Check Pending changes for confirmation.' });
+            }
+            waiting.push({ id: e.operationId, count: chunk.length });
+            continue;
+          }
           const message = _bulkSaveErrorMessage(e);
           chunk.forEach(item => {
             const original = rowByNumber[item.rowNumber] || {};
@@ -651,13 +670,16 @@ const BulkView = (() => {
       _refreshLeadsCache().catch(e => console.warn('[BulkView] Lead refresh failed', e));
 
       const saved = savedCount;
-      const failed = gridRows.length - saved;
+      const pending = waiting.reduce((count, part) => count + part.count, 0);
+      const failed = gridRows.length - saved - pending;
       _renderSummary({ total: gridRows.length, valid: saved, errors: failed });
       _markErrors(errors);
-      _setProgress(100, failed ? `Done - ${failed} row(s) failed` : 'All leads saved');
-      Swal.fire(failed ? 'Completed with errors' : 'Bulk save complete',
-        `${saved} lead(s) saved. ${failed} failed.` + (failed && errors.length ? `\nRow ${errors[0].rowNumber}: ${errors[0].errors}` : ''),
-        failed ? 'warning' : 'success');
+      const summary = `${saved} saved · ${pending} awaiting confirmation · ${failed} failed`;
+      _setProgress(100, summary);
+      Swal.fire(failed ? 'Completed with errors' : pending ? 'Bulk save submitted' : 'Bulk save complete',
+        summary + (pending ? '. Check Pending changes for status.' : '') + (failed && errors.length ? `\nRow ${errors[0].rowNumber}: ${errors[0].errors}` : ''),
+        failed ? 'warning' : pending ? 'info' : 'success');
+      waiting.forEach(part => PortalSync.watch(part.id, _applyBulkSyncResult));
     } catch (err) {
       const message = _bulkSaveErrorMessage(err);
       const knownRows = new Set((errors || []).map(row => Number(row.rowNumber)));
@@ -677,6 +699,44 @@ const BulkView = (() => {
     } finally {
       _setBusy(false);
     }
+  }
+
+  function _applyBulkSyncResult(command) {
+    if (!hot || hot.isDestroyed) return;
+    const rows = hot.getSourceData();
+    const results = new Map((command.result?.rowResults || []).map(r => [Number(r.rowNumber), r]));
+    let changed = false;
+    rows.forEach((row, index) => {
+      if (row.__syncId__ !== command.id) return;
+      changed = true;
+      if (command.state === 'committed') {
+        const result = results.get(row.__submittedRow__);
+        if (!result) {
+          row.__status__ = 'Check lead list';
+          row.__errors__ = 'Row confirmation missing. Verify before resubmitting.';
+          return;
+        }
+        row.__status__ = result.saved ? 'Saved' : 'Error';
+        row.__recordId__ = result.recordId || '';
+        row.__errors__ = result.saved ? '' : result.errors || 'Bulk save failed';
+        if (!result.saved) errors.push({ ..._gridRows().find(item => item.rowNumber === index + 1)?.data,
+          rowNumber: index + 1, errors: row.__errors__, fieldErrors: result.fieldErrors || [] });
+        delete row.__syncId__;
+      } else if (command.state === 'dismissed') {
+        delete row.__syncId__;
+        row.__status__ = '';
+        row.__errors__ = '';
+      } else {
+        row.__status__ = ['blocked','invalid','conflict','paused'].includes(command.state) ? 'Needs review' : 'Pending sync';
+        row.__errors__ = command.message || 'See Pending changes.';
+      }
+    });
+    if (!changed) return;
+    _markErrors(errors);
+    const pending = rows.filter(row => row.__syncId__).length;
+    const saved = rows.filter(row => row.__status__ === 'Saved').length;
+    _renderSummary({ total: _gridRows().length, valid: saved, errors: errors.length });
+    _setProgress(100, `${saved} saved · ${pending} awaiting confirmation · ${errors.length} failed`);
   }
 
   async function downloadErrors() {

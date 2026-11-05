@@ -184,3 +184,35 @@ test('bulk locked recheck sees a master-only lead inserted after validation', ()
   assert.match(result.rowResults[0].errors, /Duplicate/);
   assert.equal(data.leads.length, 1);
 });
+
+test('a 13-row pending bulk save can be clicked again without replay and settles per row', async () => {
+  const rows = Array.from({ length: 13 }, (_, i) => ({ Company: 'Client ' + i }));
+  const watchers = [], notices = [];
+  const ctx = { hot: { getSourceDataAtRow: i => rows[i], getSourceData: () => rows, render() {} },
+    bulkMode: 'create', BULK_CHUNK_SIZE: 10, errors: [], lastBatchId: '',
+    _gridRows: () => rows.map((row,i) => ({rowNumber:i+1,data:{ Company:row.Company }})),
+    _getBulkInitialStageId: () => 'initial', _refreshLeadsCache: async () => {},
+    _setBusy() {}, _setProgress() {}, _renderSummary() {}, _markErrors() {},
+    _setRowMeta: (n, patch) => Object.assign(rows[n-1],patch),
+    _chunk: items => [items.slice(0,10),items.slice(10)],
+    Swal: { fire: (...args) => notices.push(args) },
+    PortalSync: { watch: (id, cb) => watchers.push([id,cb]) },
+    api: {validateBulkRows: async data => ({validRows:data}), saveBulkRows: async data => {
+      throw Object.assign(new Error('Queued'), {code:'SYNC_PENDING',operationId:'batch-'+data[0].__rowNumber});
+    }}
+  };
+  const view = read('src/BulkView.html');
+  vm.runInNewContext(view.slice(view.indexOf('  function _bulkSaveErrorMessage('),view.indexOf('  async function downloadErrors')),ctx);
+  await ctx.saveQueued();
+  assert.match(notices[0][1], /13 awaiting confirmation · 0 failed/);
+  await ctx.saveQueued();
+  assert.equal(notices[1][0],'Already submitted');
+  assert.equal(watchers.length,2);
+  for (const [id,cb] of watchers) {
+    const batch = rows.filter(row=>row.__syncId__===id);
+    cb({id,state:'committed',result:{rowResults:batch.map(row=>({rowNumber:row.__submittedRow__,saved:row.__submittedRow__!==13,errors:'Duplicate'}))}});
+  }
+  assert.equal(rows.filter(row=>row.__status__==='Saved').length,12);
+  assert.equal(rows[12].__status__,'Error');
+  assert.equal(ctx.errors.length,1);
+});

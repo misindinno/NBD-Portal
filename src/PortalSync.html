@@ -323,6 +323,15 @@ async function showPortalSyncQueue() {
     const card = document.createElement('div'); card.style.cssText = 'text-align:left;padding:12px;border-bottom:1px solid #ddd';
     const title = document.createElement('strong'); title.textContent = row.action.replace(/^api/,'') + ' — ' + (row.state === 'committed' ? 'Synced' : row.state); card.appendChild(title);
     const detail = document.createElement('p'); detail.textContent = (row.message || '') + ' Reference: ' + row.id; card.appendChild(detail);
+    if (row.action === 'apiSaveBulkRows' && row.state === 'committed' && Array.isArray(row.result?.rowResults)) {
+      const results = row.result.rowResults;
+      const failed = results.filter(item => !item.saved);
+      const report = document.createElement('p');
+      report.textContent = [`${results.length - failed.length} saved · ${failed.length} failed`,
+        ...failed.map(item => `Row ${item.rowNumber}: ${item.errors || 'Save failed'}`)].join('\n');
+      report.style.whiteSpace = 'pre-line';
+      card.appendChild(report);
+    }
     if (['conflict','invalid'].includes(row.state)) {
       const payload = document.createElement('pre'); payload.textContent = JSON.stringify(row.args, null, 2); payload.style.cssText = 'max-height:180px;overflow:auto;white-space:pre-wrap'; card.appendChild(payload);
     }
