@@ -33,3 +33,29 @@ assert.match(fs.readFileSync(path.join(root, 'src/LeadForm.html'), 'utf8'), /glo
 assert.doesNotMatch(fs.readFileSync(path.join(root, 'src/LeadForm.html'), 'utf8'), /App\.token/);
 assert.doesNotMatch(fs.readFileSync(path.join(root, 'src/LeadCustomFields.html'), 'utf8'), /App\.token/);
 console.log('Lead creation fields and authenticated RPC checks passed.');
+
+const skipField = { ...fields[0], 'Column Key':'skip', 'Field Name':'Exit explanation', 'Skip Visibility':'skip_only' };
+fields.push(skipField);
+for (const [stageId, final, skippable] of [['open',false,false],['optional',false,true],['dq',true,true],['initial',false,true]]) {
+  const stage = { 'Stage ID':stageId, 'Is Final Stage':final, 'Is Skippable':skippable };
+  server.getAllStages = () => [stage];
+  const prepare = (values, skip, create=false) => server._prepareLeadPayload(values, stageId, {}, skip, {allowEmptyGlobalOnCreate:create});
+  assert.doesNotThrow(() => prepare({ note:'done', code:'A' }, false));
+  if (stageId === 'initial') {
+    assert.throws(() => prepare({skip:'why'},true,true), /Initial-stage code is required/);
+  } else if (stageId === 'optional') {
+    assert.throws(() => prepare({},true), /Exit explanation is required/);
+    assert.doesNotThrow(() => prepare({skip:'why'},true));
+  } else {
+    assert.throws(() => prepare({skip:'why'},true), /All-stage note is required/);
+    assert.doesNotThrow(() => prepare({note:'done'},true));
+  }
+}
+vm.runInContext(fs.readFileSync(path.join(root,'src/Pipeline.html'),'utf8').match(/function _pipelineStageFields\(stageId\) \{[\s\S]*?\n\}/)[0],client);
+client.App.config.leadFields = fields;
+assert.deepStrictEqual(Array.from(client._pipelineStageFields('dq'),f=>f['Column Key']), ['note']);
+const sync = {};
+vm.createContext(sync);
+vm.runInContext(fs.readFileSync(path.join(root,'src/PortalSync.html'),'utf8').split('function createPortalOutbox')[0].replace('<script>',''),sync);
+assert.equal(sync.portalSyncRetryableInvalid_({action:'apiMoveLeadStageWithFields',message:'Votre justification est obligatoire'}),true);
+assert.equal(sync.portalSyncRetryableInvalid_({action:'apiSaveLead',message:'Invalid email'}),false);

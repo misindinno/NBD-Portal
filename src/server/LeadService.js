@@ -330,8 +330,11 @@ function _prepareLeadPayload(data, stageId, existing, skipped, options) {
     if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k]) payload[k] = toProperCase_(payload[k]);
   });
   if (options && options.skipCustomFields) return payload;
-  if (skipped && _leadStageIsFinal_(getAllStages().find(s => s['Stage ID'] === stageId))) skipped = false;
   const fields = getLeadCustomFieldsForStage(stageId);
+  if (skipped) {
+    const stage = options?.stage || getAllStages().find(s => s['Stage ID'] === stageId);
+    skipped = !options?.allowEmptyGlobalOnCreate && _leadAllowsFieldSkip_(stage, fields);
+  }
   fields.forEach(field => {
     const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];
     // Per-stage global fields store under {columnKey}__{stageId} so each stage has independent data
@@ -490,7 +493,7 @@ function updateLeadStage(leadId, newStageId, note, email, fromStageId) {
   const stageName = stage['Stage Name'] || 'selected stage';
   const missing = getLeadCustomFieldsForStage(newStageId)
     .filter(f => f['Is Required'] === true || f['Is Required'] === 'TRUE')
-    .filter(f => f['Field Type'] !== 'Formula')
+    .filter(f => f['Field Type'] !== 'Formula' && f['Skip Visibility'] !== 'skip_only')
     .filter(f => !lead[_leadEffectiveFieldKey_(f, newStageId)])
     .map(f => f['Field Name']);
   if (missing.length) return respond(null, `Required fields missing for ${stageName}: ${missing.join(', ')}`);
@@ -531,9 +534,10 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email, fromSt
   if (!stage) return respond(null, 'Stage not found.');
   const moveCheck = _validateLeadStageMove_(lead['Stage ID'], newStageId);
   if (!moveCheck.ok) return respond(null, moveCheck.message);
-  const skipped = !!(fields && (fields['__stage_skipped'] === 'true' || fields['__stage_skipped'] === true));
+  const requestedSkip = fields?.__stage_skipped === 'true' || fields?.__stage_skipped === true;
   const stageFields = getLeadCustomFieldsForStage(newStageId)
     .filter(f => f['Field Type'] !== 'Formula');
+  const skipped = requestedSkip && _leadAllowsFieldSkip_(stage, stageFields);
   const allowed = stageFields.reduce((m, f) => {
     const key = _leadEffectiveFieldKey_(f, newStageId);
     if (key) m[key] = true;
@@ -548,7 +552,8 @@ function moveLeadStageWithFields(leadId, newStageId, fields, note, email, fromSt
     { ...fieldPayload, 'Lead ID': leadId, 'Stage ID': newStageId },
     newStageId,
     lead,
-    skipped
+    skipped,
+    { stage }
   );
   const leadPatch = { ...prepared, 'Stage ID': newStageId, 'Stage Updated At': now(), 'Updated At': now() };
   _assertNonFinalLeadHasOpenFollowup_(lead, stage);
@@ -647,6 +652,12 @@ function _validateLeadStageMove_(fromStageId, toStageId) {
     ok: false,
     message: 'Qualified/Won stage requires completing all pipeline steps first. Lost or Disqualified can be selected from any stage.'
   };
+}
+
+function _leadAllowsFieldSkip_(stage, fields) {
+  return !!stage && !_leadStageIsFinal_(stage) &&
+    (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE') &&
+    fields.some(f => f['Skip Visibility'] === 'skip_only' && f['Field Type'] !== 'Formula');
 }
 
 function _leadStageIsFinal_(stage) {

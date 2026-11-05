@@ -6,8 +6,7 @@ function portalSyncSchemaIssue_(item) {
     /The portal data configuration is invalid\.|Invalid sync batch size\. Use a smaller batch\./i.test(String(item.message || '')));
 }
 function portalSyncRetryableInvalid_(item) {
-  return portalSyncSchemaIssue_(item) || (item.action === 'apiMoveLeadStageWithFields' &&
-    !item.args?.[0]?.fields?.__stage_skipped && /Skip Remarks is required/i.test(item.message || ''));
+  return portalSyncSchemaIssue_(item) || item?.action === 'apiMoveLeadStageWithFields';
 }
 function createPortalOutbox(indexedDB) {
   let opening;
@@ -327,15 +326,15 @@ async function showPortalSyncQueue() {
     if (['conflict','invalid'].includes(row.state)) {
       const payload = document.createElement('pre'); payload.textContent = JSON.stringify(row.args, null, 2); payload.style.cssText = 'max-height:180px;overflow:auto;white-space:pre-wrap'; card.appendChild(payload);
     }
-    if (row.state === 'conflict') {
+    if (row.state === 'conflict' || row.state === 'invalid' && portalSyncRetryableInvalid_(row)) {
       const recheck = document.createElement('button'); recheck.className = 'btn btn-outlined'; recheck.textContent = 'Recheck safely';
-      recheck.title = 'Retry the same saved remark without overwriting changed records.';
+      recheck.title = 'Retry this saved change with its original reference and validation.';
       recheck.onclick = async () => { recheck.disabled = true; try { await PortalSync.retry(row.key); Swal.close(); await showPortalSyncQueue(); } catch (error) { toast(error.message,'error'); } finally { recheck.disabled = false; } };
       card.appendChild(recheck);
     }
     if (['retry','blocked','paused','conflict','invalid','committed'].includes(row.state)) {
       const button = document.createElement('button'); button.className = 'btn btn-outlined';
-      const dismiss = ['conflict','invalid','committed'].includes(row.state) && !(row.state === 'invalid' && portalSyncRetryableInvalid_(row));
+      const dismiss = ['conflict','invalid','committed'].includes(row.state);
       button.textContent = dismiss ? 'Dismiss' : 'Retry';
       button.onclick = async () => { try { await PortalSync[dismiss ? 'dismiss' : 'retry'](row.key); Swal.close(); await showPortalSyncQueue(); } catch (error) { toast(error.message, 'error'); } }; card.appendChild(button);
     }

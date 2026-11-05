@@ -541,12 +541,8 @@ function _pipelineStageFields(stageId) {
     .filter(f => f['Field Type'] !== 'Formula')
     .filter(f => {
       if (f['Stage ID'] && f['Stage ID'] !== stageId) return false; // belongs to a different stage
-      const isGlobal  = !f['Stage ID'];
-      const isSkipOnly = (f['Skip Visibility'] || 'normal') === 'skip_only';
-      // Global fields: only show in stage dialog when skippable and the field is skip_only
-      if (isGlobal) return isSkippable && isSkipOnly;
-      // Stage-specific fields: show normally; skip_only only if stage is skippable
-      return isSkippable || !isSkipOnly;
+      if (f['Skip Visibility'] === 'skip_only') return isSkippable;
+      return !!f['Stage ID'] || f['Is Required'] === true || f['Is Required'] === 'TRUE';
     });
 }
 
