@@ -535,7 +535,7 @@ function _pipelineStatusForStage(stage) {
 function _pipelineStageFields(stageId) {
   const allStages = App.config.allStages || App.config.stages || [];
   const stage = allStages.find(s => s['Stage ID'] === stageId);
-  const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE'));
+  const isSkippable = !!(stage && !_isFinalStage(stage) && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE'));
   return (App.config.leadFields || [])
     .filter(f => f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE')
     .filter(f => f['Field Type'] !== 'Formula')

@@ -330,6 +330,7 @@ function _prepareLeadPayload(data, stageId, existing, skipped, options) {
     if (Object.prototype.hasOwnProperty.call(payload, k) && payload[k]) payload[k] = toProperCase_(payload[k]);
   });
   if (options && options.skipCustomFields) return payload;
+  if (skipped && _leadStageIsFinal_(getAllStages().find(s => s['Stage ID'] === stageId))) skipped = false;
   const fields = getLeadCustomFieldsForStage(stageId);
   fields.forEach(field => {
     const isPerStage = (field['Per Stage'] === true || field['Per Stage'] === 'TRUE') && !field['Stage ID'];

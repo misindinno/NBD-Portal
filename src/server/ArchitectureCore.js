@@ -146,7 +146,7 @@ function sheetSchemas_() {
     fields: {
       'Validation Min': number, 'Validation Max': number, 'Max File MB': number,
       'Display Order': number, 'Allow Multiple': bool, 'Is Required': bool,
-      'Is Visible': bool, 'Skip Visibility': bool, 'Per Stage': bool
+      'Is Visible': bool, 'Skip Visibility': text, 'Per Stage': bool
     }
   };
   [SHEET_NAMES.LEAD_FIELD_VALUES, SHEET_NAMES.FOLLOWUP_FIELD_VALUES].forEach(name => {

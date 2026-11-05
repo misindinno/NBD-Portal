@@ -5,6 +5,10 @@ function portalSyncSchemaIssue_(item) {
   return !!item && (['DATA_SCHEMA_INVALID','SYNC_BATCH_TOO_LARGE'].includes(item.errorCode) ||
     /The portal data configuration is invalid\.|Invalid sync batch size\. Use a smaller batch\./i.test(String(item.message || '')));
 }
+function portalSyncRetryableInvalid_(item) {
+  return portalSyncSchemaIssue_(item) || (item.action === 'apiMoveLeadStageWithFields' &&
+    !item.args?.[0]?.fields?.__stage_skipped && /Skip Remarks is required/i.test(item.message || ''));
+}
 function createPortalOutbox(indexedDB) {
   let opening;
   function db() {
@@ -242,7 +246,7 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
   return { bind, observe, submit, drain, list, watch, enabled: () => !!identity, handles: action => !!identity && actions.has(action),
     async retry(key) {
       const row = (await list()).find(row => row.key === key);
-      if (!row || !(['retry','blocked','paused','conflict'].includes(row.state) || row.state === 'invalid' && portalSyncSchemaIssue_(row))) return;
+      if (!row || !(['retry','blocked','paused','conflict'].includes(row.state) || row.state === 'invalid' && portalSyncRetryableInvalid_(row))) return;
       if (row.scope !== identity.scope) throw new Error('Permissions changed. This pending change is retained; an administrator must review its original reference.');
       await storage.patch(key, { state: 'queued', leaseUntil: 0, nextAttempt: 0 }); await drain(); changed();
     },
@@ -331,7 +335,7 @@ async function showPortalSyncQueue() {
     }
     if (['retry','blocked','paused','conflict','invalid','committed'].includes(row.state)) {
       const button = document.createElement('button'); button.className = 'btn btn-outlined';
-      const dismiss = ['conflict','invalid','committed'].includes(row.state) && !(row.state === 'invalid' && portalSyncSchemaIssue_(row));
+      const dismiss = ['conflict','invalid','committed'].includes(row.state) && !(row.state === 'invalid' && portalSyncRetryableInvalid_(row));
       button.textContent = dismiss ? 'Dismiss' : 'Retry';
       button.onclick = async () => { try { await PortalSync[dismiss ? 'dismiss' : 'retry'](row.key); Swal.close(); await showPortalSyncQueue(); } catch (error) { toast(error.message, 'error'); } }; card.appendChild(button);
     }

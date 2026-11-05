@@ -7,13 +7,14 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, sect
     const stageId = d['Stage ID'] || (initialStage ? initialStage['Stage ID'] : '');
     const stage = allStages.find(s => s['Stage ID'] === stageId);
     const isNewLead = !d['Lead ID'];
+    const canSkip = !isNewLead && !!stage && !_isFinalStage(stage) && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE');
     const visibleFields = fields.filter(f =>
       (!f['Stage ID'] || f['Stage ID'] === stageId) &&
-      !(isNewLead && (f['Skip Visibility'] || 'normal') === 'skip_only')
+      (canSkip || f['Skip Visibility'] !== 'skip_only')
     );
     if (!visibleFields.length) return '';
     const hasSkipOnlyFields = !isNewLead && visibleFields.some(f => (f['Skip Visibility'] || 'normal') === 'skip_only');
-    const isSkippable = !isNewLead && !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE')) && hasSkipOnlyFields;
+    const isSkippable = canSkip && hasSkipOnlyFields;
     const skipToggle = isSkippable ? `
       <div class="cf-skip-row">
         <label class="cf-skip-label">

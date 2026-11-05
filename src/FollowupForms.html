@@ -725,15 +725,16 @@ function _onMarkDoneStageChange(select) {
   const configOptions = _configOptionsMap(App.config._allConfigs || []);
   const stages  = App.config.allStages || App.config.stages || [];
   const stage   = stages.find(s => s['Stage ID'] === stageId);
+  const canSkip = !_fuIsFinalStage(stage) && !!stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE');
   const fields  = (App.config.leadFields || []).filter(f =>
     (!f['Stage ID'] || f['Stage ID'] === stageId) &&
     f['Is Visible'] !== false && f['Is Visible'] !== 'FALSE' &&
-    f['Field Type'] !== 'Formula'
+    f['Field Type'] !== 'Formula' && (canSkip || f['Skip Visibility'] !== 'skip_only')
   );
   if (!fields.length) return;
 
   const hasSkipOnlyFields = fields.some(f => (f['Skip Visibility'] || 'normal') === 'skip_only');
-  const isSkippable = !!(stage && (stage['Is Skippable'] === true || stage['Is Skippable'] === 'TRUE')) && hasSkipOnlyFields;
+  const isSkippable = canSkip && hasSkipOnlyFields;
   const skipToggle = isSkippable ? `
     <div class="cf-skip-row">
       <label class="cf-skip-label">

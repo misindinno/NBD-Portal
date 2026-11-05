@@ -16,12 +16,19 @@ assert.throws(() => server._prepareLeadPayload({ note: 'Hello' }, 'initial', {},
 assert.strictEqual(server._prepareLeadPayload({ note: 'Hello', code: 'A' }, 'initial', {}, false, { allowEmptyGlobalOnCreate: true }).note, 'Hello');
 const client = { escapeHtml: value => String(value), App: { config: { stages: [{ 'Stage ID': 'initial', 'Is Initial Stage': true }] } } };
 vm.createContext(client);
+vm.runInContext(fs.readFileSync(path.join(root, 'src/Pipeline.html'), 'utf8').match(/function _isFinalStage\(stage\) \{[^}]+\}/)[0], client);
 vm.runInContext(fs.readFileSync(path.join(root, 'src/LeadCustomFields.html'), 'utf8').replace(/<\/?script>/g, ''), client);
 const markup = client.buildLeadCustomFieldsHTML({ 'Stage ID': 'initial' }, fields);
 assert.match(markup, /name="note" data-custom-key="note" data-required="false"/);
 assert.match(markup, /name="code" data-custom-key="code" data-required="true"/);
 const editMarkup = client.buildLeadCustomFieldsHTML({ 'Lead ID': 'existing', 'Stage ID': 'initial' }, fields);
 assert.match(editMarkup, /name="note" data-custom-key="note" data-required="true"/);
+client.App.config.stages.push({'Stage ID':'dq','Is Final Stage':true,'Is Skippable':true});
+const finalMarkup = client.buildLeadCustomFieldsHTML({'Lead ID':'existing','Stage ID':'dq'}, [
+  {...fields[0], 'Skip Visibility':'skip_only'}, {...fields[1], 'Stage ID':'dq'}
+]);
+assert.doesNotMatch(finalMarkup, /name="note"|cf-skip-checkbox/);
+assert.match(finalMarkup, /name="code" data-custom-key="code" data-required="true"/);
 assert.match(fs.readFileSync(path.join(root, 'src/LeadForm.html'), 'utf8'), /globalOptionalOnCreate: true/);
 assert.doesNotMatch(fs.readFileSync(path.join(root, 'src/LeadForm.html'), 'utf8'), /App\.token/);
 assert.doesNotMatch(fs.readFileSync(path.join(root, 'src/LeadCustomFields.html'), 'utf8'), /App\.token/);
