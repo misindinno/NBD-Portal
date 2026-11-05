@@ -471,7 +471,7 @@ function _bulkAppendRows_(sheetName, rowObjects) {
   const values = rowObjects.map(row => headers.map(h => row[h] !== undefined ? row[h] : ''));
   const startRow = sheet.getLastRow() + 1;
   _invalidateReadCache_();
-  sheet.getRange(startRow, 1, values.length, headers.length).setValues(values);
+  sheet.getRange(startRow, 1, values.length, headers.length).setValues(values.map(row => sheetTypedRow_(row, headers)));
   appendNewIndexRows_(sheetName, rowObjects, startRow);
 }
 

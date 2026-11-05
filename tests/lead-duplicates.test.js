@@ -25,7 +25,9 @@ function setup() {
     pickLeadMasterFields_: row => row,
     LockService: { getScriptLock: () => ({ waitLock() { state.locked = true; }, releaseLock() { state.locked = false; } }) }
   });
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/server/LeadService.js'), 'utf8'), ctx);
+  for (const file of ['ArchitectureCore','SheetValueTypes','LeadService']) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/server/' + file + '.js'), 'utf8'), ctx);
+  }
   return { ctx, state };
 }
 const lead = { 'Lead ID': 'old-id', 'Company Name': 'Verritas Furniture Private Limited_Kolkata', Phone: '9836124365', 'Contact Person': 'Na', 'Lead Status': 'Open' };

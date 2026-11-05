@@ -23,6 +23,7 @@ function harness(options = {}) {
       rows, getLastRow: () => rows.length,
       getRange: (r, c, h = 1, w = 1) => ({
         setNumberFormat() { return this; },
+        setNumberFormats() { return this; },
         getValues: () => Array.from({ length: h }, (_, i) => Array.from({ length: w }, (_, j) => rows[r - 1 + i]?.[c - 1 + j] ?? '')),
         setValues: data => {
           assert.ok(locked, 'writes must hold one script lock');
@@ -75,6 +76,7 @@ function harness(options = {}) {
   });
   vm.runInContext(read('src/server/ArchitectureCore.js'), context);
   vm.runInContext(read('src/server/CallWebhookService.js'), context);
+  vm.runInContext(read('src/server/SheetValueTypes.js'), context);
   vm.runInContext(read('src/server/CallLogService.js'), context);
   vm.runInContext(read('src/server/CallInboxService.js'), context);
   vm.runInContext(read('src/server/Code.js'), context);

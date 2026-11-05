@@ -225,7 +225,8 @@ function safeDateValue_(value) {
   if (typeof value === 'number') return _serialToDateTimeString_(value);
   const text = String(value).trim();
   if (!text) return '';
-  const normalized = text.replace('T', ' ');
+  const cell = typeof sheetDateCell_ === 'function' ? sheetDateCell_(text, 'Planned Date') : null;
+  const normalized = cell ? cell.text : text.replace('T', ' ');
   if (/^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}(?::\d{2})?)?$/.test(normalized)) {
     return normalized.length === 10 ? normalized : (normalized.length === 16 ? normalized + ':00' : normalized);
   }
@@ -235,6 +236,7 @@ function safeDateValue_(value) {
 }
 
 function parseSheetCell_(sheetName, header, value) {
+  if (header === 'Call Date' && (sheetName === 'CALL_LOGS' || sheetName === SHEET_NAMES.FOLLOWUP_HISTORY)) return safeDateValue_(value).slice(0, 10);
   const schema = sheetSchemaFor_(sheetName);
   const spec = schema && schema.fields && schema.fields[header];
   if (!spec) return normalizeSheetValue(value);

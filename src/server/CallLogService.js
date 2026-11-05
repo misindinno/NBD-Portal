@@ -29,7 +29,9 @@ function _writeCallRow_(table, record, row) {
     return index + 2;
   }
   const target = row || table.sheet.getLastRow() + 1;
-  table.sheet.getRange(target, 1, 1, table.headers.length).setNumberFormat('@').setValues([sanitizeSheetRowValues_(table.headers.map(h => record[h] === undefined ? '' : record[h]))]);
+  const values = sanitizeSheetRowValues_(table.headers.map(h => record[h] === undefined ? '' : record[h]));
+  const formats = values.map((value, i) => sheetDateCell_(value, table.headers[i])?.pattern || '@');
+  table.sheet.getRange(target, 1, 1, table.headers.length).setNumberFormats([formats]).setValues([sheetTypedRow_(values, table.headers)]);
   return target;
 }
 

@@ -199,14 +199,6 @@ function _lfInitValidator() {
     try {
       const payload = await collectLeadFormPayload(form);
 
-      const duplicates = await _lfCheckDuplicates(payload['Phone'], payload['Email'], payload['Company Name']);
-      if (duplicates.length) {
-        resetButtonLoading(btn);
-        const proceed = await _lfShowDuplicateWarning(duplicates);
-        if (!proceed) return;
-        setButtonLoading(btn, 'Submitting...');
-      }
-
       tempId = 'temp-' + Date.now();
       AppCache.addRow('leads', {
         ...payload, 'Lead ID': tempId, '_queueTemp': true,
@@ -219,8 +211,12 @@ function _lfInitValidator() {
       _lfShowSuccess(payload['Company Name'] || payload['Client Description']);
     } catch (err) {
       if (tempId) AppCache.removeRow('leads', 'Lead ID', tempId);
-      toast(err.message || err, 'error');
       resetButtonLoading(btn);
+      if (/duplicate lead blocked/i.test(err.message || '')) {
+        const duplicates = await _lfCheckDuplicates(form.elements['Phone']?.value, form.elements['Email']?.value, form.elements['Company Name']?.value).catch(() => []);
+        if (duplicates.length) { await _lfShowDuplicateWarning(duplicates); return; }
+      }
+      toast(err.message || err, 'error');
     }
   });
 }

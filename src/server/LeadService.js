@@ -187,7 +187,8 @@ function _insertLeadMasterRowBlockingDuplicates_(leadRow) {
     const sheet = getSheet(SHEET_NAMES.LEADS);
     const headers = getHeaders(SHEET_NAMES.LEADS);
     const row = headers.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
-    sheet.appendRow(row);
+      const safeRow = sanitizeSheetRowValues_(row);
+      sheet.appendRow(sheetTypedRow_(safeRow, headers));
     let rowNumber = Number(sheet.getLastRow() || 0);
     if (rowNumber < 2 && typeof findRowIndexWithoutIndex_ === 'function') {
       rowNumber = findRowIndexWithoutIndex_(SHEET_NAMES.LEADS, 'Lead ID', leadRow['Lead ID']);

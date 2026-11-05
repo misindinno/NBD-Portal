@@ -16,6 +16,9 @@ test('date columns become numeric dates; text, IDs, phones and booleans retain t
     assert.equal(cell.userEnteredFormat.numberFormat.pattern, 'yyyy-mm-dd');
   }
   assert.equal(c.syncCell_('2026-10-30 14:25:30', 'Updated At').userEnteredValue.numberValue, 46325 + 51930 / 86400);
+  assert.deepEqual(c.syncCell_("'26-SEP-2026", 'Planned Date'), c.syncCell_('2026-09-26', 'Planned Date'));
+  vm.runInContext(fs.readFileSync('src/server/ArchitectureCore.js', 'utf8'), c);
+  assert.equal(c.safeDateValue_("'26-Sep-2026"), '2026-09-26');
   for (const value of ['00123', '+919999999999', '=IMPORTXML("x")', '2026-10-30']) {
     assert.equal(c.syncCell_(value, 'Phone').userEnteredValue.stringValue, value);
   }

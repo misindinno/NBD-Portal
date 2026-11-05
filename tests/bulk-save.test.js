@@ -46,7 +46,7 @@ function setup() {
       };
     }
   });
-  ['src/server/LeadService.js', 'src/server/CustomFieldValueService.js', 'src/server/IndexService.js', 'src/BulkService.js'].forEach(file => vm.runInContext(read(file), ctx));
+  ['src/server/SheetValueTypes.js', 'src/server/LeadService.js', 'src/server/CustomFieldValueService.js', 'src/server/IndexService.js', 'src/BulkService.js'].forEach(file => vm.runInContext(read(file), ctx));
   headers.leads = Array.from(vm.runInContext('LEAD_MASTER_FIELDS', ctx));
   headers.followups = Array.from(vm.runInContext('FOLLOWUP_MASTER_FIELDS', ctx));
   headers.values = ['Value ID','Lead ID','Field ID','Column Key','Field Value','File URL','Updated By','Updated At'];

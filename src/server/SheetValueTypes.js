@@ -8,7 +8,14 @@ function sheetDateCell_(value, header) {
     text = Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
   }
   if (typeof text !== 'string') return null;
-  const match = text.match(/^'?(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  text = text.trim().replace(/^'/, '');
+  const named = text.match(/^(\d{1,2})-([a-z]{3})-(\d{4})([ T].*)?$/i);
+  if (named) {
+    const month = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'].indexOf(named[2].toUpperCase()) + 1;
+    if (!month) return null;
+    text = named[3] + '-' + String(month).padStart(2, '0') + '-' + named[1].padStart(2, '0') + (named[4] || '');
+  }
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
   if (!match) return null; // Do not guess locale-dependent or timezone-bearing strings.
   const parts = match.slice(1).map(v => Number(v || 0));
   const [year, month, day, hour, minute, second] = parts;
