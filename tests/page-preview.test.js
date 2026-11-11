@@ -196,6 +196,7 @@ test('API sync writes do not invalidate the commit refresh a second time; direct
   for(const syncWrite of [true,false]) {
     let invalidations=0,refreshes=0;
     const context=vm.createContext({
+      AuthToken:{ensure:async()=>{},generation:0,renewedTokens:new Set()},
       PagePreview:{handles:()=>false,invalidate:async()=>{invalidations++;}},
       PortalSync:{handles:()=>syncWrite,submit:async()=>{invalidations++;refreshes++;return {ok:true};}},
       refreshActivePagePreviews:()=>{refreshes++;}

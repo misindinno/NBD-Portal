@@ -169,14 +169,14 @@ test('RPC adapter invalidates only after success, rejects old-session responses 
   const tokens = new Map([['nbd_token','first-session']]); let handler, invalidations = 0, locks = 0;
   const storage = { getItem: key => tokens.get(key), setItem: (key,value) => tokens.set(key,value), removeItem: key => tokens.delete(key) };
   const chain = { withSuccessHandler(fn) { handler = fn; return this; }, withFailureHandler() { return this; }, apiSaveLead() {}, apiGetLeadCachePage() {} };
-  const c = vm.createContext({ sessionStorage:storage,localStorage:{getItem:()=>'',removeItem(){}},window:{},google:{script:{run:chain}},LeadReadCache:{invalidate:async()=>invalidations++},lockPrivateReadCache:()=>locks++ });
+  const c = vm.createContext({ APP_TITLE:"Test",PORTAL_KIND:"main",sessionStorage:storage,localStorage:{getItem:()=>'',removeItem(){}},window:{},google:{script:{run:chain}},LeadReadCache:{invalidate:async()=>invalidations++},lockPrivateReadCache:()=>locks++ });
   vm.runInContext(read('src/AppCore.html').replace(/<\/?script>/g,''),c);
   const call = name => vm.runInContext(`api._authedRead('${name}',{})`,c);
-  let pending = call('apiSaveLead'); handler({success:true,data:'id'}); await pending; assert.equal(invalidations,1);
-  pending = call('apiSaveLead'); handler({success:false,error:'Save failed'}); await assert.rejects(pending,/Save failed/); assert.equal(invalidations,1);
-  pending = call('apiSaveLead'); handler({success:false,error:'Access denied.',code:'FORBIDDEN'}); await assert.rejects(pending,/Access denied/); assert.equal(locks,0,'a denied action alone must not log out the entire portal');
-  pending = call('apiGetLeadCachePage'); tokens.set('nbd_token','new-session'); handler({success:true,data:[]}); await assert.rejects(pending,/Session changed/); assert.equal(locks,0);
-  pending = call('apiGetLeadCachePage'); handler({success:false,error:'Access denied.',code:'FORBIDDEN'}); await assert.rejects(pending,/Access denied/); assert.equal(locks,1);
+  let pending = call('apiSaveLead'); await new Promise(setImmediate); handler({success:true,data:'id'}); await pending; assert.equal(invalidations,1);
+  pending = call('apiSaveLead'); await new Promise(setImmediate); handler({success:false,error:'Save failed'}); await assert.rejects(pending,/Save failed/); assert.equal(invalidations,1);
+  pending = call('apiSaveLead'); await new Promise(setImmediate); handler({success:false,error:'Access denied.',code:'FORBIDDEN'}); await assert.rejects(pending,/Access denied/); assert.equal(locks,0,'a denied action alone must not log out the entire portal');
+  pending = call('apiGetLeadCachePage'); await new Promise(setImmediate); tokens.set('nbd_token','new-session'); handler({success:true,data:[]}); await assert.rejects(pending,/Session changed/); assert.equal(locks,0);
+  pending = call('apiGetLeadCachePage'); await new Promise(setImmediate); handler({success:false,error:'Access denied.',code:'FORBIDDEN'}); await assert.rejects(pending,/Access denied/); assert.equal(locks,1);
 });
 test('offline suspension cancels pending cache writes while retaining the need for online verification', async () => {
   const f = serverFixture(1), storage = memoryStorage(); let release, started;

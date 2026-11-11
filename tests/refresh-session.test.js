@@ -1,0 +1,27 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),crypto=require('node:crypto');
+const props=new Map();let now=Date.now(),active=true,password='one',portal='LQ';
+const c=vm.createContext({Date:{now:()=>now},Utilities:{getUuid:()=>crypto.randomUUID(),DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,s)=>crypto.createHash('sha256').update(s).digest(),computeHmacSha256Signature:(s,k)=>crypto.createHmac('sha256',k).update(s).digest()},PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k),setProperty:(k,v)=>props.set(k,v),deleteProperty:k=>props.delete(k),getProperties:()=>Object.fromEntries(props)})},_hexBytes_:b=>Buffer.from(b).toString('hex'),_base64UrlBytes_:b=>Buffer.from(b).toString('base64url'),_authSigningSecret_:()=> 'test-only',currentPortalKey_:()=>portal,_getUserByEmailIndexed_:()=>active?{Password:password}:null,getCurrentUserByEmail_:()=>({success:active,data:{id:'user-1'}}),_constantTimeEqual_:(a,b)=>a===b,createAuthSession_:()=> 'new-access'});
+vm.runInContext(fs.readFileSync('src/server/RefreshSession.js','utf8'),c);
+const issue=()=>c.createRefreshSession_('test@example.test','user-1');
+let r=issue();assert.equal(r.refreshExpiresAt-now,604800000);assert.ok(!JSON.stringify([...props]).includes(r.refreshToken));
+now+=24*3600000;assert.equal(c.exchangeRefreshSession_(r.refreshToken).token,'new-access');assert.equal(c.exchangeRefreshSession_(r.refreshToken).refreshExpiresAt,r.refreshExpiresAt);
+portal='NBD';assert.throws(()=>c.exchangeRefreshSession_(r.refreshToken),/SESSION_EXPIRED/);portal='LQ';
+r=issue();password='changed';assert.throws(()=>c.exchangeRefreshSession_(r.refreshToken),/ACCESS_DENIED/);
+r=issue();active=false;assert.throws(()=>c.exchangeRefreshSession_(r.refreshToken),/ACCESS_DENIED/);active=true;
+r=issue();c.destroyRefreshSession_(r.refreshToken);assert.throws(()=>c.exchangeRefreshSession_(r.refreshToken),/SESSION_EXPIRED/);
+r=issue();now=r.refreshExpiresAt;assert.throws(()=>c.exchangeRefreshSession_(r.refreshToken),/SESSION_EXPIRED/);assert.throws(()=>c.exchangeRefreshSession_('malformed'),/SESSION_EXPIRED/);
+const storage=()=>{const m=new Map();return {getItem:k=>m.get(k)||null,setItem:(k,v)=>m.set(k,v),removeItem:k=>m.delete(k)}};
+let calls=0,fail=false,resolveRefresh;
+const local=storage(),session=storage();const b=vm.createContext({APP_TITLE:'LQ',PORTAL_KIND:'main',localStorage:local,sessionStorage:session,Date,atob:s=>Buffer.from(s,'base64').toString(),api:{_read:()=>{calls++;return new Promise((resolve,reject)=>{resolveRefresh=()=>fail?reject(Error('Network unavailable')):resolve({token:access()})})}}});
+const access=()=>Buffer.from(JSON.stringify({exp:Math.floor(Date.now()/1000)+21600})).toString('base64url')+'.signature';
+let source=fs.readFileSync('src/AppCore.html','utf8');source=source.slice(source.indexOf('const PORTAL_AUTH_SCOPE'),source.indexOf('// ─── AppLookup'));
+vm.runInContext(source+';this.auth=AuthToken;',b);
+(async()=>{
+ b.auth.saveLogin({token:'expired',refreshToken:'refresh'});session.removeItem('nbd_token');
+ const a=b.auth.ensure(),d=b.auth.ensure();assert.equal(calls,1);resolveRefresh();assert.equal(await a,await d);assert.ok(b.auth.get());
+ await b.auth.ensure();assert.equal(calls,1);
+ b.auth.set('expired');fail=true;const e=b.auth.ensure();resolveRefresh();await assert.rejects(e,/Network/);assert.equal(b.auth.refreshGet(),'refresh');
+ fail=false;const late=b.auth.ensure();b.auth.clear();resolveRefresh();await assert.rejects(late,/SESSION_EXPIRED/);assert.equal(b.auth.get(),'');assert.equal(b.auth.refreshGet(),'');
+ console.log('PASS refresh: seven-day boundary, next-day refresh, hash storage, portal isolation, password/access revocation, logout, malformed token, restart, single-flight, transient failure and logout race');
+})().catch(e=>{console.error(e);process.exitCode=1});

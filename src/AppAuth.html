@@ -9,7 +9,7 @@ async function init() {
     renderInitialLoading();
     if (diagnostics) diagnostics.phase('startup.shell', 'complete');
 
-    const token = AuthToken.get();
+    const token = await AuthToken.ensure();
     if (diagnostics) diagnostics.phase('startup.session', token ? 'complete' : 'missing', { tokenPresent: Boolean(token) });
     if (!token) {
       void LeadReadCache.lock();
@@ -29,7 +29,7 @@ async function init() {
         requestId: err && err.requestId || ''
       });
     }
-    AuthToken.clear();
+    if (/SESSION_EXPIRED|ACCESS_DENIED|invalid.*session/i.test(msg)) AuthToken.clear();
     void LeadReadCache.lock();
     if (/SESSION_EXPIRED|expired|invalid.*session/i.test(msg)) {
       showLoginOverlay('Your session expired. Please sign in again.');
@@ -152,7 +152,8 @@ function _initialRequestedPage() {
 
 function logout() {
   const token = AuthToken.get();
-  if (token) api.logout(token).catch(() => {});
+  const refresh = AuthToken.refreshGet();
+  if (token || refresh) api.logout(token, refresh).catch(() => {});
   AuthToken.clear();
   void lockPrivateReadCache();
 }
@@ -201,7 +202,7 @@ function _initOverlayGoogleAuth(overlay) {
         try {
           const result = await api.loginWithGoogle(response.credential);
           loginSucceeded = true;
-          AuthToken.set(result.token);
+          AuthToken.saveLogin(result);
           overlay.remove();
           await _continueAppInit(result.token);
         } catch (err) {
@@ -497,7 +498,7 @@ function showLoginOverlay(errorMsg, errorType) {
     try {
       const result = await api.login(email, pw);
       loginSucceeded = true;
-      AuthToken.set(result.token);
+      AuthToken.saveLogin(result);
       overlay.remove();
       await _continueAppInit(result.token);
     } catch (err) {

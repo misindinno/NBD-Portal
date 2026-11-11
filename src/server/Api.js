@@ -51,7 +51,7 @@ function apiLogin(email, password) {
     const userResult = getCurrentUserByEmail_(norm);
     if (!userResult.success) return respond(null, userResult.error || 'Access denied.');
     const token = createAuthSession_(norm, userResult.data.id);
-    return respond({ user: userResult.data, token });
+    return respond(Object.assign({ user: userResult.data, token }, createRefreshSession_(norm, userResult.data.id)));
   });
 }
 
@@ -68,8 +68,13 @@ function apiBootstrapWithToken(token) {
   });
 }
 
-function apiLogout(token) {
+function apiRefreshSession(refreshToken) {
+  return apiGuard_('apiRefreshSession', () => respond(exchangeRefreshSession_(refreshToken)));
+}
+
+function apiLogout(token, refreshToken) {
   return apiGuard_('apiLogout', () => {
+    destroyRefreshSession_(refreshToken);
     destroyAuthSession_(token);
     return respond(true);
   });
@@ -142,7 +147,7 @@ function apiLoginWithGoogle(idToken) {
     const userResult = getCurrentUserByEmail_(norm);
     if (!userResult.success) return respond(null, userResult.error || 'Your Google account is not authorized for this portal.');
     const token = createAuthSession_(norm, userResult.data.id);
-    return respond({ user: userResult.data, token });
+    return respond(Object.assign({ user: userResult.data, token }, createRefreshSession_(norm, userResult.data.id)));
   });
 }
 

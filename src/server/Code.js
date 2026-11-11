@@ -78,6 +78,9 @@ function _handleGoogleAuthRedirect_(idToken) {
     const userResult = getCurrentUserByEmail_(norm, false);
     if (!userResult.success) return _serveAuthError_('Your Google account (' + norm + ') is not authorized for this portal.');
     const token = createAuthSession_(norm, userResult.data.id);
+    const refresh = createRefreshSession_(norm, userResult.data.id);
+    const safeRefresh = JSON.stringify(refresh.refreshToken);
+    const safeRefreshKey = JSON.stringify('nbd_refresh:' + CLIENT_CONFIG.APP_TITLE + ':' + (CLIENT_CONFIG.PORTAL_KIND || 'main')).replace(/</g, '\\u003c');
     const appUrl = ScriptApp.getService().getUrl().split('?')[0];
     const tokenText = String(token || '');
     if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(tokenText)) {
@@ -89,6 +92,7 @@ function _handleGoogleAuthRedirect_(idToken) {
       '<!doctype html><html><head><meta charset="utf-8"><title>Signing in…</title></head><body>' +
       '<script>' +
       'try{sessionStorage.setItem("nbd_token",' + safeToken + ');}catch(e){}' +
+      'try{localStorage.setItem(' + safeRefreshKey + ',' + safeRefresh + ');}catch(e){}' +
       'window.location.replace(' + safeAppUrl + ');' +
       '<\/script>' +
       '<p style="font-family:sans-serif;padding:24px;color:#444">Signing in, please wait…</p>' +
