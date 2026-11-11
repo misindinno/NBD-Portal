@@ -72,7 +72,7 @@ function createPortalOutbox(indexedDB) {
 }
 function createPortalSync({ storage, send, online = () => navigator.onLine, now = () => Date.now(), changed = () => {}, committed = async () => {}, confirmationWaitMs = 120000 }) {
   const actions = new Set(['apiSaveLead','apiSaveFollowupDirect','apiMarkFollowupDoneDirect','apiUpdateLeadStage',
-    'apiMoveLeadStageWithFields','apiArchiveLead','apiArchiveLeads','apiRestoreArchivedLead','apiSaveBulkRows','apiClientFactoryVisitSave','apiMapCallToClient']);
+    'apiMoveLeadStageWithFields','apiArchiveLead','apiArchiveLeads','apiRestoreArchivedLead','apiSaveBulkRows','apiClientFactoryVisitSave','apiMapCallToClient','apiEcsSave','apiEcsPush']);
   let identity = null, epoch = 0, running = null, scheduleQueued = null;
   const records = new Map();
   function bind(value) { epoch++; running = null; scheduleQueued = null; identity = value && value.syncEnabled ? { ...value } : null; records.clear(); }
@@ -94,6 +94,7 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
     ['lead','leads','followup','followups','archived'].forEach(key => { if (value[key]) observe(value[key], replace); });
   }
   function basesFor(action, args) {
+    if (action==='apiEcsSave'||action==='apiEcsPush') return [];
     const p = args[0] || {}, targets = [];
     const lead = id => { if (id) targets.push('lead:' + String(id)); };
     if (action === 'apiClientFactoryVisitSave') return []; // native requestId/version contract
@@ -295,6 +296,10 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
 const PortalSync = createPortalSync({
   storage: createPortalOutbox(leadIndexedDb_()),
   send: async item => {
+    if (item.action==='apiEcsSave'||item.action==='apiEcsPush') {
+      const {id,action,args,portal,user,scope}=item;
+      return api._read(action,AuthToken.get(),{id,action,args,portal,user,scope});
+    }
     if (item.action === 'apiClientFactoryVisitSave') {
       const result = await api._read(item.action, AuthToken.get(), ...item.args);
       return { state: 'committed', result };

@@ -1,6 +1,7 @@
 // ─── ClientConfig.js — lq-portal ─────────────────────────────────────────────
 
 const CLIENT_CONFIG = {
+  ECS_ENABLED: true,
   DISQUALIFIED_SPREADSHEET_ID: '1UXR5TRwhUmXc9JqieANuzKNuzogA_BRTyjLIpzN6ixI',
   ARCHIVE_SPREADSHEET_ID: '1wMKVPJvfeDR24eSz-xaTU--00-bPCpi7PO-IR6O1Pmg',
   FSR_SOURCE_KEY: 'lq-portal',

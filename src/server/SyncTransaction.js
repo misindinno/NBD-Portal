@@ -23,7 +23,7 @@ function syncTxHandles_(name) {
     SHEET_NAMES.FOLLOWUP_HISTORY, SHEET_NAMES.LEAD_ACTIVITY_LOGS,
     SHEET_NAMES.LEAD_FIELD_VALUES, SHEET_NAMES.FOLLOWUP_FIELD_VALUES,
     SHEET_NAMES.IDX_LEADS, SHEET_NAMES.IDX_FOLLOWUPS, SHEET_NAMES.BULK_AUDIT_LOG,
-    'FSR_SYNC_QUEUE', 'CALL_LOGS', SYNC_RECEIPTS_].includes(name);
+    'FSR_SYNC_QUEUE', 'CALL_LOGS', 'ECS_QUERIES', 'ECS_ACTIVITIES', 'ECS_CLIENTS', SYNC_RECEIPTS_].includes(name);
 }
 function syncTxTable_(name) {
   if (!syncTxHandles_(name)) throw new Error('Unsupported sync table.');

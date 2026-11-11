@@ -2,6 +2,7 @@
 // Explicit screen reads only. No writes, tokens, credentials, delivery bodies or
 // arbitrary API responses enter this cache. Live server validators still own saves.
 const PAGE_PREVIEW_READS = new Set([
+  'apiEcsOptions',
   'apiGetDisqualified','apiGetDisqualifiedDetail','apiGetCentralArchiveDetail',
   'apiGetLeads','apiGetTodayActivitySnapshot','apiGetFollowupPageSnapshot',
   'apiGetArchiveData','apiGetArchiveSuggestions','apiGetLostArchiveLeads',

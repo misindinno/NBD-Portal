@@ -8,6 +8,7 @@
   <script>
     const APP_TITLE   = '<?= CLIENT_CONFIG.APP_TITLE ?>';
     const PORTAL_KIND = '<?= CLIENT_CONFIG.PORTAL_KIND || "main" ?>';
+    const ECS_ENABLED = <?!= CLIENT_CONFIG.ECS_ENABLED === true && CLIENT_CONFIG.PORTAL_KEY === 'LQ' ? 'true' : 'false' ?>;
   </script>
 
   <!-- Fonts + Icons -->
@@ -206,6 +207,7 @@
   <?!= include('ClientFactoryVisits'); ?>
   <?!= include('Disqualified'); ?>
   <?!= include('VisitManagement'); ?>
+  <?!= include('Ecs'); ?>
   <?!= include('Webhooks'); ?>
   <?!= include('Config'); ?>
   <?!= include('ConfigStages'); ?>

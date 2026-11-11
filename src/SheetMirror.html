@@ -1,6 +1,7 @@
 <script>
 const SHEET_MIRROR_STORES = ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY','LEAD_ACTIVITY_LOGS','LEAD_FIELD_VALUES','FOLLOWUP_FIELD_VALUES','PIPELINE_STAGES','FIELD_CONFIG','CONFIG','Bulk_Config','CALL_LOGS','VISIT_SUBMISSIONS','CLIENT_FACTORY_VISITS','CLIENT_FACTORY_VISIT_EVENTS','DQ_MASTER','DQ_FOLLOWUPS','DQ_FOLLOWUP_HISTORY','DQ_CONFIG','AR_MASTER','AR_FOLLOWUPS','AR_FOLLOWUP_HISTORY','AR_CONFIG'];
 
+SHEET_MIRROR_STORES.push('ECS_QUERIES','ECS_ACTIVITIES','ECS_CLIENTS');
 function sheetMirrorValidRecords(records, total) {
   if (!Array.isArray(records) || records.length !== total || !records.length) return false;
   const first = records[0], meta = first.value;
@@ -26,7 +27,7 @@ function createSheetMirrorStorage(indexedDB) {
     if (opening) return opening;
     if (!indexedDB) return Promise.reject(new Error('IndexedDB is unavailable in this browser.'));
     opening = new Promise((resolve, reject) => {
-      const req = indexedDB.open('nbd-sheet-mirror', 3);
+      const req = indexedDB.open('nbd-sheet-mirror', 4);
       let failed = false;
       req.onupgradeneeded = () => {
         if(!req.result.objectStoreNames.contains('_meta')) req.result.createObjectStore('_meta', { keyPath: 'key' });
@@ -350,7 +351,7 @@ function createSheetMirror({ request, storage, onLock = () => {}, changed = () =
 const SheetMirror = createSheetMirror({
   request: (fn, query) => api._read(fn, AuthToken.get(), query), storage: createSheetMirrorStorage(leadIndexedDb_()),
   onLock: () => { void lockPrivateReadCache(); },
-  changed: event => { if (typeof renderSheetMirrorStatus === 'function') renderSheetMirrorStatus(event); }
+  changed: event => { if (typeof renderSheetMirrorStatus === 'function') renderSheetMirrorStatus(event); if(typeof ecsMirrorChanged==='function')ecsMirrorChanged(event); }
 });
 function refreshSheetMirror(force = false) {
   if (typeof pagePreviewPending !== 'undefined' && pagePreviewPending > 0) return;

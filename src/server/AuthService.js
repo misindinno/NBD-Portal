@@ -9,6 +9,7 @@ const ROLE_PERMISSIONS = {
 };
 const ALL_MODULES = ['Leads','Pipeline','Followups','Reports','Archive','Config','Users','LeadForm','BulkEntry','VisitManagement','ClientFactoryVisits','ClientFactoryVisitsCreate','ClientFactoryVisitsManage'];
 let TRUSTED_WRITE_EMAIL = '';
+ALL_MODULES.push('ECS','ECSEdit','ECSManage');
 
 function withTrustedWriteUser_(email, fn) {
   const previous = TRUSTED_WRITE_EMAIL;

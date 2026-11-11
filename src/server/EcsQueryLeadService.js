@@ -6,6 +6,7 @@ function _ecsQueryWebhook_(raw) {
     try {
       const request = _ecsVerifyQueryRequest_(raw);
       if (request.action === 'options') result = { users: _ecsAssignableUsers_() };
+      else if (request.action === 'configureEcsConnections') result = ecsConfigureConnections_(request);
       else if (request.action === 'check') result = _ecsCheckQueryLead_(request);
       else if (request.action === 'continue') result = _ecsContinueQueryLead_(request);
       else if (request.action === 'push') result = _ecsCreateQueryLead_(request);

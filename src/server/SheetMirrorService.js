@@ -2,6 +2,7 @@
 // Arrays preserve column positions, empty/duplicate headers and duplicate rows.
 function sheetMirrorDefinitions_() {
   return [
+    ...((typeof ecsEnabled_==='function' && ecsEnabled_()) ? [['ECS_QUERIES',['ECS'],'ecsQueries'],['ECS_ACTIVITIES',['ECS'],'ecsActivities'],['ECS_CLIENTS',['ECS'],'ecsClients']] : []),
     ...((typeof arEnabled_ === 'function' && arEnabled_()) ? Object.keys(AR_TABLES_).map(name=>[name,['Archive'],'archive']) : []),
     ...((typeof dqEnabled_ === 'function' && dqEnabled_()) ? Object.keys(DQ_TABLES_).map(name=>[name,['Leads'],'disqualified']) : []),
     ['LEAD_MASTER', ['Leads','Followups','Pipeline','Archive'], 'leads'],
@@ -102,6 +103,19 @@ function sheetMirrorScopedRows_(user, definition, table) {
   };
   let allowed;
   switch (definition.kind) {
+    case 'ecsQueries':
+        sheetMirrorRequireColumns_(table, ['id','assignedTo']);
+      allowed=new Set(rows.filter(row=>ecsVisible_(row.object,user)).map(row=>row.object));break;
+    case 'ecsActivities': {
+        sheetMirrorRequireColumns_(table, ['id','queryId']);
+      const ids=new Set(objects('ECS_QUERIES').filter(r=>ecsVisible_(r,user)).map(r=>String(r.id)));
+      allowed=new Set(rows.filter(row=>ids.has(String(row.object.queryId))).map(row=>row.object));break;
+    }
+    case 'ecsClients': {
+        sheetMirrorRequireColumns_(table, ['id']);
+      const ids=new Set(objects('ECS_QUERIES').filter(r=>ecsVisible_(r,user)).map(r=>String(r.clientId)));
+      allowed=new Set(rows.filter(row=>admin||ids.has(String(row.object.id))).map(row=>row.object));break;
+    }
     case 'leads':
       sheetMirrorRequireColumns_(table, ['Lead ID','Assigned To']);
       allowed = new Set(_scopeAssignedRows(rows.map(row => row.object), user).filter(row => canArchive || !leadArchiveState_(row)));
