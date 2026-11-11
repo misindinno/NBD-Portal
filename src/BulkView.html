@@ -743,7 +743,7 @@ const BulkView = (() => {
         row.__status__ = '';
         row.__errors__ = '';
       } else {
-        row.__status__ = ['blocked','invalid','conflict','paused'].includes(command.state) ? 'Needs review' : 'Pending sync';
+        row.__status__ = ['blocked','invalid','conflict','rejected','paused'].includes(command.state) ? 'Needs review' : 'Pending sync';
         row.__errors__ = command.message || 'See Pending changes.';
       }
     });

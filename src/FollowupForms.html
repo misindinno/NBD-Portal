@@ -435,7 +435,7 @@ function _watchPendingFollowupSave(overlay, form, button, error) {
     PortalSync.watch(error.operationId, row => {
       if (finished || AuthToken.get() !== token) return;
       if (row.state === 'committed') { finished = true; _finishFollowupDoneSave(row.result); }
-      else if (['conflict','invalid','blocked','paused'].includes(row.state)) {
+      else if (['conflict','rejected','invalid','blocked','paused'].includes(row.state)) {
         toast('Remark needs review in Pending changes: ' + (row.message || row.state), 'error');
       } else if (row.state === 'dismissed') finished = true;
     });
@@ -471,7 +471,7 @@ function _watchPendingFollowupSave(overlay, form, button, error) {
       stop(); observer.disconnect(); overlay.remove();
     } else {
       describe(row);
-      button.textContent = ['invalid','conflict','paused','blocked'].includes(row.state) ? 'Review pending change' : 'Waiting for sync';
+      button.textContent = ['invalid','conflict','rejected','paused','blocked'].includes(row.state) ? 'Review pending change' : 'Waiting for sync';
     }
   });
 }

@@ -73,9 +73,9 @@ function createPortalOutbox(indexedDB) {
 function createPortalSync({ storage, send, online = () => navigator.onLine, now = () => Date.now(), changed = () => {}, committed = async () => {}, confirmationWaitMs = 120000 }) {
   const actions = new Set(['apiSaveLead','apiSaveFollowupDirect','apiMarkFollowupDoneDirect','apiUpdateLeadStage',
     'apiMoveLeadStageWithFields','apiArchiveLead','apiArchiveLeads','apiRestoreArchivedLead','apiSaveBulkRows','apiClientFactoryVisitSave','apiMapCallToClient']);
-  let identity = null, epoch = 0, running = null;
+  let identity = null, epoch = 0, running = null, scheduleQueued = null;
   const records = new Map();
-  function bind(value) { epoch++; running = null; identity = value && value.syncEnabled ? { ...value } : null; records.clear(); }
+  function bind(value) { epoch++; running = null; scheduleQueued = null; identity = value && value.syncEnabled ? { ...value } : null; records.clear(); }
   function observe(value, replace = false) {
     if (!identity || !value) return;
     if (Array.isArray(value)) { value.forEach(row => observe(row, replace)); return; }
@@ -114,7 +114,7 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
   async function list() { return identity ? storage.list(identity) : []; }
   async function drain() {
     if (!identity || !online()) return;
-    if (running) return running;
+    if (running) { if (scheduleQueued) await scheduleQueued(); return running; }
     const generation = epoch, context = { ...identity };
     const valid = () => generation === epoch && identity && online();
     const task = (async () => {
@@ -122,24 +122,25 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
       const blockedTargets = new Set();
       const targets = row => (row.bases || []).map(base => base.type + ':' + base.id);
       const hold = row => { const keys = targets(row); keys.forEach(key => blockedTargets.add(key)); return keys.length > 0; };
-      for (const row of items) {
-        if (!valid()) break;
-        if (['committed','dismissed'].includes(row.state)) continue;
+      async function process(row) {
+        if (!valid() || stopped) return;
+        if (['committed','dismissed','rejected'].includes(row.state)) return;
+        if (row.state === 'conflict') { await storage.patch(row.key, {state:'rejected', rejectedAt:now(), rejectionReason:'conflict', leaseUntil:0}); changed(); return; }
         // Older clients marked a repairable workbook problem as invalid input.
         // Retain the exact command and expose Retry after an administrator repairs it.
         if (row.state === 'invalid' && portalSyncSchemaIssue_(row)) {
           await storage.patch(row.key, { state: 'paused', errorCode: 'DATA_SCHEMA_INVALID', leaseUntil: 0 });
-          changed(); break;
+          stopped = true; changed(); return;
         }
         // A conflict belongs to its records, not the entire user's queue.
         // Unknown dependencies and account/schema failures still stop safely.
-        if (['blocked','paused'].includes(row.state)) break;
-        if (['conflict','invalid'].includes(row.state)) { if (!hold(row)) break; continue; }
-        if (targets(row).some(key => blockedTargets.has(key))) { hold(row); continue; }
-        if (blockedTargets.size && !targets(row).length) break;
+        if (['blocked','paused'].includes(row.state)) { stopped = true; return; }
+        if (row.state === 'invalid') { hold(row); return; }
+        if (targets(row).some(key => blockedTargets.has(key))) { hold(row); return; }
+        if (blockedTargets.size && !targets(row).length) return;
         const item = await storage.claim(row.key, now());
-        if (!item) { if (!hold(row)) break; continue; }
-        if (!valid()) { await storage.patch(item.key, { state: 'queued', leaseUntil: 0 }); break; }
+        if (!item) { hold(row); return; }
+        if (!valid()) { await storage.patch(item.key, { state: 'queued', leaseUntil: 0 }); return; }
         changed();
         try {
           // A missing RPC callback must not stall the queue forever. This only
@@ -152,7 +153,7 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
           ]).finally(() => clearTimeout(confirmationTimer));
           if (!response || !['committed','retry','conflict','invalid','blocked','paused'].includes(response.state)) throw new Error('Unconfirmed sync response');
           // A response for the previous login cannot update this login's UI/cache.
-          await storage.patch(item.key, { state: response.state, result: response.result, message: response.message || '', errorCode: '',
+          await storage.patch(item.key, { state: response.state === 'conflict' ? 'rejected' : response.state, rejectionReason: response.state === 'conflict' ? 'conflict' : '', rejectedAt: response.state === 'conflict' ? now() : 0, result: response.result, message: response.message || '', errorCode: '',
             leaseUntil: 0, nextAttempt: response.state === 'retry' ? now() + 5000 : 0 }, item.attempts);
           // The receipt is authoritative. A cache/UI refresh failure must never
           // turn an already committed business write back into a retry.
@@ -160,8 +161,9 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
             try { await committed(item, response.result); } catch (_) {}
           }
           if (response.state !== 'committed') {
-            if (['conflict','invalid'].includes(response.state) && hold(item)) continue;
-            break;
+            if (response.state === 'conflict') return;
+            if (['blocked','paused'].includes(response.state)) stopped = true;
+            hold(item); return;
           }
         } catch (error) {
           const denied = /SESSION_EXPIRED|ACCESS_DENIED|FORBIDDEN|Permission denied/i.test(error.code + ' ' + error.message);
@@ -171,10 +173,43 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
             errorCode: schema ? 'DATA_SCHEMA_INVALID' : String(error.code || ''),
             message: denied ? 'Sign in and verify your access before retrying.' : error.message,
             nextAttempt: now() + Math.min(60000, 2000 * Math.pow(2, Math.min(item.attempts, 5))) }, item.attempts);
-          break;
+          if (denied || schema) stopped = true;
+          hold(item); return;
         } finally { if (generation === epoch) changed(); }
       }
-    })().finally(() => { if (running === task) running = null; });
+      let stopped = false, active = 0;
+      const slots = [], chains = new Map(), jobs = [];
+      let barrier = Promise.resolve();
+      async function limited(row) {
+        if (active >= 3) await new Promise(resolve => slots.push(resolve));
+        else active++;
+        try { await process(row); }
+        finally { const next = slots.shift(); if (next) next(); else active--; }
+      }
+      const scheduled = new Set();
+      function schedule(items) { for (const row of items) {
+        if (scheduled.has(row.key)) continue;
+        scheduled.add(row.key);
+        // Unknown dependencies remain a barrier. New leads have their own operation
+        // identity; existing records are serialized by every touched record key.
+        const keys = targets(row);
+        const independentCreate = row.action === 'apiSaveLead' && !keys.length &&
+          !['Lead ID','leadId','LeadID','Lead Id','ID'].some(k => row.args?.[0]?.[k]);
+        const independentBulk = row.action === 'apiSaveBulkRows' && (row.args?.[1] || 'create') === 'create';
+        if (independentCreate || independentBulk) keys.push('create:' + row.id);
+        const terminal = ['committed','dismissed','rejected','conflict'].includes(row.state);
+        const dependencies = terminal ? [] : keys.length ? [barrier, ...keys.map(k => chains.get(k)).filter(Boolean)] : jobs.slice();
+        const job = Promise.all(dependencies).then(() => limited(row));
+        jobs.push(job);
+        if (!terminal) { if (!keys.length) barrier = job; else keys.forEach(k => chains.set(k, job)); }
+      }
+      }
+      scheduleQueued = async () => { if (valid()) schedule((await storage.list(context)).sort((a,b) => a.createdAt - b.createdAt)); };
+      schedule(items);
+      let count;
+      do { count = jobs.length; await Promise.all(jobs.slice()); } while (count !== jobs.length);
+
+    })().finally(() => { if (running === task) { running = null; scheduleQueued = null; } });
     running = task; return task;
   }
   async function submit(action, args, options = {}) {
@@ -213,7 +248,7 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
     if (epoch !== generation) throw new Error('Session changed. Check Pending changes after signing in.');
     const current = (await storage.list(context)).find(row => row.key === item.key);
     if (current && current.state === 'committed') return current.result;
-    const message = current && ['invalid','conflict','blocked','paused'].includes(current.state)
+    const message = current && ['invalid','conflict','rejected','blocked','paused'].includes(current.state)
       ? current.message : 'Saved on this device; waiting to sync with Google Sheets. Do not create another entry. Open Pending changes for status.';
     const error = new Error(message); error.code = 'SYNC_PENDING'; error.syncState = current && current.state; error.operationId = item.id; throw error;
   }
@@ -245,13 +280,13 @@ function createPortalSync({ storage, send, online = () => navigator.onLine, now 
   return { bind, observe, submit, drain, list, watch, enabled: () => !!identity, handles: action => !!identity && actions.has(action),
     async retry(key) {
       const row = (await list()).find(row => row.key === key);
-      if (!row || !(['retry','blocked','paused','conflict'].includes(row.state) || row.state === 'invalid' && portalSyncRetryableInvalid_(row))) return;
+      if (!row || !(['retry','blocked','paused','conflict','rejected'].includes(row.state) || row.state === 'invalid' && portalSyncRetryableInvalid_(row))) return;
       if (row.scope !== identity.scope) throw new Error('Permissions changed. This pending change is retained; an administrator must review its original reference.');
       await storage.patch(key, { state: 'queued', leaseUntil: 0, nextAttempt: 0 }); await drain(); changed();
     },
     async dismiss(key) {
       const row = (await list()).find(row => row.key === key);
-      if (!row || !['invalid','conflict','committed'].includes(row.state)) throw new Error('An unconfirmed save cannot be discarded. Retry it with the same reference first.');
+      if (!row || !['invalid','conflict','rejected','committed'].includes(row.state)) throw new Error('An unconfirmed save cannot be discarded. Retry it with the same reference first.');
       await storage.patch(key, { state: 'dismissed', args: [], bases: [], result: null, message: '' }); changed(); void drain();
     }
   };
@@ -304,7 +339,7 @@ async function renderPortalSyncStatus() {
   try {
     const rows = await PortalSync.list();
     if (generation !== portalSyncStatusGeneration) return;
-    button.textContent = 'Pending changes: ' + rows.filter(row => !['committed','dismissed'].includes(row.state)).length;
+    button.textContent = 'Pending changes: ' + rows.filter(row => !['committed','dismissed','rejected','conflict'].includes(row.state)).length + ' · Rejected: ' + rows.filter(row => ['rejected','conflict'].includes(row.state)).length;
   } catch (_) { if (generation === portalSyncStatusGeneration) button.textContent = 'Sync storage unavailable'; }
 }
 async function setupPortalSync() {
@@ -315,11 +350,21 @@ async function setupPortalSync() {
   try { await api._read('apiSyncInitialize', AuthToken.get()); window.location.reload(); }
   catch (error) { toast(error.message, 'error'); }
 }
-async function showPortalSyncQueue() {
-  const rows = (await PortalSync.list()).filter(row => row.state !== 'dismissed').sort((a,b) => b.createdAt - a.createdAt).slice(0,100);
+async function showPortalSyncQueue(selectedTab = 'pending') {
+  const rows = (await PortalSync.list()).filter(row => row.state !== 'dismissed').sort((a,b) => b.createdAt - a.createdAt);
   const wrap = document.createElement('div');
   const intro = document.createElement('p'); intro.textContent = 'Pending changes are stored on this device. Only Synced means the change is saved in Google Sheets. Keep this portal open to sync.'; wrap.appendChild(intro);
-  rows.forEach(row => {
+  const tabs = document.createElement('div'); tabs.setAttribute('role','tablist');
+  const category = row => ['rejected','conflict'].includes(row.state) ? 'rejected' : row.state === 'committed' ? 'synced' : 'pending';
+  for (const [key,label] of [['pending','Pending'],['rejected','Rejected'],['synced','Synced']]) {
+    const tab = document.createElement('button'); tab.className = 'btn btn-outlined'; tab.setAttribute('role','tab'); tab.setAttribute('aria-selected',String(key === selectedTab));
+    tab.textContent = label + ' (' + rows.filter(row => category(row) === key).length + ')';
+    tab.onclick = () => { Swal.close(); void showPortalSyncQueue(key); }; tabs.appendChild(tab);
+  }
+  wrap.appendChild(tabs);
+  const visibleRows = rows.filter(row => category(row) === selectedTab);
+  if (!visibleRows.length) { const empty = document.createElement('p'); empty.textContent = 'No ' + selectedTab + ' changes.'; wrap.appendChild(empty); }
+  visibleRows.forEach(row => {
     const card = document.createElement('div'); card.style.cssText = 'text-align:left;padding:12px;border-bottom:1px solid #ddd';
     const title = document.createElement('strong'); title.textContent = row.action.replace(/^api/,'') + ' — ' + (row.state === 'committed' ? 'Synced' : row.state); card.appendChild(title);
     const detail = document.createElement('p'); detail.textContent = (row.message || '') + ' Reference: ' + row.id; card.appendChild(detail);
@@ -332,20 +377,20 @@ async function showPortalSyncQueue() {
       report.style.whiteSpace = 'pre-line';
       card.appendChild(report);
     }
-    if (['conflict','invalid'].includes(row.state)) {
+    if (['conflict','rejected','invalid'].includes(row.state)) {
       const payload = document.createElement('pre'); payload.textContent = JSON.stringify(row.args, null, 2); payload.style.cssText = 'max-height:180px;overflow:auto;white-space:pre-wrap'; card.appendChild(payload);
     }
-    if (row.state === 'conflict' || row.state === 'invalid' && portalSyncRetryableInvalid_(row)) {
+    if (['conflict','rejected'].includes(row.state) || row.state === 'invalid' && portalSyncRetryableInvalid_(row)) {
       const recheck = document.createElement('button'); recheck.className = 'btn btn-outlined'; recheck.textContent = 'Recheck safely';
       recheck.title = 'Retry this saved change with its original reference and validation.';
-      recheck.onclick = async () => { recheck.disabled = true; try { await PortalSync.retry(row.key); Swal.close(); await showPortalSyncQueue(); } catch (error) { toast(error.message,'error'); } finally { recheck.disabled = false; } };
+      recheck.onclick = async () => { recheck.disabled = true; try { await PortalSync.retry(row.key); Swal.close(); await showPortalSyncQueue(selectedTab); } catch (error) { toast(error.message,'error'); } finally { recheck.disabled = false; } };
       card.appendChild(recheck);
     }
-    if (['retry','blocked','paused','conflict','invalid','committed'].includes(row.state)) {
+    if (['retry','blocked','paused','conflict','rejected','invalid','committed'].includes(row.state)) {
       const button = document.createElement('button'); button.className = 'btn btn-outlined';
-      const dismiss = ['conflict','invalid','committed'].includes(row.state);
+      const dismiss = ['conflict','rejected','invalid','committed'].includes(row.state);
       button.textContent = dismiss ? 'Dismiss' : 'Retry';
-      button.onclick = async () => { try { await PortalSync[dismiss ? 'dismiss' : 'retry'](row.key); Swal.close(); await showPortalSyncQueue(); } catch (error) { toast(error.message, 'error'); } }; card.appendChild(button);
+      button.onclick = async () => { try { await PortalSync[dismiss ? 'dismiss' : 'retry'](row.key); Swal.close(); await showPortalSyncQueue(selectedTab); } catch (error) { toast(error.message, 'error'); } }; card.appendChild(button);
     }
     wrap.appendChild(card);
   });

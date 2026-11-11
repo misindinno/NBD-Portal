@@ -9,11 +9,11 @@ function storage() {
   };
 }
 const identity={portal:'p1',user:'u1',scope:'a'.repeat(64),syncEnabled:true};
-test('conflicted lead does not block an independent remark, but dependent work stays queued',async()=>{
+test('legacy conflict moves to rejected and subsequent commands are independently validated',async()=>{
   const store=storage(),sent=[];
   for(const [id,lead,state] of [['a','L1','conflict'],['b','L1','queued'],['c','L2','queued']])store.data.set(id,{...identity,key:id,id,state,createdAt:sent.length,bases:[{type:'lead',id:lead}],attempts:0,nextAttempt:0,leaseUntil:0});
   const c=client(store,async item=>{sent.push(item.id);return {state:'committed',result:{}};},{online:()=>true});
-  await c.drain();assert.deepEqual(sent,['c']);assert.equal(store.data.get('a').state,'conflict');assert.equal(store.data.get('b').state,'queued');
+  await c.drain();assert.deepEqual(sent,['b','c']);assert.equal(store.data.get('a').state,'rejected');assert.equal(store.data.get('b').state,'committed');
 });
 test('background remark acknowledges durable storage without waiting for the server',async()=>{
   const store=storage();let release;
@@ -166,4 +166,37 @@ test('a legacy batch-limit failure can retry the same stored command after the i
   await c.drain();assert.equal(store.data.get('batch').state,'paused');
   await c.retry('batch');assert.equal(sent.id,'same-reference');assert.equal(sent.args[0].Remark,'Keep it');
   assert.equal(store.data.get('batch').state,'committed');
+});
+
+
+test('new independent saves start while an earlier response remains pending',async()=>{
+ const store=storage(),started=[],release=[];
+ const c=client(store,item=>{started.push(item.id);return new Promise(r=>release.push(r));},{online:()=>true});
+ await assert.rejects(c.submit('apiSaveLead',[{Phone:'9000000001'}],{background:true}));
+ while(started.length<1)await new Promise(setImmediate);
+ await assert.rejects(c.submit('apiSaveLead',[{Phone:'9000000002'}],{background:true}));
+ for(let i=0;i<20&&started.length<2;i++)await new Promise(setImmediate);
+ assert.equal(started.length,2,'new independent command must not wait for the old receipt');
+ release.forEach(r=>r({state:'committed',result:'saved'}));await c.drain();
+ assert.equal((await c.list()).filter(r=>r.state==='committed').length,2);
+});
+
+test('three-request bound and per-record ordering survive concurrent dispatch',async()=>{
+ const store=storage(),started=[],release=new Map();let active=0,peak=0;
+ for(const [id,lead] of [['a','L1'],['b','L1'],['c','L2'],['d','L3'],['e','L4']])store.data.set(id,{...identity,key:id,id,action:'apiSaveLead',args:[{'Lead ID':lead}],state:'queued',createdAt:0,bases:[{type:'lead',id:lead}],attempts:0,nextAttempt:0,leaseUntil:0});
+ const c=client(store,item=>{started.push(item.id);peak=Math.max(peak,++active);return new Promise(r=>release.set(item.id,()=>{active--;r({state:'committed',result:{}});}));},{online:()=>true});
+ const pending=c.drain();for(let i=0;i<20&&started.length<3;i++)await new Promise(setImmediate);
+ assert.deepEqual(started,['a','c','d']);assert.equal(peak,3);assert.ok(!started.includes('b'));
+ release.get('a')();for(let i=0;i<20&&!started.includes('e');i++)await new Promise(setImmediate);
+ release.get('c')();release.get('d')();
+ for(let i=0;i<20&&started.length<5;i++)await new Promise(setImmediate);
+ release.get('e')();release.get('b')();await pending;assert.equal(peak,3);
+});
+
+test('conflict keeps its payload in rejected without stopping the next same-record command',async()=>{
+ const store=storage(),sent=[];
+ for(const id of ['a','b'])store.data.set(id,{...identity,key:id,id,action:'apiSaveLead',args:[{Remark:'Preserve '+id}],state:'queued',createdAt:0,bases:[{type:'lead',id:'L1'}],attempts:0,nextAttempt:0,leaseUntil:0});
+ const c=client(store,async item=>{sent.push(item.id);return item.id==='a'?{state:'conflict',message:'Stage changed'}:{state:'committed',result:{}};},{online:()=>true});
+ await c.drain();assert.deepEqual(sent,['a','b']);assert.equal(store.data.get('a').state,'rejected');assert.equal(store.data.get('a').args[0].Remark,'Preserve a');assert.equal(store.data.get('a').message,'Stage changed');assert.equal(store.data.get('b').state,'committed');
+ await c.drain();assert.equal(sent.length,2,'rejected commands must not auto-retry');
 });
