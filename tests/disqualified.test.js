@@ -31,9 +31,10 @@ function fixture(){
  f.add('FOLLOWUP_HISTORY',['History ID','Lead ID','Follow-up ID','Remark'],[{'History ID':'H1','Lead ID':'L1','Follow-up ID':'F1',Remark:'Original remark'}]);
  return {...f,central,run:()=>c.withServerContext_(()=>c.dqTransferBatch_())};
 }
-test('verified lead, followup and remark move together; source indexes/receipt commit atomically',()=>{
+test('verified lead/tasks move atomically while the source remark remains unchanged',()=>{
  const f=fixture();const result=f.run();assert.equal(result.state,'committed');assert.equal(result.result.moved,1);
- for(const name of ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY'])assert.equal(f.rows(name).length,0,name);
+ for(const name of ['LEAD_MASTER','FOLLOWUPS'])assert.equal(f.rows(name).length,0,name);
+ assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);assert.equal(f.rows('FOLLOWUP_HISTORY')[0].Remark,'Original remark');
  assert.equal([...f.central.get('FOLLOWUP_HISTORY').values()][0].Remark,'Original remark');
  assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Transferred');
  const receipts=f.rows('_SYNC_OPERATIONS').length;f.run();assert.equal(f.rows('_SYNC_OPERATIONS').length,receipts,'idle runs create no receipts');
@@ -47,6 +48,16 @@ test('unknown source commit is retried safely with central copy retained',()=>{
  const f=fixture();f.state.after=true;const r=f.run();assert.equal(r.state,'retry');
  assert.equal(f.rows('LEAD_MASTER').length,0);assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Copied');
  f.c.withServerContext_(()=>f.c.dqRepairReceipts_());assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Transferred');
+ assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);assert.equal(f.rows('FOLLOWUP_HISTORY')[0].Remark,'Original remark');
+});
+
+test('disqualification copies all linked remarks and leaves the full source history unchanged on retry',()=>{
+ const f=fixture(),table=f.tables.get('FOLLOWUP_HISTORY');
+ table.data.push(['H2','L1','F1','Second remark'],['H3','other','F2','Other client']);
+ const before=JSON.stringify(table.data);f.run();f.run();
+ assert.equal(JSON.stringify(f.tables.get('FOLLOWUP_HISTORY').data),before);
+ assert.equal(f.central.get('FOLLOWUP_HISTORY').size,2);
+ assert.equal(f.rows('LEAD_MASTER').length,0);assert.equal(f.rows('FOLLOWUPS').length,0);
 });
 test('source changes after copy prevent deletion',()=>{
  const f=fixture(),upsert=f.c.dqUpsert_;f.c.dqUpsert_=(name,records)=>{upsert(name,records);if(name==='FOLLOWUP_HISTORY'){const t=f.tables.get('LEAD_MASTER');t.data[1][t.data[0].indexOf('Company Name')]='Concurrent edit';}};

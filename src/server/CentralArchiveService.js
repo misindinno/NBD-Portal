@@ -1,5 +1,6 @@
 // Central, append-only destination. A verified copy precedes the atomic source
-// removal; the source receipt/fence makes retries safe after a lost response.
+// lead/task removal; history stays in the source as well as the central copy.
+// The source receipt/fence makes retries safe after a lost response.
 const AR_META_ = ['Central Key','Origin Workbook','Origin Portal','Transfer State','Transferred At','Transfer Operation'];
 const AR_TABLES_ = { AR_MASTER:'Master', AR_FOLLOWUPS:'FOLLOWUPS', AR_FOLLOWUP_HISTORY:'FOLLOWUP_HISTORY', AR_CONFIG:'PORTAL_CONFIG' };
 function arEnabled_() { return !!CLIENT_CONFIG.ARCHIVE_SPREADSHEET_ID; }
@@ -103,10 +104,10 @@ function arTransferBatch_(onlyLeadId) {
     arUpsert_('Master',baseLead.map(row=>({...arDecorate_(row,row['Lead ID']),'Transfer Operation':command.id})));
     arUpsert_('FOLLOWUPS',baseFollowup.map(row=>arDecorate_(row,row['Follow-up ID'])));
     arUpsert_('FOLLOWUP_HISTORY',plan.history.map(row=>arDecorate_(row,row['History ID'])));
-    arProgress_('Committing verified source removal');
+    arProgress_('Moving verified lead/tasks; retaining source follow-up history');
     moved=plan.leads.map(row=>String(row['Lead ID']));const ids=new Set(moved);
     syncTxDelete_(SHEET_NAMES.FOLLOWUPS,row=>ids.has(String(row['Lead ID'])));
-    syncTxDelete_(SHEET_NAMES.FOLLOWUP_HISTORY,row=>ids.has(String(row['Lead ID'])));
+    // History is an audit trail: copy it centrally, never remove it on archive.
     syncTxDelete_(SHEET_NAMES.LEADS,row=>ids.has(String(row['Lead ID'])));
     _bumpStamp('leads');_bumpStamp('followups');_bumpStamp('followup_history');
     return respond({moved:moved.length,remaining:plan.remaining,leadIds:moved});
@@ -244,12 +245,23 @@ function arPrepareRestore_(id,user) {
   const linked=name=>arRead_(name,true).rows.map(r=>r.value).filter(r=>r['Origin Workbook']===SPREADSHEET_ID && String(r['Lead ID'])===String(id));
   for(const [name,key,rows] of [[SHEET_NAMES.LEADS,'Lead ID',[lead]],[SHEET_NAMES.FOLLOWUPS,'Follow-up ID',linked('FOLLOWUPS')],
     [SHEET_NAMES.FOLLOWUP_HISTORY,'History ID',linked('FOLLOWUP_HISTORY')]]) {
-    const ids=new Set(),headers=syncTxTable_(name).headers;
+    const ids=new Set(),headers=syncTxTable_(name).headers,existing=new Map();
+    syncTxRows_(name).forEach(row=>{
+      const id=String(row[key]);existing.set(id,[...(existing.get(id)||[]),row]);
+    });
     rows.forEach(row=>{
-      if(!row[key] || ids.has(String(row[key])) || syncTxRow_(name,key,row[key]))throw new Error('SYNC_CONFLICT: Archive restore ID already exists.');
+      if(!row[key] || ids.has(String(row[key])))throw new Error('SYNC_CONFLICT: Archive restore ID already exists.');
       ids.add(String(row[key]));
       const unknown=Object.keys(row).filter(h=>!AR_META_.includes(h)&&h!=='Custom Fields JSON'&&!headers.includes(h)&&row[h]!=='');
       if(unknown.length)throw new Error('Archive restore needs source columns: '+unknown.join(', '));
+      const retained=existing.get(String(row[key]))||[];
+      if(retained.length) {
+        // New transfers retain history. Old transfers may still need an import.
+        // Never overwrite a changed row, reuse a foreign ID, or add a duplicate.
+        if(name===SHEET_NAMES.FOLLOWUP_HISTORY && retained.length===1 &&
+          headers.every(header=>arLiteral_(retained[0][header])===arLiteral_(row[header])))return;
+        throw new Error('SYNC_CONFLICT: Archive restore ID already exists with different or duplicate source data.');
+      }
       syncTxInsert_(name,row);
       if(name!==SHEET_NAMES.FOLLOWUP_HISTORY && row['Custom Fields JSON']) {
         const values=JSON.parse(row['Custom Fields JSON']);

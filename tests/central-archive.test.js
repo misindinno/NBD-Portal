@@ -13,9 +13,10 @@ function fixture(){
  f.add('FOLLOWUP_HISTORY',['History ID','Lead ID','Follow-up ID','Remark'],[{'History ID':'H1','Lead ID':'L1','Follow-up ID':'F1',Remark:'Original remark'}]);
  return {...f,central,run:()=>c.withServerContext_(()=>c.arTransferBatch_())};
 }
-test('archive transfers complete bundles and indexes only after verified central copies',()=>{
+test('archive moves lead/tasks after verified copies and retains original follow-up history',()=>{
  const f=fixture(),r=f.run();assert.equal(r.state,'committed');assert.equal(r.result.moved,1);
- for(const table of ['LEAD_MASTER','FOLLOWUPS','FOLLOWUP_HISTORY'])assert.equal(f.rows(table).length,0);
+ for(const table of ['LEAD_MASTER','FOLLOWUPS'])assert.equal(f.rows(table).length,0);
+ assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);assert.equal(f.rows('FOLLOWUP_HISTORY')[0].Remark,'Original remark');
  const lead=[...f.central.get('Master').values()][0];assert.equal(lead['Transfer State'],'Transferred');assert.ok(lead['Transfer Operation']);
  assert.equal([...f.central.get('FOLLOWUP_HISTORY').values()][0].Remark,'Original remark');
  assert.equal(f.run().result.moved,0);
@@ -44,7 +45,7 @@ test('central archive records remain portal and assignment scoped',()=>{
  assert.equal(f.c.withServerContext_(()=>f.c.arVisibleLeads_({id:'u1'})).length,1);assert.equal(f.c.withServerContext_(()=>f.c.arVisibleLeads_({id:'u2'})).length,0);
  f.c._requireModule=()=>({id:'u2'});assert.equal(f.c.apiGetCentralArchiveDetail('valid','L1').success,false);
 });
-test('restore imports history atomically, preserves IDs and repairs central state by receipt',()=>{
+test('restore reuses retained history, preserves IDs and repairs central state by receipt',()=>{
  const f=fixture();f.run();
  const command=f.command('apiRestoreArchivedLead',['L1'],[{type:'lead',id:'L1',values:[...f.central.get('Master').values()][0]}]);
  const response=f.call(command),result=response.data;assert.equal(result?.state,'committed',JSON.stringify(response));
@@ -53,11 +54,48 @@ test('restore imports history atomically, preserves IDs and repairs central stat
  f.c.withServerContext_(()=>f.c.arRepairRestores_());
  assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Restored');
 });
+
+test('legacy archive restore imports only missing history without duplicating retained or unrelated entries',()=>{
+ const f=fixture();f.run();
+ // Simulate an archive created before source-history retention was introduced.
+ f.tables.get('FOLLOWUP_HISTORY').data.splice(1);
+ f.tables.get('FOLLOWUP_HISTORY').data.push(['H-other','other-lead','F-other','Unrelated history']);
+ const command=f.command('apiRestoreArchivedLead',['L1'],[{type:'lead',id:'L1',values:[...f.central.get('Master').values()][0]}]);
+ assert.equal(f.call(command).data.state,'committed');
+ assert.equal(f.rows('FOLLOWUP_HISTORY').length,2);
+ assert.equal(f.rows('FOLLOWUP_HISTORY').find(r=>r['History ID']==='H1').Remark,'Original remark');
+ assert.equal(f.rows('FOLLOWUP_HISTORY').find(r=>r['History ID']==='H-other').Remark,'Unrelated history');
+ assert.equal(f.call(command).data.repeated,true);assert.equal(f.rows('FOLLOWUP_HISTORY').length,2);
+});
+
+test('archive restore never overwrites changed history or reuses duplicate or foreign history IDs',()=>{
+ for(const change of [
+  table=>{table.data[1][table.data[0].indexOf('Remark')]='Preserve corrected source remark';},
+  table=>{table.data[1][table.data[0].indexOf('Lead ID')]='another-lead';},
+  table=>{table.data.push(table.data[1].slice());}
+ ]) {
+  const f=fixture();f.run();change(f.tables.get('FOLLOWUP_HISTORY'));
+  const before=JSON.stringify(f.rows('FOLLOWUP_HISTORY'));
+  const command=f.command('apiRestoreArchivedLead',['L1'],[{type:'lead',id:'L1',values:[...f.central.get('Master').values()][0]}]);
+  const result=f.call(command);assert.equal(result.data.state,'conflict',JSON.stringify(result));
+  assert.equal(JSON.stringify(f.rows('FOLLOWUP_HISTORY')),before);
+  assert.equal(f.rows('LEAD_MASTER').length,0);assert.equal(f.rows('FOLLOWUPS').length,0);
+ }
+});
+
+test('archive copies every remark without changing the original history table or unrelated rows',()=>{
+ const f=fixture(),table=f.tables.get('FOLLOWUP_HISTORY');
+ table.data.push(['H2','L1','F1','=Literal second remark'],['H3','other','F2','Other client']);
+ const before=JSON.stringify(table.data);f.run();
+ assert.equal(JSON.stringify(f.tables.get('FOLLOWUP_HISTORY').data),before);
+ assert.equal(f.central.get('FOLLOWUP_HISTORY').size,2);
+ f.run();assert.equal(f.central.get('FOLLOWUP_HISTORY').size,2);
+});
 test('restore failure commits no partial local bundle and leaves central copy available',()=>{
  const f=fixture();f.run();f.state.before=true;
  const command=f.command('apiRestoreArchivedLead',['L1'],[{type:'lead',id:'L1',values:[...f.central.get('Master').values()][0]}]);
  const response=f.call(command),result=response.data;assert.equal(result?.state,'retry',JSON.stringify(response));
- assert.equal(f.rows('LEAD_MASTER').length,0);assert.equal(f.rows('FOLLOWUP_HISTORY').length,0);
+ assert.equal(f.rows('LEAD_MASTER').length,0);assert.equal(f.rows('FOLLOWUP_HISTORY').length,1);
  assert.equal([...f.central.get('Master').values()][0]['Transfer State'],'Transferred');
 });
 

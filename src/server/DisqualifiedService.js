@@ -1,5 +1,6 @@
 // Central, append-only destination. A verified copy precedes the atomic source
-// removal; the source receipt/fence makes retries safe after a lost response.
+// lead/task removal; history stays in the source as well as the central copy.
+// The source receipt/fence makes retries safe after a lost response.
 const DQ_META_ = ['Central Key','Origin Workbook','Origin Portal','Transfer State','Transferred At'];
 const DQ_TABLES_ = { DQ_MASTER:'Master', DQ_FOLLOWUPS:'FOLLOWUPS', DQ_FOLLOWUP_HISTORY:'FOLLOWUP_HISTORY', DQ_CONFIG:'PORTAL_CONFIG' };
 function dqEnabled_() { return !!CLIENT_CONFIG.DISQUALIFIED_SPREADSHEET_ID; }
@@ -76,10 +77,10 @@ function dqTransferBatch_() {
     dqUpsert_('Master',baseLead.map(row=>dqDecorate_(row,row['Lead ID'])));
     dqUpsert_('FOLLOWUPS',baseFollowup.map(row=>dqDecorate_(row,row['Follow-up ID'])));
     dqUpsert_('FOLLOWUP_HISTORY',plan.history.map(row=>dqDecorate_(row,row['History ID'])));
-    dqProgress_('Committing verified source removal');
+    dqProgress_('Moving verified lead/tasks; retaining source follow-up history');
     moved=plan.leads.map(row=>String(row['Lead ID']));const ids=new Set(moved);
     syncTxDelete_(SHEET_NAMES.FOLLOWUPS,row=>ids.has(String(row['Lead ID'])));
-    syncTxDelete_(SHEET_NAMES.FOLLOWUP_HISTORY,row=>ids.has(String(row['Lead ID'])));
+    // History is an audit trail: copy it centrally, never remove it on disqualification.
     syncTxDelete_(SHEET_NAMES.LEADS,row=>ids.has(String(row['Lead ID'])));
     _bumpStamp('leads');_bumpStamp('followups');_bumpStamp('followup_history');
     return respond({moved:moved.length,remaining:plan.remaining,leadIds:moved});
