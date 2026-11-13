@@ -571,8 +571,8 @@ async function openLeadDetail(leadId, seed) {
   }
 
   function _nbdVerificationTable(results) {
-    return '<div style="max-height:380px;overflow:auto;text-align:left"><table style="width:100%"><thead><tr><th>Company</th><th>Result</th><th>Location / match</th></tr></thead><tbody>' + results.map(r =>
-      '<tr><td>' + escapeHtml(r.company || r.leadId) + '</td><td>' + escapeHtml(r.error || r.status) + '</td><td>' +
+    return '<div style="max-height:380px;overflow:auto;text-align:left"><table style="width:100%;min-width:640px;table-layout:fixed"><colgroup><col style="width:30%"><col style="width:20%"><col style="width:50%"></colgroup><thead><tr><th>Company</th><th>Result</th><th>Location / match</th></tr></thead><tbody>' + results.map(r =>
+      '<tr><td style="word-break:normal;overflow-wrap:anywhere">' + escapeHtml(r.company || r.leadId) + '</td><td style="word-break:normal;overflow-wrap:anywhere">' + escapeHtml(r.error || r.status) + '</td><td style="word-break:normal;overflow-wrap:anywhere">' +
       (r.matches || []).map(m => escapeHtml(m.location + ': ' + m.company + ' · ' + m.matchOn + ' · ' + m.nbdLeadId)).join('<br>') + '</td></tr>').join('') + '</tbody></table></div>';
   }
 
@@ -613,7 +613,8 @@ async function openLeadDetail(leadId, seed) {
         const checked = await api.verifyNbdLeads(missing.slice(i,i+50).map(r => r.leadId));
         checked.results.forEach(r => { const old = missing.find(x => x.leadId === r.leadId); old.matches = r.matches; if (!old.error) old.status = r.status === 'Found' ? 'Verified' : 'Not verified'; });
       }
-      await Swal.fire({title:'Batch push verification', width:950, html:_nbdVerificationTable(missing), confirmButtonText:'Done'});
+      const verified = missing.filter(r => r.status === 'Verified' && !r.error).length;
+      await Swal.fire({title:'Batch push verification', width:950, html:'<p>' + verified + ' verified · ' + (missing.length-verified) + ' need review</p>' + _nbdVerificationTable(missing), confirmButtonText:'Done'});
       _refreshLeadViewsAfterLocalChange();
     } catch (e) {
       await Swal.fire({icon:'error', title:'Verification / push interrupted', text:e.message + ' Re-run Verify to check saved results before retrying.'});
