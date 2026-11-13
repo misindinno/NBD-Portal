@@ -43,3 +43,8 @@ test('single push checks current target and central records under lock before cr
   assert.match(source,/const duplicates = verifiedMatches/);
   assert.doesNotMatch(source,/if \(linkedNbdLeadId && !mapToNbdLeadId\)/);
 });
+test('legacy central rows without lead IDs still prevent duplicate creation',()=>{
+  const c=setup({SpreadsheetApp:{openById:id=>({getSheetByName:()=>({getDataRange:()=>({getValues:()=>id==='dq' ? [['Lead ID','Company Name','Origin Workbook'],['','Indian Velvet House','']] : [['Lead ID','Origin Workbook']]})})})}});
+  const matches=c._nbdMatchRows_({'Lead ID':'source','Company Name':'Indian Velvet House'},c._nbdVerificationRows_('nbd'));
+  assert.equal(matches.length,1); assert.equal(matches[0].nbdLeadId,''); assert.match(matches[0].location,/Disqualified/);
+});

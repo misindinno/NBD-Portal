@@ -372,7 +372,7 @@ function _nbdVerificationRows_(targetSpreadsheetId) {
     const headers = (values[0] || []).map(String);
     if (!headers.includes('Lead ID') || (central && !headers.includes('Origin Workbook'))) throw new Error('Invalid NBD verification schema.');
     return values.slice(1).map(cells => headers.reduce((row, key, i) => { if (key) row[key] = cells[i]; return row; }, {}))
-      .filter(row => row['Lead ID'] && (!central || String(row['Origin Workbook']) === targetSpreadsheetId || !String(row['Origin Workbook'] || '').trim()))
+      .filter(row => (row['Lead ID'] || row['Company Name'] || row.Phone) && (!central || String(row['Origin Workbook']) === targetSpreadsheetId || !String(row['Origin Workbook'] || '').trim()))
       .map(row => ({ row, location:central && !row['Origin Workbook'] ? location + ' (unassigned origin)' : location }));
   }
   return read(targetSpreadsheetId, SHEET_NAMES.LEADS, 'Active', false)
@@ -398,7 +398,7 @@ function _nbdMatchRows_(lead, records) {
     if ([phone(row.Phone), phone(row['Alternate No'])].some(p => p && phones.includes(p))) reasons.push('Phone');
     if (email.includes('@') && email === text(row.Email)) reasons.push('Email');
     if (company.length > 3 && company === text(row['Company Name'])) reasons.push('Company');
-    return reasons.length ? [{nbdLeadId:String(row['Lead ID']), company:String(row['Company Name'] || ''),
+    return reasons.length ? [{nbdLeadId:String(row['Lead ID'] || ''), company:String(row['Company Name'] || ''),
       contact:String(row['Contact Person'] || ''), phone:String(row.Phone || ''), email:String(row.Email || ''),
       location:record.location, status:String(row['Lead Status'] || ''), matchOn:reasons.join(', ')}] : [];
   });

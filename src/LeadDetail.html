@@ -494,7 +494,7 @@ async function openLeadDetail(leadId, seed) {
               Matched on: <strong>${escapeHtml(d.matchOn)}</strong>
             </div>
           </div>
-          ${d.location && d.location !== 'Active' ? `<span class="badge">${escapeHtml(d.location)}</span>` : `<button class="btn btn-sm btn-outlined" style="white-space:nowrap;flex-shrink:0" onclick="_nbdDupResolve(${i},'map')">
+          ${!d.nbdLeadId || d.location && d.location !== 'Active' ? `<span class="badge">${escapeHtml(d.location || 'Review record')}</span>` : `<button class="btn btn-sm btn-outlined" style="white-space:nowrap;flex-shrink:0" onclick="_nbdDupResolve(${i},'map')">
             Map to this
           </button>`}
         </div>`).join('');
@@ -583,9 +583,10 @@ async function openLeadDetail(leadId, seed) {
     let results = [], users = [];
     try {
       const selected = typeof _leadSelected !== 'undefined' ? Array.from(_leadSelected) : [];
+      Swal.fire({title:'Preparing qualified leads', showConfirmButton:false, allowOutsideClick:false, allowEscapeKey:false, didOpen:() => Swal.showLoading()});
       const ids = selected.length ? selected : await api.getNbdQualifiedLeadIds();
-      if (!ids.length) { toast('No qualified leads available.', 'info'); return; }
-      Swal.fire({title:'Verifying NBD leads', text:'Checking active, Archive and Disqualified records…', allowOutsideClick:false, allowEscapeKey:false, didOpen:() => Swal.showLoading()});
+      if (!ids.length) { Swal.close(); toast('No qualified leads available.', 'info'); return; }
+      Swal.fire({title:'Verifying NBD leads', text:'Checking active, Archive and Disqualified records…', showConfirmButton:false, allowOutsideClick:false, allowEscapeKey:false, didOpen:() => Swal.showLoading()});
       for (let i=0; i<ids.length; i+=50) {
         const batch = await api.verifyNbdLeads(ids.slice(i,i+50));
         results.push(...batch.results); users = batch.users;
@@ -598,7 +599,7 @@ async function openLeadDetail(leadId, seed) {
         showCancelButton:true, cancelButtonText:'Close', showConfirmButton:!!missing.length, confirmButtonText:'Push ' + missing.length + ' missing leads',
         preConfirm:() => { const owner = document.getElementById('nbd-batch-owner')?.value; if (!owner) { Swal.showValidationMessage('Select an NBD owner.'); return false; } return owner; }});
       if (!confirm.isConfirmed) return;
-      Swal.fire({title:'Pushing missing leads', text:'Keep this portal open. Each completed lead is saved separately.', allowOutsideClick:false, allowEscapeKey:false, didOpen:() => Swal.showLoading()});
+      Swal.fire({title:'Pushing missing leads', text:'Keep this portal open. Each completed lead is saved separately.', showConfirmButton:false, allowOutsideClick:false, allowEscapeKey:false, didOpen:() => Swal.showLoading()});
       for (let i=0; i<missing.length; i++) {
         const row = missing[i];
         try {
