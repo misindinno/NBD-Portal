@@ -778,6 +778,8 @@ function apiCheckNbdDuplicate(token, leadId) {
     const user = _apiUser();
     const hasLeadAccess = user.role === 'ADMIN' || userHasModule(user, 'Leads') || userHasModule(user, 'LeadForm');
     if (!['ADMIN', 'MANAGER', 'SALES'].includes(user.role) || !hasLeadAccess) throw new Error('Permission denied.');
+    const lead = getLeadCustomValues(leadId);
+    if (!lead || !_canWriteLead(lead, user)) throw new Error('Permission denied.');
     return respond(checkNbdDuplicates(leadId));
   });
 }
@@ -788,7 +790,30 @@ function apiGetNbdPushContext(token, leadId) {
     const user = _apiUser();
     const hasLeadAccess = user.role === 'ADMIN' || userHasModule(user, 'Leads') || userHasModule(user, 'LeadForm');
     if (!['ADMIN', 'MANAGER', 'SALES'].includes(user.role) || !hasLeadAccess) throw new Error('Permission denied.');
+    const lead = getLeadCustomValues(leadId);
+    if (!lead || !_canWriteLead(lead, user)) throw new Error('Permission denied.');
     return respond(getNbdPushContext(leadId));
+  });
+}
+
+function apiVerifyNbdLeads(token, leadIds) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiVerifyNbdLeads', () => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'leads', 'pushLeadToNbd');
+    return respond(verifyNbdLeads_(leadIds, user));
+  });
+}
+
+function apiGetNbdQualifiedLeadIds(token) {
+  _currentApiToken_ = token || '';
+  return apiGuard_('apiGetNbdQualifiedLeadIds', () => {
+    const user = _apiUser();
+    _assertCanMutate_(user, 'leads', 'pushLeadToNbd');
+    if (!_isLqPortalForNbdPush_()) throw new Error('Available only in LQ.');
+    return respond(getAllRows(SHEET_NAMES.LEADS)
+      .filter(lead => !_isArchivedLead_(lead) && _canWriteLead(lead, user) && _isLeadQualifiedForNbd_(lead))
+      .map(lead => String(lead['Lead ID'])));
   });
 }
 

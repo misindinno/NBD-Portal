@@ -11,7 +11,7 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
   mapToNbdLeadId = String(mapToNbdLeadId || '').trim();
   if (!leadId) return respond(null, 'Lead ID is required.');
 
-  const lead = getLead(leadId)?.lead;
+  const lead = getLeadCustomValues(leadId);
   if (!lead) return respond(null, 'Lead not found.');
   if (!_canWriteLead(lead, user)) return respond(null, 'Permission denied.');
   const sourceStage = _nbdSourceStage_(lead);
@@ -19,12 +19,6 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
     return respond(null, 'Only LQ leads in a Won stage can be pushed to NBD.');
   }
   const linkedNbdLeadId = String(lead['NBD Lead ID'] || '').trim();
-  if (linkedNbdLeadId && !mapToNbdLeadId) {
-    return respond({ leadId, nbdLeadId: linkedNbdLeadId, alreadyPushed: true });
-  }
-  if (linkedNbdLeadId && mapToNbdLeadId && linkedNbdLeadId !== mapToNbdLeadId) {
-    return respond(null, 'This LQ lead is already linked to NBD lead ' + linkedNbdLeadId + '.');
-  }
 
   // Prepare target structure and validate dependencies before writing business rows.
   const targetSheet = _nbdTargetSheet_(targetSpreadsheetId, SHEET_NAMES.LEADS);
@@ -59,7 +53,7 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
 
     // Re-read under the lock so stale or concurrent requests cannot create twice.
     if (typeof _invalidateReadCache_ === 'function') _invalidateReadCache_();
-    const currentLead = getLead(leadId)?.lead;
+    const currentLead = getLeadCustomValues(leadId);
     if (!currentLead) return respond(null, 'Lead not found.');
     if (!_canWriteLead(currentLead, user)) return respond(null, 'Permission denied.');
     const currentStage = _nbdSourceStage_(currentLead);
@@ -68,12 +62,16 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
     }
 
     const currentLink = String(currentLead['NBD Lead ID'] || '').trim();
-    if (currentLink && !mapToNbdLeadId) {
-      return respond({ leadId, nbdLeadId: currentLink, alreadyPushed: true });
+    const verifiedMatches = _nbdMatchRows_(currentLead, _nbdVerificationRows_(targetSpreadsheetId));
+    const verifiedLink = verifiedMatches.find(m => m.nbdLeadId === currentLink);
+    if (verifiedLink && !mapToNbdLeadId) {
+      return respond({ leadId, nbdLeadId: currentLink, alreadyPushed: true, location: verifiedLink.location });
     }
-    if (currentLink && mapToNbdLeadId && currentLink !== mapToNbdLeadId) {
+    if (verifiedLink && mapToNbdLeadId && currentLink !== mapToNbdLeadId) {
       return respond(null, 'This LQ lead is already linked to NBD lead ' + currentLink + '.');
     }
+    const centralMatch = verifiedMatches.find(m => m.location !== 'Active');
+    if (centralMatch) return respond(null, 'Existing NBD record found in ' + centralMatch.location + '. Review that record instead of creating a duplicate.');
 
     // This lookup and any target insert are one atomic critical section.
     const existing = _findExternalLeadBySource_(targetSheet, targetHeaders, leadId);
@@ -92,7 +90,7 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
         mapToNbdLeadId
       );
     } else {
-      const duplicates = _findNbdDuplicateLeads_(targetSpreadsheetId, currentLead, { skipSourceLeadId: leadId });
+      const duplicates = verifiedMatches;
       if (duplicates.length) {
         return respond(null, 'Existing NBD lead found. Please use Map to this instead of creating a duplicate. Matched on: ' + duplicates.map(d => d.matchOn).join('; '));
       }
@@ -131,13 +129,13 @@ function pushLeadToNbd(leadId, email, nbdAssignedTo, mapToNbdLeadId, qualifiedRe
     Logger.log('[NBD Push] Non-critical audit/cache update failed for ' + leadId + ': ' + (e && e.message || e));
   }
 
-  pushFsrLeadById_(leadId, 'client.updated');
-  if (operation.targetRowNumber) {
-    _pushFsrLeadRows_(
-      [operation.targetRowNumber],
-      operation.kind === 'created' ? 'client.created' : 'client.updated',
-      targetSheet
-    );
+  try {
+    pushFsrLeadById_(leadId, 'client.updated');
+    if (operation.targetRowNumber) {
+      _pushFsrLeadRows_([operation.targetRowNumber], operation.kind === 'created' ? 'client.created' : 'client.updated', targetSheet);
+    }
+  } catch (e) {
+    Logger.log('[NBD Push] Lead saved; FSR notification failed: ' + (e && e.message || e));
   }
 
   if (operation.kind === 'mapped') {
@@ -288,7 +286,8 @@ function _updateNbdSourceLeadUnderLock_(leadId, nbdLeadId, ts) {
     row[pushedCol] = ts;
     row[updatedCol] = ts;
     try {
-      sheet.getRange(i + 1, 1, 1, row.length).setValues([row]);
+      sheet.getRange(i + 1, 1, 1, row.length).setValues([sheetTypedRow_(row, headers)]);
+      formatSheetDateRow_(sheet, i + 1, row, headers);
     } catch (e) {
       const committedId = String(sheet.getRange(i + 1, nbdCol + 1).getValue() || '');
       if (committedId !== String(nbdLeadId)) throw e;
@@ -352,54 +351,75 @@ function checkNbdDuplicates(leadId) {
   if (!_isLqPortalForNbdPush_()) return [];
   const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
   if (!targetSpreadsheetId) return [];
-  const lead = getLead(leadId)?.lead;
+  const lead = getLeadCustomValues(leadId);
   if (!lead) return [];
 
   return _findNbdDuplicateLeads_(targetSpreadsheetId, lead, { skipSourceLeadId: leadId });
 }
 
 function _findNbdDuplicateLeads_(targetSpreadsheetId, lead, options) {
-  const indexRows = _nbdLeadIndexRows_(targetSpreadsheetId);
-  const lqPhone   = _normalizePhone_(lead['Phone']);
-  const lqAlt     = _normalizePhone_(lead['Alternate No']);
-  const lqEmail   = String(lead['Email']        || '').trim().toLowerCase();
-  const lqCompany = String(lead['Company Name'] || '').trim().toLowerCase();
-  const skipSourceLeadId = String(options && options.skipSourceLeadId || '').trim();
+  return _nbdMatchRows_(lead, _nbdVerificationRows_(targetSpreadsheetId));
+}
 
-  const matches = [];
-  for (let i = 0; i < indexRows.length; i++) {
-    const row = indexRows[i] || {};
-    if (skipSourceLeadId && String(row['Source Lead ID'] || '') === skipSourceLeadId) continue;
-
-    const rPhone   = _normalizePhone_(row['Phone']);
-    const rAlt     = _normalizePhone_(row['Alternate No']);
-    const rEmail   = String(row['Email'] || '').trim().toLowerCase();
-    const rCompany = String(row['Company Name'] || '').trim().toLowerCase();
-
-    const phoneMatch   = !!(lqPhone   && ((rPhone && lqPhone === rPhone) || (rAlt && lqPhone === rAlt)));
-    const altMatch     = !!(lqAlt     && ((rPhone && lqAlt   === rPhone) || (rAlt && lqAlt   === rAlt)));
-    const emailMatch   = !!(lqEmail   && rEmail   && lqEmail   === rEmail);
-    const companyMatch = !!(lqCompany && rCompany && lqCompany === rCompany && lqCompany.length > 3);
-
-    if (!phoneMatch && !altMatch && !emailMatch && !companyMatch) continue;
-
-    const reasons = [
-      (phoneMatch || altMatch) && 'Phone',
-      emailMatch               && 'Email',
-      companyMatch             && 'Company'
-    ].filter(Boolean);
-
-    matches.push({
-      nbdLeadId: String(row['Lead ID'] || ''),
-      company:   String(row['Company Name'] || ''),
-      contact:   String(row['Contact Person'] || ''),
-      phone:     String(row['Phone'] || ''),
-      email:     String(row['Email'] || ''),
-      stageId:   String(row['Stage ID'] || ''),
-      matchOn:   reasons.join(', ')
-    });
+// Always read authoritative rows, never the independently maintained IDX_LEADS.
+// A failed central read must fail closed, not turn an unknown result into Missing.
+function _nbdVerificationRows_(targetSpreadsheetId) {
+  function read(bookId, tab, location, central) {
+    if (!bookId) throw new Error('NBD verification workbook is not configured.');
+    const sheet = SpreadsheetApp.openById(bookId).getSheetByName(tab);
+    if (!sheet) throw new Error('NBD verification sheet is missing: ' + tab);
+    const values = sheet.getDataRange().getValues();
+    const headers = (values[0] || []).map(String);
+    if (!headers.includes('Lead ID') || (central && !headers.includes('Origin Workbook'))) throw new Error('Invalid NBD verification schema.');
+    return values.slice(1).map(cells => headers.reduce((row, key, i) => { if (key) row[key] = cells[i]; return row; }, {}))
+      .filter(row => row['Lead ID'] && (!central || String(row['Origin Workbook']) === targetSpreadsheetId || !String(row['Origin Workbook'] || '').trim()))
+      .map(row => ({ row, location:central && !row['Origin Workbook'] ? location + ' (unassigned origin)' : location }));
   }
-  return matches;
+  return read(targetSpreadsheetId, SHEET_NAMES.LEADS, 'Active', false)
+    .concat(read(CLIENT_CONFIG.ARCHIVE_SPREADSHEET_ID, 'Master', 'Archive', true),
+      read(CLIENT_CONFIG.DISQUALIFIED_SPREADSHEET_ID, 'Master', 'Disqualified', true));
+}
+
+function _nbdMatchRows_(lead, records) {
+  const text = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const phone = value => {
+    let digits = String(value || '').replace(/\D/g, '');
+    if (digits.length === 12 && digits.slice(0, 2) === '91') digits = digits.slice(2);
+    return digits.length >= 7 ? digits : '';
+  };
+  const phones = [phone(lead.Phone), phone(lead['Alternate No'])].filter(Boolean);
+  const email = text(lead.Email);
+  const company = text(lead['Company Name']);
+  return records.flatMap(record => {
+    const row = record.row;
+    const reasons = [];
+    if (lead['NBD Lead ID'] && String(row['Lead ID']) === String(lead['NBD Lead ID'])) reasons.push('Linked ID');
+    if (row['Source Lead ID'] && String(row['Source Lead ID']) === String(lead['Lead ID'])) reasons.push('Source ID');
+    if ([phone(row.Phone), phone(row['Alternate No'])].some(p => p && phones.includes(p))) reasons.push('Phone');
+    if (email.includes('@') && email === text(row.Email)) reasons.push('Email');
+    if (company.length > 3 && company === text(row['Company Name'])) reasons.push('Company');
+    return reasons.length ? [{nbdLeadId:String(row['Lead ID']), company:String(row['Company Name'] || ''),
+      contact:String(row['Contact Person'] || ''), phone:String(row.Phone || ''), email:String(row.Email || ''),
+      location:record.location, status:String(row['Lead Status'] || ''), matchOn:reasons.join(', ')}] : [];
+  });
+}
+
+function verifyNbdLeads_(leadIds, user) {
+  assertServerContext_();
+  if (!_isLqPortalForNbdPush_()) throw new Error('Available only in LQ.');
+  if (!Array.isArray(leadIds) || !leadIds.length || leadIds.length > 50) throw new Error('Select 1 to 50 leads per batch.');
+  const sourceRows = getAllRows(SHEET_NAMES.LEADS);
+  const leads = [...new Set(leadIds.map(String))].map(id => {
+    const lead = sourceRows.find(row => String(row['Lead ID']) === id);
+    if (!lead || !_canWriteLead(lead, user)) throw new Error('Lead not found or permission denied.');
+    return lead;
+  });
+  const records = _nbdVerificationRows_(String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || ''));
+  return { results:leads.map(lead => {
+    const matches = _nbdMatchRows_(lead, records);
+    return {leadId:String(lead['Lead ID']), company:lead['Company Name'], qualified:_isLeadQualifiedForNbd_(lead),
+      status:matches.length ? 'Found' : 'Missing', matches, checkedAt:new Date().toISOString()};
+  }), users:_nbdAssignableUsers_(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID) };
 }
 
 function _findExternalLeadById_(spreadsheetId, leadId) {
@@ -537,7 +557,7 @@ function getNbdPushContext(leadId) {
   if (!_isLqPortalForNbdPush_()) return { duplicates: [], users: [] };
   const targetSpreadsheetId = String(CLIENT_CONFIG.NBD_TARGET_SPREADSHEET_ID || '').trim();
   if (!targetSpreadsheetId) return { duplicates: [], users: [] };
-  const lead = getLead(leadId)?.lead;
+  const lead = getLeadCustomValues(leadId);
   if (!lead) throw new Error('Lead not found.');
   return {
     duplicates: _findNbdDuplicateLeads_(targetSpreadsheetId, lead, { skipSourceLeadId: leadId }),
@@ -550,7 +570,7 @@ function _isLeadQualifiedForNbd_(lead) {
 }
 
 function _isLqPortalForNbdPush_() {
-  return String(CLIENT_CONFIG.APP_TITLE || '').trim().toLowerCase().indexOf('lq') !== -1;
+  return String(CLIENT_CONFIG.APP_TITLE || '').trim().toLowerCase() === 'lq portal';
 }
 
 function _nbdSourceStage_(lead) {
@@ -687,12 +707,14 @@ function _ensureExternalHeaders_(sheet, requiredHeaders) {
 }
 
 function _appendExternalRow_(sheet, headers, rowObj) {
-  headers = Array.isArray(headers) ? headers.filter(Boolean) : [];
+  headers = Array.isArray(headers) ? headers : [];
   if (!headers.length) throw new Error('Cannot append external row: sheet "' + sheet.getName() + '" has no headers.');
-  const row = sanitizeSheetRowValues_(headers.map(h => rowObj[h] !== undefined ? rowObj[h] : ''));
+  const values = headers.map(h => h && rowObj[h] !== undefined ? rowObj[h] : '');
+  const row = sanitizeSheetRowValues_(sheetTypedRow_(values, headers));
   const rowNumber = sheet.getLastRow() + 1;
   if (rowNumber < 2) throw new Error('Cannot append external row: invalid row number ' + rowNumber + ' for ' + sheet.getName());
   sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
+  formatSheetDateRow_(sheet, rowNumber, values, headers);
   return rowNumber;
 }
 

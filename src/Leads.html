@@ -299,6 +299,7 @@
               <div id="lead-bulk-bar" class="lead-bulk-bar" style="display:none"></div>
             </div>
             <div class="fu-worklist-tools">
+              ${String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase() === 'lq portal' ? `<button class="btn btn-outlined btn-sm" onclick="openNbdBatchVerification()">Verify / push qualified leads</button>` : ''}
               <div class="fu-density-toggle" id="lead-density-toggle" role="group" aria-label="Row density">
                 <button data-density="comfortable" class="${_leadDensity === 'comfortable' ? 'active' : ''}" title="Comfortable" onclick="_leadSetDensity('comfortable')">${icon('rows-3', 12)}</button>
                 <button data-density="compact" class="${_leadDensity === 'compact' ? 'active' : ''}" title="Compact" onclick="_leadSetDensity('compact')">${icon('list', 12)}</button>

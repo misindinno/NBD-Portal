@@ -149,6 +149,7 @@ async function openLeadDetail(leadId, seed) {
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         ${isNbdLocked ? `<span class="badge nbd-locked-badge">${icon('lock', 13)} Moved to NBD</span>` : ''}
+        ${(showNbdPush || isNbdLocked) && String(typeof APP_TITLE !== 'undefined' ? APP_TITLE : '').toLowerCase() === 'lq portal' ? `<button class="btn btn-outlined btn-sm" onclick="verifyNbdLeadFromDetail('${escapeHtml(String(lead['Lead ID']))}',this)">${icon('badge-check',14)} Verify lead</button>` : ''}
         ${_canAddFollowup() ? _addFollowupButtonHTML(lead['Lead ID'] || '', lead['Client Description'] || '', 'sm') : (!isNbdLocked && _isNBDPortal() ? _nbdEscalateBtn('sm') : '')}
         ${showNbdPush ? `<button class="btn btn-outlined btn-sm" id="push-nbd-btn" onclick="pushLeadToNbdFromDetail('${escapeHtml(String(lead['Lead ID'] || ''))}')">
           ${icon('send', 14)} Push to NBD
@@ -402,10 +403,7 @@ async function openLeadDetail(leadId, seed) {
             'Pushed To NBD At': _nowStr(),
             'Updated At': _nowStr()
           });
-          setTimeout(() => {
-            document.querySelector('.modal-overlay')?.remove();
-            _refreshLeadViewsAfterLocalChange();
-          }, 1200);
+          if (btn) resetButtonLoading(btn);
           toast('Lead mapped to existing NBD lead!', 'success');
         } catch (err) {
           _showNbdPushStatus('failed', err.message || 'Unknown error');
@@ -474,10 +472,7 @@ async function openLeadDetail(leadId, seed) {
         'Pushed To NBD At': _nowStr(),
         'Updated At': _nowStr()
       });
-      setTimeout(() => {
-        document.querySelector('.modal-overlay')?.remove();
-        _refreshLeadViewsAfterLocalChange();
-      }, 1200);
+          if (btn) resetButtonLoading(btn);
       toast('Lead pushed to NBD successfully!', 'success');
     } catch (err) {
       _showNbdPushStatus('failed', err.message || 'Unknown error');
@@ -499,9 +494,9 @@ async function openLeadDetail(leadId, seed) {
               Matched on: <strong>${escapeHtml(d.matchOn)}</strong>
             </div>
           </div>
-          <button class="btn btn-sm btn-outlined" style="white-space:nowrap;flex-shrink:0" onclick="_nbdDupResolve(${i},'map')">
+          ${d.location && d.location !== 'Active' ? `<span class="badge">${escapeHtml(d.location)}</span>` : `<button class="btn btn-sm btn-outlined" style="white-space:nowrap;flex-shrink:0" onclick="_nbdDupResolve(${i},'map')">
             Map to this
-          </button>
+          </button>`}
         </div>`).join('');
 
       // Store duplicates and resolver on window so button handlers can access them
@@ -559,18 +554,68 @@ async function openLeadDetail(leadId, seed) {
     bar.style.color      = cfg.color;
     bar.style.border     = '1px solid ' + cfg.border;
     const checkBtn = '';
-    bar.innerHTML = `<span style="flex-shrink:0">${icon(cfg.icon, 15, cfg.iconCls)}</span><span style="flex:1">${cfg.text}</span>${checkBtn}`;
+    bar.innerHTML = `<span style="flex-shrink:0">${icon(cfg.icon, 15, cfg.iconCls)}</span><span style="flex:1">${escapeHtml(cfg.text || '')}</span>${checkBtn}`;
     renderIcons(bar);
   }
 
-  async function _checkNbdPushStatus(btn) {
-    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  async function verifyNbdLeadFromDetail(leadId, btn) {
+    if (btn) setButtonLoading(btn, 'Verifying…');
     try {
-      _showNbdPushStatus('processing');
+      const data = await api.verifyNbdLeads([leadId]);
+      const result = data.results[0];
+      await Swal.fire({title:result.status === 'Found' ? 'Lead verified' : 'NBD lead not found',
+        icon:result.status === 'Found' ? 'success' : 'warning',
+        html:_nbdVerificationTable(data.results) + '<p>Checked active NBD, central Archive and Disqualified records just now.</p>', width:800});
+    } catch (e) { toast('Verification failed: ' + e.message, 'error'); }
+    finally { if (btn) resetButtonLoading(btn); }
+  }
+
+  function _nbdVerificationTable(results) {
+    return '<div style="max-height:380px;overflow:auto;text-align:left"><table style="width:100%"><thead><tr><th>Company</th><th>Result</th><th>Location / match</th></tr></thead><tbody>' + results.map(r =>
+      '<tr><td>' + escapeHtml(r.company || r.leadId) + '</td><td>' + escapeHtml(r.error || r.status) + '</td><td>' +
+      (r.matches || []).map(m => escapeHtml(m.location + ': ' + m.company + ' · ' + m.matchOn + ' · ' + m.nbdLeadId)).join('<br>') + '</td></tr>').join('') + '</tbody></table></div>';
+  }
+
+  let _nbdBatchBusy = false;
+  async function openNbdBatchVerification() {
+    if (_nbdBatchBusy) return;
+    _nbdBatchBusy = true;
+    let results = [], users = [];
+    try {
+      const selected = typeof _leadSelected !== 'undefined' ? Array.from(_leadSelected) : [];
+      const ids = selected.length ? selected : await api.getNbdQualifiedLeadIds();
+      if (!ids.length) { toast('No qualified leads available.', 'info'); return; }
+      Swal.fire({title:'Verifying NBD leads', text:'Checking active, Archive and Disqualified records…', allowOutsideClick:false, allowEscapeKey:false, didOpen:() => Swal.showLoading()});
+      for (let i=0; i<ids.length; i+=50) {
+        const batch = await api.verifyNbdLeads(ids.slice(i,i+50));
+        results.push(...batch.results); users = batch.users;
+        Swal.update({text:Math.min(i+50,ids.length) + ' / ' + ids.length + ' checked'});
+      }
+      const missing = results.filter(r => r.status === 'Missing' && r.qualified);
+      const confirm = await Swal.fire({title:'NBD verification: ' + results.length + ' checked', width:950,
+        html:'<p>' + missing.length + ' qualified leads missing. Existing matches will be skipped.</p>' + _nbdVerificationTable(results) +
+          (missing.length ? '<label>Assign missing leads to <select id="nbd-batch-owner"><option value="">Select NBD owner</option>' + users.map(u => '<option value="' + escapeHtml(u.id) + '">' + escapeHtml(u.name) + '</option>').join('') + '</select></label><p>Existing qualification remarks are retained. Each push rechecks for duplicates.</p>' : ''),
+        showCancelButton:true, cancelButtonText:'Close', showConfirmButton:!!missing.length, confirmButtonText:'Push ' + missing.length + ' missing leads',
+        preConfirm:() => { const owner = document.getElementById('nbd-batch-owner')?.value; if (!owner) { Swal.showValidationMessage('Select an NBD owner.'); return false; } return owner; }});
+      if (!confirm.isConfirmed) return;
+      Swal.fire({title:'Pushing missing leads', text:'Keep this portal open. Each completed lead is saved separately.', allowOutsideClick:false, allowEscapeKey:false, didOpen:() => Swal.showLoading()});
+      for (let i=0; i<missing.length; i++) {
+        const row = missing[i];
+        try {
+          const saved = await api.pushLeadToNbd({leadId:row.leadId, nbdAssignedTo:confirm.value});
+          row.status = saved.alreadyPushed ? 'Already exists' : 'Pushed';
+          AppCache.patchRow('leads','Lead ID',row.leadId,{'NBD Lead ID':saved.nbdLeadId,'Pushed To NBD At':_nowStr()});
+        } catch (e) { row.error = e.message || 'Push failed'; }
+        Swal.update({text:(i+1) + ' / ' + missing.length + ' processed'});
+      }
+      for (let i=0; i<missing.length; i+=50) {
+        const checked = await api.verifyNbdLeads(missing.slice(i,i+50).map(r => r.leadId));
+        checked.results.forEach(r => { const old = missing.find(x => x.leadId === r.leadId); old.matches = r.matches; if (!old.error) old.status = r.status === 'Found' ? 'Verified' : 'Not verified'; });
+      }
+      await Swal.fire({title:'Batch push verification', width:950, html:_nbdVerificationTable(missing), confirmButtonText:'Done'});
+      _refreshLeadViewsAfterLocalChange();
     } catch (e) {
-      toast('Status check failed: ' + e.message, 'error');
-    } finally {
-      if (btn) { btn.disabled = false; renderIcons(btn.closest('#nbd-push-status-bar')); }
-    }
+      await Swal.fire({icon:'error', title:'Verification / push interrupted', text:e.message + ' Re-run Verify to check saved results before retrying.'});
+    } finally { _nbdBatchBusy = false; }
   }
 </script>
