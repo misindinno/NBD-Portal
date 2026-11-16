@@ -17,6 +17,7 @@ const _cityCache = {};
 
 async function _fetchCitiesForState(stateName) {
   if (!stateName) return [];
+  if (_normalizeLocationName(stateName) === 'Chandigarh') return ['Chandigarh'];
   if (_cityCache[stateName] !== undefined) return _cityCache[stateName];
   try {
     const res = await fetch('https://countriesnow.space/api/v0.1/countries/state/cities', {
@@ -39,11 +40,14 @@ async function _initStateCityDropdowns(root, initState, initCity) {
   const cityEl  = root.querySelector('[name="City"]');
   if (!stateEl || !cityEl || cityEl.tagName !== 'SELECT') return;
 
+  let refreshVersion = 0;
   async function refresh(stateName, selectedCity) {
+    const version = ++refreshVersion;
     const cleanSelected = _normalizeLocationName(selectedCity);
     cityEl.innerHTML = '<option value="">Loading cities…</option>';
     cityEl.disabled = true;
     const cities = await _fetchCitiesForState(stateName);
+    if (version !== refreshVersion) return;
     cityEl.disabled = false;
     cityEl.innerHTML = '<option value="">Select City</option>';
     cities.forEach(name => {
