@@ -30,3 +30,11 @@ test('UI collects every dynamic field, rejects repeated numbers and escapes phon
  const html=c.leadPhonesHTML({Phone:'9876543210','Alternate No':'9234567890\n9345678901'});assert.equal((html.match(/href="tel:/g)||[]).length,3);assert.match(html,/Primary/);assert.match(html,/Additional/);
  assert.doesNotMatch(c.leadPhonesHTML({Phone:'<img src=x onerror=alert(1)>'}),/<img/);
 });
+
+test('legacy bulk phone validation accepts multiple additional numbers as text',()=>{
+ const f=syncFixture();f.c._bulkInitialStageId_=()=> 'S1';
+ const table=f.tables.get('Bulk_Config');table.data.push(['Alternate No','No','Number','Alternate No','phone','']);
+ const cmd=f.command('apiSaveBulkRows',[[{'Company Name':'Legacy config',Phone:'9000000001','Alternate No':'9000000002,9000000003'}],'create']);
+ const result=f.call(cmd);assert.equal(result.data?.result?.summary?.saved,1,JSON.stringify(result));
+ assert.equal(f.rows('LEAD_MASTER')[1]['Alternate No'],'9000000002\n9000000003');
+});

@@ -26,6 +26,9 @@ function getBulkConfig() {
   const configured = rows.map(r => {
     const cfg = _normalizeBulkConfigRow_(r);
     if (!cfg.fieldName || !cfg.targetColumn) return null;
+    // Legacy bulk configurations may validate Alternate No as one scalar phone.
+    // Each number is now validated by _prepareLeadPayload instead.
+    if (cfg.targetHeader === 'Alternate No') { cfg.dataType = 'Text'; cfg.validationRule = 'optional'; }
     if (!cfg.allowedValues.length) {
       const key = cfg.fieldName.toLowerCase().trim();
       const targetKey = (cfg.targetColumn || cfg.fieldName).toLowerCase().trim();
