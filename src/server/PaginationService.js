@@ -261,7 +261,7 @@ function getArchivePage_(user, input) {
     if (req.search) {
       const haystack = [
         row['Lead ID'], row['Company Name'], row['Contact Person'], row['Client Description'],
-        row['Phone'], row['City'], row['State'], row['Assigned To'], row._stageName, row['Archive Reason']
+        row['Phone'], row['Alternate No'], row['WhatsApp No'], row['City'], row['State'], row['Assigned To'], row._stageName, row['Archive Reason']
       ].map(value => String(value || '').toLowerCase()).join(' ');
       if (!haystack.includes(req.search)) return false;
     }

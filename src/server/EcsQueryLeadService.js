@@ -87,7 +87,7 @@ function _ecsCheckQueryLead_(request) {
   const rows = _leadMasterLookupRows_(['Lead ID', 'Company Name', 'Phone', 'Alternate No', 'Email', 'City', 'State', 'Source Lead ID']);
   const matches = rows.filter(row => !(request.excludeQueryLead === true && String(row['Source Lead ID'] || '') === request.queryId) && (
     (company && _leadNormText_(row['Company Name']) === company) ||
-    (phone && (_leadNormPhone_(row.Phone) === phone || _leadNormPhone_(row['Alternate No']) === phone)) ||
+    (phone && leadPhoneNumbers_(row).some(n => leadPhoneKey_(n) === leadPhoneKey_(phone))) ||
     (email && _leadNormEmail_(row.Email) === email)
   ));
   // Verify exact IDs against the master, including renamed leads and manual deletions.

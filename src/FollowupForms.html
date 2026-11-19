@@ -201,7 +201,7 @@ async function openMarkFollowupDoneForm(followupId) {
     ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;font-size:12px;margin-bottom:10px">'
       + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Company</div><div style="font-weight:600;color:#111827">' + escapeHtml(lead['Company Name']||'—') + '</div></div>'
       + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Contact</div><div style="font-weight:600;color:#111827">' + escapeHtml(lead['Contact Person']||'—') + '</div></div>'
-      + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Phone</div><div style="font-weight:600;color:#111827">' + escapeHtml(lead['Phone']||'—') + '</div></div>'
+      + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Phone</div><div style="font-weight:600;color:#111827">' + leadPhonesHTML(lead) + '</div></div>'
       + '<div><div style="color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Stage</div><div style="font-weight:600;color:#111827">' + escapeHtml(leadStageName) + '</div></div>'
       + '</div>'
     : '<div style="font-size:13px;color:#6b7280;margin-bottom:8px">Standalone follow-up</div>';

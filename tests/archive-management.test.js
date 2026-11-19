@@ -24,7 +24,7 @@ function fixture(){
    if(state.after){state.after=false;throw Error('Lost acknowledgement');}
   }}}
  });
- vm.runInContext(read('src/server/ArchiveManagementService.js'),c);
+ vm.runInContext((read('src/server/PhoneNumbers.js') + '\n' + read('src/server/ArchiveManagementService.js')),c);
  const command=(action,changes={})=>({id:crypto.randomUUID(),leadId:'L1',action,changes,revision:c.arRevision_(state.lead)});
  return {c,state,user,command,run:cmd=>c.arManage_(user,cmd)};
 }

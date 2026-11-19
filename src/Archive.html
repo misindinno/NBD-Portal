@@ -485,7 +485,7 @@ function _archSugRowHTML(row) {
     <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)"></td>
     <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
       <div class="arch-lead-title">${escapeHtml(title)}</div>
-      <div class="arch-lead-sub">${escapeHtml(place)}</div>
+      <div class="arch-lead-sub">${escapeHtml(place)}</div><div>${leadPhonesHTML(row)}</div>
     </td>
     <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
     <td><span class="arch-badge arch-badge--${lifecycleStatus && statusKey !== 'won' ? 'crit' : (crit ? 'crit' : 'warn')}">${lifecycleStatus ? icon(statusIcon, 12) + ' ' + escapeHtml(status) : icon('phone-missed', 12) + ' ' + escapeHtml(totalNp) + ' not picked'}</span></td>
@@ -509,7 +509,7 @@ function _archLostRowHTML(row) {
     <td><input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)"></td>
     <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
       <div class="arch-lead-title">${escapeHtml(title)}</div>
-      <div class="arch-lead-sub">${escapeHtml(place)}</div>
+      <div class="arch-lead-sub">${escapeHtml(place)}</div><div>${leadPhonesHTML(row)}</div>
     </td>
     <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
     <td><span class="arch-badge arch-badge--slim arch-badge--crit">${escapeHtml(stage)}</span></td>
@@ -536,7 +536,7 @@ function _archArchivedRowHTML(row) {
     <td>${_archiveTab==='trash'?'':`<input type="checkbox" class="arch-check" ${checked ? 'checked' : ''} onclick="_archToggle('${escapeHtml(leadId)}', this.checked)">`}</td>
     <td onclick="_archiveOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer">
       <div class="arch-lead-title">${escapeHtml(title)}</div>
-      <div class="arch-lead-sub">${escapeHtml(place)}</div>
+      <div class="arch-lead-sub">${escapeHtml(place)}</div><div>${leadPhonesHTML(row)}</div>
     </td>
     <td><span class="arch-owner"><span class="arch-owner-av">${escapeHtml(initial)}</span>${escapeHtml(owner)}</span></td>
     <td><span class="arch-badge arch-badge--slim arch-badge--warn">${escapeHtml(pending)} days</span></td>
@@ -714,12 +714,16 @@ async function _archManage(leadId, action) {
     if(!modal.open||session!==AuthToken.get())return;
     const title=action==='trash'?'Move to recoverable Trash':action==='recover'?'Recover to Archive':'Save changes';
     modal.querySelector('[data-body]').innerHTML='<p><strong>'+escapeHtml(data.lead['Company Name'])+'</strong></p>'+
-      (action==='update'?'<form data-edit style="display:grid;gap:12px">'+data.fields.map(key=>'<label>'+escapeHtml(key)+'<textarea class="form-control" rows="'+(/Remark|Description|Address/.test(key)?3:1)+'" data-field="'+escapeHtml(key)+'" maxlength="5000">'+escapeHtml(String(data.lead[key]||''))+'</textarea></label>').join('')+'</form>':'<p>'+ (action==='trash'?'The lead and all follow-ups/history stay preserved. You can recover this record from the Trash tab.':'This returns the record to Archive. Use Restore there when you want it back in active leads.')+'</p>')+
+      (action==='update'?'<form data-edit style="display:grid;gap:12px">'+leadPhoneFieldsHTML(data.lead)+data.fields.filter(key=>!['Phone','Alternate No'].includes(key)).map(key=>'<label>'+escapeHtml(key)+'<textarea class="form-control" rows="'+(/Remark|Description|Address/.test(key)?3:1)+'" data-field="'+escapeHtml(key)+'" maxlength="5000">'+escapeHtml(String(data.lead[key]||''))+'</textarea></label>').join('')+'</form>':'<p>'+ (action==='trash'?'The lead and all follow-ups/history stay preserved. You can recover this record from the Trash tab.':'This returns the record to Archive. Use Restore there when you want it back in active leads.')+'</p>')+
       '<p data-status role="status"></p><button class="btn btn-primary" data-save>'+title+'</button>';
     let command=null;
     modal.querySelector('[data-save]').onclick=async()=>{
       const button=modal.querySelector('[data-save]'),status=modal.querySelector('[data-status]');button.disabled=true;
-      if(!command)command={id:crypto.randomUUID(),leadId,action,revision:data.revision,changes:Object.fromEntries([...modal.querySelectorAll('[data-field]')].map(n=>[n.dataset.field,n.value]))};
+      if(!command) {
+        const changes=Object.fromEntries([...modal.querySelectorAll('[data-field]')].map(n=>[n.dataset.field,n.value]));
+        if(action==='update') { changes.Phone=modal.querySelector('[name=Phone]').value; try {collectLeadPhones(modal,changes);}catch(error){status.textContent=error.message;button.disabled=false;return;} }
+        command={id:crypto.randomUUID(),leadId,action,revision:data.revision,changes};
+      }
       modal.querySelectorAll('[data-field]').forEach(n=>n.disabled=true);
       status.textContent='Saving to Archive… You can close this panel and continue working.';
       try {
@@ -1000,7 +1004,7 @@ function _exportArchiveCsv() {
     return;
   }
   const headers = [
-    'Lead ID','Company Name','Contact Person','Phone','Email','City','State',
+    'Lead ID','Company Name','Contact Person','Phone','Additional Phones','Email','City','State',
     'Assigned To','Lead Status','Next Follow-up Date','Last Follow-up Date',
     'Not Picked Count','Pending Days','Follow-up Count','Archived At','Archived By','Archive Reason'
   ];
@@ -1009,6 +1013,7 @@ function _exportArchiveCsv() {
     row['Company Name'] || '',
     row['Contact Person'] || '',
     row['Phone'] || '',
+    row['Alternate No'] || '',
     row['Email'] || '',
     row['City'] || '',
     row['State'] || '',

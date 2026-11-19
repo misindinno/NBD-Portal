@@ -77,7 +77,7 @@ test('missing IDs never write and a write failure releases the lock', () => {
 test('index lookup returns an exact match without transferring the entire index', () => {
   const fixture = sheetFixture([['ID', 'Row Number'], ['abc', 10], ['ABC', 20], ['ABC-more', 30]]);
   const ctx = vm.createContext({ getSheet: () => fixture.sheet, safeInitHeaders() {}, normalizeSheetValue: value => value, Logger: { log() {} } });
-  vm.runInContext(read('src/server/IndexService.js'), ctx);
+  vm.runInContext((read('src/server/PhoneNumbers.js') + '\n' + read('src/server/IndexService.js')), ctx);
   const found = ctx._findIndexRecord_({ indexSheet: 'index', headers: ['ID', 'Row Number'] }, 'ID', 'ABC');
   assert.equal(found.rowNumber, 3);
   assert.equal(found.row['Row Number'], 20);

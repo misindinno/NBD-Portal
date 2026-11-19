@@ -28,7 +28,7 @@ async function loadDisqualified(prefetched) {
     dqTable=new Tabulator('#dq-table',{data:dqRows,index:'Central Key',height:'60vh',layout:'fitColumns',columns:[
       {title:'Company',field:'Company Name',minWidth:200,formatter:'plaintext'},
       {title:'Contact',field:'Contact Person',formatter:'plaintext'},
-      {title:'Phone',field:'Phone',formatter:'plaintext'},
+      {title:'Phone',field:'Phone',formatter:cell=>leadPhonesHTML(cell.getRow().getData()),variableHeight:true},
       {title:'City',field:'City',formatter:'plaintext'},
       {title:'Assigned to',field:'Assigned To',formatter:cell=>escapeHtml((App.config.users||[]).find(u=>String(u.id)===String(cell.getValue()))?.name||cell.getValue())},
       {title:'History',headerSort:false,width:95,formatter:()=>'<button class="btn btn-outlined btn-sm">View</button>',cellClick:(_e,cell)=>openDisqualified(cell.getRow().getData()['Lead ID'])}
@@ -37,7 +37,7 @@ async function loadDisqualified(prefetched) {
     dqTableReady=new Promise(resolve=>table.on('tableBuilt',()=>{if(table===dqTable){dqTableBuilt=true;dqFilter();}resolve();}));
   } catch(error){if(current())toast(error.message,'error');}
 }
-function dqFilter(){const q=String(el('dq-search')?.value||'').toLowerCase();if(dqTable && dqTableBuilt)dqTable.setFilter(row=>!q||['Company Name','Contact Person','Phone','City'].some(k=>String(row[k]||'').toLowerCase().includes(q)));if(el('dq-count'))el('dq-count').textContent=dqRows.filter(row=>!q||['Company Name','Contact Person','Phone','City'].some(k=>String(row[k]||'').toLowerCase().includes(q))).length+' leads';}
+function dqFilter(){const q=String(el('dq-search')?.value||'').toLowerCase();if(dqTable && dqTableBuilt)dqTable.setFilter(row=>!q||['Company Name','Contact Person','Phone','Alternate No','WhatsApp No','City'].some(k=>String(row[k]||'').toLowerCase().includes(q)));if(el('dq-count'))el('dq-count').textContent=dqRows.filter(row=>!q||['Company Name','Contact Person','Phone','Alternate No','WhatsApp No','City'].some(k=>String(row[k]||'').toLowerCase().includes(q))).length+' leads';}
 async function openDisqualified(id, endpoint = 'apiGetDisqualifiedDetail'){
   const modal=document.createElement('dialog');modal.style.cssText='width:min(900px,90vw);max-height:85vh;border:0;border-radius:14px;padding:24px';
   modal.innerHTML='<button class="btn btn-outlined" style="float:right" id="dq-close">Close</button><h2>Lead & follow-up history</h2><div id="dq-detail">Opening saved history…</div>';
@@ -45,10 +45,10 @@ async function openDisqualified(id, endpoint = 'apiGetDisqualifiedDetail'){
   const render=data=>{
     if(!modal.open)return;
     const fields=['Company Name','Contact Person','Phone','WhatsApp No','Alternate No','Email','City','State','Address','GST No','Remark','Client Description'];
-    const cell=(key,value)=>/Remark|Discussion/.test(key)?remarkHtml(value):escapeHtml(String(value||''));
+    const cell=(key,value)=>key==='Phone'?leadPhonesHTML(data.lead):/Remark|Discussion/.test(key)?remarkHtml(value):escapeHtml(String(value||''));
     const custom=row=>{try{const values=JSON.parse(row['Custom Fields JSON']||'{}');return Object.keys(values).length?'<dl>'+Object.entries(values).map(([key,value])=>'<dt>'+escapeHtml(key)+'</dt><dd>'+cell(key,value)+'</dd>').join('')+'</dl>':'';}catch(_){return '';}};
     const records=(rows,keys)=>rows.length?'<div style="overflow:auto"><table class="table"><thead><tr>'+keys.map(k=>'<th>'+escapeHtml(k)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+keys.map(k=>'<td style="white-space:pre-wrap;max-width:420px">'+cell(k,row[k])+'</td>').join('')+'</tr>'+(custom(row)?'<tr><td colspan="'+keys.length+'">'+custom(row)+'</td></tr>':'')).join('')+'</tbody></table></div>':'<p>No records.</p>';
-    modal.querySelector('#dq-detail').innerHTML='<dl>'+fields.filter(k=>data.lead[k]).map(k=>'<dt><b>'+escapeHtml(k)+'</b></dt><dd>'+cell(k,data.lead[k])+'</dd>').join('')+'</dl>'+custom(data.lead)+'<h3>Follow-ups ('+data.followups.length+')</h3>'+records(data.followups,['Planned Date','Status','Discussion','Outcome'])+'<h3>Follow-up history ('+data.history.length+')</h3>'+records(data.history,['Done Date','Remark','Outcome','Contact Mode','Next Planned Date']);
+    modal.querySelector('#dq-detail').innerHTML='<dl>'+fields.filter(k=>!['Alternate No','WhatsApp No'].includes(k) && (data.lead[k] || k==='Phone')).map(k=>'<dt><b>'+escapeHtml(k)+'</b></dt><dd>'+cell(k,data.lead[k])+'</dd>').join('')+'</dl>'+custom(data.lead)+'<h3>Follow-ups ('+data.followups.length+')</h3>'+records(data.followups,['Planned Date','Status','Discussion','Outcome'])+'<h3>Follow-up history ('+data.history.length+')</h3>'+records(data.history,['Done Date','Remark','Outcome','Contact Mode','Next Planned Date']);
   };
   try{const data=await pagePreviewRead(endpoint,[id],render,{current:()=>modal.open});render(data);}catch(e){if(modal.open)modal.querySelector('#dq-detail').textContent=e.message;}
 }

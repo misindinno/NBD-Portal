@@ -79,7 +79,7 @@ function _resolveCallUser_(tags, users) {
 function _callPhoneIndex_(leads) {
   const index = new Map();
   leads.filter(l => !safeBooleanValue_(l['Is Archived']) && String(l['Lead Status']).toLowerCase() !== 'archived').forEach(lead => {
-    new Set([_callPhone_(lead.Phone), _callPhone_(lead['Alternate No'])].filter(Boolean)).forEach(phone => {
+    new Set(leadPhoneNumbers_(lead).map(n => _callPhone_(n)).filter(Boolean)).forEach(phone => {
       if (!index.has(phone)) index.set(phone, []);
       index.get(phone).push(lead);
     });
@@ -227,16 +227,12 @@ function _mapCallToClient_(user, payload) {
     if (!_canReadAssignedRow(lead, user) || !_canWriteLead(lead, user) || _isLeadPushedToNbd_(lead) || safeBooleanValue_(lead['Is Archived']) || String(lead['Lead Status']).toLowerCase() === 'archived') throw new Error('Permission denied.');
     if (!phone) throw new Error('Call number is required before mapping.');
     if (String(lead.Phone || '') !== String(p.expectedPhone || '') || String(lead['Alternate No'] || '') !== String(p.expectedAlternate || '')) throw new Error('Invalid mapping: client numbers changed. Refresh and review the mapping again.');
-    const already = [lead.Phone, lead['Alternate No']].some(n => _callPhone_(n) === phone);
-    let field = !lead.Phone ? 'Phone' : !lead['Alternate No'] ? 'Alternate No' : '';
-    if (!already && !field) {
-      if (!['Phone','Alternate No'].includes(p.replaceField)) throw new Error('Invalid mapping: choose which existing number to replace.');
-      field = p.replaceField;
-    }
-    const duplicate = leads.rows.some(r => r.record['Lead ID'] !== lead['Lead ID'] && [r.record.Phone,r.record['Alternate No']].some(n => _callPhone_(n) === phone));
+    const already = leadPhoneNumbers_(lead).some(n => _callPhone_(n) === phone);
+    const field = !lead.Phone ? 'Phone' : 'Alternate No';
+    const duplicate = leads.rows.some(r => r.record['Lead ID'] !== lead['Lead ID'] && leadPhoneNumbers_(r.record).some(n => _callPhone_(n) === phone));
     if (duplicate && p.confirmSharedNumber !== true) throw new Error('Invalid mapping: this number belongs to another client. Confirm the shared number before mapping.');
     const affected = p.mapRelated === true ? calls.rows.filter(r => !r.record['Lead ID'] && r.record['Customer Number'] === phone) : [target];
-    const nextLead = { ...lead, ...(already ? {} : { [field]: phone }), 'Updated At': now() };
+    const nextLead = { ...lead, ...(already ? {} : { [field]: field === 'Phone' ? phone : leadPhoneParts_(lead['Alternate No']).concat(phone).join('\n') }), 'Updated At': now() };
     ensureFollowupSheets_();
     const audit = _callTable_(SHEET_NAMES.LEAD_ACTIVITY_LOGS);
     const auditRow = audit.sheet.getLastRow() + 1;

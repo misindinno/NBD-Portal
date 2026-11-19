@@ -210,7 +210,7 @@ function _leadNameOnlyDuplicates_() {
 
 function checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
   const nameOnly = _leadNameOnlyDuplicates_();
-  const normPhone = !nameOnly && phone ? String(phone).replace(/\D/g, '') : '';
+  const normPhone = !nameOnly && phone ? leadPhoneKey_(phone) : '';
   const normEmail = !nameOnly && email ? String(email).trim().toLowerCase() : '';
   const normCompany = _leadNormText_(companyName);
   if (!normPhone && !normEmail && !normCompany) return [];
@@ -218,10 +218,7 @@ function checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
     .filter(lead => {
       if (excludeLeadId && String(lead['Lead ID']).trim() === String(excludeLeadId).trim()) return false;
       if (normPhone) {
-        const lPhone = _leadNormPhone_(lead['Phone']);
-        const lAlt   = _leadNormPhone_(lead['Alternate No']);
-        if (lPhone && lPhone === normPhone) return true;
-        if (lAlt   && lAlt   === normPhone) return true;
+        if (leadPhoneNumbers_(lead).some(n => leadPhoneKey_(n) === normPhone)) return true;
       }
       if (normEmail) {
         const lEmail = String(lead['Email'] || '').trim().toLowerCase();
@@ -246,12 +243,11 @@ function checkLeadDuplicates(phone, email, excludeLeadId, companyName) {
 function _leadDuplicateMessage_(data, excludeLeadId) {
   const existingMap = _leadExistingDuplicateMap_(excludeLeadId);
   const phone = _leadNormPhone_(data['Phone']);
-  const altPhone = _leadNormPhone_(data['Alternate No']);
   const email = _leadNormEmail_(data['Email']);
   const company = _leadNormText_(data['Company Name']);
   const exclude = String(excludeLeadId || '').trim();
   const phoneHit = phone ? existingMap.phone[phone] : '';
-  const altHit = altPhone ? existingMap.phone[altPhone] : '';
+  const altHit = leadPhoneNumbers_(data).map(leadPhoneKey_).map(n => existingMap.phone[n]).find(id => id && id !== exclude);
   const emailHit = email ? existingMap.email[email] : '';
   const companyHit = company ? existingMap.company[company] : '';
   if (_leadNameOnlyDuplicates_()) return companyHit && companyHit !== exclude ? 'Duplicate lead blocked: company already exists.' : '';
@@ -270,7 +266,7 @@ function _leadMasterLookupRows_(fields) {
   if (typeof syncTxHandles_ === 'function' && syncTxHandles_(SHEET_NAMES.LEADS)) return syncTxRows_(SHEET_NAMES.LEADS);
   const sheet = getSheet(SHEET_NAMES.LEADS);
   const headers = getHeaders(SHEET_NAMES.LEADS);
-  const selected = fields || ['Lead ID', 'Company Name', 'Contact Person', 'Phone', 'Alternate No', 'Email', 'Lead Status'];
+  const selected = fields || ['Lead ID', 'Company Name', 'Contact Person', 'Phone', 'Alternate No', 'WhatsApp No', 'Email', 'Lead Status'];
   const positions = selected.map(key => headers.indexOf(key)).filter(index => index >= 0);
   if (headers.indexOf('Lead ID') < 0 || headers.indexOf('Phone') < 0 || headers.indexOf('Company Name') < 0) {
     throw new Error('Lead master lookup headers are missing. Please contact an administrator.');
@@ -294,11 +290,10 @@ function _leadExistingDuplicateMap_(excludeLeadId) {
   return rows.reduce((m, row) => {
     const leadId = String(row['Lead ID'] || '').trim();
     const phone = _leadNormPhone_(row['Phone']);
-    const altPhone = _leadNormPhone_(row['Alternate No']);
     const email = _leadNormEmail_(row['Email']);
     const company = _leadNormText_(row['Company Name']);
     if (phone) m.phone[phone] = leadId;
-    if (altPhone) m.phone[altPhone] = leadId;
+    leadPhoneNumbers_(row).forEach(n => { m.phone[leadPhoneKey_(n)] = leadId; });
     if (email) m.email[email] = leadId;
     if (company) m.company[company] = leadId;
     return m;
@@ -306,7 +301,7 @@ function _leadExistingDuplicateMap_(excludeLeadId) {
 }
 
 function _leadNormPhone_(value) {
-  return String(value || '').replace(/\D/g, '');
+  return leadPhoneKey_(value);
 }
 
 function _leadNormEmail_(value) {
@@ -322,7 +317,8 @@ function _leadIdFromPayload(data) {
 }
 
 function _prepareLeadPayload(data, stageId, existing, skipped, options) {
-  const payload = { ...data };
+  const payload = validateLeadPhones_({ ...data }, existing);
+  if (Object.prototype.hasOwnProperty.call(payload, 'Alternate No') && typeof getHeaders === 'function' && !getHeaders(SHEET_NAMES.LEADS).includes('Alternate No')) safeInitHeaders(SHEET_NAMES.LEADS, ['Alternate No']);
   delete payload['__edit_scope'];
   // Lead names are stored in Proper Case on every save path (Lead Form, detail edit,
   // bulk entry) so lists, dialogs and exports show one consistent casing.

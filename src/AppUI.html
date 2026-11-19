@@ -829,7 +829,7 @@ async function _runGlobalSearch(q) {
   html += section('Contacts', matchedContacts, counts.contacts, (l, idx) => {
     const contact = escapeHtml(l['Contact Person'] || '—');
     const company = escapeHtml(l['Company Name'] || '');
-    const phone   = escapeHtml(l['Phone'] || '');
+    const phone   = escapeHtml(leadPhones(l).join(' · '));
     const leadId  = escapeHtml(String(l['Lead ID'] || ''));
     return `<div class="tb-sd-item" data-idx="${idx}" data-gs-type="lead" data-gs-id="${leadId}" onmousedown="_gsOpenLead('${leadId}')">
       <div class="tb-sd-icon tb-sd-icon-contacts">${icon('user', 15)}</div>

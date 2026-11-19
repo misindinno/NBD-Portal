@@ -32,6 +32,7 @@ function dialogFixture(history=true) {
     _isArchivedLeadForUI:()=>false,buildLeadFormHTML:()=>'',_mountFsrVisitHistory:()=>{},initLeadCustomFields:()=>{},_initStateCityDropdowns:()=>{},
     renderIcons:()=>{},icon:()=>'',_followupHistoryTable:rows=>'history:'+JSON.stringify(rows),_activityLogTable:rows=>'logs:'+JSON.stringify(rows)
   });
+  vm.runInContext(read('src/LeadFormShared.html').split('function buildLeadFormHTML')[0].replace('<script>',''),c);
   vm.runInContext(read('src/LeadDetail.html').replace(/^<script>\s*/,'').replace(/<\/script>\s*$/,''),c);
   return {c,calls,modals,overlay,nodes,invalidate:()=>generation++};
 }

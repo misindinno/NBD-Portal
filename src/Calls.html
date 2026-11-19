@@ -102,8 +102,8 @@ async function _openCallMapping(callId, onSaved) {
       const preview = host.querySelector('[data-contact-preview]');
       if (!selected) { preview.innerHTML = ''; return; }
       const normalize = value => { let n = String(value || '').replace(/\D/g,''); if(n.startsWith('00'))n=n.slice(2); if(n.length === 11 && n[0] === '0')n=n.slice(1);return n.length===10?'91'+n:n; };
-      const exists = [selected.phone, selected.alternate].some(n => normalize(n) === context.call['Customer Number']);
-      preview.innerHTML = `<div class="card" style="padding:12px"><div>Primary: ${escapeHtml(selected.phone || 'Empty')}</div><div>Alternate: ${escapeHtml(selected.alternate || 'Empty')}</div>${exists ? '<p style="margin-top:8px">This number is already saved; contact details will stay the same.</p>' : !selected.phone || !selected.alternate ? `<p style="margin-top:8px">The call number will be saved as ${selected.phone ? 'alternate' : 'primary'} phone.</p>` : '<label style="display:block;margin-top:10px">Both contact fields are filled. Choose which number to replace:<select class="form-control" data-replace><option value="">Choose a field</option><option value="Phone">Primary phone</option><option value="Alternate No">Alternate number</option></select></label>'}</div>`;
+      const exists = leadPhones({Phone:selected.phone, 'Alternate No':selected.alternate}).some(n => normalize(n) === context.call['Customer Number']);
+      preview.innerHTML = `<div class="card" style="padding:12px">${leadPhonesHTML({Phone:selected.phone, 'Alternate No':selected.alternate})}<p>${exists ? 'This number is already saved.' : 'The call number will be added without replacing existing numbers.'}</p></div>`;
     };
   };
   displayClients(context);

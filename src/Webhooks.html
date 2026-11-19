@@ -31,7 +31,7 @@ async function loadWebhooks(prefetched) {
       </details>
       <div class="card" style="padding:20px">
         <div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><h3>Recent deliveries</h3><button type="button" class="btn btn-outlined btn-sm" id="refresh-call-webhooks">Refresh</button></div>
-        <p style="font-size:13px;color:#64748b;margin:10px 0 16px">Latest 30 deliveries. Calls match Phone or Alternate No. Fix unmatched numbers or user tags in the source, then resend those calls.</p>
+        <p style="font-size:13px;color:#64748b;margin:10px 0 16px">Latest 30 deliveries. Calls match primary and all additional phone numbers. Fix unmatched numbers or user tags in the source, then resend those calls.</p>
         ${_callWebhookDeliveryHtml(data.deliveries || [])}
       </div>`;
     el('copy-call-webhook').onclick = async () => {

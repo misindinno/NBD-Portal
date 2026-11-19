@@ -295,8 +295,8 @@ const BulkView = (() => {
     if (meta) {
       const required = config.filter(f => f.required).map(f => f.fieldName).join(', ') || 'None';
       meta.textContent = bulkMode === 'update'
-        ? `Update mode: match by Lead ID, Phone, Email, or Company Name. Required fields: ${required} - Max 500 rows.`
-        : `Create mode: duplicates are blocked before save. Required fields: ${required} - Max 500 rows.`;
+        ? `Update mode: match by Lead ID, Phone, Email, or Company Name. Required fields: ${required} - Max 500 rows. Separate Additional Phones with commas.`
+        : `Create mode: duplicates are blocked before save. Required fields: ${required} - Max 500 rows. Separate Additional Phones with commas.`;
     }
   }
 

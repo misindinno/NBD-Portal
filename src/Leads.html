@@ -381,10 +381,10 @@
           }
         },
         {
-          title: 'Phone', field: 'Phone', minWidth: 120,
+          title: 'Phone numbers', field: 'Phone', minWidth: 190, variableHeight: true,
           formatter: function (cell) {
             const v = cell.getValue();
-            return v ? '<span class="lead-phone">' + escapeHtml(v) + '</span>' : '';
+            return leadPhonesHTML(cell.getRow().getData());
           }
         },
         {
@@ -588,7 +588,7 @@
       hasAny,
       test(data) {
         if (q) {
-          const hay = [data['Company Name'], data['Contact Person'], data['Client Description'], data['Phone'], data['City'], remarkSearchText(data)]
+          const hay = [data['Company Name'], data['Contact Person'], data['Client Description'], leadPhones(data).join(' '), data['City'], remarkSearchText(data)]
             .map(v => String(v || '').toLowerCase()).join(' ');
           if (!hay.includes(q)) return false;
         }
@@ -730,11 +730,6 @@
       v.addField(f('Phone'), [{
         rule: 'function', validator: val => !!val && /^[0-9+\-\s()]{7,20}$/.test(val),
         errorMessage: 'Phone number is required (7–20 digits).'
-      }]);
-    if (f('Alternate No'))
-      v.addField(f('Alternate No'), [{
-        rule: 'function', validator: val => !val || /^[0-9+\-\s()]{7,20}$/.test(val),
-        errorMessage: 'Enter a valid WhatsApp number (7–20 digits).'
       }]);
     if (f('Email'))
       v.addField(f('Email'), [{

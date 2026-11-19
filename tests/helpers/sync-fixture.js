@@ -81,7 +81,7 @@ function syncFixture() {
     sanitizeSheetRowValues_:rows=>rows, _normalizeLeadPriority_:v=>v, safeBooleanValue_:v=>v===true || v==='TRUE',
     canEditConfigPermission:()=>true, _callPhone_:v=>String(v||'').replace(/\D/g,''),
   });
-  ['Utils','SheetDB','IndexService','CustomFieldValueService','LeadService','FollowupService','ArchiveService','CallLogService','Api','LeadCacheService','SyncTransaction','SyncService','SyncDeltaService','FsrClientWebhook'].forEach(name=>vm.runInContext(read('src/server/'+name+'.js'),c));
+  ['PhoneNumbers','Utils','SheetDB','IndexService','CustomFieldValueService','LeadService','FollowupService','ArchiveService','CallLogService','Api','LeadCacheService','SyncTransaction','SyncService','SyncDeltaService','FsrClientWebhook'].forEach(name=>vm.runInContext(read('src/server/'+name+'.js'),c));
   const readService=read('src/server/SheetReadApiService.js');
   vm.runInContext(readService.slice(readService.indexOf('const _DATE_COLUMN_EXCEPTIONS_'),readService.indexOf('function _sheetsApiCellValue_')),c);
   vm.runInContext(read('src/BulkService.js'),c);

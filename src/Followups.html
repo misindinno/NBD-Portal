@@ -951,7 +951,7 @@ function _fuTableRow(r) {
     <td>
       <div class="fu-lead-title">${escapeHtml(company)}</div>
       ${(r._contactPerson || r._city) ? `<div class="fu-lead-sub">${icon('user', 12)} ${escapeHtml(r._contactPerson || '-')}${r._city ? ` <span class="fu-lead-dot">•</span> ${icon('map-pin', 12)} ${escapeHtml(r._city)}` : ''}</div>` : ''}
-      ${(r._leadPhone || r._leadAltPhone) ? `<div class="fu-lead-sub">${icon('phone', 12)} ${escapeHtml(r._leadPhone || '—')}${r._leadAltPhone ? ` <span class="fu-lead-dot">•</span> ${escapeHtml(r._leadAltPhone)}` : ''}</div>` : ''}
+      ${(r._leadPhone || r._leadAltPhone) ? `<div class="fu-lead-sub">${icon('phone', 12)} ${leadPhonesHTML({Phone:r._leadPhone, 'Alternate No':r._leadAltPhone})}</div>` : ''}
     </td>
     <td>${_fuSourceCell(r)}</td>
     <td>${(() => {

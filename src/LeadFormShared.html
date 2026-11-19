@@ -1,4 +1,49 @@
 <script>
+function leadPhoneParts(value) {
+  return String(value == null ? '' : value).split(/[,;\r\n]+/).map(v => v.trim()).filter(v => v && !/^(?:n\/?a|null|undefined)$/i.test(v));
+}
+function leadPhoneKey(value) {
+  let n = String(value || '').replace(/\D/g, '');
+  if (n.startsWith('00')) n = n.slice(2);
+  if (n.length === 11 && n.startsWith('0')) n = n.slice(1);
+  return n.length === 12 && n.startsWith('91') ? n.slice(2) : n;
+}
+function leadPhones(lead) {
+  const seen = new Set();
+  return ['Phone','Alternate No','WhatsApp No'].flatMap(key => leadPhoneParts((lead || {})[key])).filter(n => {
+    const key = leadPhoneKey(n); if (!key || seen.has(key)) return false; seen.add(key); return true;
+  });
+}
+function leadPhonesHTML(lead) {
+  const primary = leadPhoneKey((lead || {}).Phone);
+  return leadPhones(lead).map(n => '<div style="white-space:normal;overflow-wrap:anywhere"><a onclick="event.stopPropagation()" href="tel:' + escapeHtml(n.replace(/[^+\d]/g,'')) + '">' + escapeHtml(n) + '</a><small style="color:#64748b;margin-left:6px">' + (leadPhoneKey(n) === primary ? 'Primary' : 'Additional') + '</small></div>').join('') || '—';
+}
+function leadPhoneInputHTML(value) {
+  return '<div data-phone-row style="display:flex;gap:8px;margin-top:8px"><input class="form-control" type="tel" data-additional-phone aria-label="Additional phone number" value="' + escapeHtml(value || '') + '" placeholder="Phone number"><button class="btn btn-outlined" type="button" aria-label="Remove phone number" onclick="this.closest(\'[data-phone-row]\').remove()">×</button></div>';
+}
+function leadPhoneFieldsHTML(lead = {}) {
+  return '<div class="form-row"><div class="form-group"><label>Primary phone *</label><input class="form-control" name="Phone" type="tel" required value="' + escapeHtml(lead.Phone || '') + '"></div><div class="form-group" data-phone-editor><label>Additional phone numbers</label><input type="hidden" name="Alternate No" value="' + escapeHtml(lead['Alternate No'] || '') + '"><div data-phone-rows>' + leadPhoneParts(lead['Alternate No']).map(leadPhoneInputHTML).join('') + '</div><button type="button" class="btn btn-outlined" style="margin-top:8px" onclick="addLeadPhoneInput(this)">+ Add number</button></div></div>';
+}
+function addLeadPhoneInput(button) {
+  const rows = button.closest('[data-phone-editor]').querySelector('[data-phone-rows]');
+  rows.insertAdjacentHTML('beforeend', leadPhoneInputHTML(''));
+  rows.lastElementChild.querySelector('input').focus();
+}
+function collectLeadPhones(form, payload) {
+  if (!form.querySelector('[data-phone-editor]')) return;
+  const primary = leadPhoneKey(payload.Phone), seen = new Set([primary]), numbers = [];
+  for (const input of form.querySelectorAll('[data-additional-phone]')) {
+    const value = input.value.trim(); if (!value) continue;
+    const digits = value.replace(/\D/g, '');
+    if (!/^[+\d\s()-]+$/.test(value) || digits.length < 7 || digits.length > 15) {
+      input.focus(); throw new Error('Enter a valid additional phone number (7–15 digits).');
+    }
+    const key = leadPhoneKey(value);
+    if (seen.has(key)) { input.focus(); throw new Error('Each phone number must be different.'); }
+    seen.add(key); numbers.push(value);
+  }
+  payload['Alternate No'] = numbers.join('\n');
+}
 function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
     const cfg = App.config;
     const canAssign = ['ADMIN', 'MANAGER'].includes(App.user.role);
@@ -14,12 +59,7 @@ function buildLeadFormHTML(d = {}, customFields = [], configOptions = {}) {
       <div class="form-group"><label>Contact Person *</label>
         <input class="form-control input-capitalize" name="Contact Person" autocapitalize="words" value="${escapeHtml(d['Contact Person'] || '')}" required></div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label>Phone *</label>
-        <input class="form-control" name="Phone" type="tel" value="${escapeHtml(d['Phone'] || '')}" required></div>
-      <div class="form-group"><label>Alternate No</label>
-        <input class="form-control" name="Alternate No" type="tel" value="${escapeHtml(d['Alternate No'] || '')}"></div>
-    </div>
+    ${leadPhoneFieldsHTML(d)}
     <div class="form-row">
       <div class="form-group"><label>Email</label>
         <input class="form-control input-lowercase" name="Email" type="email" autocapitalize="none" autocorrect="off" spellcheck="false" value="${escapeHtml(d['Email'] || '')}"></div>

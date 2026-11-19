@@ -305,6 +305,7 @@ function buildLeadCustomFieldsHTML(d = {}, fields = [], configOptions = {}, sect
         payload[key] = value;
       }
     }
+    collectLeadPhones(form, payload);
     // Join any multi-value arrays (legacy <select multiple> or duplicate keys) to comma string
     Object.keys(payload).forEach(k => {
       if (Array.isArray(payload[k])) payload[k] = payload[k].join(',');

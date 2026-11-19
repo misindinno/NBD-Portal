@@ -387,7 +387,7 @@ function _nbdMatchRows_(lead, records) {
     if (digits.length === 12 && digits.slice(0, 2) === '91') digits = digits.slice(2);
     return digits.length >= 7 ? digits : '';
   };
-  const phones = [phone(lead.Phone), phone(lead['Alternate No'])].filter(Boolean);
+  const phones = leadPhoneNumbers_(lead).map(phone).filter(Boolean);
   const email = text(lead.Email);
   const company = text(lead['Company Name']);
   return records.flatMap(record => {
@@ -395,7 +395,7 @@ function _nbdMatchRows_(lead, records) {
     const reasons = [];
     if (lead['NBD Lead ID'] && String(row['Lead ID']) === String(lead['NBD Lead ID'])) reasons.push('Linked ID');
     if (row['Source Lead ID'] && String(row['Source Lead ID']) === String(lead['Lead ID'])) reasons.push('Source ID');
-    if ([phone(row.Phone), phone(row['Alternate No'])].some(p => p && phones.includes(p))) reasons.push('Phone');
+    if (leadPhoneNumbers_(row).map(phone).some(p => p && phones.includes(p))) reasons.push('Phone');
     if (email.includes('@') && email === text(row.Email)) reasons.push('Email');
     if (company.length > 3 && company === text(row['Company Name'])) reasons.push('Company');
     return reasons.length ? [{nbdLeadId:String(row['Lead ID'] || ''), company:String(row['Company Name'] || ''),
@@ -501,7 +501,7 @@ function _externalLeadIndexRow_(row, rowNumber) {
   return {
     'Lead ID': row['Lead ID'] || '',
     'Phone': _normalizePhone_(row['Phone']),
-    'Alternate No': _normalizePhone_(row['Alternate No']),
+    'Alternate No': leadPhoneParts_(row['Alternate No']).map(leadPhoneKey_).join('\n'),
     'Email': String(row['Email'] || '').trim().toLowerCase(),
     'Assigned To': row['Assigned To'] || '',
     'Stage ID': row['Stage ID'] || '',

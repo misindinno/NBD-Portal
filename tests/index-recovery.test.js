@@ -5,7 +5,7 @@ const vm = require('node:vm');
 function context(extra = {}) {
   const c = vm.createContext({assertServerContext_(){}, normalizeSheetName:n=>n,
     normalizeSheetValue:v=>v, SHEET_NAMES:{LEADS:'leads',IDX_LEADS:'index',FOLLOWUPS:'followups',IDX_FOLLOWUPS:'fi',USERS:'users',IDX_USERS:'ui'}, ...extra});
-  vm.runInContext(fs.readFileSync('src/server/IndexService.js','utf8'),c);
+  vm.runInContext(fs.readFileSync('src/server/PhoneNumbers.js','utf8') + '\n' + fs.readFileSync('src/server/IndexService.js','utf8'),c);
   return c;
 }
 test('stale row pointer resolves the actual ID without reading the entire master',()=>{

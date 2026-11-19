@@ -2,7 +2,7 @@
 // Reads merge values back into row objects so the existing UI can stay simple.
 
 const LEAD_MASTER_FIELDS = [
-  'Lead ID','Company Name','Contact Person','Phone','Alternate No','Email',
+  'Lead ID','Company Name','Contact Person','Phone','Alternate No','WhatsApp No','Email',
   'City','State','Address','GST No','Category','Client Description','Source','Product Interest',
   'Stage ID','Priority','Assigned To','Lead Status',
   'Stage Updated At','Last Follow-up Date','Next Follow-up Date',

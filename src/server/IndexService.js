@@ -16,7 +16,7 @@ function _indexDefinitions_() {
         return {
           'Lead ID': row['Lead ID'] || '',
           'Phone': _idxDigits_(row['Phone']),
-          'Alternate No': _idxDigits_(row['Alternate No']),
+          'Alternate No': leadPhoneParts_(row['Alternate No']).map(leadPhoneKey_).join('\n'),
           'Email': _idxLower_(row['Email']),
           'Assigned To': row['Assigned To'] || '',
           'Stage ID': row['Stage ID'] || '',

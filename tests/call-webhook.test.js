@@ -77,7 +77,7 @@ function harness(options = {}) {
   vm.runInContext(read('src/server/ArchitectureCore.js'), context);
   vm.runInContext(read('src/server/CallWebhookService.js'), context);
   vm.runInContext(read('src/server/SheetValueTypes.js'), context);
-  vm.runInContext(read('src/server/CallLogService.js'), context);
+  vm.runInContext((read('src/server/PhoneNumbers.js') + '\n' + read('src/server/CallLogService.js')), context);
   vm.runInContext(read('src/server/CallInboxService.js'), context);
   vm.runInContext(read('src/server/Code.js'), context);
   if (!options.queued) context._enqueueCallyzer_ = raw => context._receiveCallyzer_(raw);
@@ -377,12 +377,12 @@ test('mapping fills a primary phone when empty and can leave related calls unmap
   assert.equal(h.records().filter(r => r['Lead ID']).length, 1);
 });
 
-test('mapping requires an explicit field choice for two occupied contact slots and detects stale forms', () => {
+test('mapping appends a third number without replacing contacts and detects stale forms', () => {
   const h = mappingHarness({ leads: [{ 'Lead ID': 'L1', Phone: '9123456780', 'Alternate No': '9234567890', 'Assigned To': UID }] });
   assert.throws(() => h.context._mapCallToClient_(admin, mapping()), /numbers changed/);
-  assert.throws(() => h.context._mapCallToClient_(admin, mapping({ expectedAlternate: '9234567890' })), /choose which/i);
   h.context._mapCallToClient_(admin, mapping({ expectedAlternate: '9234567890', replaceField: 'Alternate No' }));
   assert.equal(h.context._callTable_('LEADS').rows[0].record.Phone, '9123456780');
+  assert.equal(h.context._callTable_('LEADS').rows[0].record['Alternate No'], '9234567890\n919876543210');
 });
 
 test('shared client numbers require confirmation before mapping an ambiguous call', () => {
@@ -497,4 +497,9 @@ test('failed calls are attempted only once per worker execution despite lock yie
   const item = h.context._callTable_('CALL_WEBHOOK_INBOX').rows[0].record;
   assert.equal(item.Status, 'Pending');
   assert.equal(Number(item.Attempts), 1);
+});
+
+test('incoming calls match the third saved number',()=>{
+ const h=harness({leads:[{'Lead ID':'L1',Phone:'9123456780','Alternate No':'9234567890\n9876543210','Assigned To':UID}]});
+ h.send([call()]);assert.equal(h.records()[0]['Lead ID'],'L1');
 });

@@ -60,6 +60,7 @@ function arManage_(user,command) {
         if(!AR_EDIT_FIELDS_.includes(field)||typeof changes[field]!=='string'||changes[field].length>5000)throw new Error('Invalid archive field: '+field);
         patch[field]=changes[field].trim();
       }
+      validateLeadPhones_(patch, lead);
       if(!String(patch['Company Name']===undefined?lead['Company Name']:patch['Company Name']).trim())throw new Error('Company name is required.');
     } else {
       const expected=command.action==='trash'?'Transferred':'Trashed';

@@ -22,6 +22,7 @@ function getBulkConfig() {
     'follow-up type': 'Follow-up Type', 'followup type': 'Follow-up Type',
   };
 
+  if (!rows.some(r => r['Target Column'] === 'Alternate No')) rows.push({'Field Name':'Additional Phones', 'Target Column':'Alternate No', 'Required':'No', 'Data Type':'Text', 'Validation Rule':'optional'});
   const configured = rows.map(r => {
     const cfg = _normalizeBulkConfigRow_(r);
     if (!cfg.fieldName || !cfg.targetColumn) return null;
@@ -545,11 +546,10 @@ function _bulkCustomFieldsForLeadWrite_(stageId) {
 
 function _bulkMarkDuplicateKeys_(map, row, leadId) {
   const phone = _bulkNormPhone_(row['Phone']);
-  const altPhone = _bulkNormPhone_(row['Alternate No']);
   const email = _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
   if (phone) map.phone[phone] = leadId;
-  if (altPhone) map.phone[altPhone] = leadId;
+  leadPhoneNumbers_(row).forEach(n => { map.phone[leadPhoneKey_(n)] = leadId; });
   if (email) map.email[email] = leadId;
   if (company) map.company[company] = leadId;
 }
@@ -627,9 +627,7 @@ function normalizeBulkRow(row, rowNumber, config) {
   return { rowNumber, input, row: out };
 }
 
-function _bulkNormPhone_(value) {
-  return String(value || '').replace(/\D/g, '');
-}
+function _bulkNormPhone_(value) { return leadPhoneKey_(value); }
 
 function _bulkNormEmail_(value) {
   return String(value || '').trim().toLowerCase();
@@ -682,7 +680,7 @@ function checkDuplicate(row, existingMap, excludeLeadId) {
   const phone = _bulkNormPhone_(row['Phone']);
   const email = _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
-  const phoneHit = phone ? existingMap.phone[phone] : '';
+  const phoneHit = leadPhoneNumbers_(row).map(leadPhoneKey_).map(n => existingMap.phone[n]).find(id => id && id !== excludeLeadId);
   const emailHit = email ? existingMap.email[email] : '';
   const companyHit = company ? existingMap.company[company] : '';
   if (_leadNameOnlyDuplicates_()) return companyHit && companyHit !== excludeLeadId ? 'Duplicate company already exists.' : '';
@@ -698,10 +696,10 @@ function _bulkBatchDuplicate_(row, batchMap, mode) {
   const phone = nameOnly ? '' : _bulkNormPhone_(row['Phone']);
   const email = nameOnly ? '' : _bulkNormEmail_(row['Email']);
   const company = _bulkNormText_(row['Company Name']);
-  if (phone && batchMap.phone[phone]) return 'Duplicate phone in pasted rows.';
+  if (!nameOnly && leadPhoneNumbers_(row).some(n => batchMap.phone[leadPhoneKey_(n)])) return 'Duplicate phone in pasted rows.';
   if (email && batchMap.email[email]) return 'Duplicate email in pasted rows.';
   if (company && batchMap.company[company]) return 'Duplicate company in pasted rows.';
-  if (phone) batchMap.phone[phone] = true;
+  if (!nameOnly) leadPhoneNumbers_(row).forEach(n => { batchMap.phone[leadPhoneKey_(n)] = true; });
   if (email) batchMap.email[email] = true;
   if (company) batchMap.company[company] = true;
   return '';
@@ -872,12 +870,11 @@ function _bulkRowErrors_(item, config, existingMap, mode, excludeLeadId) {
 function _bulkExistingMap_(leads) {
   return (Array.isArray(leads) ? leads : getAllRows(SHEET_NAMES.LEADS)).reduce((m, row) => {
     const phone = _bulkNormPhone_(row['Phone']);
-    const altPhone = _bulkNormPhone_(row['Alternate No']);
     const email = _bulkNormEmail_(row['Email']);
     const company = _bulkNormText_(row['Company Name']);
     const leadId = String(row['Lead ID'] || '').trim();
     if (phone) m.phone[phone] = leadId;
-    if (altPhone) m.phone[altPhone] = leadId;
+    leadPhoneNumbers_(row).forEach(n => { m.phone[leadPhoneKey_(n)] = leadId; });
     if (email) m.email[email] = leadId;
     if (company) m.company[company] = leadId;
     return m;
@@ -888,7 +885,7 @@ function _bulkLeadIndexRows_() {
   // Keep the lightweight lookup shape, but read live master values for both
   // validation and the duplicate recheck inside the bulk save lock.
   return _leadMasterLookupRows_([
-    'Lead ID', 'Phone', 'Alternate No', 'Email', 'Assigned To', 'Stage ID', 'Lead Status',
+    'Lead ID', 'Phone', 'Alternate No', 'WhatsApp No', 'Email', 'Assigned To', 'Stage ID', 'Lead Status',
     'Next Follow-up Date', 'Company Name', 'Contact Person', 'City', 'State',
     'Source Portal', 'Source Lead ID', 'Updated At'
   ]);
@@ -901,7 +898,7 @@ function _bulkFindLeadForRow_(row, leads) {
   const company = _bulkNormText_(row['Company Name']);
   return (Array.isArray(leads) ? leads : getAllRows(SHEET_NAMES.LEADS)).find(lead => {
     if (leadId && String(lead['Lead ID'] || '').trim() === leadId) return true;
-    if (phone && (_bulkNormPhone_(lead['Phone']) === phone || _bulkNormPhone_(lead['Alternate No']) === phone)) return true;
+    if (phone && leadPhoneNumbers_(lead).some(n => leadPhoneKey_(n) === leadPhoneKey_(phone))) return true;
     if (email && _bulkNormEmail_(lead['Email']) === email) return true;
     if (company && _bulkNormText_(lead['Company Name']) === company) return true;
     return false;

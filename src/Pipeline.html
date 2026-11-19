@@ -30,7 +30,7 @@ function _pipelineApplyFilters() {
     const lead = (window.pipelineLeadMap || {})[card.dataset.leadId] || {};
     let match = true;
     if (q) {
-      const hay = [lead['Company Name'], lead['Contact Person'], lead['Phone'], lead['City'], lead['Client Description'], lead['Email']]
+      const hay = [lead['Company Name'], lead['Contact Person'], leadPhones(lead).join(' '), lead['City'], lead['Client Description'], lead['Email']]
         .map(v => String(v || '').toLowerCase()).join(' ');
       if (!hay.includes(q)) match = false;
     }
@@ -232,7 +232,7 @@ async function loadPipeline(prefetched) {
     const company      = escapeHtml(lead['Company Name'] || '');
     const contactPerson      = escapeHtml(lead['Contact Person'] || '');
     const remark       = escapeHtml(lead['Client Description'] || '');
-    const phone        = escapeHtml(lead['Phone'] || '');
+    const phone        = leadPhonesHTML(lead);
     const altPhone     = escapeHtml(lead['Alternate No'] || '');
     const email        = escapeHtml(lead['Email'] || '');
     const city         = escapeHtml(lead['City'] || '');

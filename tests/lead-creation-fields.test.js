@@ -9,7 +9,7 @@ const fields = [
 ];
 const server = { SHEET_NAMES: { FIELD_CONFIG: 'fields' }, queryRows: (_sheet, predicate) => fields.filter(predicate), toProperCase_: value => value };
 vm.createContext(server);
-vm.runInContext(fs.readFileSync(path.join(root, 'src/server/LeadService.js'), 'utf8'), server);
+vm.runInContext(fs.readFileSync(path.join(root, 'src/server/PhoneNumbers.js'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'src/server/LeadService.js'), 'utf8'), server);
 assert.doesNotThrow(() => server._prepareLeadPayload({ code: 'A' }, 'initial', {}, false, { allowEmptyGlobalOnCreate: true }));
 assert.throws(() => server._prepareLeadPayload({ code: 'A' }, 'initial', {}, false), /All-stage note is required/);
 assert.throws(() => server._prepareLeadPayload({ note: 'Hello' }, 'initial', {}, false, { allowEmptyGlobalOnCreate: true }), /Initial-stage code is required/);

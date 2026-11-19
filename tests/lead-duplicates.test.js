@@ -25,7 +25,7 @@ function setup() {
     pickLeadMasterFields_: row => row,
     LockService: { getScriptLock: () => ({ waitLock() { state.locked = true; }, releaseLock() { state.locked = false; } }) }
   });
-  for (const file of ['ArchitectureCore','SheetValueTypes','LeadService']) {
+  for (const file of ['PhoneNumbers','ArchitectureCore','SheetValueTypes','LeadService']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/server/' + file + '.js'), 'utf8'), ctx);
   }
   return { ctx, state };
@@ -122,4 +122,11 @@ test('CS bulk checks name only against existing records and within pasted rows',
     ctx.CLIENT_CONFIG.PORTAL_KEY = portal;
     assert.match(ctx.checkDuplicate(row, map, ''), /phone/);
   }
+});
+
+test('all additional numbers participate in duplicate matching without concatenation',()=>{
+ const {ctx,state}=setup();state.rows=[{...lead,'Alternate No':'9234567890\n9345678901'}];
+ assert.equal(ctx.checkLeadDuplicates('+91 9345678901','','','').length,1);
+ assert.match(ctx._leadDuplicateMessage_({Phone:'9111111111','Alternate No':'9222222222,9345678901'}),/alternate phone/);
+ assert.equal(ctx.checkLeadDuplicates('92345678909345678901','','','').length,0);
 });

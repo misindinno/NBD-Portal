@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync('src/server/NbdPushService.js','utf8');
+const source = fs.readFileSync('src/server/PhoneNumbers.js','utf8') + '\n' + fs.readFileSync('src/server/NbdPushService.js','utf8');
 function setup(extra={}) {
   const c = vm.createContext({CLIENT_CONFIG:{APP_TITLE:'LQ Portal',NBD_TARGET_SPREADSHEET_ID:'nbd',ARCHIVE_SPREADSHEET_ID:'archive',DISQUALIFIED_SPREADSHEET_ID:'dq'},SHEET_NAMES:{LEADS:'LEAD_MASTER'},assertServerContext_(){}, ...extra});
   vm.runInContext(source,c); return c;
