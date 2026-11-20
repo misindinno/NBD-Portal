@@ -1,3 +1,6 @@
+<style>
+.td-group-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid #e5e7eb}.td-group-tools select{max-width:100%;min-width:180px}.td-group-row th{background:#eef2ff;padding:12px;text-align:left;white-space:normal}.td-group-row span{font-weight:400;margin-left:12px}.td-group-summary{color:#64748b;font-size:12px}.td-group-row button{border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;width:100%;overflow-wrap:anywhere}
+</style>
 <script>
 // ─── Today's Activity Page ────────────────────────────────────────────────────
 
@@ -6,6 +9,79 @@ let _todayFiltersOpen = false;
 let _todayCardFilter = '';
 let _todayDensity = (typeof localStorage !== 'undefined' && localStorage.getItem('_todayDensity')) || 'compact';
 let _todaySnapshotRequest = 0;
+let _todayViewFilters = {};
+
+function _todayCaptureView() {
+  ['td-from','td-to','td-user','td-type','td-group'].forEach(id => {
+    if (el(id)) _todayViewFilters[id] = el(id).value;
+  });
+  return { ..._todayViewFilters };
+}
+
+// ISO instants use the portal's calendar day; Sheet date strings are already local.
+function _todayActivityDay(value) {
+  const text = String(value || '');
+  if (/T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(text)) {
+    const date = new Date(text);
+    if (!Number.isFinite(date.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit' }).formatToParts(date);
+    const part = type => parts.find(p => p.type === type).value;
+    return part('year') + '-' + part('month') + '-' + part('day');
+  }
+  return _fmtDate(value || '');
+}
+
+function _todayWonRows(logs) {
+  const leads = new Map();
+  logs.forEach(row => {
+    const action = String(row['Action Type'] || '').toLowerCase();
+    const field = String(row['Field Name'] || row.Field || '').toLowerCase();
+    const id = String(row['Lead ID'] || '');
+    if (!id || !(action.includes('stage') || action.includes('status') || field.includes('status')) ||
+      _todayStatusValue(row) !== 'Won' || _todayNormalizeStatus(row['Old Value']) === 'Won') return;
+    const old = leads.get(id);
+    if (!old || String(row['Created At']) > String(old['Created At'])) leads.set(id, row);
+  });
+  return [...leads.values()];
+}
+
+function _todayGroupFields() {
+  const fields = [{key:'agent',label:'Agent'},{key:'day',label:'Activity date'}];
+  const safe = key => key && !key.startsWith('_') && !/password|token|secret|authorization|hash/i.test(key) && !['__proto__','constructor','prototype'].includes(key);
+  for (const [source, rows, config] of [
+    ['activity',[...AppCache.getRows('followupHistory'),...AppCache.getRows('activityLogs'),...AppCache.getRows('followups')],App.config.followupFields || []],
+    ['lead',AppCache.getRows('leads'),App.config.leadFields || []]
+  ]) {
+    const hidden = new Set(config.filter(f => f['Is Visible'] === false || f['Is Visible'] === 'FALSE').map(f => f['Column Key']));
+    const names = new Map(config.map(f => [f['Column Key'], f['Field Name']]));
+    const keys = new Set(rows.flatMap(row => Object.keys(row).filter(key => row[key] == null || typeof row[key] !== 'object')));
+    [...keys].filter(key => safe(key) && !hidden.has(key)).sort().forEach(key => fields.push({key:source + ':' + key,label:(source === 'lead' ? 'Lead · ' : 'Activity · ') + (names.get(key) || key)}));
+  }
+  return fields;
+}
+
+function _todayGroupRows(rows, field, leadMap, userMap) {
+  if (!field) return [{label:'',rows}];
+  const groups = new Map();
+  rows.forEach(row => {
+    let value;
+    if (field === 'agent') { const id = row['Created By'] || row['Done By'] || ''; value = userMap[id] || id; }
+    else if (field === 'day') value = _todayActivityDay(row['Created At'] || row['Done Date']);
+    else {
+      const split = field.indexOf(':'), source = field.slice(0, split), key = field.slice(split + 1);
+      const object = source === 'lead' ? leadMap[row['Lead ID']] || {} : row;
+      value = Object.prototype.hasOwnProperty.call(object,key) ? object[key] : '';
+      if (['Assigned To','Created By','Done By','Updated By'].includes(key)) value = userMap[value] || value;
+      if (['Stage ID','Updated Stage ID'].includes(key)) value = AppLookup.stageName(value) || value;
+    }
+    const empty = value == null || String(value).trim() === '';
+    const label = empty ? '(Not set)' : String(value);
+    const key = JSON.stringify([empty,label]);
+    if (!groups.has(key)) groups.set(key,{label,rows:[]});
+    groups.get(key).rows.push(row);
+  });
+  return [...groups.values()].sort((a,b) => a.label.localeCompare(b.label,undefined,{numeric:true}));
+}
 
 function _todayCardClick(key) {
   _todayCardFilter = (_todayCardFilter === key) ? '' : key;
@@ -20,8 +96,7 @@ window._todayCardClick = _todayCardClick;
 
 async function loadToday(prefetched) {
   const request = ++_todaySnapshotRequest;
-  const previousRange = prefetched && window._todayRange;
-  const previousInputs = prefetched ? ['td-from','td-to','td-user','td-type'].map(id => [id, el(id)?.value || '']) : [];
+  _todayCaptureView();
   if (!el('today-wrap')) el('content').innerHTML = `<div id="today-wrap">${window.__PAGE_PREVIEW_READY ? '' : skeletonPage('today')}</div>`;
 
   // First load right after bootstrap: leads + follow-ups are already cached. Paint
@@ -50,7 +125,6 @@ async function loadToday(prefetched) {
     AppCache.setRows('activityLogs', snapshot.activityLogs || []);
     if (App.currentPage !== 'today') return;
     _renderToday();
-    if (prefetched) { previousInputs.forEach(([id,value]) => { if (el(id)) el(id).value = value; }); if (previousRange) _todaySetRange(previousRange); else _todayApply(); }
     return;
   } catch (e) {
     if (request !== _todaySnapshotRequest || App.currentPage !== 'today') return;
@@ -79,6 +153,8 @@ function _renderToday() {
   // Bail silently if the user already navigated away (DOM was replaced
   // by another page mid-flight). Prevents "Cannot set innerHTML on null".
   if (!wrap) return;
+  const savedFilters = _todayCaptureView();
+  const groupLabel = el('td-group')?.selectedOptions?.[0]?.textContent;
   const isAdminOrManager = ['ADMIN', 'MANAGER'].includes(App.user.role);
   const users = App.config.users || [];
 
@@ -112,8 +188,8 @@ function _renderToday() {
 
       <div class="fu-filter-bar" id="td-filter-bar" style="display:${_todayFiltersOpen ? 'block' : 'none'}">
         <div class="fu-filter-card-grid">
-          <label class="fu-filter"><span>From</span><input type="date" id="td-from" onchange="_todayApply()"></label>
-          <label class="fu-filter"><span>To</span><input type="date" id="td-to" onchange="_todayApply()"></label>
+          <label class="fu-filter"><span>From</span><input type="date" id="td-from" onchange="_todaySetRange('custom')"></label>
+          <label class="fu-filter"><span>To</span><input type="date" id="td-to" onchange="_todaySetRange('custom')"></label>
           ${isAdminOrManager ? `<label class="fu-filter"><span>User</span><select id="td-user" onchange="_todayApply()">
             <option value="">All Users</option>
             ${users.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join('')}
@@ -157,10 +233,11 @@ function _renderToday() {
               </div>
             </div>
           </div>
+          <div class="td-group-tools"><label for="td-group">Group by</label><select id="td-group" class="form-control" onchange="_todayApply()"><option value="">No grouping</option>${_todayGroupFields().map(field => `<option value="${escapeHtml(field.key)}">${escapeHtml(field.label)}</option>`).join('')}</select><span id="td-group-summary" class="td-group-summary" role="status"></span></div>
           <div class="fu-table-scroll">
             <table class="fu-table">
               <thead><tr>
-                <th>Done At</th><th>Agent</th><th>Company</th><th>Planned</th>
+                <th>Done At</th><th>Agent</th><th>Company</th><th>Lead Source</th><th>Planned</th>
                 <th>Contact Mode</th><th>Remark</th><th>Next Planned</th>
               </tr></thead>
               <tbody id="td-tbody"></tbody>
@@ -171,7 +248,17 @@ function _renderToday() {
     </div>`;
 
   renderIcons();
-  _todayRenderRangeTabs('today');
+  Object.entries(savedFilters).forEach(([id,value]) => {
+    const input = el(id);
+    if (!input) return;
+    // An empty refresh can have no field keys. Keep the grouping selection so
+    // the next successful load uses the same view instead of silently resetting.
+    if (id === 'td-group' && value && !Array.from(input.options).some(option => option.value === value)) {
+      input.add(new Option(groupLabel || value, value));
+    }
+    input.value = value;
+  });
+  _todayRenderRangeTabs(window._todayRange || 'today');
   _todayApply();
 }
 
@@ -194,7 +281,6 @@ function _todayRenderRangeTabs(active) {
 
 function _todaySetRange(range) {
   window._todayRange = range;
-  _todayCardFilter = '';
   _todayRenderRangeTabs(range);
   // open the filter card automatically when custom is chosen
   if (range === 'custom' && !_todayFiltersOpen) _todayToggleFilters();
@@ -214,6 +300,10 @@ function _todayClearFilters() {
   const t = el('td-type'); if (t) t.value = '';
   const f = el('td-from'); if (f) f.value = '';
   const to = el('td-to'); if (to) to.value = '';
+  const group = el('td-group'); if (group) group.value = '';
+  _todayCardFilter = '';
+  window._todayRange = 'today';
+  _todayRenderRangeTabs('today');
   _todayApply();
 }
 
@@ -228,12 +318,6 @@ function _todaySetDensity(value) {
     node.classList.add('fu-density-' + _todayDensity);
   });
   _todayApply();
-}
-
-function _todayConfigValue(item) {
-  if (item === null || item === undefined) return '';
-  if (typeof item !== 'object') return String(item || '').trim();
-  return String(item['Value'] || item['Status'] || item['Lead Status'] || item['Name'] || item['Config Value'] || '').trim();
 }
 
 function _todayStatusValue(row) {
@@ -269,22 +353,6 @@ function _todayLeadStatusForStage(stageIdOrName) {
   if (outcome === 'won' || name.includes('qualified') || name.includes('won')) return 'Won';
   const isFinal = stage['Is Final Stage'] === true || stage['Is Final Stage'] === 'TRUE';
   return isFinal ? 'Won' : '';
-}
-
-function _todayLeadStatusFromLead(lead) {
-  const stageStatus = _todayLeadStatusForStage(
-    lead?.['Stage ID'] || lead?.['Stage Name'] || lead?.['Current Stage'] || lead?.['Stage']
-  );
-  return stageStatus || _todayNormalizeStatus(lead?.['Lead Status']) || 'Open';
-}
-
-function _todayStatusMeta(status) {
-  const key = String(status || '').trim().toLowerCase();
-  if (key === 'won') return { icon: 'trophy', cls: 'success' };
-  if (key === 'lost') return { icon: 'x-circle', cls: 'danger' };
-  if (key === 'hold') return { icon: 'pause-circle', cls: 'warning' };
-  if (key.includes('disqualif')) return { icon: 'ban', cls: 'neutral' };
-  return { icon: 'circle-dot', cls: 'blue' };
 }
 
 function _todayEscapeAttr(value) {
@@ -328,40 +396,40 @@ function _todayApply() {
   // Bail early if the Today page is no longer in the DOM (user navigated away
   // while async work was still in flight) — prevents null.innerHTML crashes.
   if (!el('today-page')) return;
+  _todayCaptureView();
   const { from, to } = _todayDateRange();
   const userFilter = el('td-user')?.value || '';
   const typeFilter = el('td-type')?.value || '';
 
-  const userMap = {};
+  const userMap = Object.create(null);
   (App.config.users || []).forEach(u => {
     if (u.id)    userMap[u.id]    = u.name;
     if (u.email) userMap[u.email] = u.name;
   });
-  const leadMap  = AppCache.getRows('leads').reduce((m, l) => { m[l['Lead ID']] = l; return m; }, {});
+  const leadMap  = AppCache.getRows('leads').reduce((m, l) => { m[l['Lead ID']] = l; return m; }, Object.create(null));
   const matchUser = _todayUserMatcher(userFilter);
   const _rowUser = r => matchUser(r['Done By']) || matchUser(r['Created By']) || matchUser(leadMap[r['Lead ID']] && leadMap[r['Lead ID']]['Assigned To']);
 
   let history = AppCache.getRows('followupHistory').filter(r => {
-    const d = _fmtDate(r['Created At'] || r['Done Date'] || '');
+    const d = _todayActivityDay(r['Created At'] || r['Done Date'] || '');
     return d >= from && d <= to;
   });
   if (userFilter) history = history.filter(_rowUser);
   if (typeFilter) history = history.filter(r => r['Follow-up Type'] === typeFilter);
 
   let actLogs = AppCache.getRows('activityLogs').filter(r => {
-    const d = _fmtDate(r['Created At'] || '');
+    const d = _todayActivityDay(r['Created At'] || '');
     return d >= from && d <= to;
   });
   if (userFilter) actLogs = actLogs.filter(r => matchUser(r['Created By']) || matchUser(leadMap[r['Lead ID']] && leadMap[r['Lead ID']]['Assigned To']));
 
   let newLeads = AppCache.getRows('leads').filter(r => {
-    const d = _fmtDate(r['Created At'] || '');
+    const d = _todayActivityDay(r['Created At'] || '');
     return d >= from && d <= to;
   });
   if (userFilter) newLeads = newLeads.filter(r => matchUser(r['Assigned To']) || matchUser(r['Created By']));
 
   const MISSED_MODES = new Set(['Not Picked']);
-  const missedHistory  = history.filter(r => MISSED_MODES.has(r['Contact Mode'] || ''));
   const activeHistory  = history.filter(r => !MISSED_MODES.has(r['Contact Mode'] || ''));
 
   const callsDone  = activeHistory.filter(r => r['Contact Mode'] === 'Call Connected' || r['Follow-up Type'] === 'Call').length;
@@ -369,33 +437,7 @@ function _todayApply() {
   const waDone     = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp').length;
   const productiveHistory = history.filter(r => String(r['Was Productive'] || '').trim().toLowerCase() === 'yes');
   const nonProductiveHistory = history.filter(r => String(r['Was Productive'] || '').trim().toLowerCase() === 'no');
-  const stageMovs  = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase().includes('stage')).length;
-  const archivedRows = actLogs.filter(r => String(r['Action Type'] || '').toLowerCase() === 'archive lead');
-  const statusChangeRows = actLogs.filter(r => {
-    const action = String(r['Action Type'] || '').toLowerCase();
-    const field = String(r['Field Name'] || r['Field'] || '').toLowerCase();
-    return action.includes('stage') || action.includes('status') || field.includes('status');
-  });
-  const statusCounts = statusChangeRows.reduce((m, r) => {
-    const status = _todayStatusValue(r);
-    if (!status) return m;
-    m[status] = (m[status] || 0) + 1;
-    return m;
-  }, {});
-  const scopedLeads = userFilter
-    ? AppCache.getRows('leads').filter(l => matchUser(l['Assigned To']) || matchUser(l['Created By']))
-    : AppCache.getRows('leads');
-  const statusLeadCounts = scopedLeads.reduce((m, l) => {
-    const status = _todayLeadStatusFromLead(l);
-    m[status] = (m[status] || 0) + 1;
-    return m;
-  }, {});
-  const currentLeadStatuses = Object.keys(statusLeadCounts);
-  const configuredStatuses = (App.config.statuses || []).map(_todayConfigValue).map(_todayNormalizeStatus).filter(Boolean);
-  const statusLabels = Array.from(new Set([...configuredStatuses, 'Open', 'Won', 'Lost', 'Hold', 'Disqualified', ...currentLeadStatuses, ...Object.keys(statusCounts)]));
-  const uniqueLeads = new Set(
-    [...history.map(r => r['Lead ID']), ...actLogs.map(r => r['Lead ID'])].filter(Boolean)
-  ).size;
+  const wonRows = _todayWonRows(actLogs);
 
   // ── Pending Follow-ups: overdue + today open follow-ups + leads with no follow-up ──
   const _todayStr = localDateInputValue();
@@ -434,21 +476,15 @@ function _todayApply() {
 
   const coreCards = [
     { key: 'pending',   label: 'Pending Follow-up', value: pendingCount,       sub: 'overdue + today + new', icon: 'alert-circle', cls: 'warning' },
-    { key: 'unique',    label: 'Unique Leads',    value: uniqueLeads,          sub: 'leads touched', icon: 'users',        cls: 'blue' },
     { key: 'connected', label: 'Follow-ups Done', value: activeHistory.length, sub: 'connected',     icon: 'check-circle-2', cls: 'success' },
-    { key: 'notpicked', label: 'Not Picked',      value: missedHistory.length, sub: 'no answer',     icon: 'phone-missed', cls: 'danger' },
+    { key: 'calls', label: 'Calls', value: callsDone, sub: 'connected', icon: 'phone-call', cls: 'purple' },
+    { key: 'wa', label: 'WhatsApp', value: waDone, sub: 'chats', icon: 'message-circle', cls: 'success' },
+    { key: 'visits', label: 'Visits', value: visitsDone, sub: 'follow-up visits', icon: 'map-pin', cls: 'blue' },
+    { key: 'newleads', label: 'New Leads', value: newLeads.length, sub: 'created in selected period', icon: 'user-plus', cls: 'neutral' },
+    { key: 'productive', label: 'Productive', value: productiveHistory.length, sub: 'marked yes', icon: 'thumbs-up', cls: 'success' },
+    { key: 'nonproductive', label: 'Not Productive', value: nonProductiveHistory.length, sub: 'marked no', icon: 'thumbs-down', cls: 'danger' },
+    { key: 'won', label: 'Won', value: wonRows.length, sub: 'unique leads won in period', icon: 'trophy', cls: 'success' }
   ];
-  const statusCards = statusLabels.map(status => {
-    const meta = _todayStatusMeta(status);
-    return {
-      key: 'status:' + encodeURIComponent(status),
-      label: status,
-      value: statusLeadCounts[status] || 0,
-      sub: `${statusCounts[status] || 0} today updates`,
-      icon: meta.icon,
-      cls: meta.cls
-    };
-  });
   const _todayRates = (typeof computeCallRates === 'function') ? computeCallRates(history) : { connectionRate: 0, conversionRate: 0, connects: 0, conversions: 0 };
   const ratePillsEl = el('td-rate-pills');
   if (ratePillsEl) {
@@ -461,17 +497,6 @@ function _todayApply() {
       </span>`;
     renderIcons(ratePillsEl);
   }
-  const activityCards = [
-    { key: 'newleads',  label: 'Leads Added',     value: newLeads.length,      sub: 'new leads',     icon: 'user-plus',    cls: 'neutral' },
-    { key: 'archived',  label: 'Archived',        value: archivedRows.length,  sub: 'leads archived', icon: 'archive',     cls: 'neutral' },
-    { key: 'stage',     label: 'Stage Moves',     value: stageMovs,            sub: 'from logs',     icon: 'arrow-right-circle', cls: 'warning' },
-    { key: 'calls',     label: 'Calls Made',      value: callsDone,            sub: 'connected',     icon: 'phone-call',   cls: 'purple' },
-    { key: 'wa',        label: 'WhatsApp',        value: waDone,               sub: 'chats',         icon: 'message-circle', cls: 'success' },
-    { key: 'productive', label: 'Productive Calls', value: productiveHistory.length, sub: 'marked yes', icon: 'thumbs-up', cls: 'success' },
-    { key: 'nonproductive', label: 'Non-Productive Calls', value: nonProductiveHistory.length, sub: 'marked no', icon: 'thumbs-down', cls: 'danger' },
-    { key: 'connrate',  label: 'Connection Call Rate', value: `${_todayRates.connectionRate}%`, sub: `${_todayRates.connects} connects`, icon: 'activity', cls: 'blue' },
-    { key: 'convrate',  label: 'Conversion Rate', value: `${_todayRates.conversionRate}%`, sub: `${_todayRates.conversions} converted`, icon: 'trending-up', cls: 'success' }
-  ];
   const cardHTML = k => `
     <button type="button" class="fu-kpi fu-kpi-${k.cls} ${_todayCardFilter === k.key ? 'active' : ''}" onclick="_todayCardClick('${_todayEscapeAttr(k.key)}')">
       <span class="fu-kpi-icon">${icon(k.icon, 17)}</span>
@@ -481,13 +506,7 @@ function _todayApply() {
     </button>`;
   const _cardsEl = el('td-cards');
   if (!_cardsEl) return;  // page was replaced while async work was in flight
-  _cardsEl.innerHTML = [
-    ...coreCards.map(cardHTML),
-    statusCards.length ? '<div class="td-card-break"><span>Lead status changes</span></div>' : '',
-    ...statusCards.map(cardHTML),
-    activityCards.length ? '<div class="td-card-break"><span>Other activity</span></div>' : '',
-    ...activityCards.map(cardHTML)
-  ].join('');
+  _cardsEl.innerHTML = coreCards.map(cardHTML).join('');
   renderIcons(_cardsEl);
 
   _todayDestroyCharts();
@@ -495,11 +514,12 @@ function _todayApply() {
   _todayChartTrend(from, to, userFilter, typeFilter, leadMap);
   _todayChartContactMode(history);
 
-  const logRows = actLogs.map(r => {
+  const toLogRow = r => {
     const oldStage = r['Old Value'] ? (AppLookup.stageName(r['Old Value']) || r['Old Value']) : '';
     const newStage = r['New Value'] ? (AppLookup.stageName(r['New Value']) || r['New Value']) : '';
     const remark = r['Remark'] || (oldStage && newStage ? `${oldStage} → ${newStage}` : newStage || '');
     return {
+      ...r,
       _isLog: true,
       'Created At': r['Created At'] || '',
       'Lead ID':    r['Lead ID'] || '',
@@ -515,28 +535,22 @@ function _todayApply() {
       'Outcome': '',
       'Next Follow-up Date': ''
     };
-  });
+  };
+  const logRows = actLogs.map(toLogRow);
 
   const tbody = el('td-tbody');
   let allRows;
-  if (_todayCardFilter && _todayCardFilter.startsWith('status:')) {
-    const selectedStatus = decodeURIComponent(_todayCardFilter.slice('status:'.length));
-    allRows = [...logRows.filter(r => {
-      const action = String(r['_rawAction'] || r['Follow-up Type'] || '').toLowerCase();
-      const field = String(r['_rawField'] || '').toLowerCase();
-      return (action.includes('stage') || action.includes('status') || field.includes('status')) && _todayStatusValue(r) === selectedStatus;
-    })];
-  } else switch (_todayCardFilter) {
+  switch (_todayCardFilter) {
     case 'connected': allRows = [...activeHistory]; break;
-    case 'notpicked': allRows = [...missedHistory]; break;
     case 'calls':     allRows = activeHistory.filter(r => r['Contact Mode'] === 'Call Connected' || r['Follow-up Type'] === 'Call'); break;
     case 'wa':        allRows = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp'); break;
+    case 'visits':    allRows = activeHistory.filter(r => r['Follow-up Type'] === 'Visit'); break;
+    case 'won':       allRows = wonRows.map(toLogRow); break;
     case 'productive': allRows = [...productiveHistory]; break;
     case 'nonproductive': allRows = [...nonProductiveHistory]; break;
-    case 'stage':     allRows = [...logRows.filter(r => String(r['Follow-up Type'] || '').toLowerCase().includes('stage'))]; break;
-    case 'archived':  allRows = logRows.filter(r => String(r['_rawAction'] || '').toLowerCase() === 'archive lead'); break;
     case 'newleads':
       allRows = newLeads.map(l => ({
+        ...l,
         _isLog: true,
         'Created At': l['Created At'] || '',
         'Lead ID':    l['Lead ID'] || '',
@@ -553,6 +567,7 @@ function _todayApply() {
           const pStr = _toDateStr(planned);
           const overdue = pStr && pStr < _todayStr;
           return {
+            ...r,
             _isLog: true,
             'Created At': planned,
             'Lead ID': r['Lead ID'] || '',
@@ -565,6 +580,7 @@ function _todayApply() {
           };
         }),
         ...leadsNoFu.map(l => ({
+          ...l,
           _isLog: true,
           'Created At': l['Created At'] || '',
           'Lead ID': l['Lead ID'] || '',
@@ -575,7 +591,6 @@ function _todayApply() {
         }))
       ];
       break;
-    case 'unique':
     default:
       allRows = [...history, ...logRows];
   }
@@ -585,21 +600,23 @@ function _todayApply() {
   const chipEl = el('td-card-filter-chip');
   if (chipEl) {
     if (_todayCardFilter) {
-      const labelMap = { pending:'Pending Follow-up', connected:'Connected', notpicked:'Not Picked', calls:'Calls', wa:'WhatsApp', productive:'Productive Calls', nonproductive:'Non-Productive Calls', stage:'Stage Moves', status:'Lead Status Change', newleads:'New Leads', unique:'Unique Leads' };
-      const label = _todayCardFilter.startsWith('status:')
-        ? `Status: ${decodeURIComponent(_todayCardFilter.slice('status:'.length))}`
-        : (labelMap[_todayCardFilter] || _todayCardFilter);
+      const label = coreCards.find(card => card.key === _todayCardFilter)?.label || _todayCardFilter;
       chipEl.innerHTML = `<button class="fu-filter-chip" onclick="_todayCardClick('${_todayEscapeAttr(_todayCardFilter)}')">${escapeHtml(label)} ${icon('x', 11)}</button>`;
       renderIcons(chipEl);
     } else {
       chipEl.innerHTML = '';
     }
   }
+  const groupField = el('td-group')?.value || '';
+  const sorted = [...allRows].sort((a, b) => new Date(b['Created At'] || b['Done Date'] || 0) - new Date(a['Created At'] || a['Done Date'] || 0));
+  const groups = _todayGroupRows(sorted, groupField, leadMap, userMap);
+  const leadCount = rows => new Set(rows.map(row => String(row['Lead ID'] || '')).filter(Boolean)).size;
+  const summary = el('td-group-summary');
+  if (summary) summary.textContent = `${groupField ? groups.length + ' groups · ' : ''}${allRows.length} records · ${leadCount(allRows)} unique leads`;
   if (!tbody) return;
   if (!allRows.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-table-cell">No activity found for the selected period.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-table-cell">No activity found for the selected period.</td></tr>`;
   } else {
-    const sorted = [...allRows].sort((a, b) => new Date(b['Created At'] || 0) - new Date(a['Created At'] || 0));
     const contactModeStyle = {
       'Call Connected': { bg:'#dcfce7', color:'#166534' },
       'WhatsApp Chat':  { bg:'#dbeafe', color:'#1D4ED8' },
@@ -607,7 +624,7 @@ function _todayApply() {
       'Stage Change':   { bg:'#f1f5f9', color:'#475569' },
       'Log':            { bg:'#f1f5f9', color:'#475569' }
     };
-    tbody.innerHTML = sorted.map(r => {
+    const renderRow = r => {
       const lead      = leadMap[r['Lead ID']] || {};
       const company   = escapeHtml(lead['Company Name'] || r['Lead ID'] || '—');
       const city      = lead['City'] ? escapeHtml(lead['City']) : '';
@@ -629,24 +646,29 @@ function _todayApply() {
       const remarkRaw = (r['Remark'] || r['Discussion'] || '');
       const nextDate  = r['Next Follow-up Date'] || r['Next Planned Date'] || r['Next Date'] || '';
       const next      = nextDate ? formatDate(nextDate) : `<span class="muted-text">—</span>`;
-      const doneAt    = formatDateTime(r['Created At'] || '');
+      const doneAt    = formatDateTime(r['Created At'] || r['Done Date'] || '');
       const planned   = r['Follow-up Date'] || r['Planned Date'] || '';
       const plannedFmt = planned ? formatDate(planned) : `<span class="muted-text">—</span>`;
       const leadId    = r['Lead ID'] || '';
       const rowCls    = isMissed ? 'fu-row-overdue' : (isLog ? 'fu-row-done' : '');
-      return `<tr class="fu-row ${rowCls}" ${leadId ? `onclick="_todayOpenLead('${escapeHtml(leadId)}')" style="cursor:pointer"` : ''}>
+      return `<tr class="fu-row ${rowCls}" ${leadId ? `data-lead-id="${_todayEscapeAttr(leadId)}" onclick="_todayOpenLead(this.dataset.leadId)" style="cursor:pointer"` : ''}>
         <td><div class="fu-date-sub" style="margin-top:0;font-weight:600;color:#1E293B">${doneAt}</div></td>
         <td><div class="fu-owner-cell"><span class="fu-owner-avatar">${escapeHtml(initial)}</span><span class="fu-owner-name">${escapeHtml(agentName)}</span></div></td>
         <td>
           <div class="fu-lead-title">${company}</div>
           ${city ? `<div class="fu-lead-sub">${icon('map-pin', 12)} ${city}</div>` : ''}
         </td>
+        <td>${escapeHtml(lead['Source'] || '—')}</td>
         <td><div class="fu-date-sub">${plannedFmt}</div></td>
         <td><div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">${contactBadge}${productiveBadge}</div></td>
         <td><div class="fu-discussion" title="${escapeHtml(remarkRaw)}">${remarkHtml(remarkRaw)}</div></td>
         <td><div class="fu-date-sub">${next}</div></td>
       </tr>`;
-    }).join('');
+    };
+    tbody.innerHTML = groups.map(group =>
+      (groupField ? `<tr class="td-group-row"><th colspan="8" scope="rowgroup">${escapeHtml(group.label)}<span>${group.rows.length} records · ${leadCount(group.rows)} unique leads</span></th></tr>` : '') +
+      group.rows.map(renderRow).join('')
+    ).join('');
     renderIcons(tbody);
   }
   _todayAttachScrollCollapse();
@@ -730,7 +752,7 @@ function _todayChartTrend(from, to, userFilter, typeFilter, leadMap) {
   if (userFilter) rows = rows.filter(r => matchUser(r['Done By']) || matchUser(r['Created By']) || (leadMap && leadMap[r['Lead ID']] && matchUser(leadMap[r['Lead ID']]['Assigned To'])));
   if (typeFilter) rows = rows.filter(r => r['Follow-up Type'] === typeFilter);
   const byDay = {};
-  rows.forEach(r => { const day = _fmtDate(r['Created At'] || r['Done Date'] || ''); if (day) byDay[day] = (byDay[day] || 0) + 1; });
+  rows.forEach(r => { const day = _todayActivityDay(r['Created At'] || r['Done Date'] || ''); if (day) byDay[day] = (byDay[day] || 0) + 1; });
   const counts = days.map(d => byDay[d] || 0);
 
   const sub = el('td-trend-range');
