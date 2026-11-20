@@ -31,14 +31,14 @@ function _todayActivityDay(value) {
   return _fmtDate(value || '');
 }
 
-function _todayWonRows(logs) {
+function _todayStatusRows(logs, status) {
   const leads = new Map();
   logs.forEach(row => {
     const action = String(row['Action Type'] || '').toLowerCase();
     const field = String(row['Field Name'] || row.Field || '').toLowerCase();
     const id = String(row['Lead ID'] || '');
     if (!id || !(action.includes('stage') || action.includes('status') || field.includes('status')) ||
-      _todayStatusValue(row) !== 'Won' || _todayNormalizeStatus(row['Old Value']) === 'Won') return;
+      _todayStatusValue(row) !== status || _todayNormalizeStatus(row['Old Value']) === status) return;
     const old = leads.get(id);
     if (!old || String(row['Created At']) > String(old['Created At'])) leads.set(id, row);
   });
@@ -437,7 +437,9 @@ function _todayApply() {
   const waDone     = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp').length;
   const productiveHistory = history.filter(r => String(r['Was Productive'] || '').trim().toLowerCase() === 'yes');
   const nonProductiveHistory = history.filter(r => String(r['Was Productive'] || '').trim().toLowerCase() === 'no');
-  const wonRows = _todayWonRows(actLogs);
+  const wonRows = _todayStatusRows(actLogs, 'Won');
+  const lostRows = _todayStatusRows(actLogs, 'Lost');
+  const disqualifiedRows = _todayStatusRows(actLogs, 'Disqualified');
 
   // ── Pending Follow-ups: overdue + today open follow-ups + leads with no follow-up ──
   const _todayStr = localDateInputValue();
@@ -483,7 +485,9 @@ function _todayApply() {
     { key: 'newleads', label: 'New Leads', value: newLeads.length, sub: 'created in selected period', icon: 'user-plus', cls: 'neutral' },
     { key: 'productive', label: 'Productive', value: productiveHistory.length, sub: 'marked yes', icon: 'thumbs-up', cls: 'success' },
     { key: 'nonproductive', label: 'Not Productive', value: nonProductiveHistory.length, sub: 'marked no', icon: 'thumbs-down', cls: 'danger' },
-    { key: 'won', label: 'Won', value: wonRows.length, sub: 'unique leads won in period', icon: 'trophy', cls: 'success' }
+    { key: 'won', label: 'Won', value: wonRows.length, sub: 'unique leads won in period', icon: 'trophy', cls: 'success' },
+    { key: 'lost', label: 'Lost', value: lostRows.length, sub: 'unique leads lost in period', icon: 'x-circle', cls: 'danger' },
+    { key: 'disqualified', label: 'Disqualified', value: disqualifiedRows.length, sub: 'unique leads disqualified in period', icon: 'ban', cls: 'neutral' }
   ];
   const _todayRates = (typeof computeCallRates === 'function') ? computeCallRates(history) : { connectionRate: 0, conversionRate: 0, connects: 0, conversions: 0 };
   const ratePillsEl = el('td-rate-pills');
@@ -546,6 +550,8 @@ function _todayApply() {
     case 'wa':        allRows = activeHistory.filter(r => r['Contact Mode'] === 'WhatsApp Chat' || r['Follow-up Type'] === 'WhatsApp'); break;
     case 'visits':    allRows = activeHistory.filter(r => r['Follow-up Type'] === 'Visit'); break;
     case 'won':       allRows = wonRows.map(toLogRow); break;
+    case 'lost':      allRows = lostRows.map(toLogRow); break;
+    case 'disqualified': allRows = disqualifiedRows.map(toLogRow); break;
     case 'productive': allRows = [...productiveHistory]; break;
     case 'nonproductive': allRows = [...nonProductiveHistory]; break;
     case 'newleads':

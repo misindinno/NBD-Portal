@@ -49,10 +49,10 @@ async function main() {
     await send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
     await send('Page.navigate',{url:'http://127.0.0.1:'+server.address().port});
     for(let i=0;i<100;i++){if(await evaluate('!!document.getElementById("td-cards")?.children.length'))break;await pause(50);}
-    assert.equal(await evaluate('document.querySelectorAll("#td-cards button").length'),9);
+    assert.equal(await evaluate('document.querySelectorAll("#td-cards button").length'),11);
     assert.equal(await evaluate('document.querySelectorAll(".fu-table thead th")[3].textContent'),'Lead Source');
     assert.deepEqual(await evaluate("[...new Set([...document.querySelectorAll('#td-tbody .fu-row')].map(row=>row.cells[3].textContent))].sort()"),['Referral','Website','—']);
-    console.log('PASS: real Today markup renders nine main cards and all charts.');
+    console.log('PASS: real Today markup renders eleven main cards and all charts.');
     await evaluate("setFilter('td-from','2026-11-20');setFilter('td-to','2026-11-20');setFilter('td-user','u1');setFilter('td-type','Call');setFilter('td-group','lead:City');clickCard('calls');");
     const selected=await evaluate('fixtureState()');
     assert.equal(await evaluate("el('td-group-summary').textContent"),'1 groups · 2 records · 1 unique leads');
@@ -80,6 +80,16 @@ async function main() {
     assert.equal(await evaluate("Number(el('td-row-count').textContent)"),1);assert.equal((await evaluate('fixtureState()')).card,'won');
     await evaluate("setFilter('td-from','2025-01-01');setFilter('td-to','2025-01-01')");assert.match(await evaluate("el('td-group-summary').textContent"),/^0 groups/);
     console.log('PASS: Won card and grouped drilldown respect date changes, India midnight and zero results.');
+    for (const [key,status] of [['lost','Lost'],['disqualified','Disqualified']]) {
+      await evaluate(`_todayClearFilters();data=structuredClone(initial);data.activityLogs.push({'Lead ID':'001','Created At':'2026-11-20 10:00:00','Created By':'u1','Action Type':'Stage Change','Old Value':'Open','New Value':'${status}'});setFilter('td-user','u1');setFilter('td-group','lead:City');clickCard('${key}');`);
+      assert.equal(await evaluate("Number(el('td-row-count').textContent)"),1);
+      assert.equal(await evaluate("document.querySelector('#td-tbody .fu-row').cells[3].textContent"),'Referral');
+      assert.match(await evaluate("el('td-card-filter-chip').textContent"),new RegExp(status));
+      await evaluate("setFilter('td-from','2025-01-01');setFilter('td-to','2025-01-01')");
+      assert.equal(await evaluate("Number(el('td-row-count').textContent)"),0);
+      const filters=await evaluate('fixtureState()');await evaluate('loadToday()');assert.deepEqual(await evaluate('fixtureState()'),filters);
+    }
+    console.log('PASS: Lost and Disqualified cards support dated drilldowns, grouping, Lead Source and refresh persistence.');
     await evaluate("_todayClearFilters();App.user.role='SALES';_renderToday()");
     assert.equal(await evaluate("!!el('td-user')"),false);
     await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});

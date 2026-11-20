@@ -19,9 +19,9 @@ function card(f, key) {
   assert.ok(start >= 0, 'card exists: ' + key);
   return Number(f.nodes['td-cards'].innerHTML.slice(start).match(/fu-kpi-value">(\d+)/)[1]);
 }
-test('only the nine main cards remain; Won is date-scoped unique leads and matches its drilldown', () => {
+test('eleven main cards include dated outcomes; Won matches its drilldown', () => {
   const f = fixture(); f.c._todayApply();
-  assert.equal((f.nodes['td-cards'].innerHTML.match(/<button /g) || []).length, 9);
+  assert.equal((f.nodes['td-cards'].innerHTML.match(/<button /g) || []).length, 11);
   assert.equal(card(f, 'won'), 3); assert.equal(card(f, 'connected'), 4);
   f.c._todayCardClick('won'); assert.equal(f.nodes['td-row-count'].textContent, 3);
   assert.doesNotMatch(f.nodes['td-tbody'].innerHTML, /Example old/);
@@ -32,7 +32,24 @@ test('only the nine main cards remain; Won is date-scoped unique leads and match
 test('Won excludes unrelated edits, no-op Won changes and old current status; resolves configured stages', () => {
   const f = fixture(), base = { 'Lead ID': '1', 'Action Type': 'Stage Change', 'Old Value': 'Open', 'New Value': 'won-stage', 'Created At': '2026-11-20 09:00:00' };
   const logs = [base, base, { ...base, 'Lead ID': '001' }, { ...base, 'Lead ID': 'x', 'Action Type': 'Edit', 'Field Name': 'Remark' }, { ...base, 'Lead ID': 'y', 'Old Value': 'won-stage' }, { ...base, 'Lead ID': 'z', 'New Value': 'Disqualified' }];
-  assert.deepEqual(plain(f.c._todayWonRows(logs)).map(r => r['Lead ID']), ['1', '001']);
+  assert.deepEqual(plain(f.c._todayStatusRows(logs, 'Won')).map(r => r['Lead ID']), ['1', '001']);
+});
+
+test('Lost and Disqualified count unique transitions in the selected dates and user scope, preserving grouping', () => {
+  for (const [key, status] of [['lost', 'Lost'], ['disqualified', 'Disqualified']]) {
+    const f = fixture();
+    f.c.App.config.stages.push({ 'Stage ID': 'outcome-stage', 'Stage Name': 'Closed outcome', 'Stage Outcome': status });
+    const row = { 'Lead ID': '001', 'Created By': 'u1', 'Created At': '2026-11-20 09:00:00', 'Action Type': 'Stage Change', 'Old Value': 'Open', 'New Value': 'outcome-stage' };
+    f.data.activityLogs = [row, { ...row, 'Created At': '2026-11-20 12:00:00' }, { ...row, 'Lead ID': '1' }, { ...row, 'Lead ID': '002', 'Created By': 'u2' }, { ...row, 'Lead ID': 'old', 'Created At': '2026-11-18 10:00:00' }, { ...row, 'Lead ID': 'noop', 'Old Value': status }, { ...row, 'Lead ID': 'unrelated', 'Action Type': 'Edit Remark' }];
+    f.nodes['td-group'].value = 'lead:City'; f.c._todayCardClick(key);
+    assert.equal(card(f, key), 3); assert.equal(f.nodes['td-row-count'].textContent, 3);
+    assert.equal(f.nodes['td-group-summary'].textContent, '3 groups · 3 records · 3 unique leads');
+    assert.match(f.nodes['td-card-filter-chip'].innerHTML, new RegExp(status));
+    f.nodes['td-user'].value = 'u1'; f.c._todayApply(); assert.equal(card(f, key), 2); assert.equal(f.nodes['td-row-count'].textContent, 2);
+    f.nodes['td-from'].value = f.nodes['td-to'].value = '2026-11-18'; f.c._todaySetRange('custom');
+    assert.equal(card(f, key), 1); assert.equal(f.nodes['td-row-count'].textContent, 1); assert.equal(f.nodes['td-group'].value, 'lead:City'); assert.equal(f.run('_todayCardFilter'), key);
+    f.nodes['td-from'].value = f.nodes['td-to'].value = '2025-01-01'; f.c._todayApply(); assert.equal(card(f, key), 0); assert.match(f.nodes['td-tbody'].innerHTML, /No activity/);
+  }
 });
 test('activity dates respect India midnight for ISO instants and preserve Sheet-local dates', () => {
   const { c } = fixture();
