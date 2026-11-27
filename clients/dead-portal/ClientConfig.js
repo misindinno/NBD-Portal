@@ -9,7 +9,8 @@ const CLIENT_CONFIG = {
   USER_DATABASE_SPREADSHEET_ID: '1jFr5BFta-ry6mJ8GGOh1p0gk2vhCRs4bv-RayBfX4BA',
   USER_DATABASE_SHEET_NAME:     'Staff List',
   PORTAL_KEY:                   'DEAD',
-  APP_TITLE:                    'Dead Portal',
+  APP_TITLE:                    'Dormant Portal',
+  BQ_PORTAL:                    'dead_portal',
   UPLOAD_FOLDER_NAME:           'Dead Portal Custom Field Uploads',
   THEME: {
     PRIMARY:         '#1565C0',

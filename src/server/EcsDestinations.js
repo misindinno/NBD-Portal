@@ -7,7 +7,7 @@ const ECS_DESTINATIONS_ = [
   {
     "key": "dead-portal",
     "url": "https://script.google.com/macros/s/AKfycbzGxglG4xtXYjKO_M8Ynlf6ZMMV1-BCzGC6ZnTaCyppEh2I-e7mPqsVCgw6WrNXnKm4/exec",
-    "name": "Dead Portal"
+    "name": "Dormant Portal"
   },
   {
     "key": "lq-lamination-portal",
